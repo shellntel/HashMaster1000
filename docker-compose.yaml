@@ -1,0 +1,12 @@
+services:
+    app:
+        build:
+            context: .
+        ports:
+            - "8443:8443"
+        #volumes:
+        #    - ".:/home/app"
+        entrypoint: /home/app/entrypoint.sh
+        environment:
+            PYTHONUNBUFFERED: 1
+        restart: unless-stopped

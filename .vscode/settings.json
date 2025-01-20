@@ -1,0 +1,5 @@
+{
+	"prettier.tabWidth": 4,
+	"prettier.useTabs": true,
+	"editor.defaultFormatter": "esbenp.prettier-vscode"
+}

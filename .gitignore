@@ -1,0 +1,10 @@
+*.log
+*.pyc
+*.pem
+.env
+.vscode
+.vscode/
+users.json
+__pycache__/
+data/
+uploads/

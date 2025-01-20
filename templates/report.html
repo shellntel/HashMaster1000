@@ -1,0 +1,2061 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Password and Hash Analysis Report</title>
+		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+		<link
+			rel="stylesheet"
+			href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css"
+		/>
+		<script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+		<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+		<link
+			rel="stylesheet"
+			href="{{ url_for('static', filename='css/style.css') }}"
+		/>
+		<link
+			rel="shortcut icon"
+			href="{{ url_for('static', filename='favicon.ico') }}"
+		/>
+	</head>
+	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
+	<body id="reportPage">
+		<h1>Password and Hash Analysis Report</h1>
+		<!-- Combined Section for Stats Table and Donut Charts -->
+		<section id="statsAndCharts">
+			<!-- Stats Table -->
+			<div>
+				<h2>Project Statistics</h2>
+				<table id="analysisStatsTable">
+					<tbody>
+						<!-- Table content will be populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+			<!-- Create the Cracked Accounts and Cracked Hashes Donut Charts -->
+			<div class="chart-container">
+				<h2>Cracked Accounts</h2>
+				<canvas id="accountsPieChart"></canvas>
+			</div>
+			<div class="chart-container">
+				<h2>Cracked Hashes</h2>
+				<canvas id="hashesPieChart"></canvas>
+			</div>
+		</section>
+		<!-- Create Password Length Distribution Bar Chart -->
+		<section class="barChart">
+			<h2>Password Length Distribution</h2>
+			<canvas id="passwordLengthChart" style="width: 100%"></canvas>
+			<div
+				class="dropdown-container"
+				style="text-align: center; margin-bottom: 12px"
+			>
+				<label for="lengthFilterOption">Filter Results:</label>
+				<select id="lengthFilterOption">
+					<option value="all" selected>Full Scale</option>
+					<option value="nonZero">Hide Empty</option>
+				</select>
+			</div>
+			<!-- Add buttons for copying and downloading data -->
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="copyPasswordLengthChart"
+					onclick="copyChartToClipboard('passwordLengthChart')"
+				>
+					Copy PNG
+				</button>
+				<button
+					id="downloadPasswordLengthChart"
+					onclick="downloadChartAsSVG('passwordLengthChart')"
+				>
+					Download SVG
+				</button>
+				<button
+					id="downloadPasswordLengthCSV"
+					onclick="downloadCSV('pw_length_distribution', 'Password_Length_Distribution.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
+		<!-- Create Top Cracked/Reused Passwords Bar Chart -->
+		<section class="barChart">
+			<h2>Top Reused Cracked Passwords</h2>
+			<canvas id="topPasswordsChart" style="width: 100%"></canvas>
+			<div
+				class="dropdown-container"
+				style="text-align: center; margin-bottom: 12px"
+			>
+				<label for="topPasswordsCount">Set Results Size:</label>
+				<select id="topPasswordsCount">
+					<option value="10">Top 10</option>
+					<option value="15">Top 15</option>
+					<option value="20">Top 20</option>
+					<option value="25" selected>Top 25</option>
+				</select>
+			</div>
+			<!-- Add buttons for copying and downloading data -->
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="copyTopPasswordsChart"
+					onclick="copyChartToClipboard('topPasswordsChart')"
+				>
+					Copy PNG
+				</button>
+				<button
+					id="downloadTopPasswordsChart"
+					onclick="downloadChartAsSVG('topPasswordsChart')"
+				>
+					Download SVG
+				</button>
+				<button
+					id="downloadTopPasswordsCSV"
+					onclick="downloadCSV('pw_top_passwords', 'Top_Reused_Cracked_Passwords.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="toggleTopPasswordsChart"
+					class="toggle-visibility-button"
+					onclick="toggleChartLabelBlur(topPasswordsChartInstance, 'toggleTopPasswordsChart')"
+				>
+					Blur Passwords
+				</button>
+			</div>
+		</section>
+		<!-- Create Top Substring Chart -->
+		<section class="barChart">
+			<h2>Top Substrings Used</h2>
+			<canvas id="topSubstringsChart" style="width: 100%"></canvas>
+			<div
+				class="dropdown-container"
+				style="text-align: center; margin-bottom: 12px"
+			>
+				<label for="topSubstringCount">Set Results Size:</label>
+				<select id="topSubstringCount">
+					<option value="10">Top 10</option>
+					<option value="15">Top 15</option>
+					<option value="20">Top 20</option>
+					<option value="25" selected>Top 25</option>
+				</select>
+			</div>
+			<!-- Add buttons for copying and downloading data -->
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="copyTopSubstringsChart"
+					onclick="copyChartToClipboard('topSubstringsChart')"
+				>
+					Copy PNG
+				</button>
+				<button
+					id="downloadTopSubstringsChart"
+					onclick="downloadChartAsSVG('topSubstringsChart')"
+				>
+					Download SVG
+				</button>
+				<button
+					id="downloadTopSubstringsCSV"
+					onclick="downloadCSV('pw_substrings', 'Top_Substrings_Used.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
+		<!-- Create Top Dictionary Word Chart -->
+		<section class="barChart">
+			<h2>Top Dictionary Words</h2>
+			<canvas id="topDictionaryWordsChart" style="width: 100%"></canvas>
+			<div
+				class="dropdown-container"
+				style="text-align: center; margin-bottom: 12px"
+			>
+				<label for="topDictionaryWordCount">Set Results Size:</label>
+				<select id="topDictionaryWordCount">
+					<option value="10">Top 10</option>
+					<option value="15">Top 15</option>
+					<option value="20">Top 20</option>
+					<option value="25" selected>Top 25</option>
+				</select>
+			</div>
+			<!-- Add buttons for copying and downloading data -->
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="copyTopDictionaryWordsChart"
+					onclick="copyChartToClipboard('topDictionaryWordsChart')"
+				>
+					Copy PNG
+				</button>
+				<button
+					id="downloadTopDictionaryWordsChart"
+					onclick="downloadChartAsSVG('topDictionaryWordsChart')"
+				>
+					Download SVG
+				</button>
+				<button
+					id="downloadTopDictionaryWordsCSV"
+					onclick="downloadCSV('pw_dict_words', 'Top_Dictionary_Words.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
+		<!-- Section for the Interactive Password (Based on Hash) Reuse Table -->
+		<section id="tableSection">
+			<h2>Password Reuse</h2>
+			<table id="passwordReuseTable" class="display" style="width: 100%">
+				<thead>
+					<tr>
+						<th></th>
+						<!-- Column for the expand/collapse icon -->
+						<th>Hash</th>
+						<th>Count</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadPasswordReuseCSV"
+					onclick="downloadCSV('pw_reuse_table', 'Password_Reuse.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="togglePasswordReuseBlur"
+					class="toggle-visibility-button"
+					onclick="toggleHashBlur('passwordReuseTable', 'togglePasswordReuseBlur')"
+				>
+					Show Hashes
+				</button>
+			</div>
+		</section>
+		<!-- Section for the (Accounts) Passwords Failing Min Length Table -->
+		<section id="policyMinLengthSection">
+			<h2>Accounts Failing Minimum Length Password Policy</h2>
+			<table
+				id="passwordFailsMinLengthTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Password</th>
+						<th>Length</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsMinLengthCSV"
+					onclick="downloadCSV('pw_fails_min_length', 'Fails_Min_Length.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="togglePasswordFailsMinLengthTable"
+					class="toggle-visibility-button"
+					onclick="togglePasswordBlur('passwordFailsMinLengthTable')"
+				>
+					Blur Passwords
+				</button>
+			</div>
+		</section>
+		<!-- Section for the (Accounts) Passwords Failing Complexity Table -->
+		<section id="policyComplexitySection">
+			<h2>Accounts Failing Password Complexity Policy</h2>
+			<table
+				id="passwordFailsComplexityTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Password</th>
+						<th># of Categories</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsComplexityCSV"
+					onclick="downloadCSV('pw_fails_complexity', 'Fails_Complexity.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="togglePasswordFailsComplexityTable"
+					class="toggle-visibility-button"
+					onclick="togglePasswordBlur('passwordFailsComplexityTable')"
+				>
+					Blur Passwords
+				</button>
+			</div>
+		</section>
+		<!-- Section for Accounts with Blank Passwords Table -->
+		<section id="policyBlankSection">
+			<h2>Accounts With Blank Passwords</h2>
+			<table
+				id="passwordFailsBlankTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsBlankCSV"
+					onclick="downloadCSV('pw_fails_blank', 'Blank_Passwords.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
+		<!-- Section for the (Accounts) Passwords Failing Max Age Table -->
+		<section id="policyMaxAgeSection">
+			<h2>Accounts Failing Maximum Age Password Policy</h2>
+			<table
+				id="passwordFailsMaxAgeTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Last Changed</th>
+						<th>Age</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsMaxAgeCSV"
+					onclick="downloadCSV('pw_fails_max_age', 'Expired_Passwords.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
+		<!-- Add buttons for Logout and Download All JSON Files at the bottom -->
+		<div style="text-align: center; margin-top: 20px">
+			<form action="/logout" method="post" style="display: inline">
+				<button type="submit" id="logoutButton">Logout</button>
+			</form>
+			<button id="downloadAllJsonFiles">Download All JSON Files</button>
+		</div>
+
+		<!-- -------------------- JavaScript Section -------------------- -->
+		<script>
+			// Setup colors for pie charts and bar charts
+			const colors = {
+				pie: ["#FD3F01", "#0B89FD"], // Red and blue
+				bar: "#0B89FD", // Blue
+			};
+
+			// Function to format numbers with commas
+			function formatWithCommas(value) {
+				return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+			}
+
+			// Function to copy chart to clipboard as PNG file
+			function copyChartToClipboard(canvasId) {
+				const canvas = document.getElementById(canvasId);
+				const chartInstance = Chart.getChart(canvas); // Retrieve the Chart.js instance
+
+				if (!chartInstance) {
+					console.error(
+						`No chart instance found for canvas ID: ${canvasId}`
+					);
+					alert("Failed to find the chart. Please try again.");
+					return;
+				}
+
+				// Create a new canvas with the desired background color
+				const tempCanvas = document.createElement("canvas");
+				tempCanvas.width = canvas.width;
+				tempCanvas.height = canvas.height;
+
+				const tempContext = tempCanvas.getContext("2d");
+				tempContext.fillStyle = "#FFFFFF"; // Set background color (e.g., white)
+				tempContext.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+				// Draw the chart on top of the background
+				tempContext.drawImage(canvas, 0, 0);
+
+				// Copy the canvas to the clipboard
+				tempCanvas.toBlob((blob) => {
+					if (blob) {
+						const item = new ClipboardItem({ "image/png": blob });
+						navigator.clipboard
+							.write([item])
+							.then(() => {
+								alert("Chart copied to clipboard!");
+							})
+							.catch((err) => {
+								console.error(
+									"Failed to copy chart to clipboard: ",
+									err
+								);
+								alert(
+									"Failed to copy chart to clipboard. Please try again."
+								);
+							});
+					} else {
+						console.error("Failed to create Blob from canvas.");
+						alert("Failed to create image from chart.");
+					}
+				});
+			}
+
+			// Function to copy chart to clipboard as SVG file
+			function downloadChartAsSVG(canvasId, filename = "chart.svg") {
+				const canvas = document.getElementById(canvasId);
+				const chartInstance = Chart.getChart(canvas);
+
+				if (!chartInstance) {
+					alert("Chart instance not found!");
+					return;
+				}
+
+				// Extract chart details
+				const { width, height } = canvas;
+				const chartDataUrl = canvas.toDataURL("image/png"); // Generate PNG from Chart.js
+
+				// Manually create the SVG content
+				const svgContent = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+            <image href="${chartDataUrl}" width="${width}" height="${height}" />
+          </svg>
+        `;
+
+				// Create a Blob and trigger download
+				const blob = new Blob([svgContent], { type: "image/svg+xml" });
+				const link = document.createElement("a");
+				link.href = URL.createObjectURL(blob);
+				link.download = filename;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+
+				alert("SVG chart downloaded!");
+			}
+
+			// Function to download CSV without headers and handle special characters correctly
+			function downloadCSV(endpoint, filename) {
+				fetch(endpoint)
+					.then((response) => response.json())
+					.then((data) => {
+						let csvContent = "";
+
+						if (Array.isArray(data)) {
+							// If the data is an array of objects
+							if (
+								data.length > 0 &&
+								typeof data[0] === "object"
+							) {
+								// Extract headers from the first object
+								const headers = Object.keys(data[0]);
+								csvContent +=
+									headers
+										.map((header) => `"${header}"`)
+										.join(",") + "\n";
+
+								// Map each object to a CSV row
+								data.forEach((item) => {
+									csvContent +=
+										headers
+											.map(
+												(header) =>
+													`"${String(
+														item[header]
+													).replace(/"/g, '""')}"`
+											)
+											.join(",") + "\n";
+								});
+							} else {
+								// Handle simple array (e.g., ["item1", "item2"])
+								data.forEach((item) => {
+									csvContent += `"${String(item).replace(
+										/"/g,
+										'""'
+									)}"\n`;
+								});
+							}
+						} else if (typeof data === "object") {
+							// Handle object with key-value pairs
+							Object.entries(data).forEach(([key, value]) => {
+								let row = `"${String(key).replace(
+									/"/g,
+									'""'
+								)}"`;
+								if (
+									typeof value === "object" &&
+									value !== null
+								) {
+									Object.values(value).forEach((val) => {
+										row += `,"${String(val).replace(
+											/"/g,
+											'""'
+										)}"`;
+									});
+								} else {
+									row += `,"${String(value).replace(
+										/"/g,
+										'""'
+									)}"`;
+								}
+								csvContent += row + "\n";
+							});
+						} else {
+							console.error(
+								"Unexpected data format for CSV download."
+							);
+							alert(
+								"Failed to generate CSV: Unsupported data format."
+							);
+							return;
+						}
+
+						// Create a Blob from the CSV content
+						const blob = new Blob([csvContent], {
+							type: "text/csv;charset=utf-8;",
+						});
+						const link = document.createElement("a");
+						const url = URL.createObjectURL(blob);
+						link.setAttribute("href", url);
+						link.setAttribute("download", filename);
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+					})
+					.catch((error) =>
+						console.error("Error downloading CSV:", error)
+					);
+			}
+
+			// Blur the inner characters of passwords for privacy
+			function togglePasswordBlur(tableId) {
+				const table = document.getElementById(tableId);
+				const button = document.getElementById(
+					`toggle${
+						tableId.charAt(0).toUpperCase() + tableId.slice(1)
+					}`
+				);
+				console.log(`togglePasswordBlur called for table: ${tableId}`);
+
+				if (!table) {
+					console.error(`Table with ID ${tableId} not found.`);
+					return;
+				}
+				if (!button) {
+					console.error(`Button for table ID ${tableId} not found.`);
+					return;
+				}
+
+				const isBlurred = table.classList.toggle("blurred"); // Toggle blur state
+				console.log(
+					`Toggling blur for table ${tableId}. Current state: ${
+						isBlurred ? "blurred" : "clear"
+					}`
+				);
+
+				// Update the content of all password cells
+				const cells = table.querySelectorAll(".password-cell");
+				cells.forEach((cell) => {
+					const visible = cell.getAttribute("data-visible");
+					const blur = cell.getAttribute("data-blur");
+
+					if (visible === "{Blank}") {
+						// Special case for blank passwords
+						cell.innerHTML = isBlurred
+							? `<span class="password-visible">{Blank Password}</span>`
+							: "{Blank Password}";
+					} else if (isBlurred) {
+						// Reapply blur: keep the original structure
+						cell.innerHTML = `
+                <span class="password-visible">${visible.slice(
+					0,
+					2
+				)}</span><span class="password-blurred">${blur}</span><span class="password-visible">${visible.slice(
+							-2
+						)}</span>
+            `;
+					} else {
+						// Remove blur: show the full password
+						const fullPassword = `${visible.slice(
+							0,
+							2
+						)}${blur}${visible.slice(-2)}`;
+						cell.innerHTML = fullPassword;
+					}
+				});
+
+				// Update button label
+				button.textContent = isBlurred
+					? "Show Passwords"
+					: "Blur Passwords";
+				console.log(
+					`Update button label: button.textContent=${button.textContent}`
+				);
+			}
+
+			// Function to blur out sensitive hash information
+			function toggleHashBlur(tableId, buttonId) {
+				const table = document.getElementById(tableId);
+				const button = document.getElementById(buttonId);
+
+				if (!table || !button) {
+					console.error("Table or button not found.");
+					return;
+				}
+
+				const isBlurred = !table.classList.toggle("blurred"); // Toggle blur state
+
+				// Update all hash cells
+				const cells = table.querySelectorAll(".hash-cell");
+				cells.forEach((cell) => {
+					if (isBlurred) {
+						// Apply blur: show blurred version
+						const visible = cell.getAttribute("data-visible");
+						const blur = cell.getAttribute("data-blur");
+						cell.innerHTML = `
+                    <span class="hash-visible">${visible.slice(
+						0,
+						8
+					)}</span><span class="hash-blurred">${blur}</span><span class="hash-visible">${visible.slice(
+							-8
+						)}</span>
+                `;
+					} else {
+						// Remove blur: show full hash
+						const fullHash = `${cell
+							.getAttribute("data-visible")
+							.slice(0, 8)}${cell.getAttribute("data-blur")}${cell
+							.getAttribute("data-visible")
+							.slice(-8)}`;
+						cell.textContent = fullHash;
+					}
+				});
+
+				// Update button label
+				button.textContent = isBlurred ? "Show Hashes" : "Blur Hashes";
+			}
+
+			// Function to blur passwords in chart axis labels
+			function toggleChartLabelBlur(chartInstance, buttonId) {
+				const button = document.getElementById(buttonId);
+
+				if (!chartInstance || !button) {
+					console.error("Chart instance or button not found.");
+					return;
+				}
+
+				const isBlurred = !chartInstance.options.plugins.labelBlurred;
+				chartInstance.options.plugins.labelBlurred = isBlurred;
+
+				// Update labels dynamically based on blur state
+				chartInstance.data.labels = isBlurred
+					? chartInstance.data.labels.map((label) => {
+							if (label === "{blank}") return label; // Exclude {blank} from blurring
+							const { visible, blur } = formatPassword(label);
+							return `${visible.slice(0, 2)}${"#".repeat(
+								blur.length
+							)}${visible.slice(-2)}`;
+					  })
+					: chartInstance.originalLabels.slice(
+							0,
+							chartInstance.data.labels.length
+					  );
+
+				// Update button label
+				button.textContent = isBlurred
+					? "Show Passwords"
+					: "Mask Passwords";
+
+				// Redraw the chart
+				chartInstance.update();
+			}
+
+			// Utility to format passwords for blurring
+			function formatPassword(password) {
+				if (password.length <= 4) return password; // Skip short passwords
+				const visible = `${password.slice(0, 2)}${password.slice(-2)}`;
+				const blur = password.slice(2, -2); // Middle part of the password
+				return { visible, blur };
+			}
+
+			// Utility to format hashes for blurring
+			function formatHash(hash) {
+				if (hash.length <= 16) {
+					// If the hash is very short, return as is (no blur)
+					return { visible: hash, blur: "" };
+				}
+
+				const visibleStart = hash.slice(0, 8); // First 8 characters
+				const visibleEnd = hash.slice(-8); // Last 8 characters
+				const blur = hash.slice(8, -8); // Inner 16+ characters
+
+				return { visible: `${visibleStart}${visibleEnd}`, blur };
+			}
+
+			// Utility to initialize DataTables and handle blur effect
+			function initializeBlurTable(tableId, tableConfig) {
+				console.log(`Initializing table blur for: ${tableId}`);
+
+				// Destroy existing DataTable instance to avoid reinitialization issues
+				if ($.fn.DataTable.isDataTable(`#${tableId}`)) {
+					$(`#${tableId}`).DataTable().destroy();
+					console.log(`Existing table ${tableId} destroyed.`);
+				}
+
+				// Global blur state for the table
+				let isBlurred = true; // Default state is blurred
+
+				// Extend configuration with blur handling
+				const extendedConfig = {
+					...tableConfig,
+					createdRow: function (row, data, dataIndex) {
+						const cell = $(row).find("span.password-cell")[0];
+						if (cell) {
+							let password = cell.textContent
+								? cell.textContent.trim()
+								: "";
+
+							if (!password || password === "{Blank Password}") {
+								// Handle blank passwords
+								password = "{Blank Password}";
+								cell.setAttribute("data-visible", "{Blank}");
+								cell.setAttribute("data-blur", "");
+							} else {
+								// Handle non-blank passwords
+								const { visible, blur } =
+									formatPassword(password);
+								cell.setAttribute("data-visible", visible);
+								cell.setAttribute("data-blur", blur);
+							}
+						}
+					},
+					drawCallback: function () {
+						console.log(
+							`Redrawing table ${tableId}; applying blur state.`
+						);
+
+						// Apply the current blur state to all visible rows
+						const table = document.getElementById(tableId);
+						const cells = table.querySelectorAll(".password-cell");
+
+						cells.forEach((cell) => {
+							const visible = cell.getAttribute("data-visible");
+							const blur = cell.getAttribute("data-blur");
+
+							if (visible === "{Blank}") {
+								cell.innerHTML = isBlurred
+									? `<span class="password-visible">{Blank Password}</span>`
+									: "{Blank Password}";
+							} else if (isBlurred) {
+								cell.innerHTML = `<span class="password-visible">${visible.slice(
+									0,
+									2
+								)}</span><span class="password-blurred">${blur}</span><span class="password-visible">${visible.slice(
+									-2
+								)}</span>`;
+							} else {
+								const fullPassword = `${visible.slice(
+									0,
+									2
+								)}${blur}${visible.slice(-2)}`;
+								cell.innerHTML = fullPassword;
+							}
+						});
+
+						// Update button label based on the global blur state
+						const button = document.getElementById(
+							`toggle${
+								tableId.charAt(0).toUpperCase() +
+								tableId.slice(1)
+							}`
+						);
+						if (button) {
+							button.textContent = isBlurred
+								? "Show Passwords"
+								: "Blur Passwords";
+						}
+					},
+				};
+
+				// Initialize the DataTable
+				$(`#${tableId}`).DataTable(extendedConfig);
+
+				// Add the `blurred` class by default on table initialization
+				const table = document.getElementById(tableId);
+				if (table && !table.classList.contains("blurred")) {
+					table.classList.add("blurred");
+				}
+
+				// Attach the togglePasswordBlur function to the button
+				const button = document.getElementById(
+					`toggle${
+						tableId.charAt(0).toUpperCase() + tableId.slice(1)
+					}`
+				);
+				if (button) {
+					button.addEventListener("click", () => {
+						isBlurred = !isBlurred; // Toggle the global blur state
+						$(`#${tableId}`).DataTable().draw(); // Redraw the table to apply the new state
+					});
+				}
+			}
+
+			$(document).ready(function () {
+				console.log(
+					"$(document).ready(function (); initializing tables."
+				);
+
+				// Track table initialization promises
+				const tableInitializations = [];
+
+				// Initialize the Password Fails Minimum Length table
+				tableInitializations.push(
+					new Promise((resolve) => {
+						initializeBlurTable("passwordFailsMinLengthTable", {
+							columns: [
+								{ title: "Account", data: "Account" },
+								{
+									title: "Password",
+									data: "Password",
+									render: function (data, type, row) {
+										if (type === "display") {
+											return `<span class="password-cell">${data}</span>`;
+										}
+										return data;
+									},
+								},
+								{ title: "Length", data: "Length" },
+							],
+							order: [[2, "asc"]], // Sort by Length column
+							columnDefs: [
+								{ width: "55%", targets: 0 }, // Account column
+								{ width: "35%", targets: 1 }, // Password column
+								{ width: "10%", targets: 2 }, // Length column
+							],
+							drawCallback: function () {
+								console.log(
+									"Minimum Length table initialized."
+								);
+								resolve(); // Resolve the promise when the table is ready
+							},
+						});
+					})
+				);
+
+				// Initialize the Password Fails Complexity table
+				tableInitializations.push(
+					new Promise((resolve) => {
+						initializeBlurTable("passwordFailsComplexityTable", {
+							columns: [
+								{ title: "Account", data: "Account" },
+								{
+									title: "Password",
+									data: "Password",
+									render: function (data, type, row) {
+										if (type === "display") {
+											return `<span class="password-cell">${data}</span>`;
+										}
+										return data;
+									},
+								},
+								{ title: "Complexity", data: "Complexity" },
+							],
+							order: [[2, "asc"]], // Sort by Complexity column
+							columnDefs: [
+								{ width: "55%", targets: 0 }, // Account column
+								{ width: "35%", targets: 1 }, // Password column
+								{ width: "10%", targets: 2 }, // Complexity column
+							],
+							drawCallback: function () {
+								console.log("Complexity table initialized.");
+								resolve(); // Resolve the promise when the table is ready
+							},
+						});
+					})
+				);
+
+				// Wait for all table initializations to complete, then initialize button labels
+				Promise.all(tableInitializations).then(() => {
+					console.log(
+						"All tables initialized; updating button labels."
+					);
+					initializeBlurButtonLabels(); // Update button labels after all tables are ready
+				});
+			});
+
+			// Function to create a pie chart from "data" for the provided canvas ID
+			function createPieChart(data, canvasId) {
+				const labels = Object.keys(data);
+				const values = Object.values(data);
+
+				// Define label colors corresponding to pie chart colors
+				const labelColors = colors.pie.map((color) =>
+					color === "#FD3F01" ? "#FFF" : "#000"
+				); // White for red, black for blue
+
+				new Chart(document.getElementById(canvasId), {
+					type: "doughnut",
+					data: {
+						labels: labels,
+						datasets: [
+							{
+								data: values,
+								backgroundColor: colors.pie,
+							},
+						],
+					},
+					options: {
+						responsive: true,
+						plugins: {
+							legend: {
+								position: "bottom",
+								labels: {
+									font: {
+										size: 14, // Adjust font size for the legend
+										weight: "bold", // Optional: make legend font bold
+									},
+									color: "#333", // Optional: customize legend text color
+								},
+							},
+							datalabels: {
+								color: (ctx) => labelColors[ctx.dataIndex], // Set label color dynamically
+								font: {
+									weight: "normal",
+									size: 14,
+								},
+								formatter: (value, ctx) => {
+									const formatNumber = (num) =>
+										num
+											.toString()
+											.replace(
+												/\B(?=(\d{3})+(?!\d))/g,
+												","
+											);
+
+									const total =
+										ctx.chart.data.datasets[0].data.reduce(
+											(a, b) => a + b,
+											0
+										);
+									const percentage =
+										((value / total) * 100).toFixed(1) +
+										"%";
+
+									return `${formatNumber(
+										value
+									)}\n${percentage}`;
+								},
+							},
+						},
+					},
+					plugins: [ChartDataLabels], // Enable the Data Labels plugin
+				});
+			}
+
+			// Function to create a bar chart from "data" for the provided canvas ID
+			function createBarChart(data, canvasId, xLabel, yLabel) {
+				const labels = Object.keys(data);
+				const values = Object.values(data);
+
+				new Chart(document.getElementById(canvasId), {
+					type: "bar",
+					data: {
+						labels: labels,
+						datasets: [
+							{
+								label: yLabel,
+								data: values,
+								backgroundColor: colors.bar,
+							},
+						],
+					},
+					options: {
+						responsive: true,
+						layout: {
+							padding: {
+								top: 30, // Add padding to top of chart to prevent labels from cutting off
+							},
+						},
+						plugins: {
+							legend: { display: false },
+							datalabels: {
+								anchor: "end",
+								align: "top",
+								color: "#000000", // Pure black for data labels
+								font: {
+									size: 14, // Consistent font size for data labels
+									weight: "normal",
+								},
+								formatter: formatWithCommas,
+							},
+						},
+						scales: {
+							x: {
+								title: {
+									display: true,
+									text: xLabel,
+									font: { size: 14 }, // Consistent font size for axis title
+									color: "#000000", // Pure black for axis title
+								},
+								ticks: {
+									font: { size: 14 }, // Consistent font size for axis ticks
+									color: "#000000", // Pure black for axis ticks
+								},
+								sort: false,
+							},
+							y: {
+								title: {
+									display: true,
+									text: yLabel,
+									font: { size: 14 }, // Consistent font size for axis title
+									color: "#000000", // Pure black for axis title
+								},
+								ticks: {
+									font: { size: 14 }, // Consistent font size for axis ticks
+									color: "#000000", // Pure black for axis ticks
+									callback: formatWithCommas,
+									stepSize: 1, // Ensures that the steps are in whole numbers
+								},
+							},
+						},
+					},
+					plugins: [ChartDataLabels], // Enable the Data Labels plugin
+				});
+			}
+
+			// Function to download a single file
+			async function downloadFile(url, filename) {
+				try {
+					const response = await fetch(url);
+					if (!response.ok) {
+						throw new Error(`Failed to download ${filename}`);
+					}
+
+					const blob = await response.blob();
+					const anchor = document.createElement("a");
+					anchor.href = URL.createObjectURL(blob);
+					anchor.download = filename;
+					document.body.appendChild(anchor);
+					anchor.click();
+					document.body.removeChild(anchor);
+				} catch (error) {
+					console.error(`Error downloading ${filename}:`, error);
+				}
+			}
+
+			// Function to fetch and sequentially download all JSON files
+			document
+				.getElementById("downloadAllJsonFiles")
+				.addEventListener("click", async () => {
+					try {
+						const response = await fetch("/list_json_files");
+						const files = await response.json();
+
+						if (Array.isArray(files)) {
+							for (const file of files) {
+								const url = `/download/${file}`;
+								await downloadFile(url, file); // Wait for each download to complete
+							}
+							alert("All files downloaded successfully.");
+						} else {
+							alert("Failed to fetch the list of files.");
+						}
+					} catch (error) {
+						console.error("Error downloading files:", error);
+						alert("An error occurred while downloading files.");
+					}
+				});
+
+			// ----------------------------- Load Data from JSON Files ------------------------------- \\
+
+			// Fetch JSON file and populate the Cracking Stats table
+			document.addEventListener("DOMContentLoaded", function () {
+				fetch("cracking_stats_table")
+					.then((response) => response.json())
+					.then((data) => {
+						const tableBody = document.querySelector(
+							"#analysisStatsTable tbody"
+						);
+
+						// Iterate over each object in array
+						data.forEach((item) => {
+							const row = document.createElement("tr");
+
+							// Create the key cell
+							const keyCell = document.createElement("td");
+							keyCell.textContent = item.key;
+
+							// Create the value cell and format the number if necessary
+							const valueCell = document.createElement("td");
+							valueCell.textContent =
+								typeof item.value === "number"
+									? item.value.toLocaleString()
+									: item.value;
+
+							// Append cells to the row
+							row.appendChild(keyCell);
+							row.appendChild(valueCell);
+
+							// Append row to the table body
+							tableBody.appendChild(row);
+						});
+					})
+					.catch((error) =>
+						console.error(
+							"Error loading cracking_stats_table:",
+							error
+						)
+					);
+			});
+
+			// Fetch and create Cracked Accounts Pie Chart
+			fetch("pw_account_pie")
+				.then((response) => response.json())
+				.then((data) => createPieChart(data, "accountsPieChart"))
+				.catch((error) =>
+					console.error("Error loading pw_account_pie:", error)
+				);
+
+			// Fetch and create Cracked Hashes Pie Chart
+			fetch("pw_ntlm_hash_pie")
+				.then((response) => response.json())
+				.then((data) => createPieChart(data, "hashesPieChart"))
+				.catch((error) =>
+					console.error("Error loading pw_ntlm_hash_pie:", error)
+				);
+
+			// Fetch and create Password Length Distribution Bar Chart
+			let passwordLengthChartInstance; // Declare the chart instance globally
+
+			fetch("pw_length_distribution")
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error(
+							`HTTP error! status: ${response.status}`
+						);
+					}
+					return response.json();
+				})
+				.then((data) => {
+					if (!data || typeof data !== "object") {
+						throw new Error(
+							"Invalid data format: expected an object"
+						);
+					}
+
+					const ignoreBlankPasswords = document.querySelector(
+						"#ignore_blank_passwords"
+					)?.checked;
+
+					// Conditionally filter out 0-length passwords
+					const filteredData = ignoreBlankPasswords
+						? Object.entries(data)
+								.filter(([key]) => key !== "0")
+								.reduce((obj, [key, value]) => {
+									obj[key] = value;
+									return obj;
+								}, {})
+						: data;
+
+					console.log(
+						"Filtered password length distribution:",
+						filteredData
+					);
+
+					const ctx = document
+						.getElementById("passwordLengthChart")
+						.getContext("2d");
+
+					// Create or update the chart instance
+					if (passwordLengthChartInstance) {
+						// Update existing chart
+						passwordLengthChartInstance.data.labels =
+							Object.keys(filteredData);
+						passwordLengthChartInstance.data.datasets[0].data =
+							Object.values(filteredData);
+						passwordLengthChartInstance.update();
+					} else {
+						// Create a new chart instance
+						passwordLengthChartInstance = new Chart(ctx, {
+							type: "bar",
+							data: {
+								labels: Object.keys(filteredData),
+								datasets: [
+									{
+										label: "Number of Passwords",
+										data: Object.values(filteredData),
+										backgroundColor: "#0B89FD",
+									},
+								],
+							},
+							options: {
+								responsive: true,
+								layout: {
+									padding: {
+										top: 30,
+									},
+								},
+								plugins: {
+									legend: { display: false },
+									datalabels: {
+										anchor: "end",
+										align: "top",
+										color: "#000000",
+										font: {
+											size: 14,
+											weight: "normal",
+										},
+										formatter: (value) =>
+											value.toLocaleString(),
+									},
+								},
+								scales: {
+									x: {
+										title: {
+											display: true,
+											text: "Length (characters)",
+											font: { size: 14 },
+											color: "#000000",
+										},
+										ticks: {
+											font: { size: 14 },
+											color: "#000000",
+										},
+									},
+									y: {
+										title: {
+											display: true,
+											text: "Number of Passwords",
+											font: { size: 14 },
+											color: "#000000",
+										},
+										ticks: {
+											font: { size: 14 },
+											color: "#000000",
+											callback: (value) =>
+												value.toLocaleString(),
+										},
+									},
+								},
+							},
+							plugins: [ChartDataLabels],
+						});
+					}
+				})
+				.catch((error) =>
+					console.error(
+						"Error loading pw_length_distribution:",
+						error
+					)
+				);
+
+			// Event listener to handle dropdown box changes
+			document
+				.getElementById("lengthFilterOption")
+				.addEventListener("change", function () {
+					if (!passwordLengthChartInstance) {
+						console.error(
+							"Password Length Chart Instance is not initialized."
+						);
+						return;
+					}
+
+					const filterOption = this.value;
+
+					fetch("pw_length_distribution")
+						.then((response) => response.json())
+						.then((data) => {
+							let filteredData = data;
+
+							// If filter option is "nonZero", filter out entries with a value of 0
+							if (filterOption === "nonZero") {
+								filteredData = Object.entries(data)
+									.filter(([key, value]) => value > 0)
+									.reduce((obj, [key, value]) => {
+										obj[key] = value;
+										return obj;
+									}, {});
+							}
+
+							// Update the chart with filtered data
+							passwordLengthChartInstance.data.labels =
+								Object.keys(filteredData);
+							passwordLengthChartInstance.data.datasets[0].data =
+								Object.values(filteredData);
+							passwordLengthChartInstance.update();
+						})
+						.catch((error) =>
+							console.error(
+								"Error filtering password length data:",
+								error
+							)
+						);
+				});
+
+			// --- Global Variables --- \\
+			let topPasswordsChartInstance; // Global variable to store the chart instance
+			let topSubstringsChartInstance;
+
+			// Function to update the data of an existing bar chart
+			function updateChart(chartInstance, data, xLabel, yLabel) {
+				if (!chartInstance || !chartInstance.data) {
+					console.error(
+						"function updateChart: Error chart instance or data is undefined."
+					);
+					return;
+				}
+				chartInstance.data.labels = Object.keys(data);
+				chartInstance.data.datasets[0].data = Object.values(data);
+				chartInstance.options.scales.x.title.text = xLabel;
+				chartInstance.options.scales.y.title.text = yLabel;
+				chartInstance.update();
+			}
+
+			// Update the Top Reused Passwords chart dynamically
+			document
+				.getElementById("topPasswordsCount")
+				.addEventListener("change", function () {
+					const count = parseInt(this.value); // Get the selected count
+
+					if (!topPasswordsData || !topPasswordsChartInstance) {
+						console.error("Chart instance or data not available.");
+						return;
+					}
+
+					// Filter the data based on the dropdown value
+					const filteredData = Object.entries(topPasswordsData)
+						.slice(0, count) // Limit data based on the selected count
+						.reduce((obj, [key, value]) => {
+							obj[key] = value;
+							return obj;
+						}, {});
+
+					const isBlurred =
+						topPasswordsChartInstance.options.plugins
+							.labelBlurred || false;
+
+					// Update chart data and labels
+					topPasswordsChartInstance.data.labels = isBlurred
+						? Object.keys(filteredData).map((label) => {
+								const { visible, blur } = formatPassword(label);
+								return `${visible.slice(0, 2)}${"#".repeat(
+									blur.length
+								)}${visible.slice(-2)}`;
+						  })
+						: Object.keys(filteredData);
+
+					topPasswordsChartInstance.data.datasets[0].data =
+						Object.values(filteredData);
+
+					// Redraw the chart
+					topPasswordsChartInstance.update();
+
+					// Update the button label based on the current blur state
+					const button = document.getElementById(
+						"toggleTopPasswordsChart"
+					);
+					if (button) {
+						button.textContent = isBlurred
+							? "Show Passwords"
+							: "Mask Passwords";
+					}
+				});
+
+			// Update the Top Substrings chart dynamically
+			document
+				.getElementById("topSubstringCount")
+				.addEventListener("change", function () {
+					const count = parseInt(this.value);
+					fetch("pw_substrings")
+						.then((response) => response.json())
+						.then((data) => {
+							const sortedData = Object.entries(data)
+								.sort(([, a], [, b]) => b - a) // Sort by value descending
+								.slice(0, count || undefined) // Use full data if "All Results" is selected
+								.reduce((obj, [key, value]) => {
+									obj[key] = value;
+									return obj;
+								}, {});
+							updateChart(
+								topSubstringsChartInstance,
+								sortedData,
+								"Substring",
+								"Count"
+							);
+						})
+						.catch((error) =>
+							console.error("Error loading pw_substrings:", error)
+						);
+				});
+
+			// Update the Top Dictionary Words chart dynamically
+			document
+				.getElementById("topDictionaryWordCount")
+				.addEventListener("change", function () {
+					const count = parseInt(this.value);
+					fetch("pw_dict_words")
+						.then((response) => response.json())
+						.then((data) => {
+							const sortedData = Object.entries(data)
+								.sort(([, a], [, b]) => b - a) // Sort by value descending
+								.slice(0, count || undefined) // Use full data if "All Results" is selected
+								.reduce((obj, [key, value]) => {
+									obj[key] = value;
+									return obj;
+								}, {});
+							updateChart(
+								topDictionaryWordsChartInstance,
+								sortedData,
+								"English Word",
+								"Count"
+							);
+						})
+						.catch((error) =>
+							console.error("Error loading pw_substrings:", error)
+						);
+				});
+
+			let topPasswordsData; // Global variable to store fetched data
+
+			// Initial fetch and chart creation
+			fetch("pw_top_passwords")
+				.then((response) => response.json())
+				.then((data) => {
+					// Store the data for reuse
+					topPasswordsData = Object.entries(data)
+						.sort(([, a], [, b]) => b - a) // Sort by value descending
+						.reduce((obj, [key, value]) => {
+							obj[key] = value;
+							return obj;
+						}, {});
+
+					const ctx = document
+						.getElementById("topPasswordsChart")
+						.getContext("2d");
+					const originalLabels = Object.keys(topPasswordsData); // Store original labels for blurring
+
+					topPasswordsChartInstance = new Chart(ctx, {
+						type: "bar",
+						data: {
+							labels: originalLabels, // Use original labels at initialization
+							datasets: [
+								{
+									label: "Count",
+									data: Object.values(topPasswordsData),
+									backgroundColor: colors.bar,
+								},
+							],
+						},
+						options: {
+							responsive: true,
+							layout: {
+								padding: {
+									top: 30, // Add padding to top of chart to prevent labels from cutting off
+								},
+							},
+							plugins: {
+								legend: { display: false },
+								datalabels: {
+									anchor: "end",
+									align: "top",
+									color: "#000000",
+									font: {
+										size: 14,
+										weight: "normal",
+									},
+									formatter: formatWithCommas,
+								},
+							},
+							scales: {
+								x: {
+									title: {
+										display: true,
+										text: "Cracked Password",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+									},
+								},
+								y: {
+									title: {
+										display: true,
+										text: "Count",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+										callback: formatWithCommas,
+									},
+								},
+							},
+						},
+						plugins: [ChartDataLabels],
+					});
+
+					// Save the original labels for blurring logic
+					topPasswordsChartInstance.originalLabels = originalLabels;
+
+					// Add "All Results" option to the dropdown dynamically
+					const dropdown =
+						document.getElementById("topPasswordsCount");
+					const allOption = document.createElement("option");
+					allOption.value = originalLabels.length; // Set value to the total count
+					allOption.text = "All Results";
+					dropdown.appendChild(allOption);
+
+					// Set default dropdown selection and trigger update
+					dropdown.value = "25";
+					dropdown.dispatchEvent(new Event("change"));
+				})
+				.catch((error) =>
+					console.error("Error loading pw_top_passwords:", error)
+				);
+
+			// Update chart based on dropdown selection
+			document
+				.getElementById("topPasswordsCount")
+				.addEventListener("change", function () {
+					const count = parseInt(this.value); // Get the selected count
+
+					if (!topPasswordsData || !topPasswordsChartInstance) {
+						console.error("Chart instance or data not available.");
+						return;
+					}
+
+					// Filter the data based on the dropdown value
+					const filteredData = Object.entries(topPasswordsData)
+						.slice(0, count) // Limit data based on the selected count
+						.reduce((obj, [key, value]) => {
+							obj[key] = value;
+							return obj;
+						}, {});
+
+					const isBlurred =
+						topPasswordsChartInstance.options.plugins
+							.labelBlurred || false;
+
+					// Update chart data and labels
+					topPasswordsChartInstance.data.labels = isBlurred
+						? Object.keys(filteredData).map((label) => {
+								const { visible, blur } = formatPassword(label);
+								return `${visible.slice(0, 2)}${"#".repeat(
+									blur.length
+								)}${visible.slice(-2)}`;
+						  })
+						: Object.keys(filteredData);
+
+					topPasswordsChartInstance.data.datasets[0].data =
+						Object.values(filteredData);
+
+					// Redraw the chart
+					topPasswordsChartInstance.update();
+
+					// Update the button label based on the current blur state
+					const button = document.getElementById(
+						"toggleTopPasswordsChart"
+					);
+					if (button) {
+						button.textContent = isBlurred
+							? "Show Passwords"
+							: "Mask Passwords";
+					}
+				});
+
+			// Initial Top Substrings bar chart JSON file data load
+			fetch("pw_substrings")
+				.then((response) => response.json())
+				.then((data) => {
+					if (!data || data.length === 0) {
+						console.error("No valid data found for pw_substrings.");
+						return;
+					}
+
+					// Sort substrings by count (descending)
+					const sortedData = data.sort((a, b) => b.count - a.count);
+					console.log("Sorted Data:", sortedData); // Debug: Verify sorted data
+
+					// Extract the dropdown element
+					const dropdown =
+						document.getElementById("topSubstringCount");
+
+					// Create the initial chart
+					const ctx = document
+						.getElementById("topSubstringsChart")
+						.getContext("2d");
+					const labels = sortedData
+						.slice(0, 25)
+						.map((item) => item.substring); // Default to Top 25
+					const counts = sortedData
+						.slice(0, 25)
+						.map((item) => item.count);
+
+					const chartConfig = {
+						type: "bar",
+						data: {
+							labels: labels,
+							datasets: [
+								{
+									label: "Count",
+									data: counts,
+									backgroundColor: colors.bar,
+								},
+							],
+						},
+						options: {
+							responsive: true,
+							layout: {
+								padding: { top: 30 }, // Prevent labels from cutting off
+							},
+							plugins: {
+								legend: { display: false },
+								datalabels: {
+									anchor: "end",
+									align: "top",
+									color: "#000000",
+									font: { size: 14, weight: "normal" },
+									formatter: formatWithCommas,
+								},
+							},
+							scales: {
+								x: {
+									title: {
+										display: true,
+										text: "Substring",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+										maxRotation: 45,
+										minRotation: 20,
+									},
+								},
+								y: {
+									title: {
+										display: true,
+										text: "Count",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+										callback: formatWithCommas,
+									},
+								},
+							},
+						},
+						plugins: [ChartDataLabels],
+					};
+
+					const topSubstringsChartInstance = new Chart(
+						ctx,
+						chartConfig
+					);
+
+					// Add "All Results" option to the dropdown dynamically
+					const allOption = document.createElement("option");
+					allOption.value = sortedData.length; // Set value to the total number of substrings
+					allOption.text = "All Results";
+					dropdown.appendChild(allOption);
+
+					// Dropdown update functionality
+					dropdown.addEventListener("change", () => {
+						const topN =
+							parseInt(dropdown.value) || sortedData.length;
+						console.log(`Dropdown changed. Top ${topN} selected.`); // Debug: Check selected value
+						const newLabels = sortedData
+							.slice(0, topN)
+							.map((item) => item.substring);
+						const newCounts = sortedData
+							.slice(0, topN)
+							.map((item) => item.count);
+
+						console.log("New Labels:", newLabels); // Debug: Verify updated labels
+						console.log("New Counts:", newCounts); // Debug: Verify updated counts
+
+						topSubstringsChartInstance.data.labels = newLabels;
+						topSubstringsChartInstance.data.datasets[0].data =
+							newCounts;
+						topSubstringsChartInstance.update();
+					});
+
+					// Set "All Results" as default and trigger update
+					dropdown.value = "25"; // Default to showing 25 results
+				})
+				.catch((error) =>
+					console.error("Error loading pw_substrings:", error)
+				);
+
+			// Initial Top Dictionary Words bar chart JSON file data load
+			fetch("pw_dict_words")
+				.then((response) => response.json())
+				.then((data) => {
+					const ctx = document
+						.getElementById("topDictionaryWordsChart")
+						.getContext("2d");
+					const sortedData = Object.entries(data)
+						.sort(([, a], [, b]) => b - a)
+						.reduce((obj, [key, value]) => {
+							obj[key] = value;
+							return obj;
+						}, {});
+
+					// Assign to the global instance variable
+					topDictionaryWordsChartInstance = new Chart(ctx, {
+						type: "bar",
+						data: {
+							labels: Object.keys(sortedData),
+							datasets: [
+								{
+									label: "Count",
+									data: Object.values(sortedData),
+									backgroundColor: colors.bar,
+								},
+							],
+						},
+						options: {
+							responsive: true,
+							layout: {
+								padding: {
+									top: 30, // Add padding to top of chart to prevent labels from cutting off
+								},
+							},
+							plugins: {
+								legend: { display: false },
+								datalabels: {
+									anchor: "end",
+									align: "top",
+									color: "#000000", // Pure black for data labels
+									font: {
+										size: 14,
+										weight: "normal",
+									},
+									formatter: formatWithCommas,
+								},
+							},
+							scales: {
+								x: {
+									title: {
+										display: true,
+										text: "Dictionary Word",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+									},
+								},
+								y: {
+									title: {
+										display: true,
+										text: "Count",
+										font: { size: 14 },
+										color: "#000000",
+									},
+									ticks: {
+										font: { size: 14 },
+										color: "#000000",
+										callback: formatWithCommas, // Format axis labels with commas
+									},
+								},
+							},
+						},
+						plugins: [ChartDataLabels],
+					});
+
+					// Add "All Results" option to the dropdown dynamically after calculating it's length first
+					const dropdown = document.getElementById(
+						"topDictionaryWordCount"
+					);
+					const allOption = document.createElement("option");
+					allOption.value = Object.keys(sortedData).length; // Set value to the total count
+					allOption.text = "All Results";
+					dropdown.appendChild(allOption);
+
+					// Set "All Results" as default and trigger update
+					dropdown.value = "25";
+					dropdown.dispatchEvent(new Event("change"));
+				})
+				.catch((error) =>
+					console.error("Error loading pw_dict_words:", error)
+				);
+
+			// Fetch and populate the Password (Hash) Reuse table
+			fetch("pw_reuse_table")
+				.then((response) => response.json())
+				.then((data) => {
+					// Initialize the DataTable with expandable rows and a hidden column for accounts
+					const table = $("#passwordReuseTable").DataTable({
+						data: data,
+						columns: [
+							{
+								className: "details-control",
+								orderable: false,
+								data: null,
+								defaultContent: "",
+							},
+							{
+								title: "Hash",
+								data: 0,
+								render: function (data, type, row) {
+									if (type === "display") {
+										// Wrap the hash in a span for blurring
+										return `<span class="hash-cell">${data}</span>`;
+									}
+									return data; // Raw data for other types
+								},
+							},
+							{ title: "Count", data: 1 },
+							{ title: "Accounts", data: 2, visible: false }, // Hidden searchable column for accounts
+						],
+						order: [[2, "desc"]], // Sort by the "Count" column in descending order
+						responsive: true,
+						destroy: true,
+						createdRow: function (row, data, dataIndex) {
+							const cell = $(row).find("span.hash-cell")[0];
+							if (cell) {
+								const hash = cell.textContent.trim();
+								const { visible, blur } = formatHash(hash);
+
+								// Set attributes and update the cell's inner content
+								cell.setAttribute("data-visible", visible);
+								cell.setAttribute("data-blur", blur);
+
+								cell.innerHTML = `
+                    <span class="hash-visible">${visible.slice(
+						0,
+						8
+					)}</span><span class="hash-blurred">${blur}</span><span class="hash-visible">${visible.slice(
+									-8
+								)}</span>
+                `;
+							}
+						},
+					});
+
+					// Toggle child row with account details
+					$("#passwordReuseTable tbody").on(
+						"click",
+						"td.details-control",
+						function () {
+							const tr = $(this).closest("tr");
+							const row = table.row(tr);
+
+							if (row.child.isShown()) {
+								row.child.hide();
+								tr.removeClass("shown");
+							} else {
+								row.child(
+									'<div class="child-row-content">' +
+										row.data()[2].join("<br>") +
+										"</div>"
+								).show();
+								tr.addClass("shown");
+							}
+						}
+					);
+				})
+				.catch((error) =>
+					console.error("Error loading pw_reuse_table:", error)
+				);
+
+			// Fetch and populate the Password Fails Min Length table
+			fetch("pw_fails_min_length")
+				.then((response) => response.json())
+				.then((data) => {
+					// Transform the JSON data into an array format suitable for DataTables
+					const transformedData = Object.entries(data).map(
+						([account, details]) => ({
+							Account: account,
+							Password: details.cracked_pw,
+							Length: details.pw_length,
+						})
+					);
+
+					// Initialize the DataTable using the initializeBlurTable function
+					initializeBlurTable("passwordFailsMinLengthTable", {
+						data: transformedData,
+						columns: [
+							{ title: "Account", data: "Account" },
+							{
+								title: "Password",
+								data: "Password",
+								render: function (data, type, row) {
+									return `<span class="password-cell">${data}</span>`;
+								},
+							},
+							{ title: "Length", data: "Length" },
+						],
+						order: [[2, "asc"]], // Sort by the "Length" column in ascending order
+						columnDefs: [
+							{ width: "55%", targets: 0 }, // Account column
+							{ width: "35%", targets: 1 }, // Password column
+							{ width: "10%", targets: 2 }, // Length column
+						],
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_fails_min_length:", error)
+				);
+
+			// Fetch and populate the Password Fails Complexity table
+			fetch("pw_fails_complexity")
+				.then((response) => response.json())
+				.then((data) => {
+					// Transform the JSON data into an array format suitable for DataTables
+					const transformedData = Object.entries(data).map(
+						([account, details]) => ({
+							Account: account,
+							Password: details.cracked_pw,
+							Complexity: details.complexity_count,
+						})
+					);
+
+					// Use initializeBlurTable for consistent initialization
+					initializeBlurTable("passwordFailsComplexityTable", {
+						data: transformedData,
+						columns: [
+							{ title: "Account", data: "Account" },
+							{
+								title: "Password",
+								data: "Password",
+								render: function (data) {
+									return `<span class="password-cell">${data}</span>`;
+								},
+							},
+							{
+								title: "Complexity Categories",
+								data: "Complexity",
+							},
+						],
+						order: [[2, "asc"]], // Sort by the "Complexity Categories" column in ascending order
+						columnDefs: [
+							{ width: "55%", targets: 0 }, // Account column
+							{ width: "35%", targets: 1 }, // Password column
+							{ width: "10%", targets: 2 }, // Complexity column
+						],
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_fails_complexity:", error)
+				);
+
+			// Fetch and populate the Password is Blank table
+			fetch("pw_fails_blank")
+				.then((response) => response.json())
+				.then((data) => {
+					// Transform the JSON data into an array format suitable for DataTables
+					const transformedData = data.map((account) => ({
+						Account: account,
+					}));
+
+					// Initialize the DataTable
+					$("#passwordFailsBlankTable").DataTable({
+						data: transformedData,
+						columns: [{ title: "Account", data: "Account" }],
+						order: [[0, "desc"]], // Sort by the account name column in descending order
+						responsive: true,
+						destroy: true,
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_fails_blank:", error)
+				);
+
+			// Fetch and populate the Password Fails Max Age table
+			fetch("pw_fails_max_age")
+				.then((response) => response.json())
+				.then((data) => {
+					// Transform JSON data into the structure required for DataTables
+					const transformedData = Object.entries(data).map(
+						([account, details]) => ({
+							Account: account,
+							Changed: details.pw_changed,
+							Age: details.pw_age,
+						})
+					);
+
+					console.log("Transformed Data:", transformedData);
+
+					// Initialize the DataTable
+					$("#passwordFailsMaxAgeTable").DataTable({
+						data: transformedData,
+						columns: [
+							{ title: "Account", data: "Account" },
+							{ title: "Password Changed", data: "Changed" },
+							{ title: "Password Age (Days)", data: "Age" },
+						],
+						order: [[2, "desc"]], // Sort by Age in descending order
+						responsive: true, // Make the table responsive
+						destroy: true, // Allow reinitialization
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_fails_max_age:", error)
+				);
+		</script>
+	</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Error</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body class="error-page">
+    <div class="error-container">
+      <div class="error-text">
+        <div class="error-code">{{ status_code }}</div>
+        <div class="error-message">{{ message }}</div>
+        <a href="{{ referrer_url }}" class="return-button"
+          >Return to {{ referrer }}</a
+        >
+      </div>
+      <div class="error-image">
+        <img
+          src="{{ url_for('static', filename='images/error-image.jpg') }}"
+          alt="Error Image"
+        />
+      </div>
+    </div>
+  </body>
+</html>

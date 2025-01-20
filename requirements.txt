@@ -1,0 +1,6 @@
+Flask
+flask-login
+bcrypt
+nltk
+python-dotenv
+cryptography

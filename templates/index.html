@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Password & Hash Analyzer + Reporter</title>
+		<link
+			rel="stylesheet"
+			href="{{ url_for('static', filename='css/style.css') }}"
+		/>
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+	</head>
+	<body>
+		<div class="container">
+			<header class="title-section">
+				<h1>Password & Hash Analyzer + Reporter</h1>
+			</header>
+
+			<div class="main-content">
+				<div class="logo-section">
+					<img
+						id="indexLogo"
+						src="{{ url_for('static', filename='images/hm1k-logo.png') }}"
+						alt="Hash Master 1000 Logo"
+					/>
+				</div>
+
+				<form
+					action="{{ url_for('upload_files') }}"
+					method="POST"
+					enctype="multipart/form-data"
+					class="index-form-section"
+				>
+					<!-- Toggle Input Options -->
+					<div class="toggle-options">
+						<label>
+							<input
+								type="radio"
+								name="input_method"
+								value="upload"
+								checked
+							/>
+							Upload Required Files
+						</label>
+						<label>
+							<input
+								type="radio"
+								name="input_method"
+								value="local_files"
+							/>
+							Load Required Files from Local Storage
+						</label>
+					</div>
+
+					<!-- Upload Files Section -->
+					<fieldset id="uploadFields">
+						<legend>Upload Files</legend>
+						<div class="input-row">
+							<label for="pwdump_file">Pwdump File:</label>
+							<input
+								type="file"
+								id="pwdump_file"
+								name="pwdump_file"
+								required
+							/>
+						</div>
+						<div class="input-row">
+							<label for="potfile">Hashcat Potfile:</label>
+							<input
+								type="file"
+								id="potfile"
+								name="potfile"
+								required
+							/>
+						</div>
+					</fieldset>
+
+					<!-- Load Local Files Section -->
+					<fieldset id="localFields" style="display: none">
+						<legend>Load Local Files</legend>
+						<div class="input-row">
+							<label for="pwdump_path">Pwdump File Path:</label>
+							<input
+								type="text"
+								id="pwdump_path"
+								name="pwdump_path"
+								placeholder="/path/to/mypwdumpfile.ntds"
+								value="testData/example_pwdump.ntds"
+								required
+							/>
+						</div>
+						<div class="input-row">
+							<label for="potfile_path"
+								>Hashcat Potfile Path:</label
+							>
+							<input
+								type="text"
+								id="potfile_path"
+								name="potfile_path"
+								placeholder="/path/to/myhashcat.potfile"
+								value="testData/example.potfile"
+								required
+							/>
+						</div>
+					</fieldset>
+
+					<!-- Substring Analysis Input Section -->
+					<fieldset>
+						<legend>Substring Analysis Options</legend>
+						<div class="input-row">
+							<div class="input-item">
+								<label for="substring_min_len"
+									>Min Substring Length:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="substring_min_len"
+									min="2"
+									max="20"
+									value="4"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="substring_max_len"
+									>Max Substring Length:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="substring_max_len"
+									min="3"
+									max="30"
+									value="30"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="substring_freq_threshold"
+									>Substring Freq Threshold:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="substring_freq_threshold"
+									min="2"
+									max="20"
+									value="5"
+								/>
+							</div>
+						</div>
+						<div class="input-row">
+							<div class="input-item">
+								<label for="substring_disp_nest"
+									>Suppress Nested Substrings:</label
+								>
+								<input
+									type="checkbox"
+									name="substring_disp_nest"
+									value="true"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="substring_normalize"
+									>Analyze Substrings in Lowercase:</label
+								>
+								<input
+									type="checkbox"
+									name="substring_normalize"
+									value="true"
+								/>
+							</div>
+						</div>
+					</fieldset>
+
+					<!-- English Word Analysis Input Section -->
+					<fieldset>
+						<legend>English Dictionary Analysis Options</legend>
+						<div class="input-row">
+							<div class="input-item">
+								<label for="word_min_len"
+									>Min Word Length:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="dictionary_min_len"
+									min="2"
+									max="10"
+									value="4"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="dictionary_disp_nest"
+									>Suppress Nested Words:</label
+								>
+								<input
+									type="checkbox"
+									name="dictionary_disp_nest"
+									value="true"
+								/>
+							</div>
+						</div>
+					</fieldset>
+
+					<!-- Policy Compliance Input Section -->
+					<fieldset>
+						<legend>Policy Compliance</legend>
+						<div class="input-row">
+							<div class="input-item">
+								<label for="policy_min_pw_len"
+									>Min Password Length:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="policy_min_pw_len"
+									min="6"
+									max="30"
+									value="12"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="policy_max_pw_age"
+									>Max Password Age:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="policy_max_pw_age"
+									min="30"
+									max="1095"
+									value="90"
+								/>
+							</div>
+							<div class="input-item">
+								<label for="policy_complexity_req"
+									>Complexity Required:</label
+								>
+								<input
+									type="number"
+									class="small-input"
+									name="policy_complexity_req"
+									min="0"
+									max="5"
+									value="3"
+								/>
+							</div>
+						</div>
+					</fieldset>
+
+					<!-- Ignore Blank Passwords Input Section -->
+					<fieldset>
+						<legend>Ignore Blank Passwords</legend>
+						<div class="input-row single-row">
+							<label for="ignore_blank_passwords"
+								>Do Not Treat Blank Passwords As Cracked:</label
+							>
+							<input
+								type="hidden"
+								name="ignore_blank_passwords"
+								value="false"
+							/>
+							<input
+								type="checkbox"
+								name="ignore_blank_passwords"
+								value="true"
+							/>
+						</div>
+					</fieldset>
+
+					<!-- Buttons -->
+					<div
+						style="
+							display: flex;
+							justify-content: center;
+							gap: 30px;
+							align-items: center;
+						"
+					>
+						<button type="button" class="helpButton">Help</button>
+						<button type="submit">Generate Report</button>
+						<button id="logoutButton" class="logoutButton">
+							Logout
+						</button>
+					</div>
+
+					<div id="helpModal" style="display: none">
+						<div class="content">
+							<button id="closeHelp">&times;</button>
+							<div id="helpText"></div>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+
+		<!-- JavaScript -->
+		<script>
+			document.addEventListener("DOMContentLoaded", () => {
+				// Toggle input method display
+				const toggleInputFields = () => {
+					const uploadFields =
+						document.getElementById("uploadFields");
+					const localFields = document.getElementById("localFields");
+					const form = document.querySelector("form");
+					const isUpload =
+						document.querySelector(
+							'input[name="input_method"]:checked'
+						).value === "upload";
+
+					if (uploadFields && localFields && form) {
+						uploadFields.style.display = isUpload
+							? "block"
+							: "none";
+						localFields.style.display = isUpload ? "none" : "block";
+
+						// Toggle required attributes
+						uploadFields
+							.querySelectorAll("input")
+							.forEach((input) => (input.required = isUpload));
+						localFields
+							.querySelectorAll("input")
+							.forEach((input) => (input.required = !isUpload));
+
+						form.action = isUpload ? "/upload" : "/local_files";
+					}
+				};
+
+				// Add event listeners to toggle input fields
+				document
+					.querySelectorAll('input[name="input_method"]')
+					.forEach((radio) => {
+						radio.addEventListener("change", toggleInputFields);
+					});
+
+				// Trigger the initial toggle check
+				toggleInputFields();
+
+				// Add client-side validation to the form
+				const form = document.querySelector("form");
+				form.addEventListener("submit", (event) => {
+					const isUpload =
+						document.querySelector(
+							'input[name="input_method"]:checked'
+						).value === "upload";
+					let valid = true;
+
+					if (isUpload) {
+						const uploadFields =
+							document.getElementById("uploadFields");
+						uploadFields
+							.querySelectorAll('input[type="file"]')
+							.forEach((input) => {
+								if (!input.value) {
+									alert(
+										`File input "${input.name}" is required.`
+									);
+									valid = false;
+								} else {
+									const allowedExtensions = [
+										"pwdump",
+										"ntds",
+										"potfile",
+										"pot",
+										"txt",
+									];
+									const fileExtension = input.value
+										.split(".")
+										.pop()
+										.toLowerCase();
+									if (
+										!allowedExtensions.includes(
+											fileExtension
+										)
+									) {
+										alert(
+											`Invalid file type for "${
+												input.name
+											}". Allowed types are: ${allowedExtensions.join(
+												", "
+											)}.`
+										);
+										valid = false;
+									}
+								}
+							});
+					} else {
+						const localFields =
+							document.getElementById("localFields");
+						localFields
+							.querySelectorAll('input[type="text"]')
+							.forEach((input) => {
+								if (!input.value) {
+									alert(`Field "${input.name}" is required.`);
+									valid = false;
+								}
+							});
+					}
+
+					if (!valid) {
+						event.preventDefault(); // Prevent form submission
+					}
+				});
+
+				// Configure marked.js
+				const renderer = new marked.Renderer();
+
+				// Override heading rendering to add custom IDs
+				renderer.heading = function (token) {
+					// Extract the depth (level) and text
+					const level = token.depth; // Use `depth` for the heading level
+					const plainText = token.text.replace(/\*\*/g, "").trim(); // Remove Markdown formatting like `**`
+
+					// Generate a slugified ID for the heading
+					const id = plainText.toLowerCase().replace(/[^\w]+/g, "-");
+
+					// Return the proper HTML element
+					return `<h${level} id="${id}">${plainText}</h${level}>`;
+				};
+
+				marked.setOptions({
+					renderer: renderer, // Use the custom renderer
+					gfm: true, // Enable GitHub-flavored Markdown
+					headerIds: true, // Add IDs to headings
+					mangle: false, // Prevent mangling of text
+				});
+
+				// Close the modal
+				function closeModal() {
+					helpModal.style.display = "none";
+				}
+				const helpModal = document.getElementById("helpModal");
+				const closeHelpButton = document.getElementById("closeHelp");
+
+				// Help button logic
+				document.querySelectorAll(".helpButton").forEach((button) => {
+					button.addEventListener("click", function () {
+						fetch("/readme")
+							.then((response) => response.text())
+							.then((markdown) => {
+								const helpText =
+									document.getElementById("helpText");
+								helpText.innerHTML = marked.parse(markdown);
+
+								// Enable ToC links to scroll within the modal
+								helpText.addEventListener("click", (event) => {
+									const target = event.target.closest("a");
+									if (target && target.hash) {
+										event.preventDefault(); // Prevent default anchor behavior
+										const sectionId =
+											target.hash.substring(1); // Remove '#' from hash
+										const section = helpText.querySelector(
+											`#${sectionId}`
+										);
+										if (section) {
+											section.scrollIntoView({
+												behavior: "smooth",
+											});
+										}
+									}
+								});
+
+								document.getElementById(
+									"helpModal"
+								).style.display = "block";
+							})
+							.catch((error) => {
+								console.error("Error fetching README:", error);
+							});
+					});
+				});
+
+				// Close modal when clicking the close button
+				closeHelpButton.addEventListener("click", closeModal);
+
+				// Prevent clicks inside the modal content from closing it
+				const modalContent = document.querySelector(
+					"#helpModal .content"
+				);
+				modalContent.addEventListener("click", (event) => {
+					event.stopPropagation(); // Stop the click from propagating to the document
+				});
+
+				// Close modal when clicking anywhere outside the modal
+				document.addEventListener("click", (event) => {
+					if (
+						helpModal.style.display === "block" &&
+						!helpModal.contains(event.target)
+					) {
+						closeModal();
+					}
+				});
+
+				// Close modal when pressing the ESC key
+				document.addEventListener("keydown", (event) => {
+					if (
+						event.key === "Escape" &&
+						helpModal.style.display === "block"
+					) {
+						closeModal();
+					}
+				});
+
+				// Ensure the logout button works independently
+				const logoutButton = document.getElementById("logoutButton");
+				if (logoutButton) {
+					logoutButton.addEventListener("click", async (event) => {
+						event.preventDefault(); // Prevent any default form submission behavior
+						try {
+							const response = await fetch("/logout", {
+								method: "POST", // Ensure the request is a POST
+								headers: { "Content-Type": "application/json" },
+							});
+							if (response.ok) {
+								window.location.href = "/"; // Redirect to the homepage or login page
+							} else {
+								console.error("Logout failed");
+							}
+						} catch (error) {
+							console.error("Error during logout:", error);
+						}
+					});
+				}
+			});
+		</script>
+	</body>
+</html>

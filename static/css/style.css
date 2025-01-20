@@ -1,0 +1,928 @@
+/* General Body Styles */
+body {
+	font-family: Arial, sans-serif;
+	margin: 0;
+	padding: 0;
+	background-color: black; /* Default background color */
+	color: white; /* Default text color */
+}
+
+h1 {
+	text-align: center;
+	color: #f4f4f4;
+	font-size: 24px;
+}
+
+h2 {
+	text-align: center;
+	color: #333;
+	font-size: 16px;
+}
+
+/* Title and Header */
+.title-section h1 {
+	text-align: center;
+	color: white; /* Ensures white title on black background */
+	font-size: 2rem;
+	margin: 20px 0;
+}
+
+/* Back Button */
+.message-box .button {
+	display: inline-block;
+	margin-top: 20px;
+	padding: 10px 20px;
+	color: white;
+	text-decoration: none;
+	background-color: #31b005;
+	border-radius: 5px;
+	font-size: 1rem;
+}
+
+.message-box .button:hover {
+	background-color: darkgreen;
+}
+
+/* Shared Input Fields */
+input[type="text"],
+input[type="password"],
+input[type="file"],
+input[type="number"] {
+	width: 100%;
+	padding: 10px;
+	margin: 5px 0;
+	box-sizing: border-box;
+	border: 1px solid #ccc;
+	border-radius: 5px;
+	background-color: #f9f9f9;
+	color: black;
+}
+input:focus {
+	outline: none;
+	border-color: #007bff;
+	background-color: white;
+}
+
+/* Set consistent label width for Upload Files and Load Local Files */
+#uploadFields .input-row label,
+#localFields .input-row label {
+	display: inline-block; /* Ensure labels respect the width setting */
+	width: 300px; /* Adjust this value to fit "Hashcat Potfile Path:" */
+	text-align: right; /* Align label text to the right */
+	margin-right: 10px; /* Add spacing between the label and input */
+}
+
+/* Form Section */
+.form-section {
+	max-width: 400px;
+	margin: 0 auto;
+	padding: 20px;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	background-color: #222; /* Dark form background */
+	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Logo Section */
+.logo-section {
+	text-align: center;
+	margin-bottom: 20px;
+}
+.logo-section img {
+	width: 100%;
+	max-width: 600px;
+	height: auto;
+}
+
+/* Logo in Index Page */
+#indexLogo {
+	display: block;
+	width: 100%; /* By default, take the width of the parent form */
+	max-width: 870px; /* Match the max width of the form */
+	height: auto; /* Maintain aspect ratio */
+	margin: 0 auto 20px; /* Center the logo and add space below */
+}
+
+/* Message Section */
+.message-below {
+	margin-top: 20px;
+	text-align: center;
+	font-size: 1rem;
+	color: #ccc; /* Light gray text */
+}
+
+/* Buttons */
+button {
+	background-color: #31b005; /* Default green background */
+	color: white;
+	border: none;
+	padding: 10px 20px;
+	font-size: 1rem;
+	border-radius: 5px;
+	cursor: pointer;
+}
+button:hover {
+	background-color: darkgreen; /* Darker green on hover */
+}
+
+/* Wider Form Section for Index Page */
+.index-form-section {
+	max-width: 870px; /* Restore original width */
+	margin: 0 auto;
+	padding: 20px;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	background-color: #222; /* Dark form background */
+	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Ensure Fieldsets Fit the Wider Form */
+.index-form-section fieldset {
+	border: 1px solid #ccc;
+	padding: 10px;
+	border-radius: 4px;
+	margin-bottom: 15px;
+	background-color: #333; /* Dark background for fieldsets */
+}
+.index-form-section legend {
+	font-weight: bold;
+	font-size: 1rem;
+	color: white;
+}
+
+/* Input Fields */
+input[type="text"],
+input[type="number"],
+input[type="file"] {
+	padding: 5px;
+	margin: 5px 0;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	font-size: 0.9rem;
+	width: 100%;
+	box-sizing: border-box;
+}
+input[type="number"].small-input {
+	width: 60px; /* Tight size for integer inputs */
+}
+
+/* Align Upload and Local File Fields */
+.upload-fields .input-row,
+.local-fields .input-row {
+	display: flex;
+	align-items: center; /* Align labels and inputs vertically */
+	gap: 10px; /* Space between label and input */
+	justify-content: flex-start; /* Align content to the left */
+	margin-bottom: 10px; /* Space between rows */
+}
+
+/* Ensure Input Box is Wide Enough for Tooltip */
+.upload-fields .input-item input,
+.local-fields .input-item input {
+	flex: 1; /* Allow inputs to take available space */
+	max-width: 100%; /* Prevent inputs from shrinking excessively */
+	padding: 5px; /* Add padding for tooltips to fit */
+}
+
+/* Single-Row Alignment for Checkboxes */
+.input-row.single-row {
+	display: flex;
+	align-items: center;
+	gap: 8px; /* Spacing between label and checkbox */
+	justify-content: flex-start; /* Align items to the left */
+}
+.input-row.single-row label {
+	flex: 0 0 auto; /* Prevent label from stretching */
+	width: auto; /* Fit the label to its content */
+}
+
+/* Center the radio button group */
+.toggle-options {
+	display: flex;
+	justify-content: center; /* Center horizontally */
+	align-items: center; /* Align items vertically */
+	gap: 15px; /* Space between the labels */
+	margin-bottom: 20px; /* Add spacing below the group */
+}
+
+/* Style for individual labels */
+.toggle-options label {
+	color: white;
+	font-size: 18px;
+	font-weight: bold;
+}
+
+/* General Input Row Styling */
+.input-row {
+	display: flex;
+	align-items: center; /* Align items vertically */
+	justify-content: flex-start; /* Left-align items */
+	gap: 20px; /* Space between each label/input pair */
+	flex-wrap: nowrap; /* Prevent wrapping by default */
+}
+
+/* Labels and Inputs in the Same Row */
+.input-item {
+	display: flex;
+	align-items: center; /* Keep label and input aligned */
+	gap: 10px; /* Space between label and input */
+	flex-shrink: 0; /* Prevent items from shrinking */
+}
+
+/* Small Numeric Inputs */
+input.small-input {
+	width: 60px; /* Compact size for small inputs */
+	text-align: center; /* Center-align numeric input text */
+}
+
+/* Checkbox Styling */
+input[type="checkbox"] {
+	margin-left: 5px; /* Adjust spacing for checkboxes */
+}
+
+/* Fieldset Styling */
+fieldset {
+	border: 1px solid #ccc;
+	padding: 10px;
+	border-radius: 4px;
+	margin-bottom: 15px;
+	background-color: #333; /* Dark background for fieldsets */
+}
+
+legend {
+	font-weight: bold;
+	font-size: 1rem;
+	color: white;
+}
+
+/* Substring Analysis Options */
+.substring-options .input-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 15px; /* Space between items */
+}
+.substring-options .input-row > .input-item {
+	flex: 1; /* Make inputs evenly spaced */
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+.substring-options .input-row.checkboxes {
+	flex-wrap: wrap; /* Allow wrapping for smaller screens */
+	gap: 20px; /* Adjust spacing for checkboxes */
+	align-items: center; /* Align vertically */
+}
+/* Dictionary Analysis Options */
+.dictionary-options .input-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center; /* Align vertically */
+	gap: 20px; /* Space between items */
+}
+.dictionary-options .input-item {
+	flex: 1; /* Make inputs take up equal space */
+	display: flex;
+	flex-direction: column;
+	gap: 5px; /* Space between label and input */
+}
+/* Policy Compliance */
+.policy-compliance .input-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center; /* Align vertically */
+	gap: 15px; /* Space between items */
+}
+.policy-compliance .input-item {
+	flex: 1; /* Make inputs evenly spaced */
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+/* Buttons */
+button {
+	padding: 6px 12px;
+	font-size: 0.9rem;
+	border-radius: 3px;
+	background-color: #31b005;
+	color: white;
+	border: none;
+	cursor: pointer;
+}
+button:hover {
+	background-color: darkgreen;
+}
+
+/* Inline Button Group */
+.inline-buttons {
+	display: flex;
+	gap: 10px;
+	justify-content: center;
+	margin-top: 15px;
+}
+
+/* Modal Styling */
+#helpModal {
+	position: fixed; /* Keeps the modal fixed in the viewport */
+	top: 50%; /* Center vertically */
+	left: 50%; /* Center horizontally */
+	transform: translate(-50%, -50%); /* Offsets modal to center it perfectly */
+	width: 80%; /* Make the modal responsive */
+	max-width: 900px; /* Prevent it from becoming too wide */
+	max-height: 70%; /* Ensure the modal fits within the viewport */
+	padding: 20px; /* Add padding for the content */
+	background-color: white; /* Modal background */
+	border-radius: 8px; /* Rounded corners for better aesthetics */
+	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3); /* Add a shadow for better separation */
+	z-index: 1000; /* Ensure it appears above other elements */
+	display: none; /* Hide the modal by default */
+	overflow-y: auto; /* Enable scrolling if content overflows */
+}
+
+#helpModal .content {
+	position: relative; /* Necessary for positioning child elements */
+	color: black; /* Ensure text color is readable */
+	font-family: Arial, sans-serif;
+	background-color: white;
+	padding: 20px; /* Reduce padding for better scaling */
+	border-radius: 10px; /* Slightly rounded corners */
+	max-width: 880px; /* Constrain width */
+	max-height: 65%; /* Allow the modal to fit within the viewport */
+	overflow-y: auto; /* Enable scrolling for overflow content */
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25); /* Add shadow for visual separation */
+}
+
+/* Close button styling */
+#helpModal .close-button {
+	position: absolute;
+	top: -15px; /* Move slightly above the modal */
+	right: -15px; /* Align with the modal's right edge */
+	background-color: white;
+	border: 2px solid black;
+	color: black;
+	font-size: 16px;
+	font-weight: bold;
+	border-radius: 50%; /* Circular button */
+	width: 30px;
+	height: 30px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	cursor: pointer;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+#helpModal .close-button:hover {
+	background-color: black;
+	color: white;
+	transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+#helpText {
+	font-size: 1rem;
+	line-height: 1.6;
+	color: black;
+}
+
+#helpText h1,
+#helpModal .content h1 {
+	font-size: 2em; /* Adjust size as needed */
+	font-weight: bold;
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+	color: black;
+}
+
+#helpText h2,
+#helpModal .content h2 {
+	font-size: 1.75em; /* Adjust size as needed */
+	font-weight: bold;
+	margin-top: 0.9em;
+	margin-bottom: 0.5em;
+	color: black;
+}
+
+#helpText h3,
+#helpModal .content h3 {
+	font-size: 1.5em; /* Adjust size as needed */
+	font-weight: bold;
+	margin-top: 0.8em;
+	margin-bottom: 0.4em;
+	color: black;
+}
+
+#helpText h4,
+#helpModal .content h4 {
+	font-size: 1.25em;
+	font-weight: bold;
+	margin-top: 0.7em;
+	margin-bottom: 0.4em;
+	color: black;
+}
+
+#helpText h5,
+#helpModal .content h5 {
+	font-size: 1.1em;
+	font-weight: bold;
+	margin-top: 0.6em;
+	margin-bottom: 0.3em;
+	color: black;
+}
+
+#helpText h6,
+#helpModal .content h6 {
+	font-size: 1em;
+	font-weight: bold;
+	margin-top: 0.5em;
+	margin-bottom: 0.2em;
+	color: black;
+}
+
+#closeHelp {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	background-color: red;
+	color: white;
+	border: none;
+	border-radius: 5px;
+	padding: 5px 10px;
+	font-size: 16px;
+	cursor: pointer;
+}
+
+#closeHelp:hover {
+	background-color: darkred;
+}
+
+/* Specific styles for the Help button */
+button.helpButton {
+	background-color: #007bff; /* Bright blue */
+	color: white;
+}
+
+button.helpButton:hover {
+	background-color: #0056b3; /* Darker blue */
+}
+
+/* Specific styles for the Logout button */
+button.logoutButton {
+	background-color: red; /* Match the close button red */
+	color: white;
+}
+
+button.logoutButton:hover {
+	background-color: darkred; /* Darker red for hover */
+}
+
+/* Specific styles for the Generate Report button */
+button.generateReportButton {
+	background-color: #31b005; /* Default green */
+	color: white;
+}
+
+button.generateReportButton:hover {
+	background-color: darkgreen; /* Darker green on hover */
+}
+
+/* Report Page Layout */
+.report-body {
+	max-width: 870px;
+	margin: auto;
+	padding: 10px;
+	background-color: black;
+	color: white;
+	font-size: 14px;
+}
+.report-section {
+	background-color: #333;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	padding: 20px;
+	margin-bottom: 20px;
+}
+
+/* Chart Styles */
+.chart-container {
+	text-align: center;
+	max-width: 270px;
+}
+.barChart canvas {
+	max-width: 900px;
+	max-height: 666px;
+	margin: auto;
+}
+
+/* Table Styling */
+/*table {
+	width: 100%;
+	border-collapse: collapse;
+}
+table th,
+table td {
+	padding: 10px;
+	border: 1px solid #ddd;
+}
+table tbody tr:hover {
+	background-color: #555;
+}
+*/
+
+/* Icon Column Styling */
+td.details-control {
+	width: 20px;
+	background: url("/static/images/down.png") no-repeat center center;
+	background-size: 16px 16px;
+	cursor: pointer;
+}
+
+tr.shown td.details-control {
+	background: url("/static/images/up.png") no-repeat center center;
+	background-size: 16px 16px;
+}
+
+/* Password Hash Reuse Table Styling */
+#passwordReuseTable {
+	font-size: 14px; /* Set font size for the main table rows */
+}
+
+#passwordReuseTable tbody tr td {
+	font-size: 14px; /* Ensure table rows use this font size */
+}
+
+#passwordReuseTable tbody tr.shown td {
+	font-size: 14px; /* Set font size for expanded rows */
+}
+
+/* Child row content styling */
+#passwordReuseTable tbody tr.shown div {
+	font-size: 13px; /* Set font size for the hidden/expanded content */
+	padding: 10px; /* Add padding for better readability */
+	background-color: #f9f9f9; /* Optional: Distinct background for expanded rows */
+}
+.child-row-content {
+	max-height: 300px; /* Adjust the height as needed */
+	overflow-y: scroll; /* Add vertical scroll if content exceeds height */
+	padding: 5px; /* Optional: Add padding for better readability */
+	background-color: #f9f9f9; /* Optional: Set a distinct background color */
+	border: 1px solid #ddd; /* Optional: Add a border for clarity */
+}
+/* Blur inner characters while leaving the first and last two characters visible */
+.blurred-password {
+	color: transparent;
+	position: relative;
+}
+.blurred-password::before {
+	content: attr(data-visible); /* Show first 2 and last 2 characters */
+	color: black;
+}
+.blurred-password::after {
+	content: attr(data-blur); /* Show blurred inner characters */
+	color: transparent;
+	text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+	position: absolute;
+	left: 0;
+}
+.password-visible {
+	font-family: Arial, sans-serif; /* Ensure passwords use Arial */
+	color: black;
+}
+.password-blurred {
+	font-family: Arial, sans-serif; /* Ensure passwords use Arial */
+	filter: blur(3px);
+	user-select: none;
+	display: inline-block;
+	color: black;
+}
+
+/* Align spans to appear in sequence */
+.password-cell {
+	white-space: nowrap; /* Prevent line breaks between spans */
+}
+.hash-cell {
+	font-family: Courier, monospace; /* Use Courier or fallback to any monospaced font */
+	font-size: 14px; /* Optional: Adjust size for better readability */
+}
+.hash-visible {
+	font-family: Courier, monospace; /* Ensure consistent font for alignment */
+	/*font-weight: bold; /* Uncomment to make hash bold for easier reading */
+	color: black;
+	display: inline; /* Prevent line breaks and extra spacing */
+}
+.hash-blurred {
+	font-family: Courier, monospace; /* Match font with visible parts */
+	filter: blur(5px); /* Apply blur effect */
+	display: inline; /* Prevent line breaks and extra spacing */
+	user-select: none; /* Prevent selection of blurred content */
+}
+
+/* Style for the Copy PNG button */
+#copyTopPasswordsChart,
+#copyPasswordLengthChart,
+#copyTopSubstringsChart,
+#copyTopDictionaryWordsChart {
+	background-color: #007bff; /* Blue */
+	color: white;
+	border: none;
+	padding: 5px 7px;
+	border-radius: 5px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+#copyTopPasswordsChart:hover,
+#copyPasswordLengthChart:hover,
+#copyTopSubstringsChart:hover,
+#copyTopDictionaryWordsChart:hover {
+	background-color: #0056b3; /* Darker blue */
+}
+
+/* Style for the Download SVG button */
+#downloadTopPasswordsChart,
+#downloadPasswordLengthChart,
+#downloadTopSubstringsChart,
+#downloadTopDictionaryWordsChart {
+	background-color: #dc3545; /* Red */
+	color: white;
+	border: none;
+	padding: 5px 7px;
+	border-radius: 5px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+#downloadTopPasswordsChart:hover,
+#downloadPasswordLengthChart:hover,
+#downloadTopSubstringsChart:hover,
+#downloadTopDictionaryWordsChart:hover {
+	background-color: #a71d2a; /* Darker red */
+}
+
+/* Style for the Download CSV button */
+#downloadTopPasswordsCSV,
+#downloadPasswordLengthCSV,
+#downloadTopSubstringsCSV,
+#downloadTopDictionaryWordsCSV,
+#downloadPasswordReuseCSV,
+#downloadFailsMinLengthCSV,
+#downloadFailsComplexityCSV,
+#downloadFailsBlankCSV,
+#downloadFailsMaxAgeCSV,
+#downloadAllJsonFiles {
+	background-color: #28a745; /* Green */
+	color: white;
+	border: none;
+	padding: 5px 7px;
+	border-radius: 5px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+#downloadTopPasswordsCSV:hover,
+#downloadPasswordLengthCSV:hover,
+#downloadTopSubstringsCSV:hover,
+#downloadTopDictionaryWordsCSV:hover,
+#downloadPasswordReuseCSV:hover,
+#downloadFailsMinLengthCSV:hover,
+#downloadFailsComplexityCSV:hover,
+#downloadFailsBlankCSV:hover,
+#downloadFailsMaxAgeCSV:hover,
+#downloadAllJsonFiles {
+	background-color: #1e7e34; /* Darker green */
+}
+
+/* Style for visibility toggle buttons (purple theme) */
+.toggle-visibility-button {
+	background-color: #6f42c1; /* Purple */
+	color: white;
+	border: none;
+	padding: 5px 7px;
+	border-radius: 5px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+.toggle-visibility-button:hover {
+	background-color: #5a359c; /* Darker purple */
+}
+
+/* Style for the Report Page Logout button */
+#logoutButton {
+	background-color: #dc3545; /* Red */
+	color: white;
+	border: none;
+	padding: 5px 7px;
+	border-radius: 5px;
+	cursor: pointer;
+	transition: background-color 0.3s;
+}
+
+#logoutButton:hover {
+	background-color: #a71d2a; /* Darker red */
+}
+
+/* Scoped styles for the report page */
+body#reportPage {
+	font-family: Arial, sans-serif;
+	color: #000;
+	max-width: 870px;
+	margin: auto;
+	padding: 10px;
+	background-color: #000000;
+	font-size: 14px;
+}
+
+#reportPage h1 {
+	text-align: center;
+	color: #f4f4f4;
+	font-size: 24px;
+}
+
+#reportPage h2 {
+	text-align: center;
+	color: #333;
+	font-size: 16px;
+}
+
+#reportPage section {
+	background-color: #ffffff;
+	border: 1px solid #ddd;
+	border-radius: 8px;
+	padding: 20px;
+	margin-bottom: 20px;
+	box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+#reportPage #statsAndCharts {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 15px;
+	padding: 20px;
+}
+
+#reportPage .chart-container {
+	width: 40%;
+	max-width: 270px;
+	text-align: center;
+}
+
+#reportPage .pie-chart-label {
+	color: #000;
+	font-size: 15px;
+	font-weight: normal;
+}
+
+#reportPage #statsAndCharts table {
+	width: 30%;
+	border-collapse: collapse;
+	font-size: 14px;
+}
+
+#reportPage #statsAndCharts table th,
+#reportPage #statsAndCharts table td {
+	padding: 3px;
+	white-space: nowrap;
+	border-bottom: 1px solid #ddd;
+}
+
+#reportPage #statsAndCharts table th {
+	width: 80%;
+	text-align: left;
+}
+
+#reportPage #statsAndCharts table td {
+	width: 20%;
+	text-align: right;
+}
+
+#reportPage .barChart {
+	text-align: center;
+	margin-bottom: 20px;
+}
+
+#reportPage .barChart canvas {
+	max-width: 900px;
+	max-height: 666px;
+	margin: auto;
+}
+
+#reportPage #tableSection {
+	max-width: 1000px;
+	margin: 20px auto;
+}
+
+/* Utility: Alignment */
+.input-row.single-column {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.input-row.single-row {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.error-page {
+	background-color: black;
+	color: #00ff00;
+	font-family: Arial, sans-serif;
+	margin: 0; /* Remove margins around the page */
+	padding: 0; /* Remove padding around the page */
+	display: flex;
+	justify-content: center; /* Center horizontally */
+	align-items: start; /* Align items to the top */
+	min-height: 100vh; /* Ensure full height for consistent appearance */
+}
+
+.error-page .error-container {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	background-color: #111;
+	padding: 20px;
+	border-radius: 10px;
+	width: 80%;
+	max-width: 800px;
+	margin-top: 50px;
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.error-page .error-text {
+	flex: 2;
+	text-align: center;
+}
+
+.error-page .error-code {
+	font-size: 6rem;
+	font-weight: bold;
+	color: #f9e869;
+	margin-bottom: 30px;
+}
+
+.error-page .error-message {
+	font-size: 1.75rem;
+}
+
+.error-page .error-image {
+	flex: 1;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+.error-page .error-image img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 10px;
+}
+
+/* Message Box Styles */
+.message-box {
+	max-width: 500px;
+	margin: 50px auto;
+	padding: 20px;
+	border-radius: 8px;
+	text-align: center;
+	font-size: 2rem;
+}
+
+.message-box p {
+	font-size: 1rem;
+	color: white;
+	margin: 10px 0;
+}
+
+/* Info Message */
+.info-message {
+	color: #b7d6f7;
+}
+
+/* Warning Message */
+.warning-message {
+	color: #fbd563;
+}
+
+/* Error Message */
+.error-message {
+	color: rgb(253, 118, 88);
+}
+
+.return-button {
+	display: inline-block;
+	margin-top: 20px;
+	padding: 10px 20px;
+	font-size: 1.2rem;
+	color: #00ff00;
+	background-color: #111;
+	text-decoration: none;
+	border: 2px solid #00ff00;
+	border-radius: 5px;
+	transition: all 0.3s ease;
+}
+
+.return-button:hover {
+	background-color: #00ff00;
+	color: black;
+}
