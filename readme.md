@@ -7,11 +7,11 @@
 1.  [Security Disclaimer](#security-disclaimer)
 2.  [Introduction](#introduction)
 3.  [Use Cases](#use-cases)
-4.  [Default Login](#default-login)
-5.  [Inputs](#inputs)
-6.  [Configurable Settings](#configurable-settings)
-7.  [Output Report](#output-report)
-8.  [Installation & Deployment](#installation-deployment)
+4.  [Application Startup](application-startup)
+5.  [Default Login](#default-login)
+6.  [Inputs](#inputs)
+7.  [Configurable Settings](#configurable-settings)
+8.  [Output Report](#output-report)
 9.  [Hash Dumping Methods](#hash-dumping-methods)
 10. [Licensing](#licensing)
 
@@ -52,9 +52,55 @@ The authors assume no responsibility for improper or insecure deployments.
 
 ---
 
+## **Application Startup**
+
+### **Requirements**
+
+-   **Python Version:** 3.10+
+-   **Python dependencies:** See requirements.txt
+
+### **Deployment**
+
+While there are several ways that Hash Master 1000 could be run, using either Docker or a Python Virtual Environment is recommended. As stated earlier, a more persistent installation should only be done by a security professional. If you don't have Docker already installed and working, the native Python Virtual Envrionment is quick and easy.
+
+Some Docker users prefer a zero-config environment, therefore, the application will run with a default Flask secret-key, admin username and admin password. It will also automatically create a self-signed SSL certificate in the Docker home folder when the application starts.
+
+To override the default configuration, edit the included `env.example` file and save it as `.env` inside the local project folder. Likewise, you may configure your own SSL certificate in advance using openssl or the built-in `generate_cert.py` script. Docker will use the user created `.env`, `cert.pem` and `pub.pem` files in the project directory if they are created before building and starting the app.
+
+#### <u>**Docker**</u>
+
+Prerequisites: Install `docker` & `docker-compose` and add the current user to the `docker` group.
+
+Build the docker image
+`docker compose build`
+
+Start the app
+`docker compose up -d`
+
+To stop the app
+`docker compose down`
+
+#### <u>**Virtual Environment** native Python</u>
+
+Prerequisites: Install `python-env`
+
+Set up a virtual environment for project isolation
+`python3 -m venv hm1k`
+
+Activate the virtual environment
+`source hm1k/bin/activate`
+
+Install dependencies
+`pip install -r requirements.txt`
+
+Run application
+`python3 hm1k.py`
+
+---
+
 ## **Default Login**
 
-Despite the security disclaimer above, it's important to prevent unauthorized users from easily accessing sensitive data. `Flask-Login` requires users to have a valid login in order to access any of the protected routes/endpoints.
+Despite the security disclaimer above, it's important to prevent unauthorized users from easily accessing sensitive data. `Flask-Login` requires users to have a valid login in order to access any of the protected routes/endpoints. The weak default password used by the app is a humorous reminder that complex != secure and to always change your default passwords. :grin:
 
 -   Username: `admin`
 -   Password: `Winter2025##`
@@ -62,7 +108,9 @@ Despite the security disclaimer above, it's important to prevent unauthorized us
 If you wish to change the username or password, either can be edited in the .env file. The default credentials below allow users to login as `admin` with the password `Winter2025##`. To change the password, bcrypt the password and paste the hash into the .env file.
 
 \*\*.env file:
+
 `ADMIN_USERNAME="admin"`
+
 `ADMIN_PASSWORD_HASH="$2b$12$eNKlXXTpqFIlXKEAvoUSaujC3MYUMnji4LDoftnnZMMRAwPMN.JkO"`
 
 ---
@@ -196,60 +244,6 @@ Displays reused NTLM hashes, their counts, and associated accounts.
 1. **Password Cracking Data**: The analysis includes only cracked passwords. Many hashes remain uncracked, so the report represents a subset of the total accounts.
 2. **Accounts vs. Hashes**: Due to password reuse, the number of cracked accounts may exceed the number of unique cracked hashes.
 3. **Blank Passwords**: Accounts with blank passwords are reported as cracked. Therefore, blank passwords have a zero character length and include zero complexity categories. It is critical that accounts with blank passwords are disabled and it's important to note that account state (enabled/disabled) data is unavaiable and therefore not reflected in this analysis.
-
----
-
-## **Installation & Deployment**
-
-### **Requirements**
-
--   **Python Version:** 3.10+
--   **Python dependencies:** See requirements.txt
-
-### **Deployment**
-
-#### <u>**Docker**</u>
-
-(pre-requisite) Install `docker` & `docker-compose` and add the current user to the `docker` group.
-
-Build the docker image
-`docker compose build`
-
-Start the app
-`docker compose up -d`
-
-To stop the app
-`docker compose down`
-
-#### <u>**Virtual Environment** native Python</u>
-
-Set up a virtual environment for project isolation
-`python3 -m venv hm1k`
-
-Activate the virtual environment
-`source hm1k/bin/activate`
-
-Install dependencies
-`pip install -r requirements.txt`
-
-Run application
-`python3 hm1k.py`
-
-#### <u>**Virtual Environment** uv</u>
-
-ref: https://docs.astral.sh/uv/#python-management
-
-(optional) If you do not have system Python >=3.10
-`uv --python 3.10`
-
-Set up a virtual environment for project isolation
-`uv venv`
-
-Activate the virtual environment
-`source .venv/bin/activate`
-
-Install dependencies
-`uv pip sync requirements.txt`
 
 ---
 
