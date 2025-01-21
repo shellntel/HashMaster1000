@@ -72,29 +72,50 @@ To override the default configuration, edit the included `env.example` file and 
 Prerequisites: Install `docker` & `docker-compose` and add the current user to the `docker` group.
 
 Build the docker image
-`docker compose build`
+
+```bash
+docker compose build
+```
 
 Start the app
-`docker compose up -d`
+
+```bash
+docker compose up -d
+```
 
 To stop the app
-`docker compose down`
+
+```bash
+docker compose down
+```
 
 #### <u>**Virtual Environment** native Python</u>
 
 Prerequisites: Install `python-env`
 
 Set up a virtual environment for project isolation
-`python3 -m venv hm1k`
+
+```bash
+python3 -m venv hm1k
+```
 
 Activate the virtual environment
-`source hm1k/bin/activate`
+
+```bash
+source hm1k/bin/activate
+```
 
 Install dependencies
-`pip install -r requirements.txt`
+
+```bash
+pip install -r requirements.txt
+```
 
 Run application
-`python3 hm1k.py`
+
+```bash
+python3 hm1k.py
+```
 
 ---
 
