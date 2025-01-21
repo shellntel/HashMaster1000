@@ -57,7 +57,7 @@ The authors assume no responsibility for improper or insecure deployments.
 ### **Requirements**
 
 -   **Python Version:** 3.10+
--   **Python dependencies:** See requirements.txt
+-   **Python dependencies:** See `requirements.txt`
 
 ### **Deployment**
 
@@ -177,11 +177,11 @@ Note: The default settings should work for most basic use cases. Only the pwdump
 
 #### **Substring Analysis**
 
-Substing analysis refers to identifying repeating strings of characters with passwords. The longer the repeating string of characters, the more likely that it's a common string (or perhaps word) used within the organization to make passowrds. Any intentional use of a string that exists in multiple passwords is insecur. Substring analysis enhances the more traditional discovery of English dictionary words by discovering any repeating strings, not just words.
+Substing analysis refers to identifying repeating strings of characters within passwords. The longer the repeating string of characters, the more likely that it's a common string (or perhaps word) used within the organization to make passowrds. Any intentional use of a string that exists in multiple passwords is insecure. Substring analysis enhances the more traditional discovery of English dictionary words by discovering any repeating strings, not just words.
 
 -   **Min Substring Length**: Smallest substring length to analyze (# of characters). In a large dataset with many cracked passwords, a longer minumum length is suggested to reduce the number of matches/results. Use this setting along with the Substring Frequency Threshold setting to tune the report output.
 -   **Max Substring Length**: Largest substring length to analyze (# of characters).
--   **Substring Freq Threshold**: Minimum frequency required (# of hits). The sets how many account passwords must contain the string to be considered significant and included in the analysis. This allows the analysis to be tuned to the size of the job. A dataset with thousands of cracked passwords is likely to identify more repeating strings, expecially if used with a low Min Substring Length setting.
+-   **Substring Freq Threshold**: Minimum frequency required (# of hits). This sets how many account passwords must contain the string to be considered significant enough to be included in the report. This allows the analysis to be tuned to the size of the job. A dataset with thousands of cracked passwords is likely to identify more repeating strings, expecially if used with a low Min Substring Length setting.
 -   **Suppress Nested Substrings**: Whether to display substrings within larger substrings. It's common to find repeating strings within larger repeating strings and there may be use cases where you want to analyze both. This is especially useful if you intend to download the CSV or JSON file for offline analysis.
 -   **Analyze Substrings in Lowercase**: Normalizes passwords to lowercase before analysis. Normalizing to lowercase is standard for dictionary word analysis, but may not be ideal for substring analysis.
 
@@ -264,7 +264,7 @@ Displays reused NTLM hashes, their counts, and associated accounts.
 
 1. **Password Cracking Data**: The analysis includes only cracked passwords. Many hashes remain uncracked, so the report represents a subset of the total accounts.
 2. **Accounts vs. Hashes**: Due to password reuse, the number of cracked accounts may exceed the number of unique cracked hashes.
-3. **Blank Passwords**: Accounts with blank passwords are reported as cracked. Therefore, blank passwords have a zero character length and include zero complexity categories. It is critical that accounts with blank passwords are disabled and it's important to note that account state (enabled/disabled) data is unavaiable and therefore not reflected in this analysis.
+3. **Blank Passwords**: Accounts with blank passwords are reported as cracked. Therefore, blank passwords have a zero character length and include zero complexity categories. It is critical that accounts with blank passwords are disabled and it's important to note that account state (enabled/disabled) information is unavaiable and therefore not reflected in this analysis.
 
 ---
 
