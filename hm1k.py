@@ -110,7 +110,7 @@ def validate_files():
         print("Attempting to generate SSL certificates using generate_cert.py...")
 
         try:
-            subprocess.run(["python3", "generate_cert.py"], check=True)
+            subprocess.run([sys.executable, "generate_cert.py"], check=True)
         except FileNotFoundError:
             print(
                 "\nError: generate_cert.py script is missing. Cannot generate SSL certificates."
@@ -398,7 +398,7 @@ def upload_files() -> Response:
 
         # Prepare command-line arguments
         cmd_args = [
-            "python3",
+            sys.executable,
             "HashMaster1000.py",
             pwdump_path,
             potfile_path,
@@ -530,7 +530,7 @@ def local_files() -> FlaskResponse:
 
     # Prepare command-line arguments
     cmd_args = [
-        "python3",
+        sys.executable,
         "HashMaster1000.py",
         pwdump_path,
         potfile_path,
