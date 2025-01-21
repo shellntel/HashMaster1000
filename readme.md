@@ -7,7 +7,7 @@
 1.  [Security Disclaimer](#security-disclaimer)
 2.  [Introduction](#introduction)
 3.  [Use Cases](#use-cases)
-4.  [Application Startup](application-startup)
+4.  [Application Startup](#application-startup)
 5.  [Default Login](#default-login)
 6.  [Inputs](#inputs)
 7.  [Configurable Settings](#configurable-settings)
@@ -107,7 +107,7 @@ Despite the security disclaimer above, it's important to prevent unauthorized us
 
 If you wish to change the username or password, either can be edited in the .env file. The default credentials below allow users to login as `admin` with the password `Winter2025##`. To change the password, bcrypt the password and paste the hash into the .env file.
 
-\*\*.env file:
+**.env file:**
 
 `ADMIN_USERNAME="admin"`
 
