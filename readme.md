@@ -33,7 +33,8 @@ The authors assume no responsibility for improper or insecure deployments.
 
 ## **Introduction**
 
-**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes data from a `pwdump6` file and a `Hashcat potfile` to generate comprehensive reports for penetration testers, auditors and cyber-security professionals.
+**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes data from a `pwdump6` file and a `Hashcat potfile` to generate comprehensive reports for penetration testers, auditors and cyber-security professionals. 
+Learn more: https://blog.shellntel.com/p/hash-master-1000
 
 ### **Features**
 
