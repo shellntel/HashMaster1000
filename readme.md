@@ -292,6 +292,13 @@ For detailed guidance, refer to trusted resources on Windows security and passwo
 
 ---
 
+## **Source**
+
+SynerComm is a leader in cybersecurity and penetration testing. Learn more about how Hash Master 1000 uses substring analysis to identify patterns in cracked passwords.
+https://www.synercomm.com/password-security-substring-analysis/
+
+---
+
 ## **Licensing**
 
 This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)**. This allows for free use and modification, provided:
