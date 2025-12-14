@@ -59,6 +59,20 @@ def lm_count(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> int:
     return count
 
 
+# Function to get accounts with valid (non-blank) LANMan hashes (account_data based)
+def get_lm_accounts(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> List[str]:
+    """
+    Returns a sorted list of account names that have a valid (non-blank) LM hash.
+    LM hashes are weaker than NTLM and should be disabled in modern environments.
+    """
+    lm_accounts = [
+        account_name
+        for account_name, account in account_data.items()
+        if account.get("lm_hash") and account["lm_hash"] != "aad3b435b51404eeaad3b435b51404ee"
+    ]
+    return sorted(lm_accounts)
+
+
 # Function to check for password reuse
 def check_pw_reuse(pwdump_file: str) -> List[Tuple[str, int, List[str]]]:
     ntlm_hashes = defaultdict(list)
@@ -320,6 +334,9 @@ def crack_stats(
         if count >= 2 and not (ignore_blank_passwords and pw == "")
     }
 
+    # Get accounts with valid LM hashes
+    pw_lm_hashes = get_lm_accounts(account_data)
+
     # Return the stats in a dictionary
     cracking_stats = {
         "Cracked Accounts: ": cracked_accounts,
@@ -346,6 +363,7 @@ def crack_stats(
         "pw_fails_complexity": pw_fails_complexity,
         "pw_fails_blank": pw_fails_blank,
         "pw_fails_max_age": pw_fails_max_age,
+        "pw_lm_hashes": pw_lm_hashes,
     }
 
     return report

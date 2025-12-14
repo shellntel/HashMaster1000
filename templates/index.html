@@ -8,518 +8,862 @@
 			rel="stylesheet"
 			href="{{ url_for('static', filename='css/style.css') }}"
 		/>
+		<!-- High-tech font for logo -->
+		<link rel="preconnect" href="https://fonts.googleapis.com">
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+		<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 	</head>
 	<body>
-		<div class="container">
-			<header class="title-section">
-				<h1>Password & Hash Analyzer + Reporter</h1>
-			</header>
+		<!-- Modern Header -->
+		<header class="app-header">
+			<div class="brand">
+				<h1 class="brand-name">Hash Master 1000</h1>
+				<span class="brand-tagline">Password & Hash Analyzer</span>
+			</div>
+			<div class="header-actions">
+				<button type="button" class="header-btn helpButton">Help</button>
+				<button id="logoutButton" class="header-btn logout">Logout</button>
+			</div>
+		</header>
 
-			<div class="main-content">
-				<div class="logo-section">
-					<img
-						id="indexLogo"
-						src="{{ url_for('static', filename='images/hm1k-logo.png') }}"
-						alt="Hash Master 1000 Logo"
-					/>
+		<div class="container">
+			<!-- Main Layout with Sidebar -->
+			<div class="main-layout">
+				<!-- Step Indicator Sidebar -->
+				<div class="step-sidebar">
+					<div class="step-indicator">
+						<div class="step active" data-step="1">
+							<div class="step-circle">1</div>
+							<div class="step-label">Load Files</div>
+							<div class="step-connector"></div>
+						</div>
+						<div class="step upcoming" data-step="2">
+							<div class="step-circle">2</div>
+							<div class="step-label">Validate</div>
+							<div class="step-connector"></div>
+						</div>
+						<div class="step upcoming" data-step="3">
+							<div class="step-circle">3</div>
+							<div class="step-label">Configure</div>
+							<div class="step-connector"></div>
+						</div>
+						<div class="step upcoming" data-step="4">
+							<div class="step-circle">4</div>
+							<div class="step-label">Report</div>
+						</div>
+					</div>
 				</div>
 
+				<!-- Wizard Container -->
+				<div class="wizard-container">
 				<form
-					action="{{ url_for('upload_files') }}"
+					id="analysisForm"
+					action="{% if initial_step == 3 and pwdump_validation and potfile_validation %}{{ url_for('process_validated') }}{% else %}{{ url_for('validate_files_endpoint') }}{% endif %}"
 					method="POST"
 					enctype="multipart/form-data"
-					class="index-form-section"
 				>
-					<!-- Toggle Input Options -->
-					<div class="toggle-options">
-						<label>
-							<input
-								type="radio"
-								name="input_method"
-								value="upload"
-								checked
-							/>
-							Upload Required Files
-						</label>
-						<label>
-							<input
-								type="radio"
-								name="input_method"
-								value="local_files"
-							/>
-							Load Required Files from Local Storage
-						</label>
+					<!-- Step 1: Load Files -->
+					<div class="step-content active" data-step="1">
+						<div class="step-panel">
+							<h2>Step 1: Load Source Files</h2>
+							<p class="step-description">
+								Select and validate your pwdump/ntds file and hashcat potfile before proceeding.
+								Both files must pass validation to continue.
+							</p>
+
+							<!-- Toggle: Upload vs Local -->
+							<div class="toggle-container">
+								<div class="toggle-option active" data-method="upload">
+									Upload Files
+								</div>
+								<div class="toggle-option" data-method="local">
+									Load from Server Path
+								</div>
+							</div>
+
+							<!-- Upload Files Section -->
+							<div class="file-section" id="uploadSection">
+								<h3>Pwdump / NTDS File</h3>
+								<div class="file-input-row">
+									<label for="pwdump_file">Select File:</label>
+									<input
+										type="file"
+										id="pwdump_file"
+										name="pwdump_file"
+										accept=".pwdump,.ntds,.txt"
+									/>
+									<button type="button" class="validate-btn" id="pwdump_validate_btn" onclick="validateSingleFile('pwdump', 'pwdump_file')">
+										Validate
+									</button>
+									<span id="pwdump_status_icon" class="validation-status-icon" style="display: none;"></span>
+								</div>
+								<div id="pwdump_status" class="file-status pending">
+									<span class="file-status-icon">○</span>
+									<span>No file selected</span>
+								</div>
+
+								<h3 style="margin-top: 12px;">Hashcat Potfile</h3>
+								<div class="file-input-row">
+									<label for="potfile">Select File:</label>
+									<input
+										type="file"
+										id="potfile"
+										name="potfile"
+										accept=".potfile,.pot,.txt"
+									/>
+									<button type="button" class="validate-btn" id="potfile_validate_btn" onclick="validateSingleFile('potfile', 'potfile')">
+										Validate
+									</button>
+									<span id="potfile_status_icon" class="validation-status-icon" style="display: none;"></span>
+								</div>
+								<div id="potfile_status" class="file-status pending">
+									<span class="file-status-icon">○</span>
+									<span>No file selected</span>
+								</div>
+							</div>
+
+							<!-- Local Files Section -->
+							<div class="file-section hidden" id="localSection">
+								<h3>Pwdump / NTDS File</h3>
+								<div class="file-input-row">
+									<label for="pwdump_path">File Path:</label>
+									<input
+										type="text"
+										id="pwdump_path"
+										name="pwdump_path"
+										placeholder="/path/to/file.ntds"
+										value="testData/example_pwdump_dcsync.ntds"
+									/>
+									<button type="button" class="browse-btn" onclick="openFileBrowser('pwdump_path')">Browse</button>
+									<button type="button" class="validate-btn" id="local_pwdump_validate_btn" onclick="validateLocalFile('pwdump', 'pwdump_path')">
+										Validate
+									</button>
+									<span id="local_pwdump_status_icon" class="validation-status-icon" style="display: none;"></span>
+								</div>
+								<div id="local_pwdump_status" class="file-status pending">
+									<span class="file-status-icon">○</span>
+									<span>No file validated</span>
+								</div>
+
+								<h3 style="margin-top: 12px;">Hashcat Potfile</h3>
+								<div class="file-input-row">
+									<label for="potfile_path">File Path:</label>
+									<input
+										type="text"
+										id="potfile_path"
+										name="potfile_path"
+										placeholder="/path/to/file.potfile"
+										value="testData/example.potfile"
+									/>
+									<button type="button" class="browse-btn" onclick="openFileBrowser('potfile_path')">Browse</button>
+									<button type="button" class="validate-btn" id="local_potfile_validate_btn" onclick="validateLocalFile('potfile', 'potfile_path')">
+										Validate
+									</button>
+									<span id="local_potfile_status_icon" class="validation-status-icon" style="display: none;"></span>
+								</div>
+								<div id="local_potfile_status" class="file-status pending">
+									<span class="file-status-icon">○</span>
+									<span>No file validated</span>
+								</div>
+							</div>
+
+							<input type="hidden" name="input_method" id="input_method" value="upload" />
+
+							<div class="step-navigation">
+								<div></div>
+								<button type="button" class="btn btn-primary" id="toStep2Btn" disabled onclick="goToValidation()">
+									Continue to Validation
+								</button>
+							</div>
+						</div>
 					</div>
 
-					<!-- Upload Files Section -->
-					<fieldset id="uploadFields">
-						<legend>Upload Files</legend>
-						<div class="input-row">
-							<label for="pwdump_file">Pwdump File:</label>
-							<input
-								type="file"
-								id="pwdump_file"
-								name="pwdump_file"
-								required
-							/>
-						</div>
-						<div class="input-row">
-							<label for="potfile">Hashcat Potfile:</label>
-							<input
-								type="file"
-								id="potfile"
-								name="potfile"
-								required
-							/>
-						</div>
-					</fieldset>
+					<!-- Step 2: Validate Files (redirects to /validation_review) -->
+					<!-- This step is handled by the validation_review page -->
 
-					<!-- Load Local Files Section -->
-					<fieldset id="localFields" style="display: none">
-						<legend>Load Local Files</legend>
-						<div class="input-row">
-							<label for="pwdump_path">Pwdump File Path:</label>
-							<input
-								type="text"
-								id="pwdump_path"
-								name="pwdump_path"
-								placeholder="/path/to/mypwdumpfile.ntds"
-								value="testData/example_pwdump.ntds"
-								required
-							/>
-						</div>
-						<div class="input-row">
-							<label for="potfile_path"
-								>Hashcat Potfile Path:</label
-							>
-							<input
-								type="text"
-								id="potfile_path"
-								name="potfile_path"
-								placeholder="/path/to/myhashcat.potfile"
-								value="testData/example.potfile"
-								required
-							/>
-						</div>
-					</fieldset>
+					<!-- Step 3: Configure Analysis -->
+					<div class="step-content" data-step="3">
+						<div class="step-panel">
+							<h2>Step 3: Configure Analysis</h2>
+							<p class="step-description">
+								Customize the analysis parameters or use the defaults to generate your report.
+							</p>
 
-					<!-- Substring Analysis Input Section -->
-					<fieldset>
-						<legend>Substring Analysis Options</legend>
-						<div class="input-row">
-							<div class="input-item">
-								<label for="substring_min_len"
-									>Min Substring Length:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="substring_min_len"
-									min="2"
-									max="20"
-									value="4"
-								/>
+							<!-- Files Summary -->
+							<div class="files-summary">
+								<div class="file-card" id="pwdumpSummaryCard">
+									<h4>Pwdump File</h4>
+									<div class="filename" id="pwdumpSummaryName">-</div>
+									<div class="file-stats">
+										<span id="pwdumpSummaryStats">-</span>
+									</div>
+								</div>
+								<div class="file-card" id="potfileSummaryCard">
+									<h4>Potfile</h4>
+									<div class="filename" id="potfileSummaryName">-</div>
+									<div class="file-stats">
+										<span id="potfileSummaryStats">-</span>
+									</div>
+								</div>
 							</div>
-							<div class="input-item">
-								<label for="substring_max_len"
-									>Max Substring Length:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="substring_max_len"
-									min="3"
-									max="30"
-									value="30"
-								/>
-							</div>
-							<div class="input-item">
-								<label for="substring_freq_threshold"
-									>Substring Freq Threshold:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="substring_freq_threshold"
-									min="2"
-									max="20"
-									value="5"
-								/>
-							</div>
-						</div>
-						<div class="input-row">
-							<div class="input-item">
-								<label for="substring_disp_nest"
-									>Suppress Nested Substrings:</label
-								>
-								<input
-									type="checkbox"
-									name="substring_disp_nest"
-									value="true"
-								/>
-							</div>
-							<div class="input-item">
-								<label for="substring_normalize"
-									>Analyze Substrings in Lowercase:</label
-								>
-								<input
-									type="checkbox"
-									name="substring_normalize"
-									value="true"
-								/>
-							</div>
-						</div>
-					</fieldset>
 
-					<!-- English Word Analysis Input Section -->
-					<fieldset>
-						<legend>English Dictionary Analysis Options</legend>
-						<div class="input-row">
-							<div class="input-item">
-								<label for="word_min_len"
-									>Min Word Length:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="dictionary_min_len"
-									min="2"
-									max="10"
-									value="4"
-								/>
-							</div>
-							<div class="input-item">
-								<label for="dictionary_disp_nest"
-									>Suppress Nested Words:</label
-								>
-								<input
-									type="checkbox"
-									name="dictionary_disp_nest"
-									value="true"
-								/>
-							</div>
-						</div>
-					</fieldset>
+							<!-- Analysis Options -->
+							<div class="options-grid">
+								<div class="option-group">
+									<h3>Substring Analysis</h3>
+									<div class="option-row">
+										<label>Min Length</label>
+										<input type="number" name="substring_min_len" min="2" max="20" value="4" />
+									</div>
+									<div class="option-row">
+										<label>Max Length</label>
+										<input type="number" name="substring_max_len" min="3" max="30" value="30" />
+									</div>
+									<div class="option-row">
+										<label>Frequency Threshold</label>
+										<input type="number" name="substring_freq_threshold" min="2" max="20" value="5" />
+									</div>
+									<div class="option-row">
+										<label>Suppress Nested</label>
+										<input type="checkbox" name="substring_disp_nest" value="true" />
+									</div>
+									<div class="option-row">
+										<label>Lowercase Only</label>
+										<input type="checkbox" name="substring_normalize" value="true" />
+									</div>
+								</div>
 
-					<!-- Policy Compliance Input Section -->
-					<fieldset>
-						<legend>Policy Compliance</legend>
-						<div class="input-row">
-							<div class="input-item">
-								<label for="policy_min_pw_len"
-									>Min Password Length:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="policy_min_pw_len"
-									min="6"
-									max="30"
-									value="12"
-								/>
-							</div>
-							<div class="input-item">
-								<label for="policy_max_pw_age"
-									>Max Password Age:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="policy_max_pw_age"
-									min="30"
-									max="1095"
-									value="90"
-								/>
-							</div>
-							<div class="input-item">
-								<label for="policy_complexity_req"
-									>Complexity Required:</label
-								>
-								<input
-									type="number"
-									class="small-input"
-									name="policy_complexity_req"
-									min="0"
-									max="5"
-									value="3"
-								/>
-							</div>
-						</div>
-					</fieldset>
+								<div class="option-group">
+									<h3>Dictionary Analysis</h3>
+									<div class="option-row">
+										<label>Min Word Length</label>
+										<input type="number" name="dictionary_min_len" min="2" max="10" value="4" />
+									</div>
+									<div class="option-row">
+										<label>Suppress Nested</label>
+										<input type="checkbox" name="dictionary_disp_nest" value="true" />
+									</div>
+								</div>
 
-					<!-- Ignore Blank Passwords Input Section -->
-					<fieldset>
-						<legend>Ignore Blank Passwords</legend>
-						<div class="input-row single-row">
-							<label for="ignore_blank_passwords"
-								>Do Not Treat Blank Passwords As Cracked:</label
-							>
-							<input
-								type="hidden"
-								name="ignore_blank_passwords"
-								value="false"
-							/>
-							<input
-								type="checkbox"
-								name="ignore_blank_passwords"
-								value="true"
-							/>
-						</div>
-					</fieldset>
+								<div class="option-group">
+									<h3>Policy Compliance</h3>
+									<div class="option-row">
+										<label>Min Password Length</label>
+										<input type="number" name="policy_min_pw_len" min="6" max="30" value="12" />
+									</div>
+									<div class="option-row">
+										<label>Max Password Age (days)</label>
+										<input type="number" name="policy_max_pw_age" min="30" max="1095" value="90" />
+									</div>
+									<div class="option-row">
+										<label>Complexity Required</label>
+										<input type="number" name="policy_complexity_req" min="0" max="5" value="3" />
+									</div>
+								</div>
 
-					<!-- Buttons -->
-					<div
-						style="
-							display: flex;
-							justify-content: center;
-							gap: 30px;
-							align-items: center;
-						"
-					>
-						<button type="button" class="helpButton">Help</button>
-						<button type="submit">Generate Report</button>
-						<button id="logoutButton" class="logoutButton">
-							Logout
-						</button>
-					</div>
+								<div class="option-group">
+									<h3>Account Filtering</h3>
+									<div class="option-row">
+										<label>Ignore Disabled Accounts</label>
+										<input type="hidden" name="ignore_disabled_accounts" value="false" />
+										<input type="checkbox" name="ignore_disabled_accounts" value="true" />
+									</div>
+									<div class="option-row">
+										<label>Ignore Computer Accounts</label>
+										<input type="hidden" name="ignore_computer_accounts" value="false" />
+										<input type="checkbox" name="ignore_computer_accounts" value="true" />
+									</div>
+									<div class="option-row">
+										<label>Ignore Blank Passwords</label>
+										<input type="hidden" name="ignore_blank_passwords" value="false" />
+										<input type="checkbox" name="ignore_blank_passwords" value="true" />
+									</div>
+								</div>
+							</div>
 
-					<div id="helpModal" style="display: none">
-						<div class="content">
-							<button id="closeHelp">&times;</button>
-							<div id="helpText"></div>
+							<div class="step-navigation">
+								<a href="{{ url_for('validation_review') }}" class="btn btn-secondary">
+									Back
+								</a>
+								<button type="submit" class="btn btn-primary">
+									Generate Report
+								</button>
+							</div>
 						</div>
 					</div>
 				</form>
+				</div>
+			</div>
+
+			<!-- Help Modal -->
+			<div id="helpModal" style="display: none">
+				<div class="content">
+					<button id="closeHelp">&times;</button>
+					<div id="helpText"></div>
+				</div>
+			</div>
+
+			<!-- File Browser Modal -->
+			<div id="fileBrowserModal" class="modal" style="display: none;">
+				<div class="modal-content file-browser-modal">
+					<div class="modal-header">
+						<h3>Browse Files</h3>
+						<button class="modal-close" onclick="closeFileBrowser()">&times;</button>
+					</div>
+					<div class="browser-path-bar">
+						<input type="text" id="browserPathInput" placeholder="Enter path..." onkeypress="if(event.key==='Enter') navigateToPath()">
+						<button class="btn btn-secondary" onclick="navigateToPath()">Go</button>
+					</div>
+					<div class="browser-content" id="browserContent">
+						<div class="browser-loading">Loading...</div>
+					</div>
+					<div class="modal-footer">
+						<button class="btn btn-secondary" onclick="closeFileBrowser()">Cancel</button>
+						<button class="btn btn-primary" id="selectFileBtn" onclick="selectFile()" disabled>Select</button>
+					</div>
+				</div>
 			</div>
 		</div>
 
-		<!-- JavaScript -->
 		<script>
-			document.addEventListener("DOMContentLoaded", () => {
-				// Toggle input method display
-				const toggleInputFields = () => {
-					const uploadFields =
-						document.getElementById("uploadFields");
-					const localFields = document.getElementById("localFields");
-					const form = document.querySelector("form");
-					const isUpload =
-						document.querySelector(
-							'input[name="input_method"]:checked'
-						).value === "upload";
+			// State tracking
+			const validationState = {
+				pwdump: { validated: false, valid: false, data: null },
+				potfile: { validated: false, valid: false, data: null }
+			};
 
-					if (uploadFields && localFields && form) {
-						uploadFields.style.display = isUpload
-							? "block"
-							: "none";
-						localFields.style.display = isUpload ? "none" : "block";
+			// Step navigation
+			function goToStep(stepNumber) {
+				// Hide all step contents
+				document.querySelectorAll('.step-content').forEach(el => {
+					el.classList.remove('active');
+				});
 
-						// Toggle required attributes
-						uploadFields
-							.querySelectorAll("input")
-							.forEach((input) => (input.required = isUpload));
-						localFields
-							.querySelectorAll("input")
-							.forEach((input) => (input.required = !isUpload));
+				// Show target step content
+				document.querySelector(`.step-content[data-step="${stepNumber}"]`).classList.add('active');
 
-						form.action = isUpload ? "/upload" : "/local_files";
-					}
-				};
+				// Update step indicator
+				document.querySelectorAll('.step').forEach(el => {
+					const elStep = parseInt(el.dataset.step);
+					el.classList.remove('active', 'completed', 'upcoming');
 
-				// Add event listeners to toggle input fields
-				document
-					.querySelectorAll('input[name="input_method"]')
-					.forEach((radio) => {
-						radio.addEventListener("change", toggleInputFields);
-					});
-
-				// Trigger the initial toggle check
-				toggleInputFields();
-
-				// Add client-side validation to the form
-				const form = document.querySelector("form");
-				form.addEventListener("submit", (event) => {
-					const isUpload =
-						document.querySelector(
-							'input[name="input_method"]:checked'
-						).value === "upload";
-					let valid = true;
-
-					if (isUpload) {
-						const uploadFields =
-							document.getElementById("uploadFields");
-						uploadFields
-							.querySelectorAll('input[type="file"]')
-							.forEach((input) => {
-								if (!input.value) {
-									alert(
-										`File input "${input.name}" is required.`
-									);
-									valid = false;
-								} else {
-									const allowedExtensions = [
-										"pwdump",
-										"ntds",
-										"potfile",
-										"pot",
-										"txt",
-									];
-									const fileExtension = input.value
-										.split(".")
-										.pop()
-										.toLowerCase();
-									if (
-										!allowedExtensions.includes(
-											fileExtension
-										)
-									) {
-										alert(
-											`Invalid file type for "${
-												input.name
-											}". Allowed types are: ${allowedExtensions.join(
-												", "
-											)}.`
-										);
-										valid = false;
-									}
-								}
-							});
+					if (elStep < stepNumber) {
+						el.classList.add('completed');
+					} else if (elStep === stepNumber) {
+						el.classList.add('active');
 					} else {
-						const localFields =
-							document.getElementById("localFields");
-						localFields
-							.querySelectorAll('input[type="text"]')
-							.forEach((input) => {
-								if (!input.value) {
-									alert(`Field "${input.name}" is required.`);
-									valid = false;
-								}
-							});
-					}
-
-					if (!valid) {
-						event.preventDefault(); // Prevent form submission
+						el.classList.add('upcoming');
 					}
 				});
 
-				// Configure marked.js
-				const renderer = new marked.Renderer();
-
-				// Override heading rendering to add custom IDs
-				renderer.heading = function (token) {
-					// Extract the depth (level) and text
-					const level = token.depth; // Use `depth` for the heading level
-					const plainText = token.text.replace(/\*\*/g, "").trim(); // Remove Markdown formatting like `**`
-
-					// Generate a slugified ID for the heading
-					const id = plainText.toLowerCase().replace(/[^\w]+/g, "-");
-
-					// Return the proper HTML element
-					return `<h${level} id="${id}">${plainText}</h${level}>`;
-				};
-
-				marked.setOptions({
-					renderer: renderer, // Use the custom renderer
-					gfm: true, // Enable GitHub-flavored Markdown
-					headerIds: true, // Add IDs to headings
-					mangle: false, // Prevent mangling of text
-				});
-
-				// Close the modal
-				function closeModal() {
-					helpModal.style.display = "none";
+				// If going to step 3 (Configure), update summary cards
+				if (stepNumber === 3) {
+					updateSummaryCards();
 				}
-				const helpModal = document.getElementById("helpModal");
-				const closeHelpButton = document.getElementById("closeHelp");
+			}
 
-				// Help button logic
-				document.querySelectorAll(".helpButton").forEach((button) => {
-					button.addEventListener("click", function () {
-						fetch("/readme")
-							.then((response) => response.text())
-							.then((markdown) => {
-								const helpText =
-									document.getElementById("helpText");
-								helpText.innerHTML = marked.parse(markdown);
+			// Navigate to validation review page (Step 2)
+			function goToValidation() {
+				// Submit the form to validate and redirect to validation_review
+				const form = document.getElementById('analysisForm');
+				const inputMethod = document.getElementById('input_method').value;
 
-								// Enable ToC links to scroll within the modal
-								helpText.addEventListener("click", (event) => {
-									const target = event.target.closest("a");
-									if (target && target.hash) {
-										event.preventDefault(); // Prevent default anchor behavior
-										const sectionId =
-											target.hash.substring(1); // Remove '#' from hash
-										const section = helpText.querySelector(
-											`#${sectionId}`
-										);
-										if (section) {
-											section.scrollIntoView({
-												behavior: "smooth",
-											});
-										}
-									}
-								});
+				// Use appropriate endpoint based on input method
+				if (inputMethod === 'local') {
+					form.action = "{{ url_for('validate_local_files') }}";
+				} else {
+					form.action = "{{ url_for('validate_files_endpoint') }}";
+				}
+				form.submit();
+			}
 
-								document.getElementById(
-									"helpModal"
-								).style.display = "block";
-							})
-							.catch((error) => {
-								console.error("Error fetching README:", error);
-							});
+			// Update summary cards in step 2
+			function updateSummaryCards() {
+				if (validationState.pwdump.data) {
+					const data = validationState.pwdump.data;
+					document.getElementById('pwdumpSummaryName').textContent = data.filename;
+					document.getElementById('pwdumpSummaryStats').innerHTML =
+						`<span class="good">${data.valid_lines} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines} errors</span>` : '0 errors'}`;
+					document.getElementById('pwdumpSummaryCard').classList.add('valid');
+				}
+
+				if (validationState.potfile.data) {
+					const data = validationState.potfile.data;
+					document.getElementById('potfileSummaryName').textContent = data.filename;
+					document.getElementById('potfileSummaryStats').innerHTML =
+						`<span class="good">${data.valid_lines} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines} errors</span>` : '0 errors'}`;
+					document.getElementById('potfileSummaryCard').classList.add('valid');
+				}
+			}
+
+			// Update continue button state
+			function updateContinueButton() {
+				const btn = document.getElementById('toStep2Btn');
+				const inputMethod = document.getElementById('input_method').value;
+
+				// Both upload and local methods require validation now
+				btn.disabled = !(validationState.pwdump.valid && validationState.potfile.valid);
+			}
+
+			// Update file status indicator
+			function updateFileStatus(fileType, status, message) {
+				const statusEl = document.getElementById(`${fileType}_status`);
+				statusEl.className = `file-status ${status}`;
+
+				const icon = status === 'valid' ? '✓' : status === 'invalid' ? '✗' : '○';
+				statusEl.innerHTML = `<span class="file-status-icon">${icon}</span><span>${message}</span>`;
+			}
+
+			// Single file validation function
+			async function validateSingleFile(fileType, inputId) {
+				const fileInput = document.getElementById(inputId);
+				const validateBtn = document.getElementById(fileType + '_validate_btn');
+				const statusIcon = document.getElementById(fileType + '_status_icon');
+
+				if (!fileInput.files || !fileInput.files[0]) {
+					alert('Please select a file first.');
+					return;
+				}
+
+				const formData = new FormData();
+				formData.append('file_type', fileType);
+				formData.append('file', fileInput.files[0]);
+
+				// Show loading state - hide button, show loading icon
+				validateBtn.style.display = 'none';
+				statusIcon.style.display = 'inline-flex';
+				statusIcon.className = 'validation-status-icon loading';
+				statusIcon.innerHTML = '...';
+				statusIcon.title = 'Validating...';
+				updateFileStatus(fileType, 'pending', 'Validating...');
+
+				try {
+					const response = await fetch('/validate_single', {
+						method: 'POST',
+						body: formData
 					});
-				});
 
-				// Close modal when clicking the close button
-				closeHelpButton.addEventListener("click", closeModal);
+					const data = await response.json();
 
-				// Prevent clicks inside the modal content from closing it
-				const modalContent = document.querySelector(
-					"#helpModal .content"
-				);
-				modalContent.addEventListener("click", (event) => {
-					event.stopPropagation(); // Stop the click from propagating to the document
-				});
-
-				// Close modal when clicking anywhere outside the modal
-				document.addEventListener("click", (event) => {
-					if (
-						helpModal.style.display === "block" &&
-						!helpModal.contains(event.target)
-					) {
-						closeModal();
+					if (data.error) {
+						// Show error icon
+						statusIcon.className = 'validation-status-icon error';
+						statusIcon.innerHTML = '✕';
+						statusIcon.title = 'Validation failed: ' + data.error;
+						validationState[fileType] = { validated: true, valid: false, data: null };
+						updateFileStatus(fileType, 'invalid', 'Validation failed');
+						updateContinueButton();
+						return;
 					}
-				});
 
-				// Close modal when pressing the ESC key
-				document.addEventListener("keydown", (event) => {
-					if (
-						event.key === "Escape" &&
-						helpModal.style.display === "block"
-					) {
-						closeModal();
-					}
-				});
+					// Store validation data
+					validationState[fileType] = {
+						validated: true,
+						valid: data.valid_lines > 0,
+						data: data
+					};
 
-				// Ensure the logout button works independently
-				const logoutButton = document.getElementById("logoutButton");
-				if (logoutButton) {
-					logoutButton.addEventListener("click", async (event) => {
-						event.preventDefault(); // Prevent any default form submission behavior
-						try {
-							const response = await fetch("/logout", {
-								method: "POST", // Ensure the request is a POST
-								headers: { "Content-Type": "application/json" },
-							});
-							if (response.ok) {
-								window.location.href = "/"; // Redirect to the homepage or login page
-							} else {
-								console.error("Logout failed");
-							}
-						} catch (error) {
-							console.error("Error during logout:", error);
+					// Determine icon type based on results
+					const hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
+					let statusMessage = `${data.valid_lines} valid`;
+
+					if (hasWarnings) {
+						// Yellow warning icon
+						statusIcon.className = 'validation-status-icon warning';
+						statusIcon.innerHTML = '!';
+						if (data.error_lines > 0) {
+							statusMessage += `, ${data.error_lines} errors`;
 						}
+						if (data.warning_lines > 0) {
+							statusMessage += `, ${data.warning_lines} warnings`;
+						}
+						statusIcon.title = statusMessage + ' - details in Step 2';
+					} else {
+						// Green success checkmark
+						statusIcon.className = 'validation-status-icon success';
+						statusIcon.innerHTML = '✓';
+						statusIcon.title = statusMessage;
+					}
+
+					updateFileStatus(fileType, 'valid', statusMessage);
+					updateContinueButton();
+
+				} catch (error) {
+					console.error('Validation error:', error);
+					statusIcon.className = 'validation-status-icon error';
+					statusIcon.innerHTML = '✕';
+					statusIcon.title = 'Error: ' + error.message;
+					validationState[fileType] = { validated: true, valid: false, data: null };
+					updateFileStatus(fileType, 'invalid', 'Validation failed');
+					updateContinueButton();
+				}
+			}
+
+			// Local file validation function
+			async function validateLocalFile(fileType, inputId) {
+				const pathInput = document.getElementById(inputId);
+				const validateBtn = document.getElementById('local_' + fileType + '_validate_btn');
+				const statusIcon = document.getElementById('local_' + fileType + '_status_icon');
+				const statusDiv = document.getElementById('local_' + fileType + '_status');
+
+				const filePath = pathInput.value.trim();
+				if (!filePath) {
+					alert('Please enter a file path first.');
+					return;
+				}
+
+				// Show loading state - hide button, show loading icon
+				validateBtn.style.display = 'none';
+				statusIcon.style.display = 'inline-flex';
+				statusIcon.className = 'validation-status-icon loading';
+				statusIcon.innerHTML = '...';
+				statusIcon.title = 'Validating...';
+				statusDiv.className = 'file-status pending';
+				statusDiv.innerHTML = '<span class="file-status-icon">○</span><span>Validating...</span>';
+
+				try {
+					const response = await fetch('/validate_single_local', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							file_type: fileType,
+							file_path: filePath
+						})
 					});
+
+					const data = await response.json();
+
+					if (data.error) {
+						// Show error icon
+						statusIcon.className = 'validation-status-icon error';
+						statusIcon.innerHTML = '✕';
+						statusIcon.title = 'Validation failed: ' + data.error;
+						validationState[fileType] = { validated: true, valid: false, data: null };
+						statusDiv.className = 'file-status invalid';
+						statusDiv.innerHTML = '<span class="file-status-icon">✗</span><span>Validation failed: ' + data.error + '</span>';
+						updateContinueButton();
+						return;
+					}
+
+					// Store validation data
+					validationState[fileType] = {
+						validated: true,
+						valid: data.valid_lines > 0,
+						data: data
+					};
+
+					// Determine icon type based on results
+					const hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
+					let statusMessage = `${data.valid_lines} valid`;
+
+					if (hasWarnings) {
+						// Yellow warning icon
+						statusIcon.className = 'validation-status-icon warning';
+						statusIcon.innerHTML = '!';
+						if (data.error_lines > 0) {
+							statusMessage += `, ${data.error_lines} errors`;
+						}
+						if (data.warning_lines > 0) {
+							statusMessage += `, ${data.warning_lines} warnings`;
+						}
+						statusIcon.title = statusMessage + ' - details in Step 2';
+					} else {
+						// Green success checkmark
+						statusIcon.className = 'validation-status-icon success';
+						statusIcon.innerHTML = '✓';
+						statusIcon.title = statusMessage;
+					}
+
+					statusDiv.className = 'file-status valid';
+					statusDiv.innerHTML = '<span class="file-status-icon">✓</span><span>' + statusMessage + '</span>';
+					updateContinueButton();
+
+				} catch (error) {
+					console.error('Validation error:', error);
+					statusIcon.className = 'validation-status-icon error';
+					statusIcon.innerHTML = '✕';
+					statusIcon.title = 'Error: ' + error.message;
+					validationState[fileType] = { validated: true, valid: false, data: null };
+					statusDiv.className = 'file-status invalid';
+					statusDiv.innerHTML = '<span class="file-status-icon">✗</span><span>Validation failed</span>';
+					updateContinueButton();
+				}
+			}
+
+			// Toggle between upload and local methods
+			document.querySelectorAll('.toggle-option').forEach(option => {
+				option.addEventListener('click', function() {
+					// Update toggle UI
+					document.querySelectorAll('.toggle-option').forEach(o => o.classList.remove('active'));
+					this.classList.add('active');
+
+					const method = this.dataset.method;
+					document.getElementById('input_method').value = method;
+
+					// Show/hide sections
+					document.getElementById('uploadSection').classList.toggle('hidden', method !== 'upload');
+					document.getElementById('localSection').classList.toggle('hidden', method !== 'local');
+
+					// Update form action
+					const form = document.getElementById('analysisForm');
+					form.action = method === 'upload' ? '/validate' : '/local_files';
+
+					// Update continue button
+					updateContinueButton();
+				});
+			});
+
+			// Local path input listeners
+			document.getElementById('pwdump_path').addEventListener('input', updateContinueButton);
+			document.getElementById('potfile_path').addEventListener('input', updateContinueButton);
+
+			// Help modal
+			document.querySelectorAll('.helpButton').forEach(button => {
+				button.addEventListener('click', function() {
+					fetch('/readme')
+						.then(response => response.text())
+						.then(markdown => {
+							document.getElementById('helpText').innerHTML = marked.parse(markdown);
+							document.getElementById('helpModal').style.display = 'flex';
+						});
+				});
+			});
+
+			document.getElementById('closeHelp').addEventListener('click', () => {
+				document.getElementById('helpModal').style.display = 'none';
+			});
+
+			document.getElementById('helpModal').addEventListener('click', (e) => {
+				if (e.target.id === 'helpModal') {
+					document.getElementById('helpModal').style.display = 'none';
+				}
+			});
+
+			// Logout button
+			document.getElementById('logoutButton').addEventListener('click', async () => {
+				try {
+					const response = await fetch('/logout', { method: 'POST' });
+					if (response.ok) {
+						window.location.href = '/';
+					}
+				} catch (error) {
+					console.error('Logout error:', error);
+				}
+			});
+
+			// Initialize
+			updateContinueButton();
+
+			// Populate Step 3 summary cards when coming from validation review
+			{% if initial_step == 3 and pwdump_validation %}
+			(function() {
+				const pwdumpData = {{ pwdump_validation | tojson | safe }};
+				const filename = pwdumpData.filepath.split('/').pop();
+				document.getElementById('pwdumpSummaryName').textContent = filename;
+				document.getElementById('pwdumpSummaryStats').innerHTML =
+					`<span class="good">${pwdumpData.valid_lines} valid</span> / ${pwdumpData.error_lines > 0 ? `<span class="bad">${pwdumpData.error_lines} errors</span>` : '0 errors'}`;
+				document.getElementById('pwdumpSummaryCard').classList.add('valid');
+
+				// Also set up validationState so form submission works
+				validationState.pwdump = {
+					validated: true,
+					valid: pwdumpData.valid_lines > 0,
+					data: {
+						filename: filename,
+						valid_lines: pwdumpData.valid_lines,
+						error_lines: pwdumpData.error_lines
+					}
+				};
+			})();
+			{% endif %}
+
+			{% if initial_step == 3 and potfile_validation %}
+			(function() {
+				const potfileData = {{ potfile_validation | tojson | safe }};
+				const filename = potfileData.filepath.split('/').pop();
+				document.getElementById('potfileSummaryName').textContent = filename;
+				document.getElementById('potfileSummaryStats').innerHTML =
+					`<span class="good">${potfileData.ntlm_count || potfileData.valid_lines} valid</span> / ${potfileData.error_lines > 0 ? `<span class="bad">${potfileData.error_lines} errors</span>` : '0 errors'}`;
+				document.getElementById('potfileSummaryCard').classList.add('valid');
+
+				// Also set up validationState so form submission works
+				validationState.potfile = {
+					validated: true,
+					valid: potfileData.valid_lines > 0,
+					data: {
+						filename: filename,
+						valid_lines: potfileData.valid_lines,
+						error_lines: potfileData.error_lines
+					}
+				};
+			})();
+			{% endif %}
+
+			// Navigate to the specified initial step (default 1, or 3 if coming from validation review)
+			{% if initial_step and initial_step > 1 %}
+			goToStep({{ initial_step }});
+			{% endif %}
+
+			// ============================================
+			// File Browser Functions
+			// ============================================
+			let fileBrowserState = {
+				targetInput: null,
+				currentPath: '.',
+				selectedFile: null
+			};
+
+			function openFileBrowser(inputId) {
+				fileBrowserState.targetInput = inputId;
+				fileBrowserState.selectedFile = null;
+
+				// Get initial path from the input field, or use current directory
+				const currentValue = document.getElementById(inputId).value;
+				let startPath = '.';
+				if (currentValue) {
+					// If there's a path, try to get its directory
+					const lastSlash = currentValue.lastIndexOf('/');
+					if (lastSlash > 0) {
+						startPath = currentValue.substring(0, lastSlash);
+					} else if (currentValue.startsWith('/')) {
+						startPath = '/';
+					}
+				}
+
+				document.getElementById('fileBrowserModal').style.display = 'flex';
+				document.getElementById('selectFileBtn').disabled = true;
+				loadDirectory(startPath);
+			}
+
+			function closeFileBrowser() {
+				document.getElementById('fileBrowserModal').style.display = 'none';
+				fileBrowserState.targetInput = null;
+				fileBrowserState.selectedFile = null;
+			}
+
+			async function loadDirectory(path) {
+				const content = document.getElementById('browserContent');
+				content.innerHTML = '<div class="browser-loading">Loading...</div>';
+
+				try {
+					const response = await fetch('/browse_directory', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ path: path })
+					});
+
+					const data = await response.json();
+
+					if (data.error) {
+						content.innerHTML = `<div class="browser-error">${data.error}</div>`;
+						return;
+					}
+
+					fileBrowserState.currentPath = data.current_path;
+					document.getElementById('browserPathInput').value = data.current_path;
+
+					renderDirectoryContents(data.entries);
+
+				} catch (error) {
+					content.innerHTML = `<div class="browser-error">Error loading directory: ${error.message}</div>`;
+				}
+			}
+
+			function renderDirectoryContents(entries) {
+				const content = document.getElementById('browserContent');
+
+				if (entries.length === 0) {
+					content.innerHTML = '<div class="browser-empty">Directory is empty</div>';
+					return;
+				}
+
+				let html = '<div class="browser-list">';
+				for (const entry of entries) {
+					const icon = entry.is_dir ? '&#128193;' : '&#128196;';
+					const sizeStr = entry.size !== null ? formatFileSize(entry.size) : '';
+					const itemClass = entry.is_dir ? 'browser-item dir' : 'browser-item file';
+
+					html += `
+						<div class="${itemClass}" data-path="${escapeHtml(entry.path)}" data-is-dir="${entry.is_dir}"
+							 onclick="handleItemClick(this)" ondblclick="handleItemDblClick(this)">
+							<span class="item-icon">${icon}</span>
+							<span class="item-name">${escapeHtml(entry.name)}</span>
+							<span class="item-size">${sizeStr}</span>
+						</div>
+					`;
+				}
+				html += '</div>';
+				content.innerHTML = html;
+			}
+
+			function handleItemClick(element) {
+				// Remove selection from other items
+				document.querySelectorAll('.browser-item.selected').forEach(el => {
+					el.classList.remove('selected');
+				});
+
+				// Select this item
+				element.classList.add('selected');
+
+				const isDir = element.dataset.isDir === 'true';
+				const path = element.dataset.path;
+
+				if (!isDir) {
+					fileBrowserState.selectedFile = path;
+					document.getElementById('selectFileBtn').disabled = false;
+				} else {
+					fileBrowserState.selectedFile = null;
+					document.getElementById('selectFileBtn').disabled = true;
+				}
+			}
+
+			function handleItemDblClick(element) {
+				const isDir = element.dataset.isDir === 'true';
+				const path = element.dataset.path;
+
+				if (isDir) {
+					loadDirectory(path);
+				} else {
+					// Double-click on file = select and close
+					fileBrowserState.selectedFile = path;
+					selectFile();
+				}
+			}
+
+			function navigateToPath() {
+				const path = document.getElementById('browserPathInput').value.trim();
+				if (path) {
+					loadDirectory(path);
+				}
+			}
+
+			function selectFile() {
+				if (fileBrowserState.selectedFile && fileBrowserState.targetInput) {
+					document.getElementById(fileBrowserState.targetInput).value = fileBrowserState.selectedFile;
+					closeFileBrowser();
+					updateContinueButton();
+				}
+			}
+
+			function formatFileSize(bytes) {
+				if (bytes === 0) return '0 B';
+				const k = 1024;
+				const sizes = ['B', 'KB', 'MB', 'GB'];
+				const i = Math.floor(Math.log(bytes) / Math.log(k));
+				return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+			}
+
+			function escapeHtml(text) {
+				const div = document.createElement('div');
+				div.textContent = text;
+				return div.innerHTML;
+			}
+
+			// Close modal when clicking outside
+			document.getElementById('fileBrowserModal').addEventListener('click', (e) => {
+				if (e.target.id === 'fileBrowserModal') {
+					closeFileBrowser();
 				}
 			});
 		</script>

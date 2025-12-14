@@ -20,14 +20,38 @@
 			rel="shortcut icon"
 			href="{{ url_for('static', filename='favicon.ico') }}"
 		/>
+		<!-- High-tech font for logo -->
+		<link rel="preconnect" href="https://fonts.googleapis.com">
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+		<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 	</head>
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
-	<body id="reportPage">
-		<h1>Password and Hash Analysis Report</h1>
-		<!-- Combined Section for Stats Table and Donut Charts -->
+	<body id="reportPage" class="dark-theme">
+		<!-- App Header -->
+		<header class="app-header">
+			<div class="brand">
+				<h1 class="brand-name">HASH MASTER 1000</h1>
+				<span class="brand-tagline">Password & Hash Analysis Report</span>
+			</div>
+			<div class="header-actions">
+				<button type="button" class="header-btn" onclick="window.location.href='{{ url_for('clear_and_restart') }}'">Start Over</button>
+				<button type="button" id="themeToggle" class="header-btn theme">Switch to Print View</button>
+				<form action="/logout" method="post" style="display: inline; margin: 0;">
+					<button type="submit" class="header-btn logout">Logout</button>
+				</form>
+			</div>
+		</header>
+
+		<!-- Report Content Container -->
+		<div class="report-content">
+		<!-- Download All JSON Files button at top -->
+		<div style="text-align: center; margin-bottom: 20px;">
+			<button id="downloadAllJsonFiles">Download All JSON Files</button>
+		</div>
+		<!-- Combined Section for Stats Table and Stacked Bar Charts -->
 		<section id="statsAndCharts">
 			<!-- Stats Table -->
-			<div>
+			<div class="stats-table-container">
 				<h2>Project Statistics</h2>
 				<table id="analysisStatsTable">
 					<tbody>
@@ -35,14 +59,24 @@
 					</tbody>
 				</table>
 			</div>
-			<!-- Create the Cracked Accounts and Cracked Hashes Donut Charts -->
-			<div class="chart-container">
-				<h2>Cracked Accounts</h2>
-				<canvas id="accountsPieChart"></canvas>
-			</div>
-			<div class="chart-container">
-				<h2>Cracked Hashes</h2>
-				<canvas id="hashesPieChart"></canvas>
+			<!-- Horizontal Stacked Bar Charts Container -->
+			<div class="stacked-charts-container">
+				<div class="stacked-bar-wrapper">
+					<h2>Accounts</h2>
+					<div class="stacked-bar-container">
+						<canvas id="accountsStackedBar"></canvas>
+						<div id="accountsStackedBarLabels" class="bar-labels-overlay"></div>
+					</div>
+					<div id="accountsStackedBarLegend" class="custom-chart-legend"></div>
+				</div>
+				<div class="stacked-bar-wrapper">
+					<h2>Hashes</h2>
+					<div class="stacked-bar-container">
+						<canvas id="hashesStackedBar"></canvas>
+						<div id="hashesStackedBarLabels" class="bar-labels-overlay"></div>
+					</div>
+					<div id="hashesStackedBarLegend" class="custom-chart-legend"></div>
+				</div>
 			</div>
 		</section>
 		<!-- Create Password Length Distribution Bar Chart -->
@@ -354,6 +388,35 @@
 				</button>
 			</div>
 		</section>
+		<!-- Section for Accounts with LM Hashes -->
+		<section id="lmHashSection">
+			<h2>Accounts With LM Hashes</h2>
+			<table
+				id="lmHashTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadLmHashCSV"
+					onclick="downloadCSV('pw_lm_hashes', 'LM_Hash_Accounts.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
 		<!-- Section for the (Accounts) Passwords Failing Max Age Table -->
 		<section id="policyMaxAgeSection">
 			<h2>Accounts Failing Maximum Age Password Policy</h2>
@@ -385,16 +448,130 @@
 				</button>
 			</div>
 		</section>
-		<!-- Add buttons for Logout and Download All JSON Files at the bottom -->
-		<div style="text-align: center; margin-top: 20px">
-			<form action="/logout" method="post" style="display: inline">
-				<button type="submit" id="logoutButton">Logout</button>
-			</form>
-			<button id="downloadAllJsonFiles">Download All JSON Files</button>
-		</div>
+		</div><!-- End report-content -->
 
 		<!-- -------------------- JavaScript Section -------------------- -->
 		<script>
+			// ==================== THEME MANAGEMENT ====================
+			// Theme colors for dark and light modes
+			const themeColors = {
+				dark: {
+					text: '#f4f4f4',
+					grid: '#444',
+					legend: '#ccc',
+					datalabel: '#f4f4f4',
+					copyBackground: '#1a1a1a'
+				},
+				light: {
+					text: '#000000',
+					grid: '#ddd',
+					legend: '#333',
+					datalabel: '#000000',
+					copyBackground: '#FFFFFF'
+				}
+			};
+
+			// Get current theme
+			function getCurrentTheme() {
+				return document.body.classList.contains('light-theme') ? 'light' : 'dark';
+			}
+
+			// Update all charts for the current theme
+			function updateChartsForTheme(isDark) {
+				const theme = isDark ? themeColors.dark : themeColors.light;
+
+				// List of all bar chart instances to update
+				const barCharts = [
+					passwordLengthChartInstance,
+					topPasswordsChartInstance,
+					topSubstringsChartInstance,
+					topDictionaryWordsChartInstance
+				].filter(c => c); // Filter out undefined charts
+
+				barCharts.forEach(chart => {
+					if (chart && chart.options) {
+						// Update axis colors
+						if (chart.options.scales) {
+							if (chart.options.scales.x) {
+								chart.options.scales.x.ticks.color = theme.text;
+								chart.options.scales.x.title.color = theme.text;
+								if (chart.options.scales.x.grid) {
+									chart.options.scales.x.grid.color = theme.grid;
+								}
+							}
+							if (chart.options.scales.y) {
+								chart.options.scales.y.ticks.color = theme.text;
+								chart.options.scales.y.title.color = theme.text;
+								if (chart.options.scales.y.grid) {
+									chart.options.scales.y.grid.color = theme.grid;
+								}
+							}
+						}
+						// Update datalabels color
+						if (chart.options.plugins && chart.options.plugins.datalabels) {
+							chart.options.plugins.datalabels.color = theme.datalabel;
+						}
+						chart.update();
+					}
+				});
+
+				// Update stacked bar charts legend colors
+				const stackedBarCharts = [
+					accountsStackedBarInstance,
+					hashesStackedBarInstance
+				].filter(c => c);
+
+				stackedBarCharts.forEach(chart => {
+					if (chart && chart.options && chart.options.plugins && chart.options.plugins.legend) {
+						chart.options.plugins.legend.labels.color = theme.legend;
+						chart.update();
+					}
+				});
+			}
+
+			// Toggle theme function
+			function toggleTheme() {
+				const body = document.body;
+				const isCurrentlyDark = body.classList.contains('dark-theme');
+				const toggleBtn = document.getElementById('themeToggle');
+
+				// Switch themes
+				body.classList.toggle('dark-theme', !isCurrentlyDark);
+				body.classList.toggle('light-theme', isCurrentlyDark);
+
+				// Update button text
+				toggleBtn.textContent = isCurrentlyDark ? 'Switch to Analysis View' : 'Switch to Print View';
+
+				// Update charts
+				updateChartsForTheme(!isCurrentlyDark);
+
+				// Save preference
+				localStorage.setItem('reportTheme', isCurrentlyDark ? 'light' : 'dark');
+			}
+
+			// Initialize theme - always start with dark/Analysis View (default)
+			// User preference is saved when they switch themes
+			function initializeTheme() {
+				const body = document.body;
+				const toggleBtn = document.getElementById('themeToggle');
+
+				// Always default to dark theme (Analysis View) to match input screens
+				body.classList.remove('light-theme');
+				body.classList.add('dark-theme');
+				toggleBtn.textContent = 'Switch to Print View';
+			}
+
+			// Add theme toggle click handler
+			document.addEventListener('DOMContentLoaded', function() {
+				initializeTheme();
+				document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+				// Update charts after they're created (with a small delay)
+				setTimeout(() => {
+					updateChartsForTheme(getCurrentTheme() === 'dark');
+				}, 1000);
+			});
+
 			// Setup colors for pie charts and bar charts
 			const colors = {
 				pie: ["#FD3F01", "#0B89FD"], // Red and blue
@@ -425,7 +602,9 @@
 				tempCanvas.height = canvas.height;
 
 				const tempContext = tempCanvas.getContext("2d");
-				tempContext.fillStyle = "#FFFFFF"; // Set background color (e.g., white)
+				// Use theme-appropriate background color
+				const theme = getCurrentTheme();
+				tempContext.fillStyle = themeColors[theme].copyBackground;
 				tempContext.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
 				// Draw the chart on top of the background
@@ -938,79 +1117,135 @@
 				});
 			});
 
-			// Function to create a pie chart from "data" for the provided canvas ID
-			function createPieChart(data, canvasId) {
+			// Global variables for stacked bar chart instances
+			let accountsStackedBarInstance;
+			let hashesStackedBarInstance;
+
+			// Colors for stacked bar charts: green for uncracked (secure), red for cracked (insecure)
+			const stackedBarColors = {
+				uncracked: "#31b005",    // Green - secure/preferred
+				cracked: "#dc3545"       // Red - insecure/vulnerable
+			};
+
+			// Function to create a horizontal stacked bar chart from "data" for the provided canvas ID
+			function createStackedBarChart(data, canvasId) {
 				const labels = Object.keys(data);
 				const values = Object.values(data);
+				const total = values.reduce((a, b) => a + b, 0);
+				const theme = getCurrentTheme();
+				const colors_theme = themeColors[theme];
 
-				// Define label colors corresponding to pie chart colors
-				const labelColors = colors.pie.map((color) =>
-					color === "#FD3F01" ? "#FFF" : "#000"
-				); // White for red, black for blue
+				// Determine colors based on label (Uncracked = green/secure, Cracked = red/insecure)
+				const getColor = (label) => {
+					if (label.toLowerCase().includes('uncracked')) {
+						return stackedBarColors.uncracked;
+					}
+					return stackedBarColors.cracked;
+				};
 
-				new Chart(document.getElementById(canvasId), {
-					type: "doughnut",
+				// Reorder datasets so Uncracked appears first (left side of bar)
+				const sortedEntries = labels.map((label, i) => ({ label, value: values[i] }));
+				sortedEntries.sort((a, b) => {
+					const aIsUncracked = a.label.toLowerCase().includes('uncracked');
+					const bIsUncracked = b.label.toLowerCase().includes('uncracked');
+					if (aIsUncracked && !bIsUncracked) return -1;
+					if (!aIsUncracked && bIsUncracked) return 1;
+					return 0;
+				});
+
+				const chartInstance = new Chart(document.getElementById(canvasId), {
+					type: "bar",
 					data: {
-						labels: labels,
-						datasets: [
-							{
-								data: values,
-								backgroundColor: colors.pie,
-							},
-						],
+						labels: [""], // Single row for stacked bar
+						datasets: sortedEntries.map((entry) => ({
+							label: entry.label,
+							data: [entry.value],
+							backgroundColor: getColor(entry.label),
+							borderWidth: 0,
+							barPercentage: 1.0,
+							categoryPercentage: 1.0,
+						})),
 					},
 					options: {
+						indexAxis: "y", // Horizontal bar
 						responsive: true,
-						plugins: {
-							legend: {
-								position: "bottom",
-								labels: {
-									font: {
-										size: 14, // Adjust font size for the legend
-										weight: "bold", // Optional: make legend font bold
-									},
-									color: "#333", // Optional: customize legend text color
-								},
+						maintainAspectRatio: false,
+						layout: {
+							padding: { left: 0, right: 0, top: 10, bottom: 10 }
+						},
+						scales: {
+							x: {
+								stacked: true,
+								display: false,
+								grid: { display: false },
 							},
-							datalabels: {
-								color: (ctx) => labelColors[ctx.dataIndex], // Set label color dynamically
-								font: {
-									weight: "normal",
-									size: 14,
-								},
-								formatter: (value, ctx) => {
-									const formatNumber = (num) =>
-										num
-											.toString()
-											.replace(
-												/\B(?=(\d{3})+(?!\d))/g,
-												","
-											);
-
-									const total =
-										ctx.chart.data.datasets[0].data.reduce(
-											(a, b) => a + b,
-											0
-										);
-									const percentage =
-										((value / total) * 100).toFixed(1) +
-										"%";
-
-									return `${formatNumber(
-										value
-									)}\n${percentage}`;
-								},
+							y: {
+								stacked: true,
+								display: false,
+								grid: { display: false },
 							},
 						},
+						plugins: {
+							legend: {
+								display: false, // Disable Chart.js legend - using custom HTML legend
+							},
+							datalabels: {
+								display: false, // Disable in-bar labels - show percentages in legend instead
+							},
+							tooltip: {
+								callbacks: {
+									label: function(context) {
+										const value = context.raw;
+										const percentage = ((value / total) * 100).toFixed(1);
+										return `${context.dataset.label}: ${formatWithCommas(value)} (${percentage}%)`;
+									}
+								}
+							}
+						},
 					},
-					plugins: [ChartDataLabels], // Enable the Data Labels plugin
+					plugins: [ChartDataLabels],
 				});
+
+				// Generate custom HTML legend
+				const legendContainer = document.getElementById(canvasId + 'Legend');
+				if (legendContainer) {
+					legendContainer.innerHTML = sortedEntries.map(entry => {
+						const percentage = ((entry.value / total) * 100).toFixed(1);
+						return `<span class="legend-item">
+							<span class="legend-color" style="background-color: ${getColor(entry.label)}"></span>
+							<span class="legend-text">${entry.label}: ${formatWithCommas(entry.value)} (${percentage}%)</span>
+						</span>`;
+					}).join('');
+				}
+
+				// Generate HTML overlay labels for percentages
+				const labelsContainer = document.getElementById(canvasId + 'Labels');
+				if (labelsContainer) {
+					labelsContainer.innerHTML = sortedEntries.map(entry => {
+						const percentage = ((entry.value / total) * 100).toFixed(1);
+						const widthPercent = (entry.value / total) * 100;
+						// Only show label if segment is wide enough (>15%)
+						const labelText = widthPercent >= 15 ? `${percentage}%` : '';
+						return `<div class="bar-label" style="width: ${widthPercent}%">${labelText}</div>`;
+					}).join('');
+				}
+
+				// Store instance reference
+				if (canvasId === "accountsStackedBar") {
+					accountsStackedBarInstance = chartInstance;
+				} else if (canvasId === "hashesStackedBar") {
+					hashesStackedBarInstance = chartInstance;
+				}
+
+				return chartInstance;
 			}
 
 			// Function to create a bar chart from "data" for the provided canvas ID
 			function createBarChart(data, canvasId, xLabel, yLabel) {
 				const labels = Object.keys(data);
 				const values = Object.values(data);
+				const theme = getCurrentTheme();
+				const colors_theme = themeColors[theme];
 
 				new Chart(document.getElementById(canvasId), {
 					type: "bar",
@@ -1036,7 +1271,7 @@
 							datalabels: {
 								anchor: "end",
 								align: "top",
-								color: "#000000", // Pure black for data labels
+								color: colors_theme.datalabel, // Theme-aware data label color
 								font: {
 									size: 14, // Consistent font size for data labels
 									weight: "normal",
@@ -1050,11 +1285,14 @@
 									display: true,
 									text: xLabel,
 									font: { size: 14 }, // Consistent font size for axis title
-									color: "#000000", // Pure black for axis title
+									color: colors_theme.text, // Theme-aware axis title color
 								},
 								ticks: {
 									font: { size: 14 }, // Consistent font size for axis ticks
-									color: "#000000", // Pure black for axis ticks
+									color: colors_theme.text, // Theme-aware axis tick color
+								},
+								grid: {
+									color: colors_theme.grid, // Theme-aware grid color
 								},
 								sort: false,
 							},
@@ -1063,13 +1301,16 @@
 									display: true,
 									text: yLabel,
 									font: { size: 14 }, // Consistent font size for axis title
-									color: "#000000", // Pure black for axis title
+									color: colors_theme.text, // Theme-aware axis title color
 								},
 								ticks: {
 									font: { size: 14 }, // Consistent font size for axis ticks
-									color: "#000000", // Pure black for axis ticks
+									color: colors_theme.text, // Theme-aware axis tick color
 									callback: formatWithCommas,
 									stepSize: 1, // Ensures that the steps are in whole numbers
+								},
+								grid: {
+									color: colors_theme.grid, // Theme-aware grid color
 								},
 							},
 						},
@@ -1163,18 +1404,18 @@
 					);
 			});
 
-			// Fetch and create Cracked Accounts Pie Chart
+			// Fetch and create Cracked Accounts Stacked Bar Chart
 			fetch("pw_account_pie")
 				.then((response) => response.json())
-				.then((data) => createPieChart(data, "accountsPieChart"))
+				.then((data) => createStackedBarChart(data, "accountsStackedBar"))
 				.catch((error) =>
 					console.error("Error loading pw_account_pie:", error)
 				);
 
-			// Fetch and create Cracked Hashes Pie Chart
+			// Fetch and create Cracked Hashes Stacked Bar Chart
 			fetch("pw_ntlm_hash_pie")
 				.then((response) => response.json())
-				.then((data) => createPieChart(data, "hashesPieChart"))
+				.then((data) => createStackedBarChart(data, "hashesStackedBar"))
 				.catch((error) =>
 					console.error("Error loading pw_ntlm_hash_pie:", error)
 				);
@@ -1230,7 +1471,10 @@
 							Object.values(filteredData);
 						passwordLengthChartInstance.update();
 					} else {
-						// Create a new chart instance
+						// Create a new chart instance with theme-aware colors
+					const theme = getCurrentTheme();
+					const colors_theme = themeColors[theme];
+
 						passwordLengthChartInstance = new Chart(ctx, {
 							type: "bar",
 							data: {
@@ -1255,7 +1499,7 @@
 									datalabels: {
 										anchor: "end",
 										align: "top",
-										color: "#000000",
+										color: colors_theme.datalabel,
 										font: {
 											size: 14,
 											weight: "normal",
@@ -1270,11 +1514,14 @@
 											display: true,
 											text: "Length (characters)",
 											font: { size: 14 },
-											color: "#000000",
+											color: colors_theme.text,
 										},
 										ticks: {
 											font: { size: 14 },
-											color: "#000000",
+											color: colors_theme.text,
+										},
+										grid: {
+											color: colors_theme.grid,
 										},
 									},
 									y: {
@@ -1282,13 +1529,16 @@
 											display: true,
 											text: "Number of Passwords",
 											font: { size: 14 },
-											color: "#000000",
+											color: colors_theme.text,
 										},
 										ticks: {
 											font: { size: 14 },
-											color: "#000000",
+											color: colors_theme.text,
 											callback: (value) =>
 												value.toLocaleString(),
+										},
+										grid: {
+											color: colors_theme.grid,
 										},
 									},
 								},
@@ -1488,6 +1738,8 @@
 						.getElementById("topPasswordsChart")
 						.getContext("2d");
 					const originalLabels = Object.keys(topPasswordsData); // Store original labels for blurring
+					const theme_tp = getCurrentTheme();
+					const colors_theme_tp = themeColors[theme_tp];
 
 					topPasswordsChartInstance = new Chart(ctx, {
 						type: "bar",
@@ -1513,7 +1765,7 @@
 								datalabels: {
 									anchor: "end",
 									align: "top",
-									color: "#000000",
+									color: colors_theme_tp.datalabel,
 									font: {
 										size: 14,
 										weight: "normal",
@@ -1527,11 +1779,14 @@
 										display: true,
 										text: "Cracked Password",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_tp.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_tp.text,
+									},
+									grid: {
+										color: colors_theme_tp.grid,
 									},
 								},
 								y: {
@@ -1539,12 +1794,15 @@
 										display: true,
 										text: "Count",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_tp.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_tp.text,
 										callback: formatWithCommas,
+									},
+									grid: {
+										color: colors_theme_tp.grid,
 									},
 								},
 							},
@@ -1648,6 +1906,8 @@
 					const counts = sortedData
 						.slice(0, 25)
 						.map((item) => item.count);
+					const theme_ss = getCurrentTheme();
+					const colors_theme_ss = themeColors[theme_ss];
 
 					const chartConfig = {
 						type: "bar",
@@ -1671,7 +1931,7 @@
 								datalabels: {
 									anchor: "end",
 									align: "top",
-									color: "#000000",
+									color: colors_theme_ss.datalabel,
 									font: { size: 14, weight: "normal" },
 									formatter: formatWithCommas,
 								},
@@ -1682,13 +1942,16 @@
 										display: true,
 										text: "Substring",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_ss.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_ss.text,
 										maxRotation: 45,
 										minRotation: 20,
+									},
+									grid: {
+										color: colors_theme_ss.grid,
 									},
 								},
 								y: {
@@ -1696,12 +1959,15 @@
 										display: true,
 										text: "Count",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_ss.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_ss.text,
 										callback: formatWithCommas,
+									},
+									grid: {
+										color: colors_theme_ss.grid,
 									},
 								},
 							},
@@ -1709,7 +1975,7 @@
 						plugins: [ChartDataLabels],
 					};
 
-					const topSubstringsChartInstance = new Chart(
+					topSubstringsChartInstance = new Chart(
 						ctx,
 						chartConfig
 					);
@@ -1761,6 +2027,8 @@
 							obj[key] = value;
 							return obj;
 						}, {});
+					const theme_dw = getCurrentTheme();
+					const colors_theme_dw = themeColors[theme_dw];
 
 					// Assign to the global instance variable
 					topDictionaryWordsChartInstance = new Chart(ctx, {
@@ -1787,7 +2055,7 @@
 								datalabels: {
 									anchor: "end",
 									align: "top",
-									color: "#000000", // Pure black for data labels
+									color: colors_theme_dw.datalabel,
 									font: {
 										size: 14,
 										weight: "normal",
@@ -1801,11 +2069,14 @@
 										display: true,
 										text: "Dictionary Word",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_dw.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_dw.text,
+									},
+									grid: {
+										color: colors_theme_dw.grid,
 									},
 								},
 								y: {
@@ -1813,12 +2084,15 @@
 										display: true,
 										text: "Count",
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_dw.text,
 									},
 									ticks: {
 										font: { size: 14 },
-										color: "#000000",
+										color: colors_theme_dw.text,
 										callback: formatWithCommas, // Format axis labels with commas
+									},
+									grid: {
+										color: colors_theme_dw.grid,
 									},
 								},
 							},
@@ -2023,6 +2297,28 @@
 				})
 				.catch((error) =>
 					console.error("Error loading pw_fails_blank:", error)
+				);
+
+			// Fetch and populate the LM Hash Accounts table
+			fetch("pw_lm_hashes")
+				.then((response) => response.json())
+				.then((data) => {
+					// Transform the JSON data into an array format suitable for DataTables
+					const transformedData = data.map((account) => ({
+						Account: account,
+					}));
+
+					// Initialize the DataTable
+					$("#lmHashTable").DataTable({
+						data: transformedData,
+						columns: [{ title: "Account", data: "Account" }],
+						order: [[0, "asc"]], // Sort by the account name column in ascending order
+						responsive: true,
+						destroy: true,
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_lm_hashes:", error)
 				);
 
 			// Fetch and populate the Password Fails Max Age table

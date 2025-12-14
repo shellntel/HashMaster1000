@@ -206,6 +206,9 @@ def main(args):
     # Prepare Fails Password Policy - Max Age Report
     fail_max_age = stats_report["pw_fails_max_age"]
 
+    # Prepare accounts with valid LM hashes
+    lm_hash_accounts = stats_report["pw_lm_hashes"]
+
     # Write the necessary report data to JSON files stored in the data/ folder
     with open("data/cracking_stats_table.json", "w") as f:
         json.dump(stats_table, f, indent=4)
@@ -231,6 +234,8 @@ def main(args):
         json.dump(fail_blank, f)
     with open("data/pw_fails_max_age.json", "w") as f:
         json.dump(fail_max_age, f)
+    with open("data/pw_lm_hashes.json", "w") as f:
+        json.dump(lm_hash_accounts, f)
 
     # Dump raw account, hash and password data
     with open("data/account_data.json", "w") as f:

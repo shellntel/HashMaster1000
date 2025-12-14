@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Validation Results - Hash Master 1000</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- High-tech font for logo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Modern Header -->
+    <header class="app-header">
+        <div class="brand">
+            <h1 class="brand-name">Hash Master 1000</h1>
+            <span class="brand-tagline">Password & Hash Analyzer</span>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="header-btn" onclick="window.location.href='{{ url_for('index') }}'">Start Over</button>
+            <button id="logoutButton" class="header-btn logout">Logout</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Main Layout with Sidebar -->
+        <div class="main-layout">
+            <!-- Step Indicator Sidebar -->
+            <div class="step-sidebar">
+                <div class="step-indicator">
+                    <div class="step completed" data-step="1">
+                        <div class="step-circle">1</div>
+                        <div class="step-label">Load Files</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step active" data-step="2">
+                        <div class="step-circle">2</div>
+                        <div class="step-label">Validate</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step upcoming" data-step="3">
+                        <div class="step-circle">3</div>
+                        <div class="step-label">Configure</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step upcoming" data-step="4">
+                        <div class="step-circle">4</div>
+                        <div class="step-label">Report</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Container -->
+            <div class="wizard-container">
+                <div class="step-content active" data-step="2">
+                    <div class="step-panel">
+                        <h2>Step 2: Review Validation Results</h2>
+                        <p class="step-description">
+                            Review the validation results for your source files. You can exclude problematic lines if needed.
+                        </p>
+
+                        <div class="validation-container">
+                            <!-- Summary Cards -->
+        <div class="validation-summary">
+            {% if pwdump %}
+            <div class="summary-card">
+                <h3>Pwdump File</h3>
+                <div class="stat success">{{ pwdump.valid_lines }}</div>
+                <div class="detail">Valid Lines</div>
+            </div>
+            <div class="summary-card">
+                <h3>Pwdump Warnings</h3>
+                <div class="stat warning">{{ pwdump.warning_lines }}</div>
+                <div class="detail">Lines with Warnings</div>
+            </div>
+            <div class="summary-card">
+                <h3>Pwdump Errors</h3>
+                <div class="stat error">{{ pwdump.error_lines }}</div>
+                <div class="detail">Invalid Lines</div>
+            </div>
+            {% endif %}
+            {% if potfile %}
+            <div class="summary-card">
+                <h3>Potfile (NTLM)</h3>
+                <div class="stat success">{{ potfile.ntlm_count }}</div>
+                <div class="detail">Usable NTLM Hashes</div>
+            </div>
+            {% if potfile.non_ntlm_count > 0 %}
+            <div class="summary-card">
+                <h3>Potfile (Other)</h3>
+                <div class="stat warning">{{ potfile.non_ntlm_count }}</div>
+                <div class="detail">Non-NTLM (Ignored)</div>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+
+        <!-- Warning about excluding lines -->
+        {% if pwdump %}
+        {% set problem_lines = pwdump.lines | selectattr('errors') | list %}
+        {% if problem_lines %}
+        <div class="warning-banner">
+            <h3>Important: Review Before Excluding Lines</h3>
+            <p>Some lines in your pwdump file have issues that require your attention. Before excluding any lines, please consider:</p>
+            <ul>
+                <li><strong>Lines with FATAL errors</strong> cannot be processed and are automatically excluded.</li>
+                <li><strong>Lines with warnings</strong> can still be processed. Unchecking them will exclude those accounts from analysis.</li>
+                <li><strong>If you exclude valid accounts</strong>, your statistics will be inaccurate. For example, if an account appears corrupt but is actually valid, excluding it means that account won't be counted in your password analysis results.</li>
+                <li><strong>Recommendation:</strong> Only exclude lines that you are certain are invalid or should not be analyzed.</li>
+            </ul>
+        </div>
+        {% endif %}
+
+        <!-- Status coverage warning -->
+        {% set lines_with_status = pwdump.lines | selectattr('status') | selectattr('is_valid') | list | length %}
+        {% set status_coverage = (lines_with_status / pwdump.valid_lines * 100) | round(1) if pwdump.valid_lines > 0 else 0 %}
+        {% if status_coverage < 100 %}
+        <div class="status-coverage-warning">
+            <h4>Incomplete Status Information ({{ status_coverage }}% coverage)</h4>
+            <p>Only {{ lines_with_status }} of {{ pwdump.valid_lines }} accounts have status information (Enabled/Disabled).
+            Statistics about enabled vs disabled accounts will be less meaningful. For the most accurate analysis,
+            use a dcsync-format dump with status information for all accounts.</p>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <!-- Non-NTLM hash info -->
+        {% if potfile and potfile.non_ntlm_count > 0 %}
+        <div class="info-banner">
+            <h3>Non-NTLM Hashes in Potfile</h3>
+            <p>{{ potfile.non_ntlm_count }} non-NTLM hash(es) will be ignored. {{ potfile.ntlm_count }} NTLM hash(es) will be used for analysis.</p>
+
+            {% if potfile.hash_type_summary %}
+            <div class="hash-type-summary">
+                {% for type_key, info in potfile.hash_type_summary.items() %}
+                <div class="hash-type-item {% if info.is_ntlm %}usable{% else %}ignored{% endif %}">
+                    <span class="type-name">{{ info.name }}</span>
+                    <span class="type-count">{{ info.count }}</span>
+                    {% if info.mode is not none %}
+                    <span class="type-mode">(mode {{ info.mode }})</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Pwdump File Section -->
+        {% if pwdump %}
+        <section class="file-section">
+            <h2>Pwdump File: {{ pwdump.filepath | basename }}</h2>
+
+            <div class="format-badges">
+                <span class="format-badge with-status">With Status: {{ pwdump.formats_detected.get('dcsync', 0) }}</span>
+                <span class="format-badge without-status">Without Status: {{ pwdump.formats_detected.get('standard', 0) }}</span>
+            </div>
+
+            {% set problem_lines = pwdump.lines | selectattr('errors') | list %}
+            {% if problem_lines %}
+            <h3>Lines Requiring Review ({{ problem_lines | length }})</h3>
+            <table class="line-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">Include</th>
+                        <th style="width: 60px;">Line #</th>
+                        <th style="width: 200px;">Username</th>
+                        <th>Issues</th>
+                        <th style="width: 300px;">Raw Line</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for line in pwdump.lines if line.errors %}
+                    <tr class="line-row {% if not line.is_valid %}error{% else %}warning{% endif %} {% if not line.included %}excluded{% endif %}"
+                        data-line="{{ line.line_number }}" data-file="pwdump">
+                        <td class="checkbox-cell">
+                            <input type="checkbox"
+                                   {% if line.included %}checked{% endif %}
+                                   {% if not line.is_valid %}disabled title="Cannot include - fatal error"{% endif %}
+                                   onchange="updateSelection('pwdump', {{ line.line_number }}, this.checked)">
+                        </td>
+                        <td>{{ line.line_number }}</td>
+                        <td class="username-cell">
+                            {{ line.username or '(empty)' }}
+                            {% if line.status %}
+                            <span class="status-badge {% if line.status == 'Disabled' %}disabled{% else %}enabled{% endif %}">
+                                {{ line.status }}
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for error in line.errors %}
+                            <span class="error-badge {{ error.severity }}">{{ error.severity | upper }}</span>
+                            <span class="error-message">{{ error.message }}</span>
+                            {% endfor %}
+                        </td>
+                        <td class="raw-line" title="{{ line.raw_line }}">{{ line.raw_line[:80] }}{% if line.raw_line | length > 80 %}...{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="no-issues">
+                <h3>All Lines Valid</h3>
+                <p>No issues found in the pwdump file.</p>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- Potfile Section -->
+        {% if potfile %}
+        {% set potfile_problems = potfile.entries | selectattr('errors') | list %}
+        {% if potfile_problems %}
+        <section class="file-section">
+            <h2>Potfile: {{ potfile.filepath | basename }}</h2>
+
+            <h3>Entries Requiring Review ({{ potfile_problems | length }})</h3>
+            <table class="line-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">Include</th>
+                        <th style="width: 60px;">Line #</th>
+                        <th style="width: 120px;">Hash Type</th>
+                        <th>Issues</th>
+                        <th style="width: 350px;">Raw Line</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for entry in potfile.entries if entry.errors %}
+                    <tr class="line-row {% if not entry.is_valid %}error{% elif not entry.is_ntlm %}warning{% endif %} {% if not entry.included %}excluded{% endif %}"
+                        data-line="{{ entry.line_number }}" data-file="potfile">
+                        <td class="checkbox-cell">
+                            <input type="checkbox"
+                                   {% if entry.included %}checked{% endif %}
+                                   {% if not entry.is_valid or not entry.is_ntlm %}disabled title="{% if not entry.is_valid %}Cannot include - fatal error{% else %}Non-NTLM hash - automatically ignored{% endif %}"{% endif %}
+                                   onchange="updateSelection('potfile', {{ entry.line_number }}, this.checked)">
+                        </td>
+                        <td>{{ entry.line_number }}</td>
+                        <td>
+                            {% if entry.detected_type %}
+                            <span class="hash-type-badge {% if entry.is_ntlm %}ntlm{% else %}non-ntlm{% endif %}">
+                                {{ entry.detected_type }}
+                            </span>
+                            {% else %}
+                            <span class="hash-type-badge non-ntlm">Unknown</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for error in entry.errors %}
+                            <span class="error-badge {{ error.severity }}">{{ error.severity | upper }}</span>
+                            <span class="error-message">{{ error.message }}</span>
+                            {% endfor %}
+                        </td>
+                        <td class="raw-line" title="{{ entry.raw_line }}">{{ entry.raw_line[:60] }}{% if entry.raw_line | length > 60 %}...{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+        {% endif %}
+
+                            <!-- Step Navigation -->
+                            <div class="step-navigation">
+                                <a href="{{ url_for('clear_and_restart') }}" class="btn btn-secondary">Start Over</a>
+                                <a href="{{ url_for('index', step=3) }}" class="btn btn-primary">Continue to Configuration</a>
+                            </div>
+                        </div><!-- /validation-container -->
+                    </div><!-- /step-panel -->
+                </div><!-- /step-content -->
+            </div><!-- /wizard-container -->
+        </div><!-- /main-layout -->
+    </div><!-- /container -->
+
+    <script>
+        async function updateSelection(fileType, lineNumber, included) {
+            try {
+                const response = await fetch('/update_selections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_type: fileType,
+                        line_number: lineNumber,
+                        included: included
+                    })
+                });
+
+                if (response.ok) {
+                    const row = document.querySelector(`tr[data-line="${lineNumber}"][data-file="${fileType}"]`);
+                    if (row) {
+                        row.classList.toggle('excluded', !included);
+                    }
+                } else {
+                    console.error('Failed to update selection');
+                }
+            } catch (error) {
+                console.error('Error updating selection:', error);
+            }
+        }
+
+        // Logout handler
+        document.getElementById('logoutButton').addEventListener('click', async function() {
+            try {
+                const response = await fetch('/logout', { method: 'POST' });
+                if (response.ok) {
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        });
+    </script>
+</body>
+</html>
