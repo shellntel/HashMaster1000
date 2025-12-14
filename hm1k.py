@@ -206,6 +206,12 @@ def basename_filter(path: Optional[str]) -> str:
     """Jinja filter to get basename of a path."""
     return os.path.basename(path) if path else ''
 
+# Custom Jinja test for checking if username ends with $ (computer account)
+@app.template_test('computer_account')
+def is_computer_account(username: Optional[str]) -> bool:
+    """Jinja test to check if a username is a computer account (ends with $)."""
+    return bool(username and username.endswith('$'))
+
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
     hours=8
 )  # Session expiration can be adjusted here

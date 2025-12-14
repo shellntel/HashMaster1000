@@ -226,7 +226,7 @@
 									</div>
 									<div class="option-row">
 										<label>Suppress Nested</label>
-										<input type="checkbox" name="substring_disp_nest" value="true" />
+										<input type="checkbox" name="substring_disp_nest" value="true" checked />
 									</div>
 									<div class="option-row">
 										<label>Lowercase Only</label>
@@ -242,7 +242,7 @@
 									</div>
 									<div class="option-row">
 										<label>Suppress Nested</label>
-										<input type="checkbox" name="dictionary_disp_nest" value="true" />
+										<input type="checkbox" name="dictionary_disp_nest" value="true" checked />
 									</div>
 								</div>
 
@@ -264,18 +264,24 @@
 
 								<div class="option-group">
 									<h3>Account Filtering</h3>
-									<div class="option-row">
-										<label>Ignore Disabled Accounts</label>
+									{% if pwdump_validation %}
+									{% set valid_lines = pwdump_validation.lines | selectattr('is_valid') | list %}
+									{% set disabled_count = valid_lines | selectattr('status', 'equalto', 'Disabled') | list | length %}
+									{% set computer_count = valid_lines | selectattr('username', 'computer_account') | list | length %}
+									{% set blank_count = valid_lines | selectattr('ntlm_hash', 'equalto', '31d6cfe0d16ae931b73c59d7e0c089c0') | list | length %}
+									{% endif %}
+									<div class="option-row filter-option">
+										<label>Ignore Disabled Accounts{% if pwdump_validation %} <span class="filter-count">({{ disabled_count }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_disabled_accounts" value="false" />
 										<input type="checkbox" name="ignore_disabled_accounts" value="true" />
 									</div>
-									<div class="option-row">
-										<label>Ignore Computer Accounts</label>
+									<div class="option-row filter-option">
+										<label>Ignore Computer Accounts{% if pwdump_validation %} <span class="filter-count">({{ computer_count }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_computer_accounts" value="false" />
 										<input type="checkbox" name="ignore_computer_accounts" value="true" />
 									</div>
-									<div class="option-row">
-										<label>Ignore Blank Passwords</label>
+									<div class="option-row filter-option">
+										<label>Ignore Blank Passwords{% if pwdump_validation %} <span class="filter-count">({{ blank_count }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_blank_passwords" value="false" />
 										<input type="checkbox" name="ignore_blank_passwords" value="true" />
 									</div>

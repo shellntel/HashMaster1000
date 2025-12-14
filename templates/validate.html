@@ -96,6 +96,33 @@
             {% endif %}
         </div>
 
+        <!-- Account Statistics Cards (for configuration preview) -->
+        {% if pwdump %}
+        {% set valid_lines = pwdump.lines | selectattr('is_valid') | list %}
+        {% set computer_count = valid_lines | selectattr('username', 'computer_account') | list | length %}
+        {% set blank_count = valid_lines | selectattr('ntlm_hash', 'equalto', '31d6cfe0d16ae931b73c59d7e0c089c0') | list | length %}
+        {% set disabled_count = valid_lines | selectattr('status', 'equalto', 'Disabled') | list | length %}
+        {% if computer_count > 0 or blank_count > 0 or disabled_count > 0 %}
+        <div class="validation-summary" style="margin-top: 12px;">
+            <div class="summary-card">
+                <h3>Computer Accounts</h3>
+                <div class="stat info">{{ computer_count }}</div>
+                <div class="detail">Accounts ending with $</div>
+            </div>
+            <div class="summary-card">
+                <h3>Blank Passwords</h3>
+                <div class="stat {% if blank_count > 0 %}warning{% else %}success{% endif %}">{{ blank_count }}</div>
+                <div class="detail">Empty password hash</div>
+            </div>
+            <div class="summary-card">
+                <h3>Disabled Accounts</h3>
+                <div class="stat info">{{ disabled_count }}</div>
+                <div class="detail">Status = Disabled</div>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+
         <!-- Warning about excluding lines -->
         {% if pwdump %}
         {% set problem_lines = pwdump.lines | selectattr('errors') | list %}
@@ -156,6 +183,15 @@
                 <span class="format-badge with-status">With Status: {{ pwdump.formats_detected.get('dcsync', 0) }}</span>
                 <span class="format-badge without-status">Without Status: {{ pwdump.formats_detected.get('standard', 0) }}</span>
             </div>
+
+            {% set enabled_count = pwdump.lines | selectattr('is_valid') | selectattr('status', 'equalto', 'Enabled') | list | length %}
+            {% set disabled_count = pwdump.lines | selectattr('is_valid') | selectattr('status', 'equalto', 'Disabled') | list | length %}
+            {% if enabled_count > 0 or disabled_count > 0 %}
+            <div class="format-badges" style="margin-top: 8px;">
+                <span class="format-badge enabled">Enabled: {{ enabled_count }}</span>
+                <span class="format-badge disabled">Disabled: {{ disabled_count }}</span>
+            </div>
+            {% endif %}
 
             {% set problem_lines = pwdump.lines | selectattr('errors') | list %}
             {% if problem_lines %}
