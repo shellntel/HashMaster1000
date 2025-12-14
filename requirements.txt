@@ -1,4 +1,5 @@
 Flask
+Flask-Session
 flask-login
 bcrypt
 nltk
