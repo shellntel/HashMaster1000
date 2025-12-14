@@ -8,3 +8,5 @@ users.json
 __pycache__/
 data/
 uploads/
+flask_session/
+venv/
