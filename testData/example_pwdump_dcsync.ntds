@@ -1,0 +1,25 @@
+example.com\Administrator:500:aad3b435b51404eeaad3b435b51404ee:29ab86c5c4d2aab957763e5c1720486d::: (status=Enabled)
+example.com\Guest:501:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0::: (status=Disabled)
+example.com\krbtgt:502:aad3b435b51404eeaad3b435b51404ee:f4a1e7c0d2967c13dc50e08e90b41108::: (status=Disabled)
+example.com\James.Smith:1001:aad3b435b51404eeaad3b435b51404ee:29ab86c5c4d2aab957763e5c1720486d::: (status=Enabled)
+example.com\Michael.Johnson:1002:aad3b435b51404eeaad3b435b51404ee:f4a1e7c0d2967c13dc50e08e90b41108::: (status=Enabled)
+example.com\Sarah.Williams:1003:aad3b435b51404eeaad3b435b51404ee:3c4ae58e173aa89a65eb1f1a0378746d::: (status=Enabled)
+example.com\Robert.Brown:1004:aad3b435b51404eeaad3b435b51404ee:7c5f2dc7acb81e902958bfdee467e4f0::: (status=Disabled)
+example.com\Jennifer.Davis:1005:aad3b435b51404eeaad3b435b51404ee:47dd446a80512414185572b2e76a47da::: (status=Enabled)
+example.com\David.Miller:1006:aad3b435b51404eeaad3b435b51404ee:7142190f3122b1a00e914af7a5426900::: (status=Enabled)
+example.com\Lisa.Wilson:1007:aad3b435b51404eeaad3b435b51404ee:07ee4fe4435c4d265f1b76f07bd8ca51::: (status=Disabled)
+example.com\SVC_backup:1008:aad3b435b51404eeaad3b435b51404ee:9af0e42138461e37f88ab5f368f04954::: (status=Enabled)
+example.com\SVC_sql:1009:aad3b435b51404eeaad3b435b51404ee:960248305484709b3c0a0eb6af854991::: (status=Enabled)
+example.com\TestUser1:1010:aad3b435b51404eeaad3b435b51404ee:871c94500d1d3aa620d316016b9e6e68::: (status=Disabled)
+example.com\TestUser2:1011:aad3b435b51404eeaad3b435b51404ee:1ed015b2f3dc54deabb3a5e3b20fd655::: (status=Disabled)
+example.com\OldAdmin:1012:aad3b435b51404eeaad3b435b51404ee:7557d1ffaa315aa363a82ae72a449045::: (status=Disabled)
+example.com\StandardUser::aad3b435b51404eeaad3b435b51404ee:0a2302ddf9a2bec00bd3147bd7cbd99d:::
+example.com\LegacyAccount::aad3b435b51404eeaad3b435b51404ee:29ab86c5c4d2aab957763e5c1720486d:::
+example.com\MixedFormat:1015:aad3b435b51404eeaad3b435b51404ee:9554d5f34d683f39a9d4fe6c66fe0018:::
+badline_missing_fields:invalid
+example.com\BadHash:1020:aad3b435b51404eeaad3b435b51404ee:not_a_valid_hash::: (status=Enabled)
+
+example.com\ValidAfterBlank:1021:aad3b435b51404eeaad3b435b51404ee:31b1f230566bae6a554c8b0470e98b06::: (status=Enabled)
+example.com\IT_Support:1022:aad3b435b51404eeaad3b435b51404ee:8be5954aed20ffe8341e4ab8ed805f83::: (status=Enabled)
+example.com\HR_Admin:1023:aad3b435b51404eeaad3b435b51404ee:9ceb21a33f93d0ed236bcd381c27a0bc::: (status=Enabled)
+example.com\Finance_User:1024:aad3b435b51404eeaad3b435b51404ee:b0353d8fafd1e17091aa12b0d2d4efde::: (status=Disabled)
