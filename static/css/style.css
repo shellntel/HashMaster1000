@@ -1433,6 +1433,20 @@ body#reportPage .app-header {
 	cursor: pointer;
 }
 
+.filter-count {
+	color: #0d6efd;
+	font-weight: 600;
+}
+
+.option-row.filter-option {
+	padding: 10px 0;
+	border-bottom: 1px solid #333;
+}
+
+.option-row.filter-option:last-child {
+	border-bottom: none;
+}
+
 /* Navigation Buttons */
 .step-navigation {
 	display: flex;
@@ -1620,6 +1634,7 @@ body#reportPage .app-header {
 .summary-card .stat.success { color: #31b005; }
 .summary-card .stat.warning { color: #ffc107; }
 .summary-card .stat.error { color: #dc3545; }
+.summary-card .stat.info { color: #0d6efd; }
 
 .summary-card .detail {
 	font-size: 10px;
@@ -1910,6 +1925,8 @@ body#reportPage .app-header {
 
 .format-badge.with-status { background: #31b005; }
 .format-badge.without-status { background: #6c757d; }
+.format-badge.enabled { background: #0d6efd; }
+.format-badge.disabled { background: #dc3545; }
 
 /* Validation page file section overrides */
 .validation-container .file-section {
