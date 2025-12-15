@@ -396,7 +396,7 @@ Provides a high-level overview:
 -   **Top Substrings Used**: Displays the most frequent substrings within passwords.
 -   **Top Dictionary Words**: Identifies frequent dictionary words found in cracked passwords.
 -   **Bad Practices Report**: Interactive bar chart showing passwords matching common bad practice patterns including:
-    -   Password-based patterns (password, p@ssw0rd, etc.)
+    -   Password Variants (password, p@ssw0rd, passwd, etc.)
     -   Season + Year combinations (Summer2024, Winter2023, etc.)
     -   Keyboard walks (qwerty, asdf, 123456, etc.)
     -   Common weak bases (letmein, welcome, admin, etc.)
