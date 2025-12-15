@@ -44,6 +44,8 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 -   Password policy compliance checks (length, complexity)
 -   Analysis of weak or reused passwords
 -   Detection of common/reused dictionary words and substrings
+-   Bad Practices Report with 11 detection categories (clickable bars show matching passwords)
+-   Company Name & Terms detection for organization-specific keyword matching
 -   Visualization of cracking statistics with interactive charts
 -   Support for mixed hash type potfiles (auto-detects and filters NTLM)
 -   Built-in file browser for local server files
@@ -305,12 +307,13 @@ If issues are found, you'll be directed to a validation review page where you ca
 
 ## **Configurable Settings**
 
-Configurable settings affect the analysis and reporting of cracked passwords and hash data. A thorough password analysis may require tweaking the substring and dictionary word analysis options, usually to control the number of results. Likewise, it's useful to analyze substrings and dictionary words both with and without supressing any nested strings/words. There are 4 sections of analysis options including:
+Configurable settings affect the analysis and reporting of cracked passwords and hash data. A thorough password analysis may require tweaking the substring and dictionary word analysis options, usually to control the number of results. Likewise, it's useful to analyze substrings and dictionary words both with and without supressing any nested strings/words. There are 5 sections of analysis options including:
 
 1. Substring analysis options
 2. Dictionary word analysis options
 3. Password policy compliance options
-4. Option to treat blank passwords as uncracked
+4. Company Name & Terms detection
+5. Option to treat blank passwords as uncracked
 
 Note: The default settings should work for most basic use cases. Only the pwdump file and Hashcat potfile are required to run a report.
 
@@ -338,6 +341,19 @@ The Policy Compliance configurable settings allow the report to be customized to
 -   **Min Password Length**: Minimum length required for a compliant password.
 -   **Max Password Age**: Maximum allowable days since last password change (feature coming soon).
 -   **Complexity Requirement**: Passwords must meet specific complexity rules (uppercase, lowercase, digit, and special character). Microsoft typically requires 3 out of 4 categories to be complex, but certain implemenations may require all 4 categories. While there is rumor of a 5th complexity category being added, selecting 5 today should cause all cracked passwords to be reported.
+
+#### **Company Name & Terms**
+
+This feature allows you to detect organization-specific terms in cracked passwords. Users commonly incorporate company names, acronyms, department names, product names, or other organization-specific terms into their passwords. This is a significant security risk as these terms are easily guessable by attackers who know the target organization.
+
+Click the **Configure** button to open a modal where you can enter custom keywords:
+
+-   Enter one term per line
+-   Terms must be at least 3 characters long (supports short acronyms)
+-   Matching is case-insensitive
+-   Examples: company name, stock ticker, department names, product names, building names
+
+When configured, a "Company Terms" category appears in the Bad Practices Report chart. Clicking on the bar shows all matching passwords with their occurrence counts.
 
 #### **Ignore Blank Passwords**
 
@@ -379,6 +395,20 @@ Provides a high-level overview:
 -   **Top Reused Cracked Passwords**: Highlights commonly reused passwords.
 -   **Top Substrings Used**: Displays the most frequent substrings within passwords.
 -   **Top Dictionary Words**: Identifies frequent dictionary words found in cracked passwords.
+-   **Bad Practices Report**: Interactive bar chart showing passwords matching common bad practice patterns including:
+    -   Password-based patterns (password, p@ssw0rd, etc.)
+    -   Season + Year combinations (Summer2024, Winter2023, etc.)
+    -   Keyboard walks (qwerty, asdf, 123456, etc.)
+    -   Common weak bases (letmein, welcome, admin, etc.)
+    -   Top common passwords
+    -   Sequential/repeated characters
+    -   Bible verses
+    -   Sports teams/mascots
+    -   Passwords ending with # or !
+    -   Leet-speak substitutions
+    -   Company Terms (when configured)
+
+    **Click on any bar** to see all matching passwords with their occurrence counts in a scrollable modal.
 
 **Note**: All charts can be copied to the clipboard as PNG, downloaded as SVG, or downloaded as CSV, using the buttons below each chart.
 

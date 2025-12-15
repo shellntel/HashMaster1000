@@ -248,6 +248,45 @@
 				</button>
 			</div>
 		</section>
+		<!-- Create Bad Practices Bar Chart -->
+		<section class="barChart">
+			<h2>Bad Password Practices</h2>
+			<canvas id="badPracticesChart" style="width: 100%"></canvas>
+			<div
+				class="dropdown-container"
+				style="text-align: center; margin-bottom: 12px"
+			>
+				<label for="badPracticesFilterOption">Filter Results:</label>
+				<select id="badPracticesFilterOption">
+					<option value="all" selected>All Categories</option>
+					<option value="nonZero">Hide Empty</option>
+				</select>
+			</div>
+			<!-- Add buttons for copying and downloading data -->
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="copyBadPracticesChart"
+					onclick="copyChartToClipboard('badPracticesChart')"
+				>
+					Copy PNG
+				</button>
+				<button
+					id="downloadBadPracticesChart"
+					onclick="downloadChartAsSVG('badPracticesChart')"
+				>
+					Download SVG
+				</button>
+				<button
+					id="downloadBadPracticesCSV"
+					onclick="downloadCSV('pw_bad_practices', 'Bad_Password_Practices.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
+		</section>
 		<!-- Section for the Interactive Password (Based on Hash) Reuse Table -->
 		<section id="tableSection">
 			<h2>Password Reuse</h2>
@@ -485,7 +524,8 @@
 					passwordLengthChartInstance,
 					topPasswordsChartInstance,
 					topSubstringsChartInstance,
-					topDictionaryWordsChartInstance
+					topDictionaryWordsChartInstance,
+					badPracticesChartInstance
 				].filter(c => c); // Filter out undefined charts
 
 				barCharts.forEach(chart => {
@@ -2117,6 +2157,154 @@
 					console.error("Error loading pw_dict_words:", error)
 				);
 
+			// --- Bad Practices Bar Chart --- \\
+			let badPracticesChartInstance;
+			let badPracticesRawData;
+
+			fetch("pw_bad_practices")
+				.then((response) => response.json())
+				.then((data) => {
+					// Store raw data for filtering
+					badPracticesRawData = data;
+
+					// Transform data for Chart.js: extract category names and counts
+					const sortedEntries = Object.entries(data)
+						.map(([category, info]) => ({
+							category: category,
+							count: info.count,
+							examples: info.examples
+						}))
+						.sort((a, b) => b.count - a.count); // Sort by count descending
+
+					const labels = sortedEntries.map(e => e.category);
+					const counts = sortedEntries.map(e => e.count);
+
+					const ctx = document.getElementById("badPracticesChart").getContext("2d");
+					const theme_bp = getCurrentTheme();
+					const colors_theme_bp = themeColors[theme_bp];
+
+					badPracticesChartInstance = new Chart(ctx, {
+						type: "bar",
+						data: {
+							labels: labels,
+							datasets: [{
+								label: "Password Count",
+								data: counts,
+								backgroundColor: "#dc3545", // Red to indicate bad practices
+							}],
+						},
+						options: {
+							responsive: true,
+							layout: {
+								padding: { top: 30 },
+							},
+							onClick: (event, elements) => {
+								if (elements.length > 0) {
+									const index = elements[0].index;
+									const category = badPracticesChartInstance.data.labels[index];
+									const info = badPracticesRawData[category];
+									if (info) {
+										openBadPracticesModal(category, info.count, info.examples);
+									}
+								}
+							},
+							onHover: (event, elements) => {
+								event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+							},
+							plugins: {
+								legend: { display: false },
+								datalabels: {
+									anchor: "end",
+									align: "top",
+									color: colors_theme_bp.datalabel,
+									font: { size: 14, weight: "normal" },
+									formatter: formatWithCommas,
+								},
+								tooltip: {
+									callbacks: {
+										afterLabel: function(context) {
+											const category = context.label;
+											const info = badPracticesRawData[category];
+											if (info && info.examples && info.examples.length > 0) {
+												return "Examples: " + info.examples.slice(0, 3).join(", ");
+											}
+											return "";
+										}
+									}
+								}
+							},
+							scales: {
+								x: {
+									title: {
+										display: true,
+										text: "Bad Practice Category",
+										font: { size: 14 },
+										color: colors_theme_bp.text,
+									},
+									ticks: {
+										font: { size: 12 },
+										color: colors_theme_bp.text,
+										maxRotation: 45,
+										minRotation: 20,
+									},
+									grid: {
+										color: colors_theme_bp.grid,
+									},
+								},
+								y: {
+									title: {
+										display: true,
+										text: "Password Count",
+										font: { size: 14 },
+										color: colors_theme_bp.text,
+									},
+									ticks: {
+										font: { size: 14 },
+										color: colors_theme_bp.text,
+										callback: formatWithCommas,
+									},
+									grid: {
+										color: colors_theme_bp.grid,
+									},
+								},
+							},
+						},
+						plugins: [ChartDataLabels],
+					});
+				})
+				.catch((error) =>
+					console.error("Error loading pw_bad_practices:", error)
+				);
+
+			// Event listener for Bad Practices filter dropdown
+			document.getElementById("badPracticesFilterOption")
+				.addEventListener("change", function () {
+					if (!badPracticesChartInstance || !badPracticesRawData) {
+						console.error("Bad Practices Chart Instance or data not initialized.");
+						return;
+					}
+
+					const filterOption = this.value;
+
+					// Transform and filter data
+					let sortedEntries = Object.entries(badPracticesRawData)
+						.map(([category, info]) => ({
+							category: category,
+							count: info.count,
+						}))
+						.sort((a, b) => b.count - a.count);
+
+					// Apply filter if needed
+					if (filterOption === "nonZero") {
+						sortedEntries = sortedEntries.filter(e => e.count > 0);
+					}
+
+					// Update chart
+					badPracticesChartInstance.data.labels = sortedEntries.map(e => e.category);
+					badPracticesChartInstance.data.datasets[0].data = sortedEntries.map(e => e.count);
+					badPracticesChartInstance.update();
+				});
+
 			// Fetch and populate the Password (Hash) Reuse table
 			fetch("pw_reuse_table")
 				.then((response) => response.json())
@@ -2352,6 +2540,83 @@
 				.catch((error) =>
 					console.error("Error loading pw_fails_max_age:", error)
 				);
+		</script>
+
+		<!-- Bad Practices Details Modal -->
+		<div id="badPracticesModal" class="modal" style="display: none;">
+			<div class="modal-content" style="max-width: 600px;">
+				<div class="modal-header">
+					<h3 id="badPracticesModalTitle">Category Details</h3>
+					<button class="modal-close" onclick="closeBadPracticesModal()">&times;</button>
+				</div>
+				<div class="modal-body" style="padding: 20px;">
+					<p id="badPracticesModalCount" style="color: #888; margin-bottom: 15px;"></p>
+					<div id="badPracticesModalList" style="max-height: 400px; overflow-y: auto;">
+						<!-- Password list will be populated here -->
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button class="btn btn-secondary" onclick="closeBadPracticesModal()">Close</button>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			// Bad Practices Modal Functions
+			function openBadPracticesModal(category, count, examples) {
+				document.getElementById('badPracticesModalTitle').textContent = category;
+
+				const listContainer = document.getElementById('badPracticesModalList');
+				// examples is now a dictionary: {password: count, ...}
+				if (examples && typeof examples === 'object' && Object.keys(examples).length > 0) {
+					// Sort by count descending
+					const sortedPasswords = Object.entries(examples)
+						.sort((a, b) => b[1] - a[1]);
+
+					const uniqueCount = sortedPasswords.length;
+					document.getElementById('badPracticesModalCount').textContent =
+						`${count.toLocaleString()} total occurrence${count !== 1 ? 's' : ''} (${uniqueCount.toLocaleString()} unique password${uniqueCount !== 1 ? 's' : ''})`;
+
+					listContainer.innerHTML = '<ul style="list-style: none; padding: 0; margin: 0;">' +
+						sortedPasswords.map(([pw, pwCount]) =>
+							`<li style="padding: 8px 12px; background: #2a2a2a; margin-bottom: 4px; border-radius: 4px; font-family: monospace; color: #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+								<span>${escapeHtml(pw)}</span>
+								<span style="color: #888; font-size: 12px; margin-left: 12px;">(${pwCount.toLocaleString()})</span>
+							</li>`
+						).join('') +
+						'</ul>';
+				} else {
+					document.getElementById('badPracticesModalCount').textContent =
+						`${count.toLocaleString()} password${count !== 1 ? 's' : ''} found`;
+					listContainer.innerHTML = '<p style="color: #888; font-style: italic;">No examples available</p>';
+				}
+
+				document.getElementById('badPracticesModal').style.display = 'flex';
+			}
+
+			function closeBadPracticesModal() {
+				document.getElementById('badPracticesModal').style.display = 'none';
+			}
+
+			function escapeHtml(text) {
+				const div = document.createElement('div');
+				div.textContent = text;
+				return div.innerHTML;
+			}
+
+			// Close modal when clicking outside
+			document.getElementById('badPracticesModal').addEventListener('click', function(e) {
+				if (e.target === this) {
+					closeBadPracticesModal();
+				}
+			});
+
+			// Close modal with Escape key
+			document.addEventListener('keydown', function(e) {
+				if (e.key === 'Escape') {
+					closeBadPracticesModal();
+				}
+			});
 		</script>
 	</body>
 </html>

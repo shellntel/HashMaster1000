@@ -1003,6 +1003,7 @@ def process_validated() -> Response:
             "ignore_disabled_accounts": str(parse_boolean_field("ignore_disabled_accounts")).lower(),
             "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
             "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            "custom_keywords": request.form.get("custom_keywords", ""),
         }
         # Store in session for consistency
         session["analysis_options"] = options
@@ -1092,6 +1093,21 @@ def process_validated() -> Response:
             options.get("dictionary_disp_nest", "false") == "true",
         )
 
+        # Parse custom keywords from form (newlines and commas supported)
+        custom_keywords_raw = options.get("custom_keywords", "").strip()
+        custom_keywords = []
+        if custom_keywords_raw:
+            # Split by newlines and commas, then strip whitespace
+            for line in custom_keywords_raw.replace(",", "\n").split("\n"):
+                keyword = line.strip()
+                if keyword:
+                    custom_keywords.append(keyword)
+
+        # Run bad practices analysis
+        bad_practices = password_analysis_tools.bad_practices_analysis(
+            cracked_passwords, custom_keywords
+        )
+
         # Check password reuse (needs original file path)
         pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
 
@@ -1122,6 +1138,8 @@ def process_validated() -> Response:
             json.dump(stats_report["pw_fails_max_age"], f)
         with open("data/pw_lm_hashes.json", "w") as f:
             json.dump(stats_report["pw_lm_hashes"], f)
+        with open("data/pw_bad_practices.json", "w") as f:
+            json.dump(bad_practices, f)
         with open("data/account_data.json", "w") as f:
             json.dump(account_data, f)
 
@@ -1269,6 +1287,15 @@ def pw_max_age_table() -> Response:
 @login_required
 def pw_lm_hashes_table() -> Response:
     with open("data/pw_lm_hashes.json") as f:
+        data = json.load(f)
+    return jsonify(data)
+
+
+# Endpoint for Bad Practices Analysis
+@app.route("/pw_bad_practices")
+@login_required
+def pw_bad_practices() -> Response:
+    with open("data/pw_bad_practices.json") as f:
         data = json.load(f)
     return jsonify(data)
 

@@ -2,6 +2,6 @@ Flask
 Flask-Session
 flask-login
 bcrypt
-nltk
+english-words
 python-dotenv
 cryptography

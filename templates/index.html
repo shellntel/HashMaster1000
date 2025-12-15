@@ -286,6 +286,15 @@
 										<input type="checkbox" name="ignore_blank_passwords" value="true" />
 									</div>
 								</div>
+
+								<div class="option-group">
+									<h3>Company Name & Terms</h3>
+									<div class="option-row" style="justify-content: space-between; align-items: center;">
+										<label>Custom Keywords <span id="keywordCount" style="color: #888; font-weight: normal;"></span></label>
+										<button type="button" class="btn btn-secondary" onclick="openKeywordsModal()" style="padding: 6px 16px;">Configure</button>
+									</div>
+									<input type="hidden" name="custom_keywords" id="customKeywordsHidden" value="">
+								</div>
 							</div>
 
 							<div class="step-navigation">
@@ -327,6 +336,37 @@
 					<div class="modal-footer">
 						<button class="btn btn-secondary" onclick="closeFileBrowser()">Cancel</button>
 						<button class="btn btn-primary" id="selectFileBtn" onclick="selectFile()" disabled>Select</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Custom Keywords Modal -->
+			<div id="keywordsModal" class="modal" style="display: none;">
+				<div class="modal-content" style="max-width: 500px;">
+					<div class="modal-header">
+						<h3>Company Name & Terms</h3>
+						<button class="modal-close" onclick="closeKeywordsModal()">&times;</button>
+					</div>
+					<div style="padding: 20px;">
+						<p style="margin-bottom: 12px; color: #666; font-size: 0.9rem;">
+							Enter terms that should be flagged when found in passwords. The Bad Practices report will identify any passwords containing these terms.
+						</p>
+						<p style="margin-bottom: 16px; color: #888; font-size: 0.85rem;">
+							<strong>Examples:</strong> Company name, department names, team names, project names, building names, etc.
+						</p>
+						<textarea
+							id="keywordsTextarea"
+							placeholder="Enter one term per line, e.g.:&#10;Contoso&#10;Marketing&#10;IT-Dept&#10;Project-Alpha"
+							rows="8"
+							style="width: 100%; resize: vertical; font-family: inherit; font-size: 0.9rem; padding: 10px; box-sizing: border-box;"
+						></textarea>
+						<p style="margin-top: 8px; color: #888; font-size: 0.8rem;">
+							Terms must be at least 3 characters. Matching is case-insensitive.
+						</p>
+					</div>
+					<div class="modal-footer">
+						<button class="btn btn-secondary" onclick="closeKeywordsModal()">Cancel</button>
+						<button class="btn btn-primary" onclick="saveKeywords()">Save</button>
 					</div>
 				</div>
 			</div>
@@ -870,6 +910,52 @@
 			document.getElementById('fileBrowserModal').addEventListener('click', (e) => {
 				if (e.target.id === 'fileBrowserModal') {
 					closeFileBrowser();
+				}
+			});
+
+			// Custom Keywords Modal Functions
+			function openKeywordsModal() {
+				const modal = document.getElementById('keywordsModal');
+				const textarea = document.getElementById('keywordsTextarea');
+				const hiddenInput = document.getElementById('customKeywordsHidden');
+
+				// Load existing keywords into textarea
+				textarea.value = hiddenInput.value;
+				modal.style.display = 'flex';
+			}
+
+			function closeKeywordsModal() {
+				document.getElementById('keywordsModal').style.display = 'none';
+			}
+
+			function saveKeywords() {
+				const textarea = document.getElementById('keywordsTextarea');
+				const hiddenInput = document.getElementById('customKeywordsHidden');
+				const countSpan = document.getElementById('keywordCount');
+
+				// Get the text and save to hidden input
+				const text = textarea.value.trim();
+				hiddenInput.value = text;
+
+				// Count valid keywords (at least 3 chars)
+				const keywords = text.split('\n')
+					.map(line => line.trim())
+					.filter(line => line.length >= 3);
+
+				// Update count display
+				if (keywords.length > 0) {
+					countSpan.textContent = `(${keywords.length} term${keywords.length > 1 ? 's' : ''})`;
+				} else {
+					countSpan.textContent = '';
+				}
+
+				closeKeywordsModal();
+			}
+
+			// Close keywords modal when clicking outside
+			document.getElementById('keywordsModal').addEventListener('click', (e) => {
+				if (e.target.id === 'keywordsModal') {
+					closeKeywordsModal();
 				}
 			});
 		</script>
