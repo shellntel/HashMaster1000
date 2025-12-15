@@ -1,9 +1,42 @@
 import string
 from collections import defaultdict, Counter
 import re
-import nltk
-from nltk.corpus import words
-from typing import List, Dict, Tuple, Union, Any, TypedDict
+from english_words import get_english_words_set
+from typing import List, Dict, Tuple, Union, Any, TypedDict, Optional, Set
+
+# Module-level cache for the English dictionary (loaded once on first use)
+_english_words_cache: Optional[Set[str]] = None
+
+
+def _get_english_words() -> Set[str]:
+    """
+    Get the cached English words set, loading it on first call.
+    Uses the web2 dictionary from english-words package (~234K words).
+    """
+    global _english_words_cache
+    if _english_words_cache is None:
+        _english_words_cache = get_english_words_set(['web2'], lower=True)
+    return _english_words_cache
+
+
+def _load_exclusions(file_path: str = "dictionary_exclusions.conf") -> Set[str]:
+    """
+    Load exclusions from a configuration file.
+    Supports comments (lines starting with #) and empty lines.
+    """
+    exclusions: Set[str] = set()
+    try:
+        with open(file_path, "r") as file:
+            for line in file:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith("#"):
+                    exclusions.add(line.lower())
+    except FileNotFoundError:
+        pass  # No exclusions file is fine
+    except Exception:
+        pass  # Silently ignore other errors
+    return exclusions
 
 
 class Account(TypedDict):
@@ -450,11 +483,6 @@ def substring_analysis(
     ]
 
 
-def ensure_nltk_words_downloaded() -> None:
-    # Ensure the NLTK English word corpus is available
-    nltk.download("words", quiet=True)
-
-
 def dictionary_analysis(
     passwords: List[str],
     min_word_length: int = 4,
@@ -471,63 +499,57 @@ def dictionary_analysis(
              2. Word-to-occurrence-count mapping.
     """
 
-    # Ensure the corpus is downloaded
-    ensure_nltk_words_downloaded()
+    # Use cached dictionary for better performance
+    all_english_words = _get_english_words()
+    english_words = {word for word in all_english_words if len(word) >= min_word_length}
 
-    # Load English words into a set for fast lookup
-    english_words = {
-        word.lower() for word in words.words() if len(word) >= min_word_length
-    }
-
-    # Exclude known non-English words (built-in list here)
-    exclusions = set()  # Add exclusions to dictionary_exclusions.conf
-
-    # File path to the exclusions file
-    file_path = "dictionary_exclusions.conf"
-
-    # Try to read and add entries from the file
-    try:
-        with open(file_path, "r") as file:
-            # Read each line, strip whitespace, and add it to the set
-            file_exclusions = {
-                line.strip() for line in file if line.strip()
-            }  # Exclude empty lines
-            exclusions.update(file_exclusions)
-        print(f"Updated exclusions: {exclusions}")
-    except FileNotFoundError:
-        print(f"File '{file_path}' not found. Using default exclusions.")
-    except Exception as e:
-        print(f"An error occurred while reading '{file_path}': {e}")
-
+    # Load and apply exclusions
+    exclusions = _load_exclusions()
     english_words -= exclusions
 
-    password_analysis: Dict[str, List[str]] = (
-        {}
-    )  # Store each password with its dictionary words
+    password_analysis: Dict[str, List[str]] = {}  # Store each password with its dictionary words
     word_count: Dict[str, int] = {}  # Store each English dictionary word with its count
 
     for password in passwords:
-        # Extract alphabetic substrings from the password
-        substrings = re.findall(r"[a-zA-Z]+", password)
-        matches = set()
+        # Extract alphabetic substrings from the password with their positions
+        # Each match contains: (word, start_in_password, end_in_password)
+        matches_with_positions: List[Tuple[str, int, int]] = []
 
-        # Check each substring against the dictionary
-        for substring in substrings:
+        # Find all alphabetic substrings and their positions in the original password
+        for match in re.finditer(r"[a-zA-Z]+", password):
+            substring = match.group()
+            substring_start = match.start()
+
+            # Check each possible substring against the dictionary
             for i in range(len(substring)):
                 for j in range(i + min_word_length, len(substring) + 1):
                     candidate = substring[i:j].lower()
                     if candidate in english_words:
-                        matches.add(candidate)
+                        # Store with absolute position in original password
+                        start_pos = substring_start + i
+                        end_pos = substring_start + j
+                        matches_with_positions.append((candidate, start_pos, end_pos))
 
-        # Optionally filter out nested words
+        # Optionally filter out overlapping words, keeping longer ones
         if omit_nested:
-            matches = {
-                word
-                for word in matches
-                if not any(
-                    word in other_word and word != other_word for other_word in matches
-                )
-            }
+            # Sort by length (longest first), then by start position
+            matches_with_positions.sort(key=lambda x: (-len(x[0]), x[1]))
+
+            filtered_matches: List[Tuple[str, int, int]] = []
+            covered_positions: set = set()
+
+            for word, start, end in matches_with_positions:
+                word_positions = set(range(start, end))
+                # Only include this word if it doesn't overlap with already-covered positions
+                if not word_positions & covered_positions:
+                    filtered_matches.append((word, start, end))
+                    covered_positions.update(word_positions)
+
+            # Extract just the words
+            matches = {word for word, _, _ in filtered_matches}
+        else:
+            # Extract unique words without position filtering
+            matches = {word for word, _, _ in matches_with_positions}
 
         # Add matches to the analysis dictionary
         password_analysis[password] = list(matches)
@@ -537,3 +559,304 @@ def dictionary_analysis(
             word_count[word] = word_count.get(word, 0) + 1
 
     return password_analysis, word_count
+
+
+def bad_practices_analysis(
+    passwords: List[str],
+    custom_keywords: List[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Analyze passwords for common bad practices and anti-patterns.
+
+    Categories detected:
+    1. Password-based passwords (including leet-speak variations)
+    2. Season + Year patterns (Winter2023, Summer@2024, etc.)
+    3. Keyboard walks (qwerty, asdf, 1234, etc.)
+    4. Common weak bases (letmein, welcome, admin, etc.)
+    5. Top common passwords (from rockyou-style patterns)
+    6. Sequential/repeated characters (aaa, 111, abc, 123)
+    7. Bible verses (john316, psalm23, etc.)
+    8. Sports teams/mascots
+    9. Passwords ending with # or ! (lazy special char)
+    10. Leet-speak substitutions (p@ssw0rd, @dm1n, etc.)
+    11. Custom keywords (company name, departments, team names, etc.)
+
+    :param passwords: List of passwords to analyze
+    :param custom_keywords: Optional list of custom keywords to detect (e.g., company name)
+    :return: Dictionary with category names as keys, containing counts and example passwords
+    """
+
+    results: Dict[str, Dict[str, Any]] = {
+        "Password-Based": {"count": 0, "examples": {}},
+        "Season + Year": {"count": 0, "examples": {}},
+        "Keyboard Walks": {"count": 0, "examples": {}},
+        "Common Weak Bases": {"count": 0, "examples": {}},
+        "Top Common Passwords": {"count": 0, "examples": {}},
+        "Sequential/Repeated": {"count": 0, "examples": {}},
+        "Bible Verses": {"count": 0, "examples": {}},
+        "Sports Teams/Mascots": {"count": 0, "examples": {}},
+        "Ends with # or !": {"count": 0, "examples": {}},
+        "Leet-Speak": {"count": 0, "examples": {}},
+    }
+
+    # Add Company Terms category only if keywords were provided
+    if custom_keywords:
+        results["Company Terms"] = {"count": 0, "examples": {}}
+
+    # --- Pattern definitions ---
+
+    # Password-based patterns (case insensitive)
+    password_patterns = [
+        r"p[a@4]ss(w[o0]rd|wd|wrd)?",
+        r"p[a@4]ssw[o0]rt",  # German variant
+        r"p@ss",
+        r"p4ss",
+    ]
+    password_regex = re.compile("|".join(password_patterns), re.IGNORECASE)
+
+    # Season + Year patterns
+    seasons = ["winter", "spring", "summer", "fall", "autumn"]
+    season_year_regex = re.compile(
+        r"(" + "|".join(seasons) + r")[^a-z]*\d{2,4}",
+        re.IGNORECASE
+    )
+
+    # Keyboard walks (common patterns)
+    keyboard_walks = [
+        # Horizontal rows
+        "qwerty", "qwert", "qwertyuiop", "asdf", "asdfgh", "asdfghjkl",
+        "zxcv", "zxcvbn", "zxcvbnm",
+        # Number sequences on keyboard
+        "1234", "12345", "123456", "1234567", "12345678", "123456789",
+        "1234567890", "0987654321", "987654321",
+        # Diagonal patterns
+        "qazwsx", "1qaz", "2wsx", "3edc", "1qaz2wsx",
+        # Other common patterns
+        "1q2w3e", "1q2w3e4r", "qwe123", "asd123",
+    ]
+
+    # Common weak password bases
+    weak_bases = [
+        "letmein", "welcome", "admin", "administrator", "root", "login",
+        "master", "monkey", "dragon", "baseball", "iloveyou", "trustno1",
+        "sunshine", "princess", "football", "shadow", "superman", "michael",
+        "jennifer", "hunter", "batman", "andrew", "charlie", "thomas",
+        "hockey", "ranger", "daniel", "starwars", "klaster", "george",
+        "computer", "michelle", "jessica", "pepper", "patrick", "buster",
+        "ginger", "joshua", "mustang", "corvette", "merlin", "access",
+        "secret", "changeme", "test", "guest", "default", "temp",
+    ]
+    weak_bases_lower = {w.lower() for w in weak_bases}
+
+    # Top common passwords (exact matches or with minor variations)
+    top_common = [
+        "password", "123456", "12345678", "qwerty", "abc123", "monkey",
+        "1234567", "letmein", "trustno1", "dragon", "baseball", "iloveyou",
+        "master", "sunshine", "ashley", "bailey", "passw0rd", "shadow",
+        "123123", "654321", "superman", "qazwsx", "michael", "football",
+        "password1", "password123", "welcome", "welcome1", "admin", "hello",
+        "charlie", "donald", "password!", "p@ssword", "p@ssw0rd",
+    ]
+    top_common_lower = {p.lower() for p in top_common}
+
+    # Sequential and repeated character patterns
+    sequential_patterns = [
+        r"(.)\1{2,}",  # Repeated chars: aaa, 111, etc.
+        r"(abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz)",
+        r"(123|234|345|456|567|678|789|890)",
+        r"(321|432|543|654|765|876|987|098)",
+    ]
+    sequential_regex = re.compile("|".join(sequential_patterns), re.IGNORECASE)
+
+    # Bible verse patterns
+    bible_patterns = [
+        # Book + chapter:verse or chapter.verse patterns
+        r"(john|psalm|psalms|genesis|matthew|mark|luke|romans|proverbs|isaiah|jeremiah|ezekiel|daniel|acts|james|peter|revelations?|revelation|rev|gen|matt|rom|cor|corinthians|ephesians|eph|philippians|phil|colossians|col|thessalonians|thess|timothy|tim|titus|hebrews|heb)[^a-z]*\d+[:\.]?\d*",
+        # Common verse references
+        r"john3[:\.]?16",
+        r"psalm23",
+        r"psalm91",
+        r"phil4[:\.]?13",
+        r"jer29[:\.]?11",
+        r"rom8[:\.]?28",
+        r"john14[:\.]?6",
+        r"matt6[:\.]?33",
+        r"prov3[:\.]?5",
+    ]
+    bible_regex = re.compile("|".join(bible_patterns), re.IGNORECASE)
+
+    # Sports teams and mascots
+    sports_teams = [
+        # NFL teams
+        "patriots", "cowboys", "eagles", "steelers", "packers", "bears",
+        "broncos", "raiders", "chiefs", "seahawks", "49ers", "niners",
+        "ravens", "saints", "falcons", "panthers", "dolphins", "jets",
+        "giants", "redskins", "commanders", "vikings", "lions", "bengals",
+        "browns", "colts", "texans", "titans", "jaguars", "chargers",
+        "cardinals", "buccaneers", "bucs", "rams",
+        # MLB teams
+        "yankees", "redsox", "dodgers", "cubs", "mets", "astros", "braves",
+        "phillies", "padres", "mariners", "angels", "athletics", "orioles",
+        "bluejays", "royals", "tigers", "whitesox", "twins", "indians",
+        "guardians", "brewers", "reds", "pirates", "rockies", "diamondbacks",
+        "marlins", "nationals", "rangers",
+        # NBA teams
+        "lakers", "celtics", "bulls", "warriors", "heat", "knicks", "nets",
+        "sixers", "76ers", "spurs", "mavs", "mavericks", "rockets", "suns",
+        "clippers", "nuggets", "jazz", "blazers", "thunder", "timberwolves",
+        "pelicans", "grizzlies", "hawks", "hornets", "wizards", "pistons",
+        "pacers", "cavaliers", "cavs", "magic", "raptors", "bucks", "kings",
+        # NHL teams
+        "bruins", "blackhawks", "penguins", "redwings", "flyers", "oilers",
+        "canadiens", "leafs", "canucks", "flames", "avalanche", "blues",
+        "predators", "lightning", "hurricanes", "senators", "sabres",
+        "islanders", "devils", "wild", "ducks", "sharks", "coyotes", "kraken",
+        "golden knights", "knights",
+        # College mascots and teams
+        "wildcats", "bulldogs", "tigers", "lions", "bears", "wolverines",
+        "buckeyes", "gators", "seminoles", "hurricanes", "crimson", "tide",
+        "longhorns", "aggies", "sooners", "jayhawks", "spartans", "badgers",
+        "hawkeyes", "huskies", "trojans", "bruins", "ducks", "beavers",
+        "cougars", "utes", "aztecs", "rebels", "volunteers", "gamecocks",
+        "yellowjackets", "hokies", "cavaliers", "tarheels",
+    ]
+    sports_lower = {s.lower() for s in sports_teams}
+
+    # Leet-speak substitution patterns (detect passwords using common substitutions)
+    leet_map = {
+        "@": "a", "4": "a", "^": "a",
+        "8": "b",
+        "(": "c", "{": "c", "<": "c",
+        "3": "e",
+        "6": "g", "9": "g",
+        "#": "h",
+        "1": "i", "!": "i", "|": "i",
+        "7": "l",
+        "0": "o",
+        "$": "s", "5": "s",
+        "+": "t", "7": "t",
+        "2": "z",
+    }
+
+    def deleet(text: str) -> str:
+        """Convert leet-speak to regular text."""
+        result = []
+        for char in text.lower():
+            result.append(leet_map.get(char, char))
+        return "".join(result)
+
+    def has_leet_speak(password: str) -> bool:
+        """Check if password contains leet-speak substitutions WITHIN the word.
+
+        Trailing/leading numbers and special chars don't count as leet-speak.
+        True leet-speak has substitutions embedded in the alphabetic portion.
+        """
+        # Strip common prefix/suffix patterns (numbers, special chars)
+        stripped = password.strip("0123456789!@#$%^&*()_+-=[]{}|;':\",./<>?`~")
+        if not stripped:
+            return False
+
+        # Check if the stripped (core) portion contains leet characters
+        leet_chars = set(leet_map.keys())
+        return any(c in leet_chars for c in stripped)
+
+    # Process each password
+    for password in passwords:
+        if not password:  # Skip empty passwords
+            continue
+
+        pw_lower = password.lower()
+        matched_categories: set = set()
+
+        # 1. Check for password-based patterns
+        if password_regex.search(password):
+            results["Password-Based"]["count"] += 1
+            results["Password-Based"]["examples"][password] = results["Password-Based"]["examples"].get(password, 0) + 1
+            matched_categories.add("Password-Based")
+
+        # 2. Check for season + year patterns
+        if season_year_regex.search(password):
+            results["Season + Year"]["count"] += 1
+            results["Season + Year"]["examples"][password] = results["Season + Year"]["examples"].get(password, 0) + 1
+            matched_categories.add("Season + Year")
+
+        # 3. Check for keyboard walks
+        for walk in keyboard_walks:
+            if walk in pw_lower:
+                results["Keyboard Walks"]["count"] += 1
+                results["Keyboard Walks"]["examples"][password] = results["Keyboard Walks"]["examples"].get(password, 0) + 1
+                matched_categories.add("Keyboard Walks")
+                break
+
+        # 4. Check for common weak bases
+        for base in weak_bases_lower:
+            if base in pw_lower and len(base) >= 4:
+                results["Common Weak Bases"]["count"] += 1
+                results["Common Weak Bases"]["examples"][password] = results["Common Weak Bases"]["examples"].get(password, 0) + 1
+                matched_categories.add("Common Weak Bases")
+                break
+
+        # 5. Check for top common passwords (exact or with simple suffix)
+        # Check both the raw password and deleet version
+        pw_deleet = deleet(password)
+        base_pw = re.sub(r"[^a-z0-9]", "", pw_lower)  # Remove special chars
+        base_deleet = re.sub(r"[^a-z0-9]", "", pw_deleet)
+
+        if (pw_lower in top_common_lower or
+            base_pw in top_common_lower or
+            base_deleet in top_common_lower):
+            results["Top Common Passwords"]["count"] += 1
+            results["Top Common Passwords"]["examples"][password] = results["Top Common Passwords"]["examples"].get(password, 0) + 1
+            matched_categories.add("Top Common Passwords")
+
+        # 6. Check for sequential/repeated patterns
+        if sequential_regex.search(password):
+            results["Sequential/Repeated"]["count"] += 1
+            results["Sequential/Repeated"]["examples"][password] = results["Sequential/Repeated"]["examples"].get(password, 0) + 1
+            matched_categories.add("Sequential/Repeated")
+
+        # 7. Check for Bible verse patterns
+        if bible_regex.search(password):
+            results["Bible Verses"]["count"] += 1
+            results["Bible Verses"]["examples"][password] = results["Bible Verses"]["examples"].get(password, 0) + 1
+            matched_categories.add("Bible Verses")
+
+        # 8. Check for sports teams/mascots
+        # Use word boundary check to avoid matching substrings within other words
+        # e.g., "suns" shouldn't match "sunshine"
+        for team in sports_lower:
+            if len(team) >= 4:
+                # Check if team appears as a standalone word or at word boundaries
+                # Allow team at start/end of password or surrounded by non-alpha chars
+                pattern = r'(?<![a-z])' + re.escape(team) + r'(?![a-z])'
+                if re.search(pattern, pw_lower):
+                    results["Sports Teams/Mascots"]["count"] += 1
+                    results["Sports Teams/Mascots"]["examples"][password] = results["Sports Teams/Mascots"]["examples"].get(password, 0) + 1
+                    matched_categories.add("Sports Teams/Mascots")
+                    break
+
+        # 9. Check for passwords ending with # or ! (lazy special char)
+        if password.endswith("#") or password.endswith("!"):
+            results["Ends with # or !"]["count"] += 1
+            results["Ends with # or !"]["examples"][password] = results["Ends with # or !"]["examples"].get(password, 0) + 1
+            matched_categories.add("Ends with # or !")
+
+        # 10. Check for leet-speak usage (only if has substitutions and not already counted)
+        if has_leet_speak(password) and "Password-Based" not in matched_categories:
+            # Check if the deleet version reveals a common word
+            if (pw_deleet in weak_bases_lower or
+                pw_deleet in top_common_lower or
+                deleet(pw_lower.rstrip("0123456789!@#$%")) in weak_bases_lower):
+                results["Leet-Speak"]["count"] += 1
+                results["Leet-Speak"]["examples"][password] = results["Leet-Speak"]["examples"].get(password, 0) + 1
+
+        # 11. Check for custom keywords (company name, departments, etc.)
+        if custom_keywords:
+            for keyword in custom_keywords:
+                keyword_lower = keyword.lower()
+                if len(keyword_lower) >= 3 and keyword_lower in pw_lower:
+                    results["Company Terms"]["count"] += 1
+                    results["Company Terms"]["examples"][password] = results["Company Terms"]["examples"].get(password, 0) + 1
+                    break
+
+    return results
