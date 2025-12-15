@@ -1,0 +1,96 @@
+# Example potfile for testing validation checks
+# This file contains valid NTLM hashes, non-NTLM hash types, and malformed entries
+
+# =============================================================================
+# VALID NTLM HASHES (32-char hex) - these will be used for analysis
+# =============================================================================
+01fda8996358026baa397fe2c34b8e31:Summertime2023
+06ce731f0957229c0b3060622caa3429:Red4spring
+07ee4fe4435c4d265f1b76f07bd8ca51:Password002$$
+b4b9b02e6f09a9bd760f388b67351e2b:hashcat
+31d6cfe0d16ae931b73c59d7e0c089c0:
+64f12cddaa88057e06a81b54e73b949b:Password1
+5835048ce94ad0564e29a924a03510ef:password1
+8846f7eaee8fb117ad06bdd830b7586c:password
+29ab86c5c4d2aab957763e5c1720486d:Password1234!
+3c4ae58e173aa89a65eb1f1a0378746d:Ktspassword12!
+4c3879fef394fa5dce0037c197c70841:Winter2021
+7978dc8a66d8e480d9a86041f8409560:Winter2022
+ec7a94a17bc96fb4d5d95db56e525043:Winter2023
+fe8e78c9435c68cf0e4634a5d37ea00d:Spring2023!!
+fea80c63aed12d5aef0808c5b0d9a782:Spring2022!
+9554d5f34d683f39a9d4fe6c66fe0018:Passwordhell19!
+f4a1e7c0d2967c13dc50e08e90b41108:Winter2025##
+7c5f2dc7acb81e902958bfdee467e4f0:Fall2024!
+47dd446a80512414185572b2e76a47da:Summer@2023
+7142190f3122b1a00e914af7a5426900:Winter2024#
+9af0e42138461e37f88ab5f368f04954:Backup$SVC123
+960248305484709b3c0a0eb6af854991:SQLServer2024!
+871c94500d1d3aa620d316016b9e6e68:TestUser@123
+1ed015b2f3dc54deabb3a5e3b20fd655:Password3030!
+7557d1ffaa315aa363a82ae72a449045:OldAdmin2019
+
+# =============================================================================
+# MALFORMED/CORRUPT ENTRIES - should trigger warnings/errors
+# =============================================================================
+# Missing colon separator (hash only, no password)
+aaaa1111bbbb2222cccc3333dddd4444
+
+# Hash too short (only 6 chars instead of 32)
+abc123:BadPassword
+
+# Invalid hex characters in hash (G is not valid hex)
+GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG:InvalidHashChars
+
+# Completely invalid line format
+this is not a valid potfile entry at all
+
+# Empty lines (should be skipped)
+
+
+# =============================================================================
+# NON-NTLM HASH TYPES - will be ignored but counted
+# =============================================================================
+
+# SHA1 hashes (40-char hex) - mode 100
+b89eaac7e61417341b710b727768294d0e6a277b:hashcat
+5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8:password
+da39a3ee5e6b4b0d3255bfef95601890afd80709:
+a94a8fe5ccb19ba61c4c0873d391e987982fbbd3:test
+
+# SHA256 hashes (64-char hex) - mode 1400
+127e6fbfe24a750e72930c220a8e138275656b8e5d8f48a98c3c92df2caba935:hashcat
+5e884898da28047d9c196e73a9ad6e86c9b0a1c6e66d93c0a49d4e3d9b3b4e90:password
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:
+
+# SHA512 hashes (128-char hex) - mode 1700
+82a9dda829eb7f8ffe9fbe49e45d47d2dad9664fbb7adf72492e3c81ebd3e29134d9bc12212bf83c6840f10e8246b9db54a4859b7ccd0123d86e5872c1e5082f:hashcat
+
+# bcrypt hashes - mode 3200
+$2a$05$LhayLxezLhK1LhWvKxCyLOj0j1u.Kj0jZ0pEmm134uzrQlFvQJLF6:hashcat
+$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy:correcthorsebatterystaple
+$2y$12$Dwt1BZj6PCyc3HmtmFlUne/WZzSNP5pP2BzCHOqV0r5S4S3C5K.Ci:password123
+
+# md5crypt (Unix) - mode 500
+$1$28772684$iEwNOgGugqO9.bIz5sk8k/:hashcat
+$1$salt$YPDBgRYXOjAku2BFlSz9g/:password
+
+# sha512crypt (Unix) - mode 1800
+$6$52450745$k5ka2p8bFuSmoVT1tzOyyuaREkkKBcCNqoDKzYiJL9RaE8yMnPgh2XzzF0NDrUhgrcLwg78xs1w5pJiypEdFX/:hashcat
+
+# phpass/WordPress - mode 400
+$P$984478476IagS59wHZvyQMArzfx58u.:hashcat
+$P$5ZDzPE45CLLhEx/72qt3NehVzwN2Ry/:password
+
+# MySQL hashes (40-char with *) - mode 300
+*2470C0C06DEE42FD1618BB99005ADCA2EC9D1E19:password
+*94BDCEBE19083CE2A1F959FD02F964C7AF4CFC29:hashcat
+
+# MSSQL hashes - mode 131/132
+0x01002702560500000000000000000000000000000000000000008db43dd9b1972a636ad0c7d4b8c515cb8ce46578:hashcat
+
+# Kerberos TGS-REP - mode 13100
+$krb5tgs$23$*user$realm$test/spn*$63386d22d359fe42230300d56852c9eb:hashcat
+
+# Kerberos AS-REP - mode 18200
+$krb5asrep$23$user@domain.com:3e156ada591263b8aab0965f5aebd837:hashcat
