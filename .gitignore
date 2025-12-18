@@ -11,3 +11,5 @@ uploads/
 flask_session/
 venv/
 scripts/
+test_outputs/
+FEATURE_ROADMAP.md
