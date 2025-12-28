@@ -1938,6 +1938,17 @@ def kerberoast_report() -> Response:
     return jsonify(data)
 
 
+# Endpoint for AS-REP Roasting Exposure Report (ADD JSON)
+@app.route("/asrep_report.json")
+@login_required
+def asrep_report() -> Response:
+    """Return AS-REP roasting exposure analysis report for the current session."""
+    data = _load_session_json("asrep_report.json")
+    if data is None:
+        return jsonify({"error": "No AS-REP data available. This report requires ADD JSON input with DONT_REQ_PREAUTH accounts."}), 404
+    return jsonify(data)
+
+
 # ============================================================================
 # HIBP (Have I Been Pwned) Integration Endpoints
 # ============================================================================
@@ -2731,6 +2742,32 @@ def process_add_validated() -> Response:
                           f"{kerberoast_report.summary.high_count} High risk")
             except Exception as kerb_err:
                 logging.warning(f"Kerberoast analysis failed: {kerb_err}")
+
+            # Run AS-REP roasting exposure analysis
+            try:
+                import asrep_analysis
+
+                # Reuse the cracked accounts and reuse clusters from Kerberoast analysis
+                asrep_report = asrep_analysis.analyze_asrep_exposure(
+                    users=add_result.raw_users,
+                    cracked_accounts=kerberoast_cracked,
+                    hibp_results=None,  # HIBP runs later, can be updated after
+                    password_reuse_clusters=reuse_clusters,
+                )
+
+                # Save AS-REP report
+                session_mgr.save_session_data(
+                    "asrep_report.json",
+                    asrep_report.to_dict(),
+                    analysis_session.session_id
+                )
+
+                if asrep_report.summary.total_asrep_roastable > 0:
+                    print(f"--> AS-REP analysis: {asrep_report.summary.total_asrep_roastable} AS-REP roastable accounts, "
+                          f"{asrep_report.summary.critical_count} Critical, "
+                          f"{asrep_report.summary.high_count} High risk")
+            except Exception as asrep_err:
+                logging.warning(f"AS-REP analysis failed: {asrep_err}")
 
         # Update session with statistics
         cracked_count = sum(1 for acc in account_data.values() if acc.get("cracked_pw"))

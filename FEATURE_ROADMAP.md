@@ -105,9 +105,31 @@ sessions/
 
 ## New Reports & Analysis
 
-### Password History Analysis
+### Password History Analysis (PLANNED)
 
-**Description:** Analyze password history of users when available in pwdump data to identify rotation patterns and password evolution.
+**Status:** Planned for implementation
+
+**Description:** Analyze password history of users when available in pwdump data to identify rotation patterns and password evolution. Detect predictable password change patterns that weaken security.
+
+**Data Sources:**
+1. **PWDump/DCSSync Format** - History entries identified by `_history0`, `_history1`, `_history2` suffixes on account names
+   ```
+   jsmith:1001:AAD3B435B51404EEAAD3B435B51404EE:31D6CFE0D16AE931B73C59D7E0C089C0:::
+   jsmith_history0:1001:AAD3B435B51404EEAAD3B435B51404EE:A87F3A337D73085C45F9416BE5787D86:::
+   jsmith_history1:1001:AAD3B435B51404EEAAD3B435B51404EE:E52CAC67419A9A224A3B108F3FA6CB6D:::
+   ```
+
+2. **ADD JSON Format** - `HistoricalNTHashes` array field
+   ```json
+   {
+     "SamAccountName": "jsmith",
+     "NTHash": "31D6CFE0D16AE931B73C59D7E0C089C0",
+     "HistoricalNTHashes": [
+       "A87F3A337D73085C45F9416BE5787D86",
+       "E52CAC67419A9A224A3B108F3FA6CB6D"
+     ]
+   }
+   ```
 
 **Detection Capabilities:**
 - Incremental changes: `Password1` → `Password2` → `Password3`
@@ -115,11 +137,20 @@ sessions/
 - Minimal changes: `Welcome1!` → `Welcome1@` → `Welcome1#`
 - Base word persistence: same root word across multiple changes
 - Reversion: returning to a previously used password
+- Year increment patterns: `Company2023` → `Company2024`
+
+**Implementation Approach:**
+1. Parse history entries from both pwdump and ADD JSON formats
+2. Match history hashes against potfile to get plaintext
+3. Compare consecutive passwords using string similarity algorithms
+4. Categorize patterns (increment, season, special char rotation, etc.)
+5. Generate predictability scores for each user
 
 **Report Output:**
 ```
 Password Rotation Analysis
 ==========================
+Accounts with password history available: 1,234
 Accounts with predictable rotation patterns: 234 (18.5%)
 
 Top Rotation Patterns:
@@ -134,39 +165,73 @@ Top Rotation Patterns:
 
 4. Minimal character changes (28 accounts)
    Example: djones - Sunshine1, Sunsh1ne1, Sunsh!ne1
+
+5. Year increment only (38 accounts)
+   Example: rjohnson - Company2021, Company2022, Company2023, Company2024
 ```
 
-**Data Requirements:**
-- PWDump with password history (ntds.dit extraction with history)
-- Format: `username:RID:LM:NT:pwd_history_1:pwd_history_2:...`
+**Files to Create:**
+- `password_history.py` - History parsing and pattern detection module
 
 ---
 
-### Active Directory Domain Filtering
+### Active Directory Domain Filtering (PLANNED)
 
-**Description:** Dynamically filter and display results by Active Directory domain when multi-domain data is present.
+**Status:** Planned for implementation
+
+**Description:** Dynamically filter and display results by Active Directory domain when multi-domain data is present. Enable domain-specific analysis and cross-domain password reuse detection.
+
+**Data Sources:**
+1. **PWDump Format** - Domain prefix before backslash
+   ```
+   CORP\jsmith:1001:AAD3B435B51404EEAAD3B435B51404EE:31D6CFE0D16AE931B73C59D7E0C089C0:::
+   DEV\jsmith:1002:AAD3B435B51404EEAAD3B435B51404EE:A87F3A337D73085C45F9416BE5787D86:::
+   ```
+
+2. **DCSync Format** - Domain from Distinguished Name or SAM domain
+   ```
+   [*] Dumping Domain Credentials (domain\uid:rid:lmhash:nthash)
+   CORP\Administrator:500:aad3b435b51404eeaad3b435b51404ee:...
+   ```
+
+3. **ADD JSON Format** - Extract from `DistinguishedName` field
+   ```json
+   {
+     "SamAccountName": "jsmith",
+     "DistinguishedName": "CN=John Smith,OU=Users,DC=corp,DC=example,DC=com"
+   }
+   ```
+   Domain extracted: `corp.example.com`
 
 **UI Components:**
 - Domain dropdown selector in report header
 - Options: "All Domains", "CORP.EXAMPLE.COM", "DEV.EXAMPLE.COM", etc.
+- Persistent filter across all report sections
 - Real-time recalculation of all statistics and charts
 
-**Implementation:**
-- Parse domain from username (DOMAIN\user or user@domain.com)
-- Store domain association with each account
-- Filter functions for all analysis routines
-- Client-side filtering for performance (if data size permits)
+**Implementation Approach:**
+1. During file parsing, extract domain from account names and DN
+2. Store domain association with each account in session data
+3. Add domain filter API endpoint
+4. Client-side filtering for performance (if data size permits)
+5. Recalculate all metrics when domain filter changes
 
 **Report Sections Affected:**
-- All statistics
-- All charts
-- All tables
-- Password reuse (cross-domain reuse is especially interesting)
+- All statistics (crack rate, averages, counts)
+- All charts (distributions, patterns, trends)
+- All tables (password reuse, bad practices, etc.)
+- Password reuse analysis (cross-domain reuse is especially interesting)
 
 **Cross-Domain Analysis:**
-- Identify passwords reused across domains
+- Identify passwords reused across domains (CORP\admin same as DEV\admin)
 - Compare password strength between domains
 - "Production domain has 45% cracked vs Dev domain at 78%"
+- Highlight cross-domain reuse as a critical finding
+
+**Files to Create/Modify:**
+- `domain_filter.py` - Domain extraction and filtering module
+- Update `hm1k.py` - Add domain filter endpoints
+- Update `templates/report.html` - Add domain selector UI
 
 ---
 
@@ -303,6 +368,136 @@ Password Age Concerns (MEDIUM):
 - Prioritize service account password rotations
 - Detect dangerous delegation configurations
 - Track service account encryption type upgrades (RC4 → AES)
+
+---
+
+### AS-REP Exposure Analysis (IMPLEMENTED)
+
+**Status:** Implemented (December 2024)
+
+**Description:** Identify and assess risk for accounts vulnerable to AS-REP roasting attacks. Accounts with Kerberos pre-authentication disabled can have their AS-REP responses captured and cracked offline without any authentication.
+
+**Required ADD JSON Fields:**
+- `RawUACValue` - Integer bitmask containing DONT_REQ_PREAUTH (0x400000) flag
+- `adminCount` - String "0" or "1" (indicates protected/privileged accounts)
+- `DistinguishedName` - For OU-based analysis
+- `PwdLastSet` - Password age timestamp
+- `LastLogon` - Last activity timestamp
+- `ServicePrincipalNames` - Array (for dual Kerberoast/AS-REP vulnerability detection)
+
+**Risk Factor Scoring:**
+
+| Risk Factor | Score | Description |
+|-------------|-------|-------------|
+| `ASREP_PREAUTH_DISABLED` | 25 | Pre-authentication disabled (core vulnerability) |
+| `PRIVILEGED_ADMINCOUNT` | 30 | High-value target (adminCount=1) |
+| `PASSWORD_NEVER_EXPIRES` | 15 | Long-term exposure window |
+| `PASSWORD_AGE_3Y_PLUS` | 20 | Stale password (3+ years old) |
+| `PASSWORD_AGE_1Y_PLUS` | 10 | Aging password (1+ years old) |
+| `ALSO_KERBEROASTABLE` | 15 | Dual vulnerability (has SPNs too) |
+| `WEAK_ENCRYPTION_RC4` | 10 | Uses vulnerable RC4 encryption |
+| `CRACKED_PASSWORD` | 40 | Password was cracked in this assessment |
+| `HIBP_EXPOSED` | 35 | Password found in HIBP breaches |
+| `REUSED_PASSWORD_CLUSTER` | 20 | Password shared with other accounts |
+| `ACCOUNT_DISABLED` | -50 | Reduces risk (disabled account) |
+
+**Risk Categories:**
+- **Critical** (70+ points): Immediate action required
+- **High** (50-69 points): Priority remediation
+- **Medium** (30-49 points): Scheduled remediation
+- **Low** (10-29 points): Monitor and address
+
+**Report Output (`asrep_report.json`):**
+```json
+{
+  "summary": {
+    "total_accounts_analyzed": 1000,
+    "total_asrep_roastable": 5,
+    "critical_count": 1,
+    "high_count": 2,
+    "medium_count": 1,
+    "low_count": 1,
+    "privileged_asrep": 1,
+    "cracked_asrep": 3,
+    "also_kerberoastable": 2
+  },
+  "assessments": [
+    {
+      "sam_account_name": "legacy_app",
+      "risk_score": 85,
+      "risk_category": "Critical",
+      "risk_reasons": ["ASREP_PREAUTH_DISABLED", "PRIVILEGED_ADMINCOUNT", "PASSWORD_AGE_3Y_PLUS", "CRACKED_PASSWORD"],
+      "is_privileged": true,
+      "password_cracked": true,
+      "also_kerberoastable": false
+    }
+  ],
+  "chart_data": {
+    "risk_distribution": { ... },
+    "risk_factors": { ... }
+  }
+}
+```
+
+**API Endpoint:**
+- `GET /asrep_report.json` - Returns full AS-REP analysis report
+
+**Files:**
+- `asrep_analysis.py` - Risk scoring and report generation
+- `service_account.py` - UAC flag parsing (shared with Kerberoast analysis)
+- Integration in `hm1k.py` - Automatic analysis during ADD JSON processing
+
+**Use Cases:**
+- Identify accounts at risk of AS-REP roasting attacks
+- Prioritize remediation based on account privilege and password age
+- Detect accounts with dual Kerberoast + AS-REP vulnerability
+- Track progress in enabling pre-authentication across the domain
+
+---
+
+### Historical Trend Analysis (IMPLEMENTED)
+
+**Status:** Implemented (December 2024)
+
+**Description:** Compare password security metrics across multiple assessment sessions for the same company. Track improvements or regressions in password hygiene over time with visual charts and percentage change calculations.
+
+**Session Metadata:**
+- `company_name` - Groups sessions by organization
+- `project_description` - Describes each assessment (e.g., "Q4 2024 Annual Pentest")
+- Sessions can be compared when they share the same company name
+
+**Metrics Tracked:**
+
+| Metric | Description | Direction |
+|--------|-------------|-----------|
+| Crack Rate | Percentage of passwords cracked | Lower is better |
+| Password Reuse Rate | Percentage of accounts sharing passwords | Lower is better |
+| Blank Passwords | Count of accounts with empty passwords | Lower is better |
+| Complexity Violations | Count of passwords failing complexity rules | Lower is better |
+| Min Length Violations | Count of passwords below minimum length | Lower is better |
+| Total Bad Practices | Sum of all password anti-patterns | Lower is better |
+| LM Hash Count | Count of legacy LM hashes present | Lower is better |
+| Total Accounts | Number of accounts analyzed | Context metric |
+| HIBP Exposed Accounts | Count of passwords found in breaches | Lower is better |
+
+**Trend Visualization:**
+- Line charts showing metric progression over sessions
+- Color-coded percentage changes (green = improvement, red = regression)
+- Session comparison table with delta calculations
+- Automatic Y-axis scaling based on data range
+
+**API Endpoint:**
+- `POST /api/sessions/trend-analysis` - Compare selected sessions
+
+**Files:**
+- `trend_analysis.py` - Metric extraction and comparison logic
+- Report section in `templates/report.html` - Trend visualization UI
+
+**Use Cases:**
+- Demonstrate security improvements to stakeholders
+- Track effectiveness of password policy changes
+- Identify areas needing additional focus
+- Generate quarter-over-quarter or year-over-year comparisons
 
 ---
 
@@ -803,6 +998,8 @@ The most common password patterns observed were:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Historical Trend Analysis | Dec 2024 | Compare password security metrics across sessions by company |
+| AS-REP Exposure Analysis | Dec 2024 | Risk assessment for accounts with pre-auth disabled |
 | Kerberoast Exposure Analysis | Dec 2024 | Risk scoring for service accounts with SPNs |
 | HIBP Integration | Dec 2024 | Local database + API support |
 | Multi-User Support | Dec 2024 | Session-based with authentication |
@@ -848,7 +1045,7 @@ The most common password patterns observed were:
 | Character Position Heatmap | Medium | Medium | Nice visualization |
 | Shared Password Families | Medium | Medium | Complex grouping logic |
 | Performance Optimizations | High | Medium | Important at scale |
-| Historical Trend Analysis | High | Medium | Requires data persistence |
+| ~~Historical Trend Analysis~~ | ~~High~~ | ~~Medium~~ | ✅ Completed Dec 2024 |
 
 ---
 

@@ -18,9 +18,11 @@
 12. [Session Management](#session-management)
 13. [Have I Been Pwned (HIBP) Integration](#have-i-been-pwned-hibp-integration)
 14. [Kerberoast Exposure Analysis](#kerberoast-exposure-analysis)
-15. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
-16. [Environment Configuration](#environment-configuration)
-17. [Licensing](#licensing)
+15. [AS-REP Exposure Analysis](#as-rep-exposure-analysis)
+16. [Historical Trend Analysis](#historical-trend-analysis)
+17. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
+18. [Environment Configuration](#environment-configuration)
+19. [Licensing](#licensing)
 
 ---
 
@@ -60,6 +62,8 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 -   **ADD JSON Format (Preferred)**: Import rich Active Directory data from [SynerComm Audit Tool](https://github.com/shellntel/SynerCommAuditTool) with group memberships, privileged account detection, and historical password analysis
 -   **Have I Been Pwned (HIBP) Integration**: Check password hashes against the HIBP breach database using k-Anonymity (privacy-preserving)
 -   **Kerberoast Exposure Analysis**: Automated identification and risk scoring of service accounts vulnerable to Kerberoasting attacks
+-   **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
+-   **Historical Trend Analysis**: Track password security improvements across multiple assessment sessions with visual trend charts
 -   **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama models with 3-phase pipeline
 
 ---
@@ -728,6 +732,98 @@ GET /kerberoast_report.json
 ```
 
 Returns the full analysis report in JSON format for integration with other tools or custom reporting.
+
+---
+
+## **AS-REP Exposure Analysis**
+
+Hash Master 1000 automatically identifies accounts vulnerable to AS-REP Roasting when processing ADD JSON data. AS-REP Roasting targets accounts that have Kerberos pre-authentication disabled, allowing attackers to request encrypted authentication data that can be cracked offline.
+
+### **What is AS-REP Roasting?**
+
+AS-REP Roasting exploits the `DONT_REQUIRE_PREAUTH` flag (UAC bit 0x400000) in Active Directory. When this flag is set, any user can request an AS-REP (Authentication Service Response) for that account without providing valid credentials. The response contains data encrypted with the account's password hash, enabling offline password cracking attempts.
+
+### **How It Works**
+
+When ADD JSON data is processed, Hash Master 1000 automatically:
+
+1. **Scans All Accounts**: Checks the `RawUACValue` for the `DONT_REQ_PREAUTH` flag
+2. **Identifies Vulnerable Accounts**: Lists accounts with pre-authentication disabled
+3. **Correlates with Other Data**: Cross-references with cracked passwords, HIBP exposure, and privilege levels
+4. **Generates Risk Assessment**: Provides severity ratings based on account characteristics
+
+### **Report Output**
+
+The AS-REP analysis section displays:
+
+- **Summary Statistics**: Total accounts scanned, vulnerable accounts found
+- **Risk Breakdown**: Accounts categorized by privilege level and password status
+- **Account Details**: Table showing vulnerable accounts with their risk factors
+- **Remediation Guidance**: Recommendations for securing affected accounts
+
+### **API Endpoint**
+
+```
+GET /asrep_report.json
+```
+
+Returns the AS-REP analysis results in JSON format.
+
+---
+
+## **Historical Trend Analysis**
+
+Track password security improvements across multiple assessment sessions for the same organization. This feature helps demonstrate ROI on security investments and identify areas that need continued focus.
+
+### **How It Works**
+
+Sessions are grouped by company name, allowing you to compare metrics across quarterly or annual assessments:
+
+1. **Session Metadata**: Each session stores company name and project description
+2. **Automatic Grouping**: Sessions are grouped by company for easy comparison
+3. **Trend Calculation**: Metrics are compared between oldest and newest sessions
+4. **Visual Charts**: Six trend charts show key metrics over time
+
+### **Tracked Metrics**
+
+| Metric | Description | Goal |
+|--------|-------------|------|
+| **Crack Rate** | Percentage of passwords cracked | Lower is better |
+| **Password Reuse Rate** | Accounts sharing passwords | Lower is better |
+| **Policy Violations** | Min length + complexity + blank passwords | Lower is better |
+| **Bad Practices** | Total bad password pattern detections | Lower is better |
+| **Total Accounts** | Number of accounts analyzed | Context metric |
+| **HIBP Exposed** | Accounts with breached passwords | Lower is better |
+
+### **Trend Charts**
+
+The Historical Trend Analysis section provides six visual charts:
+
+1. **Crack Rate Over Time** - Primary security improvement indicator
+2. **Password Reuse Rate Over Time** - Tracks reduction in shared passwords
+3. **Total Accounts Analyzed** - Shows assessment scope consistency
+4. **HIBP Exposed Accounts** - Tracks breach exposure reduction
+5. **Policy Violations Over Time** - Monitors compliance improvements
+6. **Bad Practices Over Time** - Tracks behavioral pattern improvements
+
+### **Using Trend Analysis**
+
+1. Navigate to the **Historical Trend Analysis** section in the report
+2. Select your company from the dropdown (auto-detected from current session)
+3. Check the sessions you want to compare (minimum 2)
+4. Click **Analyze Selected Sessions**
+5. Review the trend charts and comparison table
+
+### **API Endpoint**
+
+```
+POST /api/sessions/trend-analysis
+Content-Type: application/json
+
+{"session_ids": ["session1", "session2", "session3"]}
+```
+
+Returns trend comparison data with metrics, changes, and chart-ready datasets.
 
 ---
 

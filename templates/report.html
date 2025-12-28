@@ -157,6 +157,15 @@
 				font-family: monospace;
 				font-size: 0.85rem;
 			}
+			/* Column widths for password sharing table */
+			#passwordSharingTable th:nth-child(1),
+			#passwordSharingTable td:nth-child(1) { width: 18%; }
+			#passwordSharingTable th:nth-child(2),
+			#passwordSharingTable td:nth-child(2) { width: 8%; min-width: 70px; text-align: center; }
+			#passwordSharingTable th:nth-child(3),
+			#passwordSharingTable td:nth-child(3) { width: 54%; }
+			#passwordSharingTable th:nth-child(4),
+			#passwordSharingTable td:nth-child(4) { width: 20%; }
 			body.print-mode .sharing-stat { background: #f8f9fa; }
 			body.print-mode .sharing-stat-value.critical { color: #dc3545; }
 			body.print-mode .sharing-stat-value.high { color: #856404; }
@@ -709,6 +718,211 @@
 			body.print-mode .kerberoast-stat-card { background: #f8f9fa; }
 			body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
 
+			/* AS-REP Roasting Section Styles */
+			.asrep-section { margin-top: 30px; }
+			.asrep-intro { margin-bottom: 20px; }
+			.asrep-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
+			.asrep-info-note {
+				background: rgba(156, 39, 176, 0.1);
+				border: 1px solid rgba(156, 39, 176, 0.3);
+				border-radius: 6px;
+				padding: 12px 16px;
+				font-size: 0.9rem;
+				text-align: left;
+				color: var(--text-primary, #fff);
+				margin-bottom: 16px;
+			}
+			.asrep-summary-grid {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+				margin-bottom: 24px;
+			}
+			.asrep-stat-card {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 6px;
+				padding: 10px 16px;
+				text-align: center;
+				flex: 1 1 auto;
+				min-width: 90px;
+			}
+			.asrep-stat-card.critical { border-left: 4px solid #dc3545; }
+			.asrep-stat-card.high { border-left: 4px solid #ff6b35; }
+			.asrep-stat-card.medium { border-left: 4px solid #ffc107; }
+			.asrep-stat-card.low { border-left: 4px solid #28a745; }
+			.asrep-stat-card.total { border-left: 4px solid #9c27b0; }
+			.asrep-stat-card.enabled { border-left: 4px solid #28a745; }
+			.asrep-stat-card.disabled { border-left: 4px solid #6c757d; }
+			.asrep-stat-card .stat-value {
+				font-size: 1.5rem;
+				font-weight: bold;
+				line-height: 1.2;
+			}
+			.asrep-stat-card.critical .stat-value { color: #dc3545; }
+			.asrep-stat-card.high .stat-value { color: #ff6b35; }
+			.asrep-stat-card.medium .stat-value { color: #ffc107; }
+			.asrep-stat-card.low .stat-value { color: #28a745; }
+			.asrep-stat-card.total .stat-value { color: #9c27b0; }
+			.asrep-stat-card.enabled .stat-value { color: #28a745; }
+			.asrep-stat-card.disabled .stat-value { color: #6c757d; }
+			.asrep-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
+			.asrep-charts-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+				gap: 24px;
+				margin-bottom: 24px;
+			}
+			.asrep-chart-container {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 8px;
+				padding: 16px;
+			}
+			.asrep-chart-container h4 {
+				margin-bottom: 12px;
+				color: var(--text-primary, #fff);
+			}
+			.asrep-table-section { margin-top: 24px; }
+			.asrep-table-section h3 { margin-bottom: 8px; }
+			.asrep-risk-badge {
+				display: inline-block;
+				padding: 4px 10px;
+				border-radius: 4px;
+				font-size: 0.8rem;
+				font-weight: 600;
+				text-transform: uppercase;
+			}
+			.asrep-risk-badge.critical { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
+			.asrep-risk-badge.high { background: rgba(255, 107, 53, 0.2); color: #ff6b35; }
+			.asrep-risk-badge.medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+			.asrep-risk-badge.low { background: rgba(40, 167, 69, 0.2); color: #28a745; }
+			.asrep-risk-badge.info { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+			.asrep-risk-reasons {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 4px;
+				max-width: 300px;
+			}
+			.asrep-reason-tag {
+				display: inline-block;
+				padding: 2px 6px;
+				border-radius: 3px;
+				font-size: 0.7rem;
+				background: rgba(100, 100, 100, 0.3);
+				color: var(--text-secondary, #aaa);
+			}
+			.asrep-reason-tag.positive { background: rgba(220, 53, 69, 0.15); color: #ff6b6b; }
+			.asrep-reason-tag.negative { background: rgba(40, 167, 69, 0.15); color: #5fba7d; }
+			.asrep-not-available {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				padding: 24px;
+				text-align: center;
+			}
+			.asrep-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
+
+			/* No issues found panel */
+			.asrep-no-issues {
+				background: linear-gradient(135deg, rgba(40, 167, 69, 0.1) 0%, rgba(40, 167, 69, 0.05) 100%);
+				border: 1px solid rgba(40, 167, 69, 0.3);
+				border-radius: 8px;
+				padding: 32px;
+				text-align: center;
+			}
+			.asrep-success-icon {
+				width: 64px;
+				height: 64px;
+				margin: 0 auto 16px;
+				background: rgba(40, 167, 69, 0.2);
+				border-radius: 50%;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 32px;
+				color: #28a745;
+			}
+			.asrep-no-issues h3 {
+				color: #28a745;
+				margin: 0 0 12px 0;
+				font-size: 1.25rem;
+			}
+			.asrep-no-issues > p {
+				color: var(--text-secondary, #aaa);
+				margin: 0 0 20px 0;
+			}
+			.asrep-what-checked {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 6px;
+				padding: 16px 24px;
+				text-align: left;
+				max-width: 600px;
+				margin: 0 auto 16px;
+			}
+			.asrep-what-checked h4 {
+				margin: 0 0 8px 0;
+				color: var(--text-primary, #fff);
+				font-size: 0.9rem;
+			}
+			.asrep-what-checked ul {
+				margin: 0;
+				padding-left: 20px;
+				color: var(--text-secondary, #aaa);
+				font-size: 0.85rem;
+			}
+			.asrep-what-checked li { margin-bottom: 4px; }
+			.asrep-what-checked code {
+				background: rgba(156, 39, 176, 0.2);
+				padding: 1px 5px;
+				border-radius: 3px;
+				font-size: 0.8rem;
+				color: #ce93d8;
+			}
+			.asrep-recommendation {
+				color: var(--text-secondary, #aaa);
+				font-size: 0.85rem;
+				font-style: italic;
+			}
+			.asrep-class-badge {
+				display: inline-block;
+				padding: 3px 8px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				font-weight: 500;
+			}
+			.asrep-class-badge.privileged { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
+			.asrep-class-badge.service { background: rgba(255, 152, 0, 0.2); color: #ff9800; }
+			.asrep-class-badge.user { background: rgba(33, 150, 243, 0.2); color: #2196f3; }
+			.asrep-class-badge.disabled { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+			/* AS-REP table styling */
+			#asrepTable { table-layout: fixed; width: 100%; }
+			#asrepTable th, #asrepTable td {
+				vertical-align: middle !important;
+				padding: 10px 8px !important;
+			}
+			#asrepTable th:nth-child(1), #asrepTable td:nth-child(1) { width: 16%; }
+			#asrepTable th:nth-child(2), #asrepTable td:nth-child(2) { width: 8%; text-align: center; }
+			#asrepTable th:nth-child(3), #asrepTable td:nth-child(3) { width: 10%; text-align: center; }
+			#asrepTable th:nth-child(4), #asrepTable td:nth-child(4) { width: 10%; text-align: center; }
+			#asrepTable th:nth-child(5), #asrepTable td:nth-child(5) { width: 10%; text-align: center; }
+			#asrepTable th:nth-child(6), #asrepTable td:nth-child(6) { width: 10%; text-align: center; }
+			#asrepTable th:nth-child(7), #asrepTable td:nth-child(7) { width: 28%; }
+			#asrepTable th:nth-child(8), #asrepTable td:nth-child(8) { width: 8%; text-align: center; }
+			#asrepTable .status-enabled, #asrepTable .status-disabled { display: inline-block; font-weight: 500; }
+			#asrepTable .status-enabled { color: #28a745; }
+			#asrepTable .status-disabled { color: #6c757d; }
+			#asrepTable .exposure-indicator {
+				display: inline-block;
+				width: 10px;
+				height: 10px;
+				border-radius: 50%;
+				margin-right: 4px;
+			}
+			#asrepTable .exposure-indicator.cracked { background: #dc3545; }
+			#asrepTable .exposure-indicator.hibp { background: #ff6b35; }
+			/* Print mode overrides for AS-REP */
+			body.print-mode .asrep-stat-card { background: #f8f9fa; }
+			body.print-mode .asrep-chart-container { background: #f8f9fa; }
+
 			/* Print mode overrides */
 			body.print-mode .hibp-status-panel { background: #f8f9fa; border-color: #ddd; }
 			body.print-mode .hibp-privacy-note { background: #e3f2fd; border-color: #2196f3; }
@@ -798,6 +1012,7 @@
 				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
+				<button class="report-nav-btn" id="navASREP" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
 				<button class="report-nav-btn" id="navTrendAnalysis" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
 				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysis" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
 			</div>
@@ -1686,6 +1901,95 @@
 			</div>
 		</section>
 
+		<!-- AS-REP Exposure Analysis Section -->
+		<section id="asrepSection" class="report-section asrep-section" style="display: none;">
+			<h2>AS-REP Exposure Analysis</h2>
+
+			<!-- Info panel when no data available -->
+			<div id="asrepNotAvailable" class="asrep-not-available" style="display: none;">
+				<p>AS-REP analysis requires ADD JSON input with accounts that have Kerberos pre-authentication disabled (DONT_REQUIRE_PREAUTH).</p>
+				<p style="margin-top: 8px; font-size: 0.9rem;">This analysis is only available when using the Active Directory Dumper (ADD) JSON format.</p>
+			</div>
+
+			<!-- No vulnerabilities found panel -->
+			<div id="asrepNoIssues" class="asrep-no-issues" style="display: none;">
+				<div class="asrep-success-icon">✓</div>
+				<h3>No AS-REP Roastable Accounts Found</h3>
+				<p>Good news! None of the <strong id="asrepTotalScanned">0</strong> accounts analyzed have Kerberos pre-authentication disabled.</p>
+				<div class="asrep-what-checked">
+					<h4>What was checked:</h4>
+					<ul>
+						<li>Scanned all user accounts for the <code>DONT_REQUIRE_PREAUTH</code> flag (UAC bit 0x400000)</li>
+						<li>This flag, when set, allows attackers to request AS-REP tickets without authentication</li>
+						<li>Such tickets can be cracked offline to recover account passwords</li>
+					</ul>
+				</div>
+				<p class="asrep-recommendation">Continue monitoring for accounts with pre-authentication disabled, especially legacy applications or service accounts that may be configured this way.</p>
+			</div>
+
+			<!-- Results when data is available -->
+			<div id="asrepResults" style="display: none;">
+				<div class="asrep-intro">
+					<p>Analysis of accounts vulnerable to AS-REP roasting attacks. Accounts with Kerberos pre-authentication disabled can have their AS-REP tickets requested by anyone for offline password cracking without authentication.</p>
+				</div>
+
+				<div class="asrep-info-note">
+					<strong>Risk Scoring:</strong> Each account is scored based on: privilege level (adminCount), service account status, password exposure (cracked, HIBP, reused), activity recency, and password staleness as an exposure amplifier.
+				</div>
+
+				<!-- Summary Stats -->
+				<div class="asrep-summary-grid" id="asrepSummaryGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<!-- Charts -->
+				<div class="asrep-charts-grid">
+					<div class="asrep-chart-container">
+						<h4>Account Classification</h4>
+						<canvas id="asrepClassChart"></canvas>
+					</div>
+					<div class="asrep-chart-container">
+						<h4>Enabled vs Disabled</h4>
+						<canvas id="asrepEnabledChart"></canvas>
+					</div>
+					<div class="asrep-chart-container">
+						<h4>Password Age Distribution</h4>
+						<canvas id="asrepPwdAgeChart"></canvas>
+					</div>
+					<div class="asrep-chart-container">
+						<h4>Risk Distribution</h4>
+						<canvas id="asrepRiskChart"></canvas>
+					</div>
+				</div>
+
+				<!-- Accounts Table -->
+				<div class="asrep-table-section">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+						<h3 style="margin: 0;">AS-REP Roastable Accounts</h3>
+						<button id="downloadASREPCSV" onclick="downloadASREPCSV()">Download CSV</button>
+					</div>
+					<p class="warning-text">Accounts with pre-authentication disabled that can be targeted for AS-REP roasting. Higher risk scores indicate greater urgency for remediation.</p>
+					<table id="asrepTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Class</th>
+								<th>Risk Score</th>
+								<th>Category</th>
+								<th>Risk Factors</th>
+								<th>Last Logon</th>
+								<th>Pwd Last Set</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
 		<!-- Historical Trend Analysis Section -->
 		<section id="trendAnalysisSection" class="report-section trend-section" style="display: none;">
 			<h2>Historical Trend Analysis</h2>
@@ -1739,8 +2043,19 @@
 						<canvas id="trendCrackRateChart"></canvas>
 					</div>
 					<div class="trend-chart-wrapper">
-						<h3>Average Password Length Over Time</h3>
-						<canvas id="trendPasswordLengthChart"></canvas>
+						<h3>Password Reuse Rate Over Time</h3>
+						<canvas id="trendPasswordReuseChart"></canvas>
+					</div>
+				</div>
+
+				<div class="trend-charts-container">
+					<div class="trend-chart-wrapper">
+						<h3>Total Accounts Analyzed</h3>
+						<canvas id="trendTotalAccountsChart"></canvas>
+					</div>
+					<div class="trend-chart-wrapper">
+						<h3>HIBP Exposed Accounts</h3>
+						<canvas id="trendHIBPExposureChart"></canvas>
 					</div>
 				</div>
 
@@ -2585,10 +2900,446 @@
 				URL.revokeObjectURL(url);
 			}
 
+			// ==================== AS-REP EXPOSURE ANALYSIS FUNCTIONS ====================
+			let asrepClassChart = null;
+			let asrepEnabledChart = null;
+			let asrepPwdAgeChart = null;
+			let asrepRiskChart = null;
+			let asrepDataTable = null;
+			let asrepData = null;
+
+			// Initialize AS-REP section - check for available data
+			async function initASREPSection() {
+				try {
+					const response = await fetch('/asrep_report.json');
+					if (response.ok) {
+						asrepData = await response.json();
+						if (asrepData && asrepData.summary) {
+							// Show section and nav button regardless of whether issues were found
+							document.getElementById('asrepSection').style.display = 'block';
+							document.getElementById('navASREP').style.display = 'inline-block';
+
+							if (asrepData.summary.total_asrep_roastable > 0) {
+								// Show results with vulnerable accounts
+								displayASREPResults(asrepData);
+							} else {
+								// Show "no issues found" panel
+								displayASREPNoIssues(asrepData.summary.total_user_count);
+							}
+						}
+					}
+				} catch (e) {
+					console.log('No AS-REP data available:', e);
+				}
+			}
+
+			// Display "no issues found" message
+			function displayASREPNoIssues(totalScanned) {
+				document.getElementById('asrepNotAvailable').style.display = 'none';
+				document.getElementById('asrepResults').style.display = 'none';
+				document.getElementById('asrepNoIssues').style.display = 'block';
+				document.getElementById('asrepTotalScanned').textContent = totalScanned || 0;
+			}
+
+			// Display AS-REP analysis results
+			function displayASREPResults(data) {
+				document.getElementById('asrepNotAvailable').style.display = 'none';
+				document.getElementById('asrepNoIssues').style.display = 'none';
+				document.getElementById('asrepResults').style.display = 'block';
+
+				const summary = data.summary;
+
+				// Populate summary grid
+				const summaryGrid = document.getElementById('asrepSummaryGrid');
+				summaryGrid.innerHTML = `
+					<div class="asrep-stat-card total">
+						<div class="stat-value">${summary.total_asrep_roastable}</div>
+						<div class="stat-label">Total</div>
+					</div>
+					<div class="asrep-stat-card enabled">
+						<div class="stat-value">${summary.enabled_asrep_roastable}</div>
+						<div class="stat-label">Enabled</div>
+					</div>
+					<div class="asrep-stat-card disabled">
+						<div class="stat-value">${summary.disabled_asrep_roastable}</div>
+						<div class="stat-label">Disabled</div>
+					</div>
+					<div class="asrep-stat-card privileged">
+						<div class="stat-value">${summary.privileged_asrep_roastable}</div>
+						<div class="stat-label">Privileged</div>
+					</div>
+					<div class="asrep-stat-card cracked">
+						<div class="stat-value">${summary.cracked_asrep_roastable}</div>
+						<div class="stat-label">Cracked</div>
+					</div>
+					<div class="asrep-stat-card hibp">
+						<div class="stat-value">${summary.hibp_exposed_asrep_roastable}</div>
+						<div class="stat-label">HIBP</div>
+					</div>
+				`;
+
+				// Create charts
+				if (data.chart_data) {
+					createASREPClassChart(data.chart_data.account_class_distribution);
+					createASREPEnabledChart(summary);
+					createASREPPwdAgeChart(data.chart_data.password_age_histogram);
+					createASREPRiskChart(summary);
+				}
+
+				// Populate accounts table
+				populateASREPTable(data.assessments || []);
+			}
+
+			// Create account classification bar chart
+			function createASREPClassChart(chartData) {
+				const ctx = document.getElementById('asrepClassChart').getContext('2d');
+
+				if (asrepClassChart) {
+					asrepClassChart.destroy();
+				}
+
+				if (!chartData || !chartData.labels) return;
+
+				asrepClassChart = new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: chartData.labels,
+						datasets: [{
+							label: 'Accounts',
+							data: chartData.datasets[0].data,
+							backgroundColor: [
+								'rgba(220, 53, 69, 0.7)',   // Privileged - red
+								'rgba(255, 152, 0, 0.7)',  // Service - orange
+								'rgba(33, 150, 243, 0.7)', // User - blue
+								'rgba(158, 158, 158, 0.7)' // Disabled - gray
+							],
+							borderColor: [
+								'#dc3545',
+								'#ff9800',
+								'#2196f3',
+								'#9e9e9e'
+							],
+							borderWidth: 1
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: { display: false }
+						},
+						scales: {
+							y: {
+								beginAtZero: true,
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa',
+									stepSize: 1
+								},
+								grid: {
+									color: 'rgba(255, 255, 255, 0.1)'
+								}
+							},
+							x: {
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								},
+								grid: {
+									display: false
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Create enabled vs disabled doughnut chart
+			function createASREPEnabledChart(summary) {
+				const ctx = document.getElementById('asrepEnabledChart').getContext('2d');
+
+				if (asrepEnabledChart) {
+					asrepEnabledChart.destroy();
+				}
+
+				asrepEnabledChart = new Chart(ctx, {
+					type: 'doughnut',
+					data: {
+						labels: ['Enabled', 'Disabled'],
+						datasets: [{
+							data: [
+								summary.enabled_asrep_roastable,
+								summary.disabled_asrep_roastable
+							],
+							backgroundColor: [
+								'rgba(40, 167, 69, 0.8)',   // Enabled - green
+								'rgba(158, 158, 158, 0.8)' // Disabled - gray
+							],
+							borderColor: [
+								'#28a745',
+								'#9e9e9e'
+							],
+							borderWidth: 1
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: {
+								position: 'bottom',
+								labels: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff'
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Create password age histogram
+			function createASREPPwdAgeChart(chartData) {
+				const ctx = document.getElementById('asrepPwdAgeChart').getContext('2d');
+
+				if (asrepPwdAgeChart) {
+					asrepPwdAgeChart.destroy();
+				}
+
+				if (!chartData || !chartData.labels) return;
+
+				asrepPwdAgeChart = new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: chartData.labels,
+						datasets: [{
+							label: 'Accounts',
+							data: chartData.datasets[0].data,
+							backgroundColor: 'rgba(156, 39, 176, 0.7)',
+							borderColor: '#9c27b0',
+							borderWidth: 1
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: { display: false }
+						},
+						scales: {
+							y: {
+								beginAtZero: true,
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa',
+									stepSize: 1
+								},
+								grid: {
+									color: 'rgba(255, 255, 255, 0.1)'
+								}
+							},
+							x: {
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								},
+								grid: {
+									display: false
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Create risk distribution doughnut chart
+			function createASREPRiskChart(summary) {
+				const ctx = document.getElementById('asrepRiskChart').getContext('2d');
+
+				if (asrepRiskChart) {
+					asrepRiskChart.destroy();
+				}
+
+				const infoCount = summary.info_count || 0;
+
+				asrepRiskChart = new Chart(ctx, {
+					type: 'doughnut',
+					data: {
+						labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+						datasets: [{
+							data: [
+								summary.critical_count,
+								summary.high_count,
+								summary.medium_count,
+								summary.low_count,
+								infoCount
+							],
+							backgroundColor: [
+								'rgba(220, 53, 69, 0.8)',
+								'rgba(255, 107, 53, 0.8)',
+								'rgba(255, 193, 7, 0.8)',
+								'rgba(40, 167, 69, 0.8)',
+								'rgba(23, 162, 184, 0.8)'
+							],
+							borderColor: [
+								'#dc3545',
+								'#ff6b35',
+								'#ffc107',
+								'#28a745',
+								'#17a2b8'
+							],
+							borderWidth: 1
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: {
+								position: 'bottom',
+								labels: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff'
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Format AS-REP risk factor names for display
+			function formatASREPRiskFactorName(name) {
+				const mapping = {
+					'ASREP_ROASTABLE': 'AS-REP Roastable',
+					'CRACKED_PASSWORD': 'Cracked',
+					'HIBP_EXPOSED': 'HIBP Breach',
+					'REUSED_PASSWORD': 'Pwd Reused',
+					'PRIVILEGED_ACCOUNT': 'Privileged',
+					'SERVICE_ACCOUNT': 'Service Account',
+					'RECENTLY_ACTIVE': 'Recently Active',
+					'PASSWORD_STALE_3Y': 'Pwd 3+ Years',
+					'PASSWORD_STALE_1Y': 'Pwd 1+ Years',
+					'PASSWORD_NEVER_EXPIRES': 'No Expiry',
+					'ACCOUNT_DISABLED': 'Disabled'
+				};
+				return mapping[name] || name.replace(/_/g, ' ');
+			}
+
+			// Get account class display name and CSS class
+			function getASREPAccountClass(acc) {
+				if (!acc.enabled) return { name: 'Disabled', cssClass: 'disabled' };
+				if (acc.is_privileged) return { name: 'Privileged', cssClass: 'privileged' };
+				if (acc.is_service_like) return { name: 'Service', cssClass: 'service' };
+				return { name: 'User', cssClass: 'user' };
+			}
+
+			// Format date string for display
+			function formatASREPDate(dateStr) {
+				if (!dateStr || dateStr === 'Never' || dateStr === 'Unknown') return dateStr || 'Unknown';
+				// Try to parse and format the date
+				const date = new Date(dateStr);
+				if (isNaN(date.getTime())) return dateStr;
+				return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+			}
+
+			// Populate the AS-REP accounts table
+			function populateASREPTable(accounts) {
+				const tbody = document.querySelector('#asrepTable tbody');
+				if (!tbody) return;
+
+				// Sort by risk score descending
+				accounts.sort((a, b) => b.risk_score - a.risk_score);
+
+				tbody.innerHTML = accounts.map(acc => {
+					const categoryClass = acc.risk_category.toLowerCase();
+					const status = acc.enabled ? 'Enabled' : 'Disabled';
+					const statusClass = acc.enabled ? 'status-enabled' : 'status-disabled';
+					const accClass = getASREPAccountClass(acc);
+
+					// Format risk reasons as tags
+					const reasonsHtml = (acc.risk_reasons || []).map(reason => {
+						const isNegative = reason === 'ACCOUNT_DISABLED';
+						const tagClass = isNegative ? 'negative' : 'positive';
+						return `<span class="asrep-reason-tag ${tagClass}">${formatASREPRiskFactorName(reason)}</span>`;
+					}).join('');
+
+					return `
+						<tr>
+							<td>${escapeHtml(acc.sam_account_name)}</td>
+							<td><span class="asrep-class-badge ${accClass.cssClass}">${accClass.name}</span></td>
+							<td>${acc.risk_score}</td>
+							<td><span class="asrep-risk-badge ${categoryClass}">${acc.risk_category}</span></td>
+							<td><div class="asrep-risk-reasons">${reasonsHtml}</div></td>
+							<td>${formatASREPDate(acc.last_logon)}</td>
+							<td>${formatASREPDate(acc.pwd_last_set)}</td>
+							<td><span class="${statusClass}">${status}</span></td>
+						</tr>
+					`;
+				}).join('');
+
+				// Initialize DataTable if jQuery is available
+				if (typeof $ !== 'undefined' && $.fn.DataTable) {
+					if (asrepDataTable) {
+						asrepDataTable.destroy();
+					}
+					asrepDataTable = $('#asrepTable').DataTable({
+						pageLength: 25,
+						order: [[2, 'desc']],  // Sort by risk score
+						autoWidth: false,
+						columnDefs: [
+							{ orderable: false, targets: [4] },  // Risk factors not sortable
+							{ width: '12%', targets: 0 },  // Account
+							{ width: '8%', className: 'dt-center', targets: 1 },  // Class
+							{ width: '7%', className: 'dt-center', targets: 2 },  // Score
+							{ width: '8%', className: 'dt-center', targets: 3 },  // Category
+							{ width: '30%', targets: 4 },  // Risk Factors
+							{ width: '12%', targets: 5 },  // Last Logon
+							{ width: '12%', targets: 6 },  // Pwd Last Set
+							{ width: '8%', className: 'dt-center', targets: 7 }  // Status
+						]
+					});
+				}
+			}
+
+			// Download AS-REP results as CSV
+			function downloadASREPCSV() {
+				if (!asrepData || !asrepData.assessments) {
+					alert('No AS-REP data available to export.');
+					return;
+				}
+
+				const accounts = asrepData.assessments;
+
+				// Build CSV content
+				let csvContent = '"Account","Class","Risk Score","Category","Risk Factors","Last Logon","Pwd Last Set","Enabled","Privileged","Service"\n';
+
+				accounts.forEach(acc => {
+					const account = String(acc.sam_account_name || '').replace(/"/g, '""');
+					const accClass = getASREPAccountClass(acc);
+					const riskScore = acc.risk_score || 0;
+					const category = acc.risk_category || 'Unknown';
+					const factors = (acc.risk_reasons || []).join('; ');
+					const lastLogon = acc.last_logon || 'Unknown';
+					const pwdLastSet = acc.pwd_last_set || 'Unknown';
+					const enabled = acc.enabled ? 'Yes' : 'No';
+					const privileged = acc.is_privileged ? 'Yes' : 'No';
+					const service = acc.is_service_like ? 'Yes' : 'No';
+
+					csvContent += `"${account}","${accClass.name}","${riskScore}","${category}","${factors}","${lastLogon}","${pwdLastSet}","${enabled}","${privileged}","${service}"\n`;
+				});
+
+				// Download the file
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = 'ASREP_Analysis.csv';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
+			}
+
 			// ==================== TREND ANALYSIS FUNCTIONS ====================
 			// Store chart instances for cleanup
 			let trendCrackRateChart = null;
-			let trendPasswordLengthChart = null;
+			let trendPasswordReuseChart = null;
+			let trendTotalAccountsChart = null;
+			let trendHIBPExposureChart = null;
 			let trendViolationsChart = null;
 			let trendBadPracticesChart = null;
 			let trendSessionsByCompany = {};
@@ -2837,7 +3588,9 @@
 
 				// Destroy existing charts
 				if (trendCrackRateChart) trendCrackRateChart.destroy();
-				if (trendPasswordLengthChart) trendPasswordLengthChart.destroy();
+				if (trendPasswordReuseChart) trendPasswordReuseChart.destroy();
+				if (trendTotalAccountsChart) trendTotalAccountsChart.destroy();
+				if (trendHIBPExposureChart) trendHIBPExposureChart.destroy();
 				if (trendViolationsChart) trendViolationsChart.destroy();
 				if (trendBadPracticesChart) trendBadPracticesChart.destroy();
 
@@ -2869,9 +3622,22 @@
 					maxBarThickness: 60
 				};
 
+				// Helper to calculate nice max value for Y-axis with padding
+				function calcNiceMax(data, minMax = 10) {
+					const maxVal = Math.max(...data);
+					if (maxVal === 0) return minMax;
+					// Add 20% padding and round up to nice number
+					const padded = maxVal * 1.2;
+					if (padded <= 10) return Math.ceil(padded);
+					if (padded <= 50) return Math.ceil(padded / 5) * 5;
+					if (padded <= 100) return Math.ceil(padded / 10) * 10;
+					return Math.ceil(padded / 50) * 50;
+				}
+
 				// Crack Rate Chart
 				const crackRateCtx = document.getElementById('trendCrackRateChart');
 				if (crackRateCtx) {
+					const crackRateMax = calcNiceMax(datasets.crack_rate.data);
 					trendCrackRateChart = new Chart(crackRateCtx, {
 						type: 'line',
 						data: {
@@ -2884,26 +3650,105 @@
 						},
 						options: {
 							...chartOptions,
-							scales: { y: { beginAtZero: true, max: 100 } }
+							scales: {
+								y: {
+									beginAtZero: true,
+									max: crackRateMax,
+									ticks: { callback: (v) => v + '%' }
+								},
+								x: { grid: { display: false } }
+							}
 						}
 					});
 				}
 
-				// Password Length Chart
-				const lengthCtx = document.getElementById('trendPasswordLengthChart');
-				if (lengthCtx) {
-					trendPasswordLengthChart = new Chart(lengthCtx, {
+				// Password Reuse Rate Chart
+				const reuseCtx = document.getElementById('trendPasswordReuseChart');
+				if (reuseCtx) {
+					const reuseMax = calcNiceMax(datasets.password_reuse_rate.data);
+					trendPasswordReuseChart = new Chart(reuseCtx, {
 						type: 'line',
 						data: {
 							labels: labels,
 							datasets: [{
-								...datasets.avg_password_length,
+								...datasets.password_reuse_rate,
 								fill: true,
 								tension: 0.3
 							}]
 						},
-						options: chartOptions
+						options: {
+							...chartOptions,
+							scales: {
+								y: {
+									beginAtZero: true,
+									max: reuseMax,
+									ticks: { callback: (v) => v + '%' }
+								},
+								x: { grid: { display: false } }
+							}
+						}
 					});
+				}
+
+				// Total Accounts Chart
+				const accountsCtx = document.getElementById('trendTotalAccountsChart');
+				if (accountsCtx && datasets.total_accounts) {
+					trendTotalAccountsChart = new Chart(accountsCtx, {
+						type: 'line',
+						data: {
+							labels: labels,
+							datasets: [{
+								...datasets.total_accounts,
+								fill: true,
+								tension: 0.3
+							}]
+						},
+						options: {
+							...chartOptions,
+							scales: {
+								y: { beginAtZero: true },
+								x: { grid: { display: false } }
+							}
+						}
+					});
+				}
+
+				// HIBP Exposure Chart - only show if at least one session has HIBP data
+				const hibpCtx = document.getElementById('trendHIBPExposureChart');
+				const hibpWrapper = hibpCtx ? hibpCtx.closest('.trend-chart-wrapper') : null;
+				if (hibpCtx && datasets.hibp_exposure_count) {
+					const hasHIBPData = datasets.hibp_exposure_count.data.some(v => v > 0);
+					if (hasHIBPData) {
+						trendHIBPExposureChart = new Chart(hibpCtx, {
+							type: 'line',
+							data: {
+								labels: labels,
+								datasets: [{
+									...datasets.hibp_exposure_count,
+									fill: true,
+									tension: 0.3
+								}]
+							},
+							options: {
+								...chartOptions,
+								scales: {
+									y: { beginAtZero: true },
+									x: { grid: { display: false } }
+								}
+							}
+						});
+					} else if (hibpWrapper) {
+						// No HIBP data - show informative message
+						hibpWrapper.innerHTML = `
+							<h3>HIBP Exposed Accounts</h3>
+							<div style="display: flex; align-items: center; justify-content: center; height: 200px; color: #888; text-align: center;">
+								<div>
+									<p style="margin: 0; font-size: 14px;">No HIBP data available</p>
+									<p style="margin: 8px 0 0 0; font-size: 12px; opacity: 0.7;">Run HIBP checks on sessions to see breach exposure trends</p>
+								</div>
+							</div>
+						`;
+					}
 				}
 
 				// Violations Chart
@@ -2998,8 +3843,8 @@
 								<span class="metric-value">${metrics.cracked_count} (${metrics.crack_rate}%)</span>
 							</div>
 							<div class="trend-session-metric">
-								<span class="metric-label">Avg Length:</span>
-								<span class="metric-value">${metrics.avg_password_length}</span>
+								<span class="metric-label">Reuse Rate:</span>
+								<span class="metric-value">${metrics.password_reuse_rate}%</span>
 							</div>
 							<div class="trend-session-metric">
 								<span class="metric-label">Bad Practices:</span>
@@ -4320,26 +5165,26 @@
 				.getElementById("topSubstringCount")
 				.addEventListener("change", function () {
 					const count = parseInt(this.value);
-					fetch("pw_substrings")
-						.then((response) => response.json())
-						.then((data) => {
-							const sortedData = Object.entries(data)
-								.sort(([, a], [, b]) => b - a) // Sort by value descending
-								.slice(0, count || undefined) // Use full data if "All Results" is selected
-								.reduce((obj, [key, value]) => {
-									obj[key] = value;
-									return obj;
-								}, {});
-							updateChart(
-								topSubstringsChartInstance,
-								sortedData,
-								"Substring",
-								"Count"
-							);
-						})
-						.catch((error) =>
-							console.error("Error loading pw_substrings:", error)
-						);
+
+					// Use the already-loaded and sorted substringRawData
+					if (!substringRawData || !topSubstringsChartInstance) {
+						console.error("Substring data or chart instance not available.");
+						return;
+					}
+
+					// Slice the data based on dropdown selection (0 means all)
+					const slicedData = count > 0
+						? substringRawData.slice(0, count)
+						: substringRawData;
+
+					// Extract labels and counts from the array of objects
+					const labels = slicedData.map((item) => item.substring);
+					const counts = slicedData.map((item) => item.count);
+
+					// Update the chart directly
+					topSubstringsChartInstance.data.labels = labels;
+					topSubstringsChartInstance.data.datasets[0].data = counts;
+					topSubstringsChartInstance.update();
 				});
 
 			// Update the Top Dictionary Words chart dynamically
@@ -5532,6 +6377,9 @@
 
 				// Initialize Kerberoast section (check for available data)
 				initKerberoastSection();
+
+				// Initialize AS-REP section (check for available data)
+				initASREPSection();
 
 				// Setup button handlers
 				document.getElementById('generateAIAnalysisBtn').addEventListener('click', openAAIAModal);

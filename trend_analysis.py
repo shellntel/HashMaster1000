@@ -94,19 +94,23 @@ class TrendAnalyzer:
     }
 
     # Metrics where higher values are better
+    # Note: avg_password_length removed - it's misleading because as security improves
+    # and fewer passwords are cracked, the remaining cracked passwords tend to be
+    # the weakest (shortest), making the average appear to worsen when security
+    # is actually improving.
     HIGHER_IS_BETTER = {
-        "avg_password_length", "min_password_length"
+        "min_password_length"
     }
 
     # Thresholds for "significant" changes (as percentages)
     SIGNIFICANCE_THRESHOLDS = {
         "crack_rate": 5.0,
-        "avg_password_length": 0.5,
-        "min_length_violations": 10.0,
-        "complexity_violations": 10.0,
-        "blank_passwords": 10.0,
         "password_reuse_rate": 5.0,
+        "blank_passwords": 10.0,
+        "complexity_violations": 10.0,
+        "min_length_violations": 10.0,
         "total_bad_practices": 10.0,
+        "lm_hash_count": 10.0,
         "hibp_exposure_rate": 5.0,
     }
 
@@ -307,12 +311,19 @@ class TrendAnalyzer:
         if hibp:
             metrics.hibp_checked = True
             if isinstance(hibp, dict):
-                metrics.hibp_exposed_count = hibp.get("exposed_count", 0)
+                # Support both field naming conventions:
+                # - "total_found" (current format from HIBP check)
+                # - "exposed_count" (legacy/alternative format)
+                metrics.hibp_exposed_count = hibp.get("total_found", hibp.get("exposed_count", 0))
                 total_checked = hibp.get("total_checked", 0)
                 if total_checked > 0:
-                    metrics.hibp_exposure_rate = round(
-                        metrics.hibp_exposed_count / total_checked * 100, 2
-                    )
+                    # Use found_percentage if available, otherwise calculate
+                    if "found_percentage" in hibp:
+                        metrics.hibp_exposure_rate = hibp.get("found_percentage", 0)
+                    else:
+                        metrics.hibp_exposure_rate = round(
+                            metrics.hibp_exposed_count / total_checked * 100, 2
+                        )
 
         return metrics
 
@@ -397,14 +408,17 @@ class TrendAnalyzer:
         """Calculate changes between two sets of metrics."""
         changes = []
 
-        # Key metrics to compare
+        # Key metrics to compare (ordered by importance)
+        # Note: avg_password_length intentionally excluded - it's misleading because
+        # as security improves and crack rate decreases, the remaining cracked
+        # passwords tend to be the weakest (shortest), making the metric appear
+        # to worsen when security is actually improving.
         metrics_to_compare = [
             ("crack_rate", old_metrics.crack_rate, new_metrics.crack_rate),
-            ("avg_password_length", old_metrics.avg_password_length, new_metrics.avg_password_length),
-            ("min_length_violations", old_metrics.min_length_violations, new_metrics.min_length_violations),
-            ("complexity_violations", old_metrics.complexity_violations, new_metrics.complexity_violations),
-            ("blank_passwords", old_metrics.blank_passwords, new_metrics.blank_passwords),
             ("password_reuse_rate", old_metrics.password_reuse_rate, new_metrics.password_reuse_rate),
+            ("blank_passwords", old_metrics.blank_passwords, new_metrics.blank_passwords),
+            ("complexity_violations", old_metrics.complexity_violations, new_metrics.complexity_violations),
+            ("min_length_violations", old_metrics.min_length_violations, new_metrics.min_length_violations),
             ("total_bad_practices", old_metrics.total_bad_practices, new_metrics.total_bad_practices),
             ("lm_hash_count", old_metrics.lm_hash_count, new_metrics.lm_hash_count),
         ]
@@ -493,12 +507,19 @@ class TrendAnalyzer:
                     f"{crack_change.new_value}% ({abs(crack_change.percent_change):.1f}% regression)."
                 )
 
-        length_change = next((c for c in changes if c.metric_name == "avg_password_length"), None)
-        if length_change and length_change.is_significant:
-            parts.append(
-                f"Average password length changed from {length_change.old_value} to "
-                f"{length_change.new_value} characters."
-            )
+        # Add password reuse change to summary
+        reuse_change = next((c for c in changes if c.metric_name == "password_reuse_rate"), None)
+        if reuse_change and reuse_change.is_significant:
+            if reuse_change.direction == "improvement":
+                parts.append(
+                    f"Password reuse decreased from {reuse_change.old_value}% to "
+                    f"{reuse_change.new_value}% ({abs(reuse_change.percent_change):.1f}% improvement)."
+                )
+            else:
+                parts.append(
+                    f"Password reuse increased from {reuse_change.old_value}% to "
+                    f"{reuse_change.new_value}%."
+                )
 
         # Count significant improvements and regressions
         improvements = [c for c in changes if c.direction == "improvement" and c.is_significant]
@@ -536,7 +557,8 @@ class TrendAnalyzer:
             for s in sessions
         ]
 
-        # Prepare datasets for different metric groups
+        # Prepare datasets for different metric groups (ordered by importance)
+        # Note: avg_password_length removed - misleading metric (see comment in _calculate_changes)
         return {
             "labels": labels,
             "dates": [s.session_date for s in sessions],
@@ -547,11 +569,11 @@ class TrendAnalyzer:
                     "borderColor": "#e74c3c",
                     "backgroundColor": "rgba(231, 76, 60, 0.1)",
                 },
-                "avg_password_length": {
-                    "label": "Avg Password Length",
-                    "data": [s.avg_password_length for s in sessions],
-                    "borderColor": "#27ae60",
-                    "backgroundColor": "rgba(39, 174, 96, 0.1)",
+                "password_reuse_rate": {
+                    "label": "Password Reuse Rate (%)",
+                    "data": [s.password_reuse_rate for s in sessions],
+                    "borderColor": "#3498db",
+                    "backgroundColor": "rgba(52, 152, 219, 0.1)",
                 },
                 "policy_violations": {
                     "label": "Total Policy Violations",
@@ -568,11 +590,17 @@ class TrendAnalyzer:
                     "borderColor": "#9b59b6",
                     "backgroundColor": "rgba(155, 89, 182, 0.1)",
                 },
-                "password_reuse_rate": {
-                    "label": "Password Reuse Rate (%)",
-                    "data": [s.password_reuse_rate for s in sessions],
-                    "borderColor": "#3498db",
-                    "backgroundColor": "rgba(52, 152, 219, 0.1)",
+                "total_accounts": {
+                    "label": "Total Accounts",
+                    "data": [s.total_accounts for s in sessions],
+                    "borderColor": "#2ecc71",
+                    "backgroundColor": "rgba(46, 204, 113, 0.1)",
+                },
+                "hibp_exposure_count": {
+                    "label": "HIBP Exposed Accounts",
+                    "data": [s.hibp_exposed_count for s in sessions],
+                    "borderColor": "#e67e22",
+                    "backgroundColor": "rgba(230, 126, 34, 0.1)",
                 },
             },
             "summary": {
