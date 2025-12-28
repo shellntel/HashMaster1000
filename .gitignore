@@ -33,6 +33,10 @@ build/
 uploads/
 data/sessions/
 
+# Potfiles (contain cracked password hashes - sensitive data)
+data/*.potfile
+*.potfile
+
 # Generated data files (session outputs, AI analysis, etc)
 data/ai_analysis/
 data/current_session.json

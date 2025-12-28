@@ -175,9 +175,9 @@ Top Rotation Patterns:
 
 ---
 
-### Active Directory Domain Filtering (PLANNED)
+### Active Directory Domain Filtering (IMPLEMENTED)
 
-**Status:** Planned for implementation
+**Status:** Implemented (December 2024)
 
 **Description:** Dynamically filter and display results by Active Directory domain when multi-domain data is present. Enable domain-specific analysis and cross-domain password reuse detection.
 
@@ -204,34 +204,21 @@ Top Rotation Patterns:
    Domain extracted: `corp.example.com`
 
 **UI Components:**
-- Domain dropdown selector in report header
-- Options: "All Domains", "CORP.EXAMPLE.COM", "DEV.EXAMPLE.COM", etc.
+- Domain dropdown selector in Settings modal
+- Options: "All Domains", "CORP", "DEV", "(No Domain)", etc.
 - Persistent filter across all report sections
-- Real-time recalculation of all statistics and charts
+- Real-time recalculation of all statistics, charts, and HIBP results
 
-**Implementation Approach:**
-1. During file parsing, extract domain from account names and DN
-2. Store domain association with each account in session data
-3. Add domain filter API endpoint
-4. Client-side filtering for performance (if data size permits)
-5. Recalculate all metrics when domain filter changes
+**Implementation:**
+- `domain_utils.py` - Domain extraction and filtering module
+- Domain info saved to `domain_info.json` in session
+- Settings modal allows changing domain filter with report regeneration
+- Cross-domain password reuse detection available via `detect_cross_domain_password_reuse()`
 
-**Report Sections Affected:**
-- All statistics (crack rate, averages, counts)
-- All charts (distributions, patterns, trends)
-- All tables (password reuse, bad practices, etc.)
-- Password reuse analysis (cross-domain reuse is especially interesting)
-
-**Cross-Domain Analysis:**
-- Identify passwords reused across domains (CORP\admin same as DEV\admin)
-- Compare password strength between domains
-- "Production domain has 45% cracked vs Dev domain at 78%"
-- Highlight cross-domain reuse as a critical finding
-
-**Files to Create/Modify:**
-- `domain_filter.py` - Domain extraction and filtering module
-- Update `hm1k.py` - Add domain filter endpoints
-- Update `templates/report.html` - Add domain selector UI
+**Files:**
+- `domain_utils.py` - Domain extraction, filtering, and cross-domain analysis
+- `hm1k.py` - Integration in processing and regeneration endpoints
+- `templates/report.html` - Domain filter UI in Settings modal
 
 ---
 
@@ -998,6 +985,7 @@ The most common password patterns observed were:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| AD Domain Filtering | Dec 2024 | Filter reports by domain, cross-domain reuse detection |
 | Historical Trend Analysis | Dec 2024 | Compare password security metrics across sessions by company |
 | AS-REP Exposure Analysis | Dec 2024 | Risk assessment for accounts with pre-auth disabled |
 | Kerberoast Exposure Analysis | Dec 2024 | Risk scoring for service accounts with SPNs |
