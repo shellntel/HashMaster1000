@@ -21,6 +21,12 @@
 				<h1 class="brand-name">Hash Master 1000</h1>
 				<span class="brand-tagline">Password & Hash Analyzer</span>
 			</div>
+			{% if master_potfile_enabled %}
+			<div class="master-potfile-header" id="masterPotfileHeader">
+				<span class="potfile-label">Master Potfile:</span>
+				<span class="potfile-count" id="masterPotfileCount">{{ "{:,}".format(master_potfile_count) if master_potfile_count else "0" }} hashes</span>
+			</div>
+			{% endif %}
 			<div class="header-actions">
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
@@ -374,13 +380,49 @@
 										<input type="checkbox" name="ignore_blank_passwords" value="true" />
 									</div>
 								</div>
+							</div>
 
-								<div class="option-group" style="padding: 12px 0;">
-									<div class="option-row" style="justify-content: space-between; align-items: center;">
-										<label style="font-weight: 600;">Company Name & Terms <span id="keywordCount" style="color: #888; font-weight: normal;"></span></label>
-										<button type="button" class="btn btn-secondary" onclick="openKeywordsModal()" style="padding: 6px 16px;">Configure</button>
+							<!-- Bottom row: Domain Filter and Company Terms (wider, side by side) -->
+							<div class="options-grid-wide" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+								<!-- Domain Filtering -->
+								<div class="option-group" style="margin: 0;">
+									<h3>Domain Filter</h3>
+									{% if pwdump_validation and pwdump_validation.domain_info and pwdump_validation.domain_info.domain_count > 1 %}
+									<div class="option-row">
+										<label>Filter by Domain</label>
+										<select name="domain_filter" id="domainFilter" style="padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); flex: 1; min-width: 200px;">
+											<option value="all">All Domains ({{ pwdump_validation.domain_info.total_accounts }} accounts)</option>
+											{% for domain, count in pwdump_validation.domain_info.domains.items() %}
+											<option value="{{ domain }}">{{ domain }} ({{ count }} accounts)</option>
+											{% endfor %}
+										</select>
+									</div>
+									<p style="font-size: 0.85em; color: var(--text-secondary); margin-top: 8px;">
+										Select a specific domain to analyze, or choose "All Domains" to include all accounts.
+									</p>
+									{% else %}
+									<input type="hidden" name="domain_filter" value="all" />
+									<p style="font-size: 0.9em; color: var(--text-secondary);">
+										{% if pwdump_validation and pwdump_validation.domain_info and pwdump_validation.domain_info.domain_count == 1 %}
+										Single domain detected: <strong>{{ pwdump_validation.domain_info.all_domains[0] }}</strong>
+										{% else %}
+										No domain prefixes detected in account names.
+										{% endif %}
+									</p>
+									{% endif %}
+								</div>
+
+								<!-- Company Name & Terms -->
+								<div class="option-group" style="margin: 0;">
+									<h3>Company Name & Terms <span id="keywordCount" style="color: #888; font-weight: normal; font-size: 0.85em;"></span></h3>
+									<div style="display: flex; align-items: center; gap: 12px;">
+										<button type="button" class="btn btn-secondary" onclick="openKeywordsModal()" style="padding: 8px 20px;">Configure Keywords</button>
+										<span id="keywordPreview" style="font-size: 0.9em; color: var(--text-secondary);"></span>
 									</div>
 									<input type="hidden" name="custom_keywords" id="customKeywordsHidden" value="">
+									<p style="font-size: 0.85em; color: var(--text-secondary); margin-top: 8px;">
+										Add company names, project terms, or other keywords to detect in passwords.
+									</p>
 								</div>
 							</div>
 

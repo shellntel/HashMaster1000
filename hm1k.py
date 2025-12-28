@@ -39,6 +39,8 @@ from typing import Dict, Union, Optional, cast
 import file_parser
 # Import session manager for multi-session support
 from session_manager import get_session_manager, SessionMetadata
+# Import domain utilities for domain filtering
+from domain_utils import filter_accounts_by_domain, detect_cross_domain_password_reuse
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
@@ -1285,6 +1287,7 @@ def process_validated() -> Response:
             "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
             "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
             "custom_keywords": request.form.get("custom_keywords", ""),
+            "domain_filter": request.form.get("domain_filter", "all"),
             # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
             "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
             "project_description": request.form.get("project_description", "").strip() or existing_options.get("project_description", ""),
@@ -1311,6 +1314,12 @@ def process_validated() -> Response:
             ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
             ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
         )
+
+        # Apply domain filter if specified
+        domain_filter = options.get("domain_filter", "all")
+        if domain_filter and domain_filter.lower() != "all":
+            account_data = filter_accounts_by_domain(account_data, domain_filter)
+            app.logger.info(f"Applied domain filter '{domain_filter}', {len(account_data)} accounts remaining")
 
         if not account_data:
             return Response(
@@ -1452,6 +1461,14 @@ def process_validated() -> Response:
         session_mgr.save_session_data("pw_bad_practices.json", bad_practices, analysis_session.session_id)
         session_mgr.save_session_data("account_data.json", account_data, analysis_session.session_id)
         session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
+
+        # Save validation data for domain filter changes later
+        session_mgr.save_session_data("pwdump_validation.json", pwdump_data, analysis_session.session_id)
+        session_mgr.save_session_data("potfile_validation.json", potfile_data, analysis_session.session_id)
+
+        # Save domain info for domain filter dropdown in settings
+        if pwdump_data.get("domain_info"):
+            session_mgr.save_session_data("domain_info.json", pwdump_data["domain_info"], analysis_session.session_id)
 
         # Update session with statistics
         cracked_count = sum(1 for acc in account_data.values() if acc.get("cracked_pw"))
@@ -1795,6 +1812,34 @@ def pw_ntlm_hash_pie() -> Response:
     if data is None:
         return jsonify({"error": "No data available"}), 404
     return jsonify(data)
+
+
+# Endpoint for analysis options (includes domain filter)
+@app.route("/analysis_options.json")
+@login_required
+def analysis_options_json() -> Response:
+    data = _load_session_json("analysis_options.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for master potfile status (for header indicator)
+@app.route("/api/master_potfile/status")
+@login_required
+def master_potfile_status() -> Response:
+    """Return master potfile status and count for header display."""
+    if not MASTER_POTFILE_ENABLED:
+        return jsonify({
+            "enabled": False,
+            "count": 0
+        })
+
+    count = file_parser.get_potfile_entry_count(MASTER_POTFILE_PATH)
+    return jsonify({
+        "enabled": True,
+        "count": count
+    })
 
 
 # Endpoint for Password Length Distribution Bar Chart data
@@ -4370,11 +4415,20 @@ def get_current_settings() -> Response:
             "dictionary_min_len": "4",
             "dictionary_disp_nest": "true",
             "company_keywords": "",
+            "ignore_blank_passwords": "false",
+            "ignore_disabled_accounts": "false",
+            "ignore_computer_accounts": "false",
         }
 
     # Map custom_keywords to company_keywords for the UI
     if "custom_keywords" in options and "company_keywords" not in options:
         options["company_keywords"] = options["custom_keywords"]
+
+    # Include domain info if available (for domain filter dropdown)
+    session_mgr = get_session_manager()
+    domain_info_data = session_mgr.load_session_data("domain_info.json")
+    if domain_info_data:
+        options["domain_info"] = domain_info_data
 
     return jsonify(options)
 
@@ -4407,6 +4461,64 @@ def regenerate_with_settings() -> Response:
         else:
             account_data_for_analysis = {entry["username"]: entry for entry in account_data}
 
+        # Check if domain filter or account filtering options are being changed
+        new_domain_filter = new_settings.get("domain_filter", "all")
+        new_ignore_disabled = new_settings.get("ignore_disabled_accounts", "false")
+        new_ignore_computer = new_settings.get("ignore_computer_accounts", "false")
+        new_ignore_blank = new_settings.get("ignore_blank_passwords", "false")
+
+        current_options = session.get("analysis_options", {})
+        current_domain_filter = current_options.get("domain_filter", "all")
+        current_ignore_disabled = current_options.get("ignore_disabled_accounts", "false")
+        current_ignore_computer = current_options.get("ignore_computer_accounts", "false")
+
+        # Check if any filter that affects account data has changed
+        domain_filter_changed = new_domain_filter.lower() != current_domain_filter.lower()
+        account_filter_changed = (
+            new_ignore_disabled != current_ignore_disabled or
+            new_ignore_computer != current_ignore_computer
+        )
+
+        # If domain or account filter changed, need to rebuild account_data from original validation
+        if domain_filter_changed or account_filter_changed:
+            # Domain filter change requires re-processing from validation data
+            # Try Flask session first, then fall back to session files
+            pwdump_data = session.get("pwdump_validation")
+            potfile_data = session.get("potfile_validation")
+
+            # If not in Flask session, try loading from session files
+            if not pwdump_data:
+                pwdump_data = session_mgr.load_session_data("pwdump_validation.json")
+            if not potfile_data:
+                potfile_data = session_mgr.load_session_data("potfile_validation.json")
+
+            if pwdump_data and potfile_data:
+                # Rebuild account data with new domain filter
+                pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
+                potfile_result = file_parser.dict_to_potfile_result(potfile_data)
+
+                account_data_for_analysis = file_parser.build_account_data(
+                    pwdump_result,
+                    potfile_result,
+                    ignore_disabled=new_ignore_disabled == "true",
+                    ignore_computer_accounts=new_ignore_computer == "true",
+                )
+
+                # Apply new domain filter
+                if new_domain_filter and new_domain_filter.lower() != "all":
+                    account_data_for_analysis = filter_accounts_by_domain(account_data_for_analysis, new_domain_filter)
+                    app.logger.info(f"Applied domain filter '{new_domain_filter}', {len(account_data_for_analysis)} accounts remaining")
+
+                if not account_data_for_analysis:
+                    return jsonify({"success": False, "error": "No accounts match the selected domain filter"}), 400
+
+                # Update the saved account data
+                session_mgr.save_session_data("account_data.json", account_data_for_analysis)
+            else:
+                return jsonify({"success": False, "error": "Cannot change account filters - validation data not available"}), 400
+        else:
+            account_data_for_analysis = account_data if isinstance(account_data, dict) else {entry["username"]: entry for entry in account_data}
+
         # Update session options
         options = {
             "policy_min_pw_len": new_settings.get("policy_min_pw_len", "12"),
@@ -4420,7 +4532,10 @@ def regenerate_with_settings() -> Response:
             "dictionary_min_len": new_settings.get("dictionary_min_len", "4"),
             "dictionary_disp_nest": new_settings.get("dictionary_disp_nest", "true"),
             "custom_keywords": new_settings.get("company_keywords", ""),
-            "ignore_blank_passwords": session.get("analysis_options", {}).get("ignore_blank_passwords", "false"),
+            "ignore_blank_passwords": new_ignore_blank,
+            "ignore_disabled_accounts": new_ignore_disabled,
+            "ignore_computer_accounts": new_ignore_computer,
+            "domain_filter": new_domain_filter,
         }
         session["analysis_options"] = options
 
@@ -4546,6 +4661,12 @@ def regenerate_with_settings() -> Response:
         # Save updated analysis options
         with open(os.path.join(session_dir, "analysis_options.json"), "w") as f:
             json.dump(options, f, indent=2)
+
+        # Re-run HIBP check if account filters or domain filter changed
+        if domain_filter_changed or account_filter_changed:
+            hibp_results = run_automatic_hibp_check(account_data_for_analysis, session_dir)
+            if hibp_results:
+                logging.info(f"HIBP re-check after filter change: {hibp_results['total_found']}/{hibp_results['total_checked']} found in breaches")
 
         # Update session timestamp
         current_session = session_mgr.get_current_session()

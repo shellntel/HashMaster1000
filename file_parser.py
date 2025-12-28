@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional, Tuple, List
 import json
 
 from hash_types import identify_hash_type, get_most_likely_type, is_ntlm_hash, HashType
+from domain_utils import extract_domain_from_username, analyze_domains, DomainInfo, NO_DOMAIN
 
 
 # Constants
@@ -104,6 +105,7 @@ class ParsedLine:
     lm_hash: Optional[str] = None
     ntlm_hash: Optional[str] = None
     status: Optional[str] = None  # "Enabled", "Disabled", or None
+    domain: Optional[str] = None  # Extracted domain from username (e.g., "CORP" from "CORP\\user")
 
     # Validation state
     is_valid: bool = True
@@ -139,6 +141,7 @@ class ValidationResult:
     lines: list[ParsedLine]
     formats_detected: dict[str, int] = field(default_factory=dict)
     error_summary: dict[str, int] = field(default_factory=dict)
+    domain_info: Optional[DomainInfo] = None  # Domain statistics for the file
 
     @property
     def has_fatal_errors(self) -> bool:
@@ -299,7 +302,7 @@ def parse_pwdump_line(line_number: int, raw_line: str) -> ParsedLine:
         ))
         return result
 
-    # Parse username (field 0)
+    # Parse username (field 0) and extract domain if present
     result.username = parts[0]
     if not result.username:
         result.is_valid = False
@@ -309,6 +312,10 @@ def parse_pwdump_line(line_number: int, raw_line: str) -> ParsedLine:
             message="Username field is empty",
             field_index=0
         ))
+    else:
+        # Extract domain from username (e.g., "CORP\\user" -> domain="CORP")
+        domain, _ = extract_domain_from_username(result.username)
+        result.domain = domain
 
     # Parse RID (field 1) - optional, extract if numeric
     result.rid = extract_rid(parts[1])
@@ -370,6 +377,10 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     warning_lines = sum(1 for l in lines if l.errors and l.is_valid)
     error_lines = sum(1 for l in lines if not l.is_valid)
 
+    # Build domain statistics from valid lines
+    valid_usernames = [l.username for l in lines if l.is_valid and l.username]
+    domain_info = analyze_domains(valid_usernames)
+
     return ValidationResult(
         filepath=filepath,
         total_lines=len(lines),
@@ -378,7 +389,8 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         error_lines=error_lines,
         lines=lines,
         formats_detected=formats_detected,
-        error_summary=error_summary
+        error_summary=error_summary,
+        domain_info=domain_info
     )
 
 
@@ -785,6 +797,7 @@ def validation_result_to_dict(result: ValidationResult) -> dict:
         "error_lines": result.error_lines,
         "formats_detected": result.formats_detected,
         "error_summary": result.error_summary,
+        "domain_info": result.domain_info.to_dict() if result.domain_info else None,
         "lines": [
             {
                 "line_number": l.line_number,
@@ -795,6 +808,7 @@ def validation_result_to_dict(result: ValidationResult) -> dict:
                 "lm_hash": l.lm_hash,
                 "ntlm_hash": l.ntlm_hash,
                 "status": l.status,
+                "domain": l.domain,
                 "is_valid": l.is_valid,
                 "included": l.included,
                 "errors": [
@@ -833,6 +847,7 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
             lm_hash=l["lm_hash"],
             ntlm_hash=l["ntlm_hash"],
             status=l["status"],
+            domain=l.get("domain"),  # May not exist in older sessions
             is_valid=l["is_valid"],
             included=l["included"],
             errors=[
@@ -847,6 +862,11 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
         )
         lines.append(parsed_line)
 
+    # Reconstruct domain_info if present
+    domain_info = None
+    if data.get("domain_info"):
+        domain_info = DomainInfo.from_dict(data["domain_info"])
+
     return ValidationResult(
         filepath=data["filepath"],
         total_lines=data["total_lines"],
@@ -855,7 +875,8 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
         error_lines=data["error_lines"],
         lines=lines,
         formats_detected=data["formats_detected"],
-        error_summary=data["error_summary"]
+        error_summary=data["error_summary"],
+        domain_info=domain_info
     )
 
 

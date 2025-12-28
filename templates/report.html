@@ -197,6 +197,40 @@
 				margin-top: 20px;
 				border-top: 1px solid var(--border-color, #444);
 			}
+			/* Domain filter row styles (minimal indicator below action bar) */
+			.domain-filter-row {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 10px;
+				padding: 8px 16px;
+				background: rgba(99, 102, 241, 0.08);
+				border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+				font-size: 15px;
+			}
+			.domain-filter-row .domain-filter-label {
+				color: #9ca3af;
+			}
+			.domain-filter-row .domain-filter-value {
+				font-weight: 600;
+				color: #a5b4fc;
+				font-size: 16px;
+			}
+			.domain-filter-row .domain-filter-hint {
+				color: #6b7280;
+				font-size: 13px;
+			}
+			body.print-mode .domain-filter-row {
+				background: #f0f0ff;
+				border-bottom-color: #c5cae9;
+			}
+			body.print-mode .domain-filter-row .domain-filter-value {
+				color: #3949ab;
+			}
+			body.print-mode .domain-filter-row .domain-filter-label,
+			body.print-mode .domain-filter-row .domain-filter-hint {
+				color: #666;
+			}
 			.privileged-subsection:first-child {
 				padding-top: 0;
 				margin-top: 0;
@@ -942,6 +976,10 @@
 				<h1 class="brand-name">HASH MASTER 1000</h1>
 				<span class="brand-tagline">Password & Hash Analysis Report</span>
 			</div>
+			<div class="master-potfile-header" id="masterPotfileHeader" style="display: none;">
+				<span class="potfile-label">Master Potfile:</span>
+				<span class="potfile-count" id="masterPotfileCount">0</span>
+			</div>
 			<div class="header-actions">
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
@@ -991,6 +1029,13 @@
 				<button id="downloadAllJsonFiles" class="download-btn"><span class="download-icon">📦</span> Download JSON Files</button>
 				<button id="generateAIAnalysisBtn" class="aaia-btn"><span class="aaia-sparkle">✨</span> Advanced AI Analysis</button>
 			</div>
+		</div>
+
+		<!-- Domain filter indicator row (shown when filtering by specific domain) -->
+		<div class="domain-filter-row" id="domainFilterIndicator" style="display: none;">
+			<span class="domain-filter-label">Filtered by Domain:</span>
+			<span class="domain-filter-value" id="domainFilterName">All Domains</span>
+			<span class="domain-filter-hint">(change in Edit Report Settings)</span>
 		</div>
 
 		<!-- Report Section Navigation -->
@@ -6209,6 +6254,29 @@
 								</div>
 							</div>
 
+							<!-- Account Filtering -->
+							<div class="settings-group">
+								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Account Filtering</h3>
+								<div class="settings-row" style="margin-bottom: 8px;">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="ignore_blank_passwords" id="settings_ignore_blank_passwords" />
+										Ignore Blank Passwords
+									</label>
+								</div>
+								<div class="settings-row" style="margin-bottom: 8px;">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="ignore_disabled_accounts" id="settings_ignore_disabled_accounts" />
+										Ignore Disabled Accounts
+									</label>
+								</div>
+								<div class="settings-row">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="ignore_computer_accounts" id="settings_ignore_computer_accounts" />
+										Ignore Computer Accounts
+									</label>
+								</div>
+							</div>
+
 							<!-- Company Keywords -->
 							<div class="settings-group">
 								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Company Name & Terms</h3>
@@ -6218,6 +6286,21 @@
 										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7; resize: vertical;"
 										placeholder="acme&#10;corp&#10;secret"></textarea>
 								</div>
+							</div>
+						</div>
+
+						<!-- Domain Filter (full width below the grid) -->
+						<div id="domainFilterSection" class="settings-group" style="display: none; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+							<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px;">Domain Filter</h3>
+							<div class="settings-row" style="margin-bottom: 12px;">
+								<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Filter by Domain</label>
+								<select name="domain_filter" id="settings_domain_filter"
+									style="width: 100%; max-width: 400px; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;">
+									<option value="all">All Domains</option>
+								</select>
+								<p style="color: #6b7280; font-size: 12px; margin-top: 6px;">
+									Changing the domain filter will rebuild the report with only accounts from the selected domain.
+								</p>
 							</div>
 						</div>
 
@@ -7983,7 +8066,32 @@
 			// Load current session info on page load
 			document.addEventListener('DOMContentLoaded', function() {
 				loadCurrentSession();
+				loadDomainFilterIndicator();
 			});
+
+			// Load and display domain filter indicator if a specific domain is filtered
+			async function loadDomainFilterIndicator() {
+				try {
+					const response = await fetch('/analysis_options.json');
+					if (response.ok) {
+						const options = await response.json();
+						const domainFilter = options.domain_filter;
+
+						// Show indicator if filtering by a specific domain (not "all")
+						if (domainFilter && domainFilter.toLowerCase() !== 'all') {
+							const indicatorEl = document.getElementById('domainFilterIndicator');
+							const nameEl = document.getElementById('domainFilterName');
+							if (indicatorEl && nameEl) {
+								nameEl.textContent = domainFilter;
+								indicatorEl.style.display = 'flex';
+							}
+						}
+					}
+				} catch (error) {
+					// Silently fail - domain filter indicator is optional
+					console.debug('Could not load domain filter:', error);
+				}
+			}
 
 			// Load and display current session info
 			async function loadCurrentSession() {
@@ -8290,6 +8398,46 @@
 				if (settings.company_keywords) {
 					document.getElementById('settings_company_keywords').value = settings.company_keywords;
 				}
+
+				// Domain Filter - populate dropdown if domain_info is available
+				if (settings.domain_info && settings.domain_info.domain_count > 1) {
+					const domainSection = document.getElementById('domainFilterSection');
+					const domainSelect = document.getElementById('settings_domain_filter');
+					const domainInfo = settings.domain_info;
+
+					// Clear existing options
+					domainSelect.innerHTML = '';
+
+					// Add "All Domains" option
+					const allOption = document.createElement('option');
+					allOption.value = 'all';
+					allOption.textContent = `All Domains (${domainInfo.total_accounts} accounts)`;
+					domainSelect.appendChild(allOption);
+
+					// Add each domain as an option
+					const domains = domainInfo.domains || {};
+					for (const [domain, count] of Object.entries(domains)) {
+						const option = document.createElement('option');
+						option.value = domain;
+						option.textContent = `${domain} (${count} accounts)`;
+						domainSelect.appendChild(option);
+					}
+
+					// Set current value
+					const currentFilter = settings.domain_filter || 'all';
+					domainSelect.value = currentFilter.toLowerCase() === 'all' ? 'all' : currentFilter;
+
+					// Show the section
+					domainSection.style.display = 'block';
+				}
+
+				// Account Filtering
+				document.getElementById('settings_ignore_blank_passwords').checked =
+					settings.ignore_blank_passwords === 'true' || settings.ignore_blank_passwords === true;
+				document.getElementById('settings_ignore_disabled_accounts').checked =
+					settings.ignore_disabled_accounts === 'true' || settings.ignore_disabled_accounts === true;
+				document.getElementById('settings_ignore_computer_accounts').checked =
+					settings.ignore_computer_accounts === 'true' || settings.ignore_computer_accounts === true;
 			}
 
 			// Toggle max age input
@@ -8334,6 +8482,17 @@
 
 				// Company keywords
 				settings.company_keywords = formData.get('company_keywords');
+
+				// Domain filter (if available)
+				const domainSelect = document.getElementById('settings_domain_filter');
+				if (domainSelect && document.getElementById('domainFilterSection').style.display !== 'none') {
+					settings.domain_filter = domainSelect.value;
+				}
+
+				// Account filtering
+				settings.ignore_blank_passwords = document.getElementById('settings_ignore_blank_passwords').checked ? 'true' : 'false';
+				settings.ignore_disabled_accounts = document.getElementById('settings_ignore_disabled_accounts').checked ? 'true' : 'false';
+				settings.ignore_computer_accounts = document.getElementById('settings_ignore_computer_accounts').checked ? 'true' : 'false';
 
 				try {
 					const response = await fetch('/api/settings/regenerate', {
@@ -8390,6 +8549,25 @@
 				}
 			`;
 			document.head.appendChild(style);
+		</script>
+
+		<!-- Master Potfile Header Indicator -->
+		<script>
+			async function loadMasterPotfileIndicator() {
+				try {
+					const response = await fetch('/api/master_potfile/status');
+					if (response.ok) {
+						const data = await response.json();
+						if (data.enabled && data.count > 0) {
+							document.getElementById('masterPotfileCount').textContent = data.count.toLocaleString() + ' hashes';
+							document.getElementById('masterPotfileHeader').style.display = 'flex';
+						}
+					}
+				} catch (error) {
+					console.error('Error loading master potfile status:', error);
+				}
+			}
+			loadMasterPotfileIndicator();
 		</script>
 	</body>
 </html>

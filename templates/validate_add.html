@@ -17,6 +17,10 @@
             <h1 class="brand-name">Hash Master 1000</h1>
             <span class="brand-tagline">Password & Hash Analyzer</span>
         </div>
+        <div class="master-potfile-header" id="masterPotfileHeader" style="display: none;">
+            <span class="potfile-label">Master Potfile:</span>
+            <span class="potfile-count" id="masterPotfileCount">0</span>
+        </div>
         <div class="header-actions">
             {% if advanced_options_enabled %}
             <a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
@@ -197,6 +201,23 @@
         document.getElementById('logoutButton').addEventListener('click', function() {
             window.location.href = '/logout';
         });
+
+        // Load master potfile indicator
+        async function loadMasterPotfileIndicator() {
+            try {
+                const response = await fetch('/api/master_potfile/status');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.enabled && data.count > 0) {
+                        document.getElementById('masterPotfileCount').textContent = data.count.toLocaleString() + ' hashes';
+                        document.getElementById('masterPotfileHeader').style.display = 'flex';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading master potfile status:', error);
+            }
+        }
+        loadMasterPotfileIndicator();
     </script>
 
     <style>

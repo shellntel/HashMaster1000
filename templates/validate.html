@@ -17,6 +17,10 @@
             <h1 class="brand-name">Hash Master 1000</h1>
             <span class="brand-tagline">Password & Hash Analyzer</span>
         </div>
+        <div class="master-potfile-header" id="masterPotfileHeader" style="display: none;">
+            <span class="potfile-label">Master Potfile:</span>
+            <span class="potfile-count" id="masterPotfileCount">0</span>
+        </div>
         <div class="header-actions">
             {% if advanced_options_enabled %}
             <a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
@@ -115,35 +119,6 @@
             {% endif %}
         </div>
 
-        <!-- Master Potfile Merge Results -->
-        {% if master_potfile_enabled and master_potfile_merge %}
-        <div class="master-potfile-merge-summary">
-            <div class="merge-header">
-                <span class="merge-icon">&#128218;</span>
-                <h3>Master Potfile Merge Results</h3>
-            </div>
-            <div class="merge-stats">
-                <div class="merge-stat added">
-                    <span class="merge-stat-value">{{ master_potfile_merge.added }}</span>
-                    <span class="merge-stat-label">New entries added</span>
-                </div>
-                <div class="merge-stat skipped">
-                    <span class="merge-stat-value">{{ master_potfile_merge.skipped }}</span>
-                    <span class="merge-stat-label">Already in master</span>
-                </div>
-                <div class="merge-stat total">
-                    <span class="merge-stat-value">{{ master_potfile_merge.total }}</span>
-                    <span class="merge-stat-label">Master potfile total</span>
-                </div>
-            </div>
-            {% if master_potfile_merge.added > 0 %}
-            <p class="merge-note">Your cracked hashes have been merged into the master potfile. The master potfile will be used for password matching.</p>
-            {% else %}
-            <p class="merge-note">No new hashes to add. Using existing master potfile for password matching.</p>
-            {% endif %}
-        </div>
-        {% endif %}
-
         <!-- Account Statistics Cards (for configuration preview) -->
         {% if pwdump %}
         {% set valid_lines = pwdump.lines | selectattr('is_valid') | list %}
@@ -168,6 +143,47 @@
                 <div class="detail">Status = Disabled</div>
             </div>
         </div>
+        {% endif %}
+
+        <!-- Domain Statistics Card -->
+        {% if pwdump.domain_info and pwdump.domain_info.domain_count > 0 %}
+        <div class="validation-summary" style="margin-top: 12px;">
+            <div class="summary-card">
+                <h3>Domains Detected</h3>
+                <div class="stat {% if pwdump.domain_info.domain_count > 1 %}info{% else %}success{% endif %}">{{ pwdump.domain_info.domain_count }}</div>
+                <div class="detail">{% if pwdump.domain_info.domain_count > 1 %}Multiple domains found{% else %}Single domain{% endif %}</div>
+            </div>
+            {% if pwdump.domain_info.accounts_with_domain > 0 %}
+            <div class="summary-card">
+                <h3>Accounts with Domain</h3>
+                <div class="stat success">{{ pwdump.domain_info.accounts_with_domain }}</div>
+                <div class="detail">Domain prefix present</div>
+            </div>
+            {% endif %}
+            {% if pwdump.domain_info.accounts_without_domain > 0 %}
+            <div class="summary-card">
+                <h3>Accounts without Domain</h3>
+                <div class="stat warning">{{ pwdump.domain_info.accounts_without_domain }}</div>
+                <div class="detail">No domain prefix</div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Domain breakdown (if multiple domains) -->
+        {% if pwdump.domain_info.domain_count > 1 %}
+        <div class="info-banner" style="margin-top: 12px;">
+            <h3>Domains Found</h3>
+            <p>Your dump file contains accounts from {{ pwdump.domain_info.domain_count }} different domains.
+            You can filter the report by domain in the next step.</p>
+            <div style="margin-top: 8px;">
+                {% for domain, count in pwdump.domain_info.domains.items() %}
+                <span class="format-badge dcsync" style="margin-right: 8px; margin-bottom: 4px; display: inline-block;">
+                    {{ domain }}: {{ count }} accounts
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
         {% endif %}
 
@@ -499,6 +515,23 @@
 
         // Check for duplicates when page loads
         checkForDuplicateSessions();
+
+        // Load master potfile indicator
+        async function loadMasterPotfileIndicator() {
+            try {
+                const response = await fetch('/api/master_potfile/status');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.enabled && data.count > 0) {
+                        document.getElementById('masterPotfileCount').textContent = data.count.toLocaleString() + ' hashes';
+                        document.getElementById('masterPotfileHeader').style.display = 'flex';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading master potfile status:', error);
+            }
+        }
+        loadMasterPotfileIndicator();
     </script>
 </body>
 </html>

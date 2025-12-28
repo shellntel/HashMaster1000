@@ -1165,6 +1165,30 @@ body#reportPage .app-header {
 	line-height: 1;
 }
 
+/* Master Potfile Header Indicator */
+.master-potfile-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 16px;
+	background: rgba(99, 102, 241, 0.15);
+	border: 1px solid rgba(99, 102, 241, 0.3);
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+.master-potfile-header .potfile-label {
+	color: #a5b4fc;
+	font-weight: 500;
+}
+
+.master-potfile-header .potfile-count {
+	color: #fff;
+	font-weight: 700;
+	font-family: 'Orbitron', monospace;
+	letter-spacing: 0.5px;
+}
+
 /* ==================== WIZARD LAYOUT ==================== */
 
 /* Main Layout with Sidebar */
