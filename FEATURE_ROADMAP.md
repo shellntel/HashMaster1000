@@ -105,9 +105,9 @@ sessions/
 
 ## New Reports & Analysis
 
-### Password History Analysis (PLANNED)
+### Password History Analysis (IMPLEMENTED)
 
-**Status:** Planned for implementation
+**Status:** Implemented (December 2024)
 
 **Description:** Analyze password history of users when available in pwdump data to identify rotation patterns and password evolution. Detect predictable password change patterns that weaken security.
 
@@ -138,39 +138,42 @@ sessions/
 - Base word persistence: same root word across multiple changes
 - Reversion: returning to a previously used password
 - Year increment patterns: `Company2023` → `Company2024`
+- Hash reuse detection (works without cracking): consecutive and non-consecutive
+- Leet-speak progression: `Password` → `P4ssword` → `P4ssw0rd`
+
+**Predictability Scoring:**
+
+The predictability score (0-100%) represents how easy it would be for an attacker to guess the user's NEXT password based on observed patterns.
+
+| Pattern Type | Weight | Rationale |
+|-------------|--------|-----------|
+| Consecutive Hash Reuse | 55% | Same password repeatedly - very likely to continue |
+| Incrementing Number | 45% | Trivial to guess next (just add 1) |
+| Year Increment | 45% | Trivial to guess next year |
+| Season Rotation | 40% | Only 4 seasons to try |
+| Password Reversion | 35% | Returns to old passwords - behavioral pattern |
+| Special Char Rotation | 35% | Limited special chars (~10 common ones) |
+| Minimal Changes | 30% | Small changes narrow the search space |
+| Base Word Persistence | 20% | Same root helps narrow guessing |
+| Leet Progression | 15% | Harder to predict exact substitution |
+
+**Score Interpretation:**
+- **100%**: All password changes are to the same hash (always same password)
+- **70%+** (Critical): Next password is trivially guessable
+- **40-69%** (High): Strong patterns make guessing feasible
+- **Below 40%** (Medium): Some patterns detected but harder to exploit
+
+Multiple patterns stack - a user with season rotation + year increment + special char rotation will score very high.
 
 **Implementation Approach:**
 1. Parse history entries from both pwdump and ADD JSON formats
 2. Match history hashes against potfile to get plaintext
-3. Compare consecutive passwords using string similarity algorithms
-4. Categorize patterns (increment, season, special char rotation, etc.)
-5. Generate predictability scores for each user
+3. Detect patterns using specialized detectors for each pattern type
+4. Hash-based reuse detection works even without cracking
+5. Calculate predictability score based on pattern weights and confidence
+6. Display color-coded results: red (reuse), orange (patterns), white (no issues)
 
-**Report Output:**
-```
-Password Rotation Analysis
-==========================
-Accounts with password history available: 1,234
-Accounts with predictable rotation patterns: 234 (18.5%)
-
-Top Rotation Patterns:
-1. Incrementing number suffix (89 accounts)
-   Example: jsmith - Password1, Password2, Password3, Password4
-
-2. Season/Year rotation (45 accounts)
-   Example: bthompson - Spring2022, Summer2022, Fall2022, Winter2023
-
-3. Special character rotation (34 accounts)
-   Example: mwilliams - Welcome1!, Welcome1@, Welcome1#
-
-4. Minimal character changes (28 accounts)
-   Example: djones - Sunshine1, Sunsh1ne1, Sunsh!ne1
-
-5. Year increment only (38 accounts)
-   Example: rjohnson - Company2021, Company2022, Company2023, Company2024
-```
-
-**Files to Create:**
+**Files:**
 - `password_history.py` - History parsing and pattern detection module
 
 ---
@@ -1070,6 +1073,7 @@ The most common password patterns observed were:
 
 | Feature | Completed | Notes |
 |---------|-----------|-------|
+| Password History Analysis | Dec 2024 | Pattern detection, predictability scoring, hash reuse detection |
 | AD Domain Filtering | Dec 2024 | Filter reports by domain, cross-domain reuse detection |
 | Historical Trend Analysis | Dec 2024 | Compare password security metrics across sessions by company |
 | AS-REP Exposure Analysis | Dec 2024 | Risk assessment for accounts with pre-auth disabled |
@@ -1163,4 +1167,4 @@ For multi-user and session persistence, consider:
 
 ---
 
-*Last Updated: December 27, 2024*
+*Last Updated: December 28, 2024*

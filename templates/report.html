@@ -83,6 +83,17 @@
 			.privilege-stat-card.tier0 .stat-value { color: #ff4444; }
 			.privilege-stat-card.elevated .stat-value { color: #feca57; }
 			.privilege-stat-card .stat-label { color: var(--text-secondary, #aaa); }
+			/* Password History Analysis - unique colors for each card */
+			.privilege-stat-card.history-users { border-left: 4px solid #00d4ff; }
+			.privilege-stat-card.history-users .stat-value { color: #00d4ff; }
+			.privilege-stat-card.history-cracked { border-left: 4px solid #feca57; }
+			.privilege-stat-card.history-cracked .stat-value { color: #feca57; }
+			.privilege-stat-card.history-patterns { border-left: 4px solid #ff6b6b; }
+			.privilege-stat-card.history-patterns .stat-value { color: #ff6b6b; }
+			.privilege-stat-card.history-reuse { border-left: 4px solid #9b59b6; }
+			.privilege-stat-card.history-reuse .stat-value { color: #9b59b6; }
+			.privilege-stat-card.history-consecutive { border-left: 4px solid #e74c3c; }
+			.privilege-stat-card.history-consecutive .stat-value { color: #e74c3c; }
 			.privilege-stat-card .stat-detail { font-size: 0.9rem; color: #888; }
 			.section-header-critical { color: var(--text-color, #e4e4e7); }
 			.warning-text { color: var(--text-secondary, #aaa); margin-bottom: 16px; font-size: 0.9rem; }
@@ -966,6 +977,217 @@
 			@media print {
 				.hibp-start-btn, .hibp-modal { display: none !important; }
 			}
+
+			/* Password History Pattern Analysis Styles */
+			.password-history-section .section-description {
+				color: var(--text-secondary, #aaa);
+				margin-bottom: 20px;
+			}
+			.pattern-badge {
+				display: inline-block;
+				padding: 2px 6px;
+				margin: 1px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				background: rgba(128, 128, 128, 0.15);
+				color: #888;
+				white-space: nowrap;
+			}
+			.pattern-badge.hibp {
+				background: rgba(255, 87, 51, 0.15);
+				color: #ff5733;
+			}
+			/* Pattern-specific badge colors matching chart */
+			.pattern-badge.consecutive, .pattern-badge.reversion {
+				background: rgba(255, 68, 68, 0.15);
+				color: #ff6b6b;
+			}
+			.pattern-badge.baseword {
+				background: rgba(255, 159, 67, 0.15);
+				color: #ff9f43;
+			}
+			.pattern-badge.number {
+				background: rgba(29, 209, 161, 0.15);
+				color: #1dd1a1;
+			}
+			.pattern-badge.year {
+				background: rgba(0, 212, 255, 0.15);
+				color: #00d4ff;
+			}
+			.pattern-badge.season {
+				background: rgba(84, 160, 255, 0.15);
+				color: #54a0ff;
+			}
+			.pattern-badge.specialchar {
+				background: rgba(156, 89, 182, 0.15);
+				color: #9b59b6;
+			}
+			.pattern-badge.minimal {
+				background: rgba(236, 72, 153, 0.15);
+				color: #ec4899;
+			}
+			.pattern-badge.leet {
+				background: rgba(46, 204, 113, 0.15);
+				color: #2ecc71;
+			}
+			/* Highlight for cracked passwords in reuse groups - match hash styling */
+			.reuse-highlight {
+				background: rgba(255, 68, 68, 0.15) !important;
+				border-radius: 3px;
+			}
+			.reuse-highlight .history-pw-visible {
+				color: #ff6b6b !important;
+			}
+			.reuse-highlight .history-pw-blurred {
+				color: transparent !important;
+				text-shadow: 0 0 6px rgba(255, 107, 107, 0.8) !important;
+			}
+			/* Orange highlight for passwords with non-reuse pattern issues */
+			.pattern-highlight {
+				background: rgba(254, 202, 87, 0.15) !important;
+				border-radius: 3px;
+			}
+			.pattern-highlight .history-pw-visible {
+				color: #feca57 !important;
+			}
+			.pattern-highlight .history-pw-blurred {
+				color: transparent !important;
+				text-shadow: 0 0 6px rgba(254, 202, 87, 0.8) !important;
+			}
+			.predictability-score {
+				display: inline-block;
+				padding: 2px 8px;
+				border-radius: 4px;
+				font-weight: bold;
+				font-size: 0.85rem;
+			}
+			.predictability-score.critical {
+				background: rgba(255, 68, 68, 0.15);
+				color: #ff4444;
+			}
+			.predictability-score.high {
+				background: rgba(254, 202, 87, 0.15);
+				color: #feca57;
+			}
+			.predictability-score.medium {
+				background: rgba(29, 209, 161, 0.15);
+				color: #1dd1a1;
+			}
+			.password-evolution {
+				font-family: monospace;
+				font-size: 0.85rem;
+				color: var(--text-primary, #fff);
+			}
+			.pw-arrow {
+				color: var(--text-secondary, #888);
+				margin: 0 2px;
+			}
+			/* Password blur styling */
+			.history-pw-cell {
+				font-family: monospace;
+			}
+			.history-pw-visible {
+				color: var(--text-primary, #fff);
+			}
+			.history-pw-blurred {
+				color: transparent;
+				text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+				user-select: none;
+			}
+			/* Uncracked password placeholder styling */
+			.history-pw-uncracked {
+				font-family: monospace;
+				font-size: 0.8rem;
+				color: #888;
+				background: rgba(128, 128, 128, 0.15);
+				padding: 1px 4px;
+				border-radius: 3px;
+				cursor: help;
+			}
+			.history-pw-uncracked.duplicate {
+				color: #ff6b6b;
+				background: rgba(255, 68, 68, 0.15);
+			}
+			/* Blur toggle button */
+			.blur-toggle-btn {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				color: var(--text-secondary, #aaa);
+				padding: 6px 12px;
+				border-radius: 4px;
+				cursor: pointer;
+				font-size: 0.85rem;
+				transition: all 0.2s ease;
+			}
+			.blur-toggle-btn:hover {
+				background: var(--surface-hover, #333);
+				border-color: var(--accent-color, #00d4ff);
+				color: var(--text-primary, #fff);
+			}
+			.blur-toggle-btn.showing {
+				background: rgba(0, 212, 255, 0.15);
+				border-color: var(--accent-color, #00d4ff);
+				color: var(--accent-color, #00d4ff);
+			}
+			.blur-icon {
+				margin-right: 4px;
+			}
+			.hibp-exposed {
+				color: #ff4444;
+				font-weight: bold;
+			}
+			.hibp-clean {
+				color: #1dd1a1;
+			}
+			/* Hash Reuse Badge Styles (used in table) */
+			.hash-reuse-badge {
+				display: inline-block;
+				padding: 2px 6px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				white-space: nowrap;
+			}
+			.hash-reuse-badge.warning {
+				background: rgba(254, 202, 87, 0.15);
+				color: #feca57;
+			}
+			.hash-reuse-badge.critical {
+				background: rgba(255, 68, 68, 0.15);
+				color: #ff4444;
+			}
+			.hash-reuse-badge.none {
+				background: rgba(29, 209, 161, 0.1);
+				color: #1dd1a1;
+			}
+			/* Print mode for password history */
+			body.print-mode .pattern-badge { background: #f5f5f5; color: #666; }
+			body.print-mode .pattern-badge.hibp { background: #ffebee; color: #c62828; }
+			body.print-mode .pattern-badge.consecutive, body.print-mode .pattern-badge.reversion { background: #ffebee; color: #c62828; }
+			body.print-mode .pattern-badge.baseword { background: #fff3e0; color: #e65100; }
+			body.print-mode .pattern-badge.number { background: #e0f2f1; color: #00695c; }
+			body.print-mode .pattern-badge.year { background: #e0f7fa; color: #006064; }
+			body.print-mode .pattern-badge.season { background: #e3f2fd; color: #1565c0; }
+			body.print-mode .pattern-badge.specialchar { background: #f3e5f5; color: #7b1fa2; }
+			body.print-mode .pattern-badge.minimal { background: #fce7f3; color: #be185d; }
+			body.print-mode .pattern-badge.leet { background: #e8f5e9; color: #2e7d32; }
+			body.print-mode .reuse-highlight { background: #ffebee !important; }
+			body.print-mode .reuse-highlight .history-pw-blurred,
+			body.print-mode .reuse-highlight .history-pw-visible { color: #c62828 !important; }
+			body.print-mode .pattern-highlight { background: #fff3cd !important; }
+			body.print-mode .pattern-highlight .history-pw-blurred,
+			body.print-mode .pattern-highlight .history-pw-visible { color: #856404 !important; }
+			body.print-mode .predictability-score.critical { background: #ffe0e0; color: #b00; }
+			body.print-mode .predictability-score.high { background: #fff3cd; color: #856404; }
+			body.print-mode .predictability-score.medium { background: #d4edda; color: #155724; }
+			body.print-mode .hash-reuse-badge.warning { background: #fff3cd; color: #856404; }
+			body.print-mode .hash-reuse-badge.critical { background: #ffe0e0; color: #b00; }
+			body.print-mode .hibp-exposed { color: #dc3545; }
+			body.print-mode .hibp-clean { color: #28a745; }
+			body.print-mode .history-pw-blurred { color: #333; text-shadow: none; }
+			body.print-mode .history-pw-uncracked { background: #eee; color: #666; }
+			body.print-mode .history-pw-uncracked.duplicate { background: #ffe0e0; color: #b00; }
+			body.print-mode .history-pw-visible { color: #333; }
+			body.print-mode .blur-toggle-btn { display: none; }
 		</style>
 	</head>
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
@@ -1053,6 +1275,7 @@
 				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
 				<button class="report-nav-btn" id="navBlankPasswords" onclick="scrollToSection('policyBlankSection')">Blank Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
+				<button class="report-nav-btn" id="navPasswordHistory" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
 				<button class="report-nav-btn" id="navMaxAge" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
 				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
@@ -1579,6 +1802,78 @@
 				</button>
 			</div>
 		</section>
+
+		<!-- Password History Pattern Analysis Section -->
+		<section id="passwordHistorySection" class="report-section password-history-section" style="display: none;">
+			<h2>Password History Pattern Analysis</h2>
+			<p class="section-description">Analysis of historical passwords to detect predictable rotation patterns. This helps identify users who follow weak password change habits.</p>
+
+			<!-- Summary Stats -->
+			<div id="historyStatsSummary" class="privilege-stats-grid">
+				<div class="privilege-stat-card history-users">
+					<div class="stat-value" id="historyUsersWithHistory">0</div>
+					<div class="stat-label">Users With History</div>
+				</div>
+				<div class="privilege-stat-card history-cracked">
+					<div class="stat-value" id="historyUsersCracked">0</div>
+					<div class="stat-label">Cracked History</div>
+				</div>
+				<div class="privilege-stat-card history-patterns">
+					<div class="stat-value" id="historyUsersWithPatterns">0</div>
+					<div class="stat-label">Predictable Patterns</div>
+				</div>
+			</div>
+
+			<!-- Hash Reuse Stats (above chart) -->
+			<div id="hashReuseStatsContainer" class="privilege-stats-grid" style="display: none; margin-top: 15px;">
+				<div class="privilege-stat-card history-reuse">
+					<div class="stat-value" id="hashReuseCount">0</div>
+					<div class="stat-label">Hash Reuse Detected</div>
+					<div class="stat-detail">Same hash multiple times</div>
+				</div>
+				<div class="privilege-stat-card history-consecutive">
+					<div class="stat-value" id="consecutiveDuplicateCount">0</div>
+					<div class="stat-label">Consecutive Duplicates</div>
+					<div class="stat-detail">Same hash twice in a row</div>
+				</div>
+			</div>
+
+			<!-- Pattern Distribution Chart -->
+			<div id="patternDistributionContainer" style="display: none;">
+				<h3>Detected Pattern Types</h3>
+				<div class="chart-container" style="max-width: 600px; height: 250px; margin: 0 auto 20px;">
+					<canvas id="patternDistributionChart"></canvas>
+				</div>
+			</div>
+
+			<!-- Top Predictable Users Table -->
+			<div id="predictableUsersContainer">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+					<h3 style="margin: 0;">Users with Predictable Password Rotation</h3>
+					<button id="toggleHistoryBlur" class="toggle-visibility-button" onclick="togglePasswordHistoryBlur()">
+						Show Passwords
+					</button>
+				</div>
+				<table id="predictableUsersTable" class="display" style="width: 100%">
+					<thead>
+						<tr>
+							<th>Username</th>
+							<th>Predictability Score</th>
+							<th>Pattern(s) Detected</th>
+							<th>Password Evolution</th>
+						</tr>
+					</thead>
+					<tbody>
+						<!-- Populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+
+			<div class="button-container" style="text-align: center; margin-top: 10px">
+				<button onclick="downloadPasswordHistoryCSV()">Download CSV</button>
+			</div>
+		</section>
+
 		<!-- Section for the (Accounts) Passwords Failing Max Age Table (ADD JSON only) -->
 		<section id="policyMaxAgeSection" style="display: none;">
 			<h2>Accounts Failing Maximum Age Password Policy</h2>
@@ -6452,6 +6747,9 @@
 				// Check for privileged accounts data (ADD JSON sessions)
 				loadPrivilegedAccountsData();
 
+				// Check for password history pattern data
+				loadPasswordHistoryData();
+
 				// Initialize HIBP section (check for local database)
 				initHIBPSection();
 
@@ -6697,6 +6995,300 @@
 				} catch (error) {
 					// Not an ADD JSON session - privileged accounts data not available
 				}
+			}
+
+			// Load password history pattern analysis data
+			async function loadPasswordHistoryData() {
+				try {
+					const response = await fetch('password_history_patterns.json');
+					if (!response.ok) return; // Data not available
+
+					const data = await response.json();
+
+					// Only show section if there are users with history
+					if (data.users_with_history === 0) return;
+
+					// Show the navigation button and section
+					const navBtn = document.getElementById('navPasswordHistory');
+					navBtn.style.display = 'inline-block';
+					document.getElementById('passwordHistorySection').style.display = 'block';
+
+					// Update summary stats
+					document.getElementById('historyUsersWithHistory').textContent = data.users_with_history;
+					document.getElementById('historyUsersCracked').textContent = data.users_with_cracked_history;
+					document.getElementById('historyUsersWithPatterns').textContent = data.users_with_patterns;
+
+					// Show hash reuse stats if detected
+					if (data.users_with_hash_reuse > 0 || data.users_with_consecutive_duplicates > 0) {
+						document.getElementById('hashReuseStatsContainer').style.display = 'grid';
+						document.getElementById('hashReuseCount').textContent = data.users_with_hash_reuse || 0;
+						document.getElementById('consecutiveDuplicateCount').textContent = data.users_with_consecutive_duplicates || 0;
+					}
+
+					// Create pattern distribution chart if we have patterns
+					if (data.pattern_counts && Object.keys(data.pattern_counts).length > 0) {
+						document.getElementById('patternDistributionContainer').style.display = 'block';
+
+						// Pattern labels and colors - consistent across chart and table
+						const patternConfig = {
+							'consecutive_hash_reuse': { label: 'Consecutive Reuse', color: 'rgba(255, 68, 68, 0.7)' },      // Red - reuse
+							'password_reversion': { label: 'Password Reversion', color: 'rgba(255, 107, 107, 0.7)' },       // Light red - reuse
+							'base_word_persistence': { label: 'Persistent Base Word', color: 'rgba(255, 159, 67, 0.7)' },   // Orange
+							'incrementing_number': { label: 'Incrementing Number', color: 'rgba(29, 209, 161, 0.7)' },      // Teal
+							'year_increment': { label: 'Year Increment', color: 'rgba(0, 212, 255, 0.7)' },                 // Cyan
+							'season_rotation': { label: 'Season Rotation', color: 'rgba(84, 160, 255, 0.7)' },              // Blue
+							'special_char_rotation': { label: 'Special Char Rotation', color: 'rgba(156, 89, 182, 0.7)' },  // Purple
+							'minimal_changes': { label: 'Minimal Changes', color: 'rgba(236, 72, 153, 0.7)' },              // Pink/Magenta
+							'leet_progression': { label: 'Leet-speak Progression', color: 'rgba(46, 204, 113, 0.7)' }       // Green
+						};
+
+						// Sort patterns: reuse patterns first (red), then others
+						const sortOrder = ['consecutive_hash_reuse', 'password_reversion', 'base_word_persistence',
+							'incrementing_number', 'year_increment', 'season_rotation', 'special_char_rotation',
+							'minimal_changes', 'leet_progression'];
+
+						const sortedPatterns = Object.keys(data.pattern_counts).sort((a, b) => {
+							const aIdx = sortOrder.indexOf(a);
+							const bIdx = sortOrder.indexOf(b);
+							return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+						});
+
+						const labels = sortedPatterns.map(k => patternConfig[k]?.label || k);
+						const values = sortedPatterns.map(k => data.pattern_counts[k]);
+						const colors = sortedPatterns.map(k => patternConfig[k]?.color || 'rgba(128, 128, 128, 0.7)');
+
+						new Chart(document.getElementById('patternDistributionChart'), {
+							type: 'bar',
+							data: {
+								labels: labels,
+								datasets: [{
+									label: 'Users with Pattern',
+									data: values,
+									backgroundColor: colors,
+									borderWidth: 1
+								}]
+							},
+							options: {
+								indexAxis: 'y',
+								responsive: true,
+								maintainAspectRatio: false,
+								plugins: {
+									legend: { display: false }
+								},
+								scales: {
+									x: {
+										beginAtZero: true,
+										ticks: { stepSize: 1 }
+									}
+								}
+							}
+						});
+					}
+
+					// Populate the predictable users table
+					if (data.top_predictable_users && data.top_predictable_users.length > 0) {
+						const tbody = document.querySelector('#predictableUsersTable tbody');
+						tbody.innerHTML = data.top_predictable_users.map(user => {
+							// Format patterns - include HIBP exposure as a badge
+							const badges = [];
+
+							// Add detected pattern badges (including hash reuse patterns)
+							// Pattern config with labels and CSS classes matching chart colors
+							const patternStyles = {
+								'consecutive_hash_reuse': { label: 'Consecutive', cssClass: 'consecutive' },
+								'password_reversion': { label: 'Reversion', cssClass: 'reversion' },
+								'base_word_persistence': { label: 'BaseWord', cssClass: 'baseword' },
+								'incrementing_number': { label: 'Number++', cssClass: 'number' },
+								'year_increment': { label: 'Year++', cssClass: 'year' },
+								'season_rotation': { label: 'Season', cssClass: 'season' },
+								'special_char_rotation': { label: 'SpecialChar', cssClass: 'specialchar' },
+								'minimal_changes': { label: 'Minimal', cssClass: 'minimal' },
+								'leet_progression': { label: 'Leet', cssClass: 'leet' }
+							};
+
+							user.patterns.forEach(p => {
+								const style = patternStyles[p.type] || { label: p.type, cssClass: '' };
+								badges.push(`<span class="pattern-badge ${style.cssClass}">${style.label}</span>`);
+							});
+
+							const patternBadges = badges.join(' ');
+
+							// Build set of passwords involved in non-reuse patterns (for orange highlighting)
+							const patternPasswords = new Set();
+							user.patterns.forEach(p => {
+								// Skip reuse patterns - those get red highlighting via is_duplicate
+								if (p.type !== 'consecutive_hash_reuse' && p.type !== 'password_reversion') {
+									(p.passwords_involved || []).forEach(pw => patternPasswords.add(pw));
+								}
+							});
+
+							// Format password evolution using full_history (shows uncracked as placeholders)
+							// full_history contains: {position, password, hash_short, is_duplicate, reuse_count}
+							// is_duplicate now marks ALL entries in a reuse group (not just after first)
+							const history = user.full_history || [];
+							const hashLabels = {};  // hash_short -> label (e.g., "hash1")
+							let hashCounter = 1;
+
+							const passwordEvolutionRows = history.map((entry, idx) => {
+								let displayText;
+								const isInReuseGroup = entry.is_duplicate;  // Now marks ALL in group
+
+								if (entry.password) {
+									// Cracked password - show with blur
+									const pw = entry.password;
+									// Determine highlight class: red for reuse, orange for other patterns, none for plain cracked
+									// Reuse takes priority over pattern highlighting
+									let wrapperClass = '';
+									if (isInReuseGroup) {
+										wrapperClass = 'reuse-highlight';
+									} else if (patternPasswords.has(pw)) {
+										wrapperClass = 'pattern-highlight';
+									}
+									if (pw.length <= 4) {
+										displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-blurred">${escapeHtml(pw)}</span></span>`;
+									} else {
+										const start = pw.slice(0, 2);
+										const middle = pw.slice(2, -2);
+										const end = pw.slice(-2);
+										displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span></span>`;
+									}
+								} else {
+									// Uncracked - use simple "hash1", "hash2" labels
+									// Reuse label if we've seen this hash before
+									if (!hashLabels[entry.hash_short]) {
+										hashLabels[entry.hash_short] = `hash${hashCounter}`;
+										hashCounter++;
+									}
+									const label = hashLabels[entry.hash_short];
+									const cssClass = isInReuseGroup ? 'history-pw-uncracked duplicate' : 'history-pw-uncracked';
+									displayText = `<span class="${cssClass}" title="Uncracked hash">${label}</span>`;
+								}
+
+								// Add arrow except for first entry
+								const arrow = idx > 0 ? '<span class="pw-arrow">→</span> ' : '';
+								return arrow + displayText;
+							});
+
+							const passwordEvolution = passwordEvolutionRows.join('');
+
+							// Format predictability score as percentage
+							const scorePercent = Math.round(user.predictability_score * 100);
+							const scoreClass = scorePercent >= 70 ? 'critical' : scorePercent >= 40 ? 'high' : 'medium';
+
+							return `
+								<tr class="${scorePercent >= 70 ? 'cracked-row' : scorePercent >= 40 ? 'warning-row' : ''}">
+									<td>${escapeHtml(user.username)}</td>
+									<td><span class="predictability-score ${scoreClass}">${scorePercent}%</span></td>
+									<td>${patternBadges || '-'}</td>
+									<td class="password-evolution">${passwordEvolution || '-'}</td>
+								</tr>
+							`;
+						}).join('');
+
+						// Initialize DataTable (4 columns: Username, Score, Patterns, Evolution)
+						const historyTable = $('#predictableUsersTable').DataTable({
+							pageLength: 10,
+							order: [[1, 'desc']],
+							columnDefs: [{ orderable: false, targets: [2, 3] }]
+						});
+
+						// Reapply blur state after page change/search/redraw
+						historyTable.on('draw', function() {
+							if (historyPasswordsVisible) {
+								applyHistoryPasswordVisibility(true);
+							}
+						});
+					}
+
+				} catch (error) {
+					console.log('Password history patterns not available:', error);
+				}
+			}
+
+			// Download password history CSV
+			function downloadPasswordHistoryCSV() {
+				fetch('password_history_patterns.json')
+					.then(response => response.json())
+					.then(data => {
+						if (!data.top_predictable_users || data.top_predictable_users.length === 0) {
+							alert('No password history pattern data available');
+							return;
+						}
+
+						const rows = [['Username', 'Predictability Score', 'Patterns Detected', 'Cracked Historical', 'Total Historical']];
+						data.top_predictable_users.forEach(user => {
+							rows.push([
+								user.username,
+								Math.round(user.predictability_score * 100) + '%',
+								user.patterns.map(p => p.type).join('; '),
+								user.cracked_historical,
+								user.total_historical
+							]);
+						});
+
+						const csvContent = rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+						const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+						const link = document.createElement('a');
+						link.href = URL.createObjectURL(blob);
+						link.download = 'Password_History_Patterns.csv';
+						link.click();
+					})
+					.catch(error => {
+						console.error('Error downloading CSV:', error);
+						alert('Error downloading CSV');
+					});
+			}
+
+			// Toggle password blur in password history section
+			let historyPasswordsVisible = false;
+
+			// Helper to apply visibility state to all password cells
+			function applyHistoryPasswordVisibility(visible) {
+				const cells = document.querySelectorAll('#predictableUsersTable .history-pw-cell');
+				cells.forEach(cell => {
+					const fullPw = cell.getAttribute('data-full');
+					if (!fullPw) return;
+
+					// Check highlight type: red for reuse, orange for pattern, none for plain
+					const isInReuseGroup = cell.classList.contains('reuse-highlight');
+					const isInPatternGroup = cell.classList.contains('pattern-highlight');
+
+					if (visible) {
+						// Show full password - preserve highlighting color
+						let colorStyle = '';
+						if (isInReuseGroup) {
+							colorStyle = ' style="color: #ff6b6b;"';
+						} else if (isInPatternGroup) {
+							colorStyle = ' style="color: #feca57;"';
+						}
+						cell.innerHTML = `<span class="history-pw-visible"${colorStyle}>${escapeHtml(fullPw)}</span>`;
+					} else {
+						// Re-blur password
+						if (fullPw.length <= 4) {
+							cell.innerHTML = `<span class="history-pw-blurred">${escapeHtml(fullPw)}</span>`;
+						} else {
+							const start = fullPw.slice(0, 2);
+							const middle = fullPw.slice(2, -2);
+							const end = fullPw.slice(-2);
+							cell.innerHTML = `<span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span>`;
+						}
+					}
+				});
+			}
+
+			function togglePasswordHistoryBlur() {
+				historyPasswordsVisible = !historyPasswordsVisible;
+				const btn = document.getElementById('toggleHistoryBlur');
+
+				if (historyPasswordsVisible) {
+					btn.innerHTML = 'Hide Passwords';
+					btn.classList.add('showing');
+				} else {
+					btn.innerHTML = 'Show Passwords';
+					btn.classList.remove('showing');
+				}
+
+				applyHistoryPasswordVisibility(historyPasswordsVisible);
 			}
 
 			// Load existing AAIA results if available

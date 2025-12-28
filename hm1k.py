@@ -41,6 +41,8 @@ import file_parser
 from session_manager import get_session_manager, SessionMetadata
 # Import domain utilities for domain filtering
 from domain_utils import filter_accounts_by_domain, detect_cross_domain_password_reuse
+# Import password history analysis module
+import password_history
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
@@ -1412,6 +1414,28 @@ def process_validated() -> Response:
         # Check password reuse (needs original file path)
         pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
 
+        # Build cracked_hashes lookup from potfile
+        cracked_hashes: dict[str, str] = {file_parser.BLANK_NTLM_HASH: ""}
+        for entry in potfile_result.entries:
+            if entry.included and entry.is_valid and entry.ntlm_hash:
+                cracked_hashes[entry.ntlm_hash] = entry.password or ""
+
+        # Run password history pattern analysis (for pwdump with _history entries)
+        pwdump_lines_data = [
+            {
+                'username': line.username,
+                'ntlm_hash': line.ntlm_hash,
+                'is_valid': line.is_valid,
+                'included': line.included
+            }
+            for line in pwdump_result.lines if line.username
+        ]
+        history_pattern_analysis = password_history.analyze_password_history(
+            pwdump_data=pwdump_lines_data,
+            cracked_hashes=cracked_hashes
+        )
+        history_pattern_results = password_history.history_analysis_to_dict(history_pattern_analysis)
+
         # Create a new session for this analysis
         session_mgr = get_session_manager()
 
@@ -1461,6 +1485,7 @@ def process_validated() -> Response:
         session_mgr.save_session_data("pw_bad_practices.json", bad_practices, analysis_session.session_id)
         session_mgr.save_session_data("account_data.json", account_data, analysis_session.session_id)
         session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
+        session_mgr.save_session_data("password_history_patterns.json", history_pattern_results, analysis_session.session_id)
 
         # Save validation data for domain filter changes later
         session_mgr.save_session_data("pwdump_validation.json", pwdump_data, analysis_session.session_id)
@@ -1947,6 +1972,16 @@ def pw_lm_hashes_table() -> Response:
 @login_required
 def pw_bad_practices() -> Response:
     data = _load_session_json("pw_bad_practices.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for Password History Pattern Analysis
+@app.route("/password_history_patterns.json")
+@login_required
+def password_history_patterns() -> Response:
+    data = _load_session_json("password_history_patterns.json")
     if data is None:
         return jsonify({"error": "No data available"}), 404
     return jsonify(data)
@@ -2596,8 +2631,16 @@ def process_add_validated() -> Response:
                 if entry.included and entry.is_valid and entry.ntlm_hash:
                     cracked_hashes[entry.ntlm_hash] = entry.password or ""
 
-        # Run historical hash analysis
+        # Run historical hash analysis (basic reuse checking)
         historical_analysis = file_parser.analyze_historical_hashes(add_result, cracked_hashes)
+
+        # Run password history pattern analysis (advanced pattern detection)
+        add_entries_data = [entry.to_dict() for entry in add_result.entries if entry.included and entry.is_valid]
+        history_pattern_analysis = password_history.analyze_password_history(
+            add_data=add_entries_data,
+            cracked_hashes=cracked_hashes
+        )
+        history_pattern_results = password_history.history_analysis_to_dict(history_pattern_analysis)
 
         # Run password sharing detection
         password_sharing = file_parser.detect_privilege_password_sharing(add_result, cracked_hashes)
@@ -2729,6 +2772,7 @@ def process_add_validated() -> Response:
             session_mgr.save_session_data("domain_policy.json", add_result.domain_policy.to_dict(), analysis_session.session_id)
         session_mgr.save_session_data("privileged_accounts.json", privileged_findings, analysis_session.session_id)
         session_mgr.save_session_data("historical_hash_analysis.json", historical_analysis, analysis_session.session_id)
+        session_mgr.save_session_data("password_history_patterns.json", history_pattern_results, analysis_session.session_id)
         session_mgr.save_session_data("password_sharing_findings.json", {
             "critical_findings": password_sharing,
             "summary": {
