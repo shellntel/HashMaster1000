@@ -488,6 +488,91 @@ Password Age Concerns (MEDIUM):
 
 ---
 
+### Account Description Sensitive Data Analysis (PLANNED)
+
+**Status:** Planned for implementation
+
+**Description:** Scan Active Directory account description fields for sensitive information disclosures. Administrators often store passwords, hints, or other sensitive data in account descriptions, creating security risks.
+
+**Required ADD JSON Fields:**
+- `Description` - Account description field
+- `SamAccountName` - For account identification
+- `adminCount` - To flag privileged accounts with sensitive descriptions
+
+**Detection Patterns:**
+
+| Pattern Type | Examples | Risk Level |
+|-------------|----------|------------|
+| Plaintext passwords | "password: Welcome1!", "pwd=Summer2024" | Critical |
+| Password hints | "same as username", "birthday + year" | High |
+| Default credentials | "default password", "initial pw: changeme" | Critical |
+| Temporary passwords | "temp pw until reset", "onboarding: Company1" | High |
+| Service account secrets | "API key:", "connection string:" | Critical |
+| PII/Contact info | SSN patterns, phone numbers with context | Medium |
+| Reset instructions | "reset to FirstnameYear", "standard format" | Medium |
+
+**Detection Techniques:**
+1. **Keyword matching** - Common password-related terms (password, pwd, pass, credential, secret, key)
+2. **Pattern recognition** - Strings that look like passwords (mixed case + numbers + special chars)
+3. **Contextual analysis** - Phrases indicating credential storage ("is set to", "equals", "=")
+4. **Entropy analysis** - High-entropy strings that may be secrets
+5. **Format detection** - Connection strings, API keys, tokens
+
+**Risk Scoring:**
+- **Critical**: Actual credentials or secrets found
+- **High**: Strong password hints or temporary credential references
+- **Medium**: Vague hints or suspicious patterns
+- **Low**: Potentially sensitive but ambiguous
+
+**Report Output (`description_analysis.json`):**
+```json
+{
+  "summary": {
+    "total_accounts_analyzed": 5000,
+    "accounts_with_descriptions": 1234,
+    "sensitive_findings": 45,
+    "critical_count": 12,
+    "high_count": 18,
+    "medium_count": 15
+  },
+  "findings": [
+    {
+      "sam_account_name": "svc_backup",
+      "description": "Service account - password: Backup2024!",
+      "risk_level": "Critical",
+      "detection_type": "plaintext_password",
+      "extracted_secret": "Backup2024!",
+      "is_privileged": true,
+      "matched_patterns": ["password:", "plaintext credential"]
+    }
+  ],
+  "statistics": {
+    "by_risk_level": {"Critical": 12, "High": 18, "Medium": 15},
+    "by_detection_type": {"plaintext_password": 8, "password_hint": 15, ...},
+    "privileged_accounts_affected": 5
+  }
+}
+```
+
+**UI Components:**
+- Dedicated report section with findings table
+- Risk-level color coding (red/orange/yellow)
+- Masked display of extracted secrets (click to reveal)
+- Filter by risk level and detection type
+- Export findings for remediation tracking
+
+**Files to Create:**
+- `description_analysis.py` - Pattern matching and analysis module
+
+**Use Cases:**
+- Identify accounts with exposed credentials in descriptions
+- Audit service accounts for hardcoded secrets
+- Find password hints that weaken security
+- Prioritize remediation based on account privilege level
+- Compliance reporting for credential management policies
+
+---
+
 ### Base Word + Suffix Analysis
 
 **Description:** Identify the root words users choose and how they modify them to meet complexity requirements.
