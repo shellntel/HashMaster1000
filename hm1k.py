@@ -1,6 +1,8 @@
 import os
+import re
 import subprocess
 import sys
+import time
 import json
 import logging
 import bcrypt
@@ -35,12 +37,26 @@ from datetime import datetime, timedelta
 from typing import Dict, Union, Optional, cast
 # Import file parser module for validation
 import file_parser
+# Import session manager for multi-session support
+from session_manager import get_session_manager, SessionMetadata
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
 load_dotenv(override=True)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
+
+# Default file paths (optional - pre-populates form fields)
+DEFAULT_PWDUMP_PATH = os.getenv("DEFAULT_PWDUMP_PATH", "")
+DEFAULT_POTFILE_PATH = os.getenv("DEFAULT_POTFILE_PATH", "")
+DEFAULT_ADD_JSON_PATH = os.getenv("DEFAULT_ADD_JSON_PATH", "")
+
+# Master Potfile configuration
+MASTER_POTFILE_ENABLED = os.getenv("MASTER_POTFILE_ENABLED", "false").lower() == "true"
+MASTER_POTFILE_PATH = os.getenv("MASTER_POTFILE_PATH", "data/master.potfile")
+
+# Advanced Options (experimental tools) configuration
+ADVANCED_OPTIONS_ENABLED = os.getenv("ADVANCED_OPTIONS_ENABLED", "false").lower() == "true"
 
 
 def validate_libraries():
@@ -212,6 +228,14 @@ def is_computer_account(username: Optional[str]) -> bool:
     """Jinja test to check if a username is a computer account (ends with $)."""
     return bool(username and username.endswith('$'))
 
+# Context processor to make global variables available to all templates
+@app.context_processor
+def inject_global_settings():
+    """Inject global settings into all templates."""
+    return {
+        'advanced_options_enabled': ADVANCED_OPTIONS_ENABLED
+    }
+
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
     hours=8
 )  # Session expiration can be adjusted here
@@ -248,6 +272,19 @@ def load_user(user_id: str) -> Optional[User]:
     if user_id == ADMIN_USERNAME:
         return User(username=ADMIN_USERNAME)
     return None
+
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    """Custom unauthorized handler that returns JSON for API calls."""
+    # Check if this is an API/AJAX request
+    if request.path.startswith('/api/') or request.is_json or request.headers.get('Accept', '').startswith('application/json'):
+        return jsonify({
+            "error": "Authentication required",
+            "message": "Please log in to access this resource."
+        }), 401
+    # For regular page requests, redirect to login
+    return redirect(url_for('login', next=request.url))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -317,20 +354,35 @@ def index() -> str:
     # Get step parameter (defaults to 1 if not provided)
     # Step 3 is used when continuing from validation review to configuration
     initial_step = request.args.get("step", 1, type=int)
+    input_method = request.args.get("input_method", "")
 
     # Only pass validation data when going directly to step 3
     # (coming from validation review with Continue to Configuration)
     pwdump_validation = None
     potfile_validation = None
+    add_validation = None
     if initial_step == 3:
         pwdump_validation = session.get("pwdump_validation")
         potfile_validation = session.get("potfile_validation")
+        add_validation = session.get("add_validation")
+
+    # Get master potfile entry count if enabled
+    master_potfile_count = 0
+    if MASTER_POTFILE_ENABLED:
+        master_potfile_count = file_parser.get_potfile_entry_count(MASTER_POTFILE_PATH)
 
     return render_template(
         "index.html",
         initial_step=initial_step,
+        input_method=input_method,
         pwdump_validation=pwdump_validation,
-        potfile_validation=potfile_validation
+        potfile_validation=potfile_validation,
+        add_validation=add_validation,
+        default_pwdump_path=DEFAULT_PWDUMP_PATH,
+        default_potfile_path=DEFAULT_POTFILE_PATH,
+        default_add_json_path=DEFAULT_ADD_JSON_PATH,
+        master_potfile_enabled=MASTER_POTFILE_ENABLED,
+        master_potfile_count=master_potfile_count,
     )
 
 
@@ -632,6 +684,86 @@ def local_files() -> FlaskResponse:
 
 
 # ============================================================================
+# Master Potfile Helper Functions
+# ============================================================================
+
+def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationResult") -> tuple:
+    """
+    Handle master potfile merge logic when MASTER_POTFILE_ENABLED is true.
+
+    Args:
+        potfile_result: The validated potfile result from user's upload
+
+    Returns:
+        Tuple of (final_potfile_result, merge_stats_dict)
+        - final_potfile_result: Either master potfile result or original user result
+        - merge_stats_dict: Dict with 'added', 'skipped', 'total' keys (or None if disabled)
+    """
+    if not MASTER_POTFILE_ENABLED:
+        return (potfile_result, None)
+
+    merge_stats = None
+
+    try:
+        # Merge user's NTLM entries into master potfile
+        added, skipped, total = file_parser.merge_potfile_entries(
+            MASTER_POTFILE_PATH,
+            potfile_result.entries
+        )
+        merge_stats = {
+            "added": added,
+            "skipped": skipped,
+            "total": total,
+            "user_ntlm_count": potfile_result.ntlm_count,
+        }
+
+        # Now validate the master potfile to use for processing
+        master_result = file_parser.validate_potfile(MASTER_POTFILE_PATH)
+        logging.info(
+            f"Master potfile merge complete: {added} added, {skipped} skipped, "
+            f"{master_result.ntlm_count} total NTLM hashes in master"
+        )
+        return (master_result, merge_stats)
+
+    except Exception as e:
+        logging.error(f"Error during master potfile merge: {e}")
+        # Fall back to user's potfile on error
+        merge_stats = {
+            "added": 0,
+            "skipped": 0,
+            "total": 0,
+            "error": str(e),
+            "user_ntlm_count": potfile_result.ntlm_count,
+        }
+        return (potfile_result, merge_stats)
+
+
+def load_master_potfile_only() -> tuple:
+    """
+    Load master potfile when user skips providing their own potfile.
+
+    Returns:
+        Tuple of (potfile_result, merge_stats_dict)
+    """
+    if not MASTER_POTFILE_ENABLED or not os.path.exists(MASTER_POTFILE_PATH):
+        return (None, None)
+
+    try:
+        master_result = file_parser.validate_potfile(MASTER_POTFILE_PATH)
+        merge_stats = {
+            "added": 0,
+            "skipped": 0,
+            "total": master_result.ntlm_count,
+            "user_ntlm_count": 0,
+            "master_only": True,
+        }
+        return (master_result, merge_stats)
+    except Exception as e:
+        logging.error(f"Error loading master potfile: {e}")
+        return (None, {"error": str(e)})
+
+
+# ============================================================================
 # New Validation Flow Endpoints
 # ============================================================================
 
@@ -681,34 +813,81 @@ def validate_files_endpoint() -> Response:
                 status=500,
             )
 
-        # Run detailed validation using file_parser module
-        pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
-        potfile_result = file_parser.validate_potfile(potfile_path)
+        # Check if the pwdump file is actually ADD JSON format
+        is_add_json = file_parser.is_add_json_file(pwdump_path)
 
-        # Store validation results in session
-        session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
-        session["potfile_validation"] = file_parser.potfile_result_to_dict(potfile_result)
-        session["pwdump_path"] = pwdump_path
-        session["potfile_path"] = potfile_path
+        if is_add_json:
+            # Parse as ADD JSON format
+            add_result = file_parser.parse_add_json(pwdump_path)
+            potfile_result = file_parser.validate_potfile(potfile_path)
 
-        # Store form options for later processing
-        session["analysis_options"] = {
-            "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
-            "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
-            "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
-            "substring_min_len": request.form.get("substring_min_len", "4"),
-            "substring_max_len": request.form.get("substring_max_len", "20"),
-            "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
-            "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
-            "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
-            "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
-            "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
-            "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
-        }
+            # Handle master potfile merge if enabled
+            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
 
-        # Always redirect to validation review page (Step 2) so users can see
-        # exactly what data will be processed before configuring analysis options
-        return cast(FlaskResponse, redirect(url_for("validation_review")))
+            # Store ADD validation results in session
+            session["add_validation"] = file_parser.add_result_to_dict(add_result)
+            session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
+            session["pwdump_path"] = pwdump_path
+            session["potfile_path"] = potfile_path
+            session["input_format"] = "add_json"
+            if merge_stats:
+                session["master_potfile_merge"] = merge_stats
+
+            # Store form options for later processing (includes company/project info)
+            session["analysis_options"] = {
+                "company_name": request.form.get("company_name", "").strip(),
+                "project_description": request.form.get("project_description", "").strip(),
+                "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
+                "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
+                "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
+                "substring_min_len": request.form.get("substring_min_len", "4"),
+                "substring_max_len": request.form.get("substring_max_len", "20"),
+                "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
+                "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
+                "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
+                "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
+                "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
+                "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            }
+
+            # Redirect to ADD JSON validation review page
+            return cast(FlaskResponse, redirect(url_for("validation_review_add")))
+        else:
+            # Standard pwdump format
+            pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
+            potfile_result = file_parser.validate_potfile(potfile_path)
+
+            # Handle master potfile merge if enabled
+            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+
+            # Store validation results in session
+            session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
+            session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
+            session["pwdump_path"] = pwdump_path
+            session["potfile_path"] = potfile_path
+            session["input_format"] = "pwdump"
+            if merge_stats:
+                session["master_potfile_merge"] = merge_stats
+
+            # Store form options for later processing (includes company/project info)
+            session["analysis_options"] = {
+                "company_name": request.form.get("company_name", "").strip(),
+                "project_description": request.form.get("project_description", "").strip(),
+                "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
+                "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
+                "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
+                "substring_min_len": request.form.get("substring_min_len", "4"),
+                "substring_max_len": request.form.get("substring_max_len", "20"),
+                "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
+                "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
+                "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
+                "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
+                "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
+                "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            }
+
+            # Redirect to validation review page (Step 2)
+            return cast(FlaskResponse, redirect(url_for("validation_review")))
 
     except Exception as e:
         logging.error(f"Validation error: {e}")
@@ -776,33 +955,85 @@ def validate_local_files() -> Response:
                 status=400,
             )
 
-        # Run detailed validation using file_parser module
-        pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
-        potfile_result = file_parser.validate_potfile(potfile_path)
+        # Check if the pwdump file is actually ADD JSON format
+        is_add_json = file_parser.is_add_json_file(pwdump_path)
 
-        # Store validation results in session
-        session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
-        session["potfile_validation"] = file_parser.potfile_result_to_dict(potfile_result)
-        session["pwdump_path"] = pwdump_path
-        session["potfile_path"] = potfile_path
+        if is_add_json:
+            # Parse as ADD JSON format
+            add_result = file_parser.parse_add_json(pwdump_path)
+            potfile_result = file_parser.validate_potfile(potfile_path)
 
-        # Store form options for later processing
-        session["analysis_options"] = {
-            "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
-            "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
-            "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
-            "substring_min_len": request.form.get("substring_min_len", "4"),
-            "substring_max_len": request.form.get("substring_max_len", "20"),
-            "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
-            "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
-            "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
-            "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
-            "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
-            "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
-        }
+            # Handle master potfile merge if enabled
+            if MASTER_POTFILE_ENABLED:
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+                session["master_potfile_merge"] = merge_stats
+            else:
+                final_potfile_result = potfile_result
 
-        # Redirect to validation review page
-        return cast(FlaskResponse, redirect(url_for("validation_review")))
+            # Store ADD validation results in session
+            session["add_validation"] = file_parser.add_result_to_dict(add_result)
+            session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
+            session["pwdump_path"] = pwdump_path
+            session["potfile_path"] = potfile_path
+            session["input_format"] = "add_json"
+
+            # Store form options for later processing (includes company/project info)
+            session["analysis_options"] = {
+                "company_name": request.form.get("company_name", "").strip(),
+                "project_description": request.form.get("project_description", "").strip(),
+                "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
+                "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
+                "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
+                "substring_min_len": request.form.get("substring_min_len", "4"),
+                "substring_max_len": request.form.get("substring_max_len", "20"),
+                "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
+                "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
+                "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
+                "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
+                "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
+                "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            }
+
+            # Redirect to ADD JSON validation review page
+            return cast(FlaskResponse, redirect(url_for("validation_review_add")))
+        else:
+            # Standard pwdump format
+            pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
+            potfile_result = file_parser.validate_potfile(potfile_path)
+
+            # Handle master potfile merge if enabled
+            if MASTER_POTFILE_ENABLED:
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+                session["master_potfile_merge"] = merge_stats
+            else:
+                final_potfile_result = potfile_result
+
+            # Store validation results in session
+            session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
+            session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
+            session["pwdump_path"] = pwdump_path
+            session["potfile_path"] = potfile_path
+            session["input_format"] = "pwdump"
+
+            # Store form options for later processing (includes company/project info)
+            session["analysis_options"] = {
+                "company_name": request.form.get("company_name", "").strip(),
+                "project_description": request.form.get("project_description", "").strip(),
+                "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
+                "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
+                "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
+                "substring_min_len": request.form.get("substring_min_len", "4"),
+                "substring_max_len": request.form.get("substring_max_len", "20"),
+                "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
+                "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
+                "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
+                "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
+                "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
+                "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            }
+
+            # Redirect to validation review page
+            return cast(FlaskResponse, redirect(url_for("validation_review")))
 
     except Exception as e:
         logging.error(f"Local file validation error: {e}")
@@ -828,6 +1059,7 @@ def validation_review() -> Response:
     """
     pwdump_data = session.get("pwdump_validation")
     potfile_data = session.get("potfile_validation")
+    master_merge_stats = session.get("master_potfile_merge")
 
     # Need at least one file to show review
     if not pwdump_data and not potfile_data:
@@ -836,7 +1068,9 @@ def validation_review() -> Response:
     return make_response(render_template(
         "validate.html",
         pwdump=pwdump_data,
-        potfile=potfile_data
+        potfile=potfile_data,
+        master_potfile_enabled=MASTER_POTFILE_ENABLED,
+        master_potfile_merge=master_merge_stats
     ))
 
 
@@ -877,42 +1111,86 @@ def validate_single_file() -> Response:
         uploaded_file.save(file_path)
 
         if file_type == "pwdump":
-            result = file_parser.validate_pwdump_file(file_path)
-            result_dict = file_parser.validation_result_to_dict(result)
+            # Check if the file is ADD JSON format
+            if file_parser.is_add_json_file(file_path):
+                # Parse as ADD JSON
+                add_result = file_parser.parse_add_json(file_path)
+                result_dict = file_parser.add_result_to_dict(add_result)
 
-            # Store in session for validation review access
-            session["pwdump_validation"] = result_dict
-            session["pwdump_path"] = file_path
-            session.modified = True
+                # Store in session for validation review access
+                session["add_validation"] = result_dict
+                session["pwdump_path"] = file_path
+                session["input_format"] = "add_json"
+                session.modified = True
 
-            # Calculate status coverage
-            lines_with_status = sum(1 for line in result.lines if line.status is not None and line.is_valid)
-            valid_lines = result.valid_lines
-            status_coverage = (lines_with_status / valid_lines * 100) if valid_lines > 0 else 0
+                return jsonify({
+                    "success": True,
+                    "file_type": "add_json",
+                    "filename": uploaded_file.filename,
+                    "total_lines": add_result.total_users,
+                    "valid_lines": add_result.valid_users,
+                    "warning_lines": 0,
+                    "error_lines": add_result.error_users,
+                    "formats_detected": {"add_json": add_result.total_users},
+                    "status_coverage": 0,
+                    "lines_with_status": 0,
+                    "domain_name": add_result.domain_policy.domain_name if add_result.domain_policy else "Unknown",
+                    "tier0_count": add_result.tier0_count,
+                    "elevated_count": add_result.elevated_count,
+                    "privileged_count": add_result.privileged_count,
+                    "users_with_history": add_result.users_with_history,
+                    "total_historical_hashes": add_result.total_historical_hashes,
+                    "problem_lines": [
+                        {
+                            "line_number": i + 1,
+                            "username": entry.sam_account_name,
+                            "status": "disabled" if entry.is_disabled else "enabled",
+                            "is_valid": entry.is_valid,
+                            "errors": [{"severity": e.severity.value, "message": e.message} for e in entry.errors],
+                            "raw_line": f"{entry.sam_account_name} ({entry.logon_name})"
+                        }
+                        for i, entry in enumerate(add_result.entries) if entry.errors
+                    ]
+                })
+            else:
+                # Standard pwdump format
+                result = file_parser.validate_pwdump_file(file_path)
+                result_dict = file_parser.validation_result_to_dict(result)
 
-            return jsonify({
-                "success": True,
-                "file_type": "pwdump",
-                "filename": uploaded_file.filename,
-                "total_lines": result.total_lines,
-                "valid_lines": result.valid_lines,
-                "warning_lines": result.warning_lines,
-                "error_lines": result.error_lines,
-                "formats_detected": result.formats_detected,
-                "status_coverage": round(status_coverage, 1),
-                "lines_with_status": lines_with_status,
-                "problem_lines": [
-                    {
-                        "line_number": line.line_number,
-                        "username": line.username,
-                        "status": line.status,
-                        "is_valid": line.is_valid,
-                        "errors": [{"severity": e.severity.value, "message": e.message} for e in line.errors],
-                        "raw_line": line.raw_line[:80] + ("..." if len(line.raw_line) > 80 else "")
-                    }
-                    for line in result.lines if line.errors
-                ]
-            })
+                # Store in session for validation review access
+                session["pwdump_validation"] = result_dict
+                session["pwdump_path"] = file_path
+                session["input_format"] = "pwdump"
+                session.modified = True
+
+                # Calculate status coverage
+                lines_with_status = sum(1 for line in result.lines if line.status is not None and line.is_valid)
+                valid_lines = result.valid_lines
+                status_coverage = (lines_with_status / valid_lines * 100) if valid_lines > 0 else 0
+
+                return jsonify({
+                    "success": True,
+                    "file_type": "pwdump",
+                    "filename": uploaded_file.filename,
+                    "total_lines": result.total_lines,
+                    "valid_lines": result.valid_lines,
+                    "warning_lines": result.warning_lines,
+                    "error_lines": result.error_lines,
+                    "formats_detected": result.formats_detected,
+                    "status_coverage": round(status_coverage, 1),
+                    "lines_with_status": lines_with_status,
+                    "problem_lines": [
+                        {
+                            "line_number": line.line_number,
+                            "username": line.username,
+                            "status": line.status,
+                            "is_valid": line.is_valid,
+                            "errors": [{"severity": e.severity.value, "message": e.message} for e in line.errors],
+                            "raw_line": line.raw_line[:80] + ("..." if len(line.raw_line) > 80 else "")
+                        }
+                        for line in result.lines if line.errors
+                    ]
+                })
         else:  # potfile
             result = file_parser.validate_potfile(file_path)
             result_dict = file_parser.potfile_result_to_dict(result)
@@ -983,11 +1261,14 @@ def process_validated() -> Response:
     """
     Process validated files with user's include/exclude decisions.
     Accepts options from form data (POST) or falls back to session data.
+    Creates a new analysis session to store results.
     """
     pwdump_data = session.get("pwdump_validation")
     potfile_data = session.get("potfile_validation")
 
     # Get options from form data if POST, otherwise from session
+    # Preserve company_name and project_description from session (set in Step 1) if not in form
+    existing_options = session.get("analysis_options", {})
     if request.method == "POST" and request.form:
         options = {
             "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
@@ -1004,11 +1285,14 @@ def process_validated() -> Response:
             "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
             "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
             "custom_keywords": request.form.get("custom_keywords", ""),
+            # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
+            "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
+            "project_description": request.form.get("project_description", "").strip() or existing_options.get("project_description", ""),
         }
         # Store in session for consistency
         session["analysis_options"] = options
     else:
-        options = session.get("analysis_options", {})
+        options = existing_options
     pwdump_path = session.get("pwdump_path")
     potfile_path = session.get("potfile_path")
 
@@ -1050,6 +1334,7 @@ def process_validated() -> Response:
             int(options.get("policy_min_pw_len", "8")),
             int(options.get("policy_complexity_req", "3")),
             ignore_blank_passwords=options.get("ignore_blank_passwords", "false") == "true",
+            max_pw_age=int(options.get("policy_max_pw_age", "90")),
         )
 
         # Convert stats to array format
@@ -1069,16 +1354,23 @@ def process_validated() -> Response:
         ]
         stats_table = [{"key": key, "value": stats_report["cracking_stats"][key]} for key in key_order]
 
-        # Create list of cracked passwords
+        # Create list of cracked passwords (for dictionary analysis)
         cracked_passwords = [
             account["cracked_pw"]
             for account in account_data.values()
             if account.get("cracked_pw")
         ]
 
+        # Create list of account/password entries (for substring analysis)
+        account_password_entries = [
+            {"account": username, "password": account["cracked_pw"]}
+            for username, account in account_data.items()
+            if account.get("cracked_pw")
+        ]
+
         # Run substring analysis
         substrings = password_analysis_tools.substring_analysis(
-            cracked_passwords,
+            account_password_entries,
             int(options.get("substring_min_len", "4")),
             int(options.get("substring_max_len", "20")),
             int(options.get("substring_freq_threshold", "5")),
@@ -1111,46 +1403,81 @@ def process_validated() -> Response:
         # Check password reuse (needs original file path)
         pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
 
-        # Write JSON files
-        with open("data/cracking_stats_table.json", "w") as f:
-            json.dump(stats_table, f, indent=4)
-        with open("data/pw_account_pie.json", "w") as f:
-            json.dump(stats_report["pw_account_pie"], f)
-        with open("data/pw_ntlm_hash_pie.json", "w") as f:
-            json.dump(stats_report["pw_ntlm_hash_pie"], f)
-        with open("data/pw_length_distribution.json", "w") as f:
-            json.dump(stats_report["pw_length_distribution"], f)
-        with open("data/pw_top_passwords.json", "w") as f:
-            json.dump(stats_report["pw_top_passwords"], f)
-        with open("data/pw_substrings.json", "w") as f:
-            json.dump(substrings, f, indent=4)
-        with open("data/pw_dict_words.json", "w") as f:
-            json.dump(english_words, f, indent=4)
-        with open("data/pw_reuse_table.json", "w") as f:
-            json.dump(pw_reuse_table, f)
-        with open("data/pw_fails_min_length.json", "w") as f:
-            json.dump(stats_report["pw_fails_min_length"], f)
-        with open("data/pw_fails_complexity.json", "w") as f:
-            json.dump(stats_report["pw_fails_complexity"], f)
-        with open("data/pw_fails_blank.json", "w") as f:
-            json.dump(stats_report["pw_fails_blank"], f)
-        with open("data/pw_fails_max_age.json", "w") as f:
-            json.dump(stats_report["pw_fails_max_age"], f)
-        with open("data/pw_lm_hashes.json", "w") as f:
-            json.dump(stats_report["pw_lm_hashes"], f)
-        with open("data/pw_bad_practices.json", "w") as f:
-            json.dump(bad_practices, f)
-        with open("data/account_data.json", "w") as f:
-            json.dump(account_data, f)
+        # Create a new session for this analysis
+        session_mgr = get_session_manager()
 
-        # Clean up session
+        # Get company/project info from options, or generate defaults
+        company_name = options.get("company_name", "")
+        project_description = options.get("project_description", "")
+        if not company_name:
+            company_name = "Unknown"
+        if not project_description:
+            # Auto-generate from pwdump filename
+            pwdump_filename = os.path.basename(pwdump_path) if pwdump_path else "unknown"
+            project_description = f"Analysis - {pwdump_filename}"
+
+        # Compute source hash for staleness detection
+        source_hash = session_mgr.compute_source_hash(account_data=list(account_data.values()))
+
+        # Create the session
+        analysis_session = session_mgr.create_session(
+            name="",  # Auto-generated from company + project
+            username=current_user.id,
+            source_files={
+                "pwdump": os.path.basename(pwdump_path) if pwdump_path else "",
+                "potfile": os.path.basename(potfile_path) if potfile_path else ""
+            },
+            source_hash=source_hash,
+            company_name=company_name,
+            project_description=project_description
+        )
+
+        # Set as current session
+        session_mgr.set_current_session(analysis_session.session_id, current_user.id)
+
+        # Save all data files to the session folder
+        session_mgr.save_session_data("cracking_stats_table.json", stats_table, analysis_session.session_id)
+        session_mgr.save_session_data("pw_account_pie.json", stats_report["pw_account_pie"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_ntlm_hash_pie.json", stats_report["pw_ntlm_hash_pie"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_length_distribution.json", stats_report["pw_length_distribution"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_top_passwords.json", stats_report["pw_top_passwords"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_substrings.json", substrings, analysis_session.session_id)
+        session_mgr.save_session_data("pw_dict_words.json", english_words, analysis_session.session_id)
+        session_mgr.save_session_data("pw_reuse_table.json", pw_reuse_table, analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_min_length.json", stats_report["pw_fails_min_length"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_complexity.json", stats_report["pw_fails_complexity"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_blank.json", stats_report["pw_fails_blank"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_max_age.json", stats_report["pw_fails_max_age"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_lm_hashes.json", stats_report["pw_lm_hashes"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_bad_practices.json", bad_practices, analysis_session.session_id)
+        session_mgr.save_session_data("account_data.json", account_data, analysis_session.session_id)
+        session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
+
+        # Update session with statistics
+        cracked_count = sum(1 for acc in account_data.values() if acc.get("cracked_pw"))
+        total_count = len(account_data)
+        crack_rate = (cracked_count / total_count * 100) if total_count > 0 else 0.0
+        session_mgr.update_session(
+            analysis_session.session_id,
+            total_accounts=total_count,
+            cracked_accounts=cracked_count,
+            crack_rate=round(crack_rate, 2)
+        )
+
+        # Run automatic HIBP check if local database is available
+        session_dir = session_mgr.get_session_dir(analysis_session.session_id)
+        hibp_results = run_automatic_hibp_check(account_data, session_dir)
+        if hibp_results:
+            print(f"--> HIBP breach check: {hibp_results['total_found']}/{hibp_results['total_checked']} passwords found in breaches ({hibp_results['found_percentage']}%)")
+
+        # Clean up Flask session
         session.pop("pwdump_validation", None)
         session.pop("potfile_validation", None)
         session.pop("pwdump_path", None)
         session.pop("potfile_path", None)
         session.pop("analysis_options", None)
 
-        print("\nPassword and hash analysis complete via validation flow.\n")
+        print(f"\nPassword and hash analysis complete. Session created: {analysis_session.name} ({analysis_session.session_id})\n")
         return cast(FlaskResponse, redirect(url_for("report")))
 
     except Exception as e:
@@ -1174,12 +1501,279 @@ def report() -> str:
     return render_template("report.html")
 
 
+@app.route("/hiddenpages")
+@login_required
+def hidden_pages_index():
+    """Index page for hidden/development pages and tools."""
+    from ollama_tools import test_all_servers, get_ollama_config
+
+    # Get Ollama status for display
+    config = get_ollama_config()
+    ollama_enabled = config.enabled if config else False
+    servers_status = test_all_servers() if ollama_enabled else {"servers": []}
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>HM1K - Hidden Pages Index</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                font-family: system-ui, -apple-system, sans-serif;
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                color: #e4e4e7;
+                min-height: 100vh;
+                padding: 40px 20px;
+            }
+            .container {
+                max-width: 900px;
+                margin: 0 auto;
+            }
+            h1 {
+                font-size: 2rem;
+                margin-bottom: 8px;
+                background: linear-gradient(90deg, #6366f1, #8b5cf6);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .subtitle {
+                color: #71717a;
+                margin-bottom: 32px;
+                font-size: 0.95rem;
+            }
+            .warning-banner {
+                background: rgba(245, 158, 11, 0.1);
+                border: 1px solid rgba(245, 158, 11, 0.3);
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 24px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .warning-banner .icon { font-size: 1.2rem; }
+            .warning-banner .text { color: #fbbf24; font-size: 0.9rem; }
+            .section {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                padding: 24px;
+                margin-bottom: 24px;
+            }
+            .section h2 {
+                font-size: 1.1rem;
+                color: #a1a1aa;
+                margin-bottom: 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .section h2 .icon { font-size: 1.2rem; }
+            .page-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                gap: 16px;
+            }
+            .page-card {
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 16px;
+                text-decoration: none;
+                color: inherit;
+                transition: all 0.2s ease;
+            }
+            .page-card:hover {
+                background: rgba(99, 102, 241, 0.1);
+                border-color: rgba(99, 102, 241, 0.3);
+                transform: translateY(-2px);
+            }
+            .page-card h3 {
+                font-size: 1rem;
+                color: #e4e4e7;
+                margin-bottom: 6px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .page-card p {
+                font-size: 0.85rem;
+                color: #71717a;
+                line-height: 1.4;
+            }
+            .page-card .url {
+                font-size: 0.75rem;
+                color: #6366f1;
+                font-family: monospace;
+                margin-top: 8px;
+                display: block;
+            }
+            .status-section {
+                margin-top: 32px;
+                padding-top: 24px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            .status-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 12px;
+            }
+            .status-card {
+                background: rgba(255, 255, 255, 0.03);
+                border-radius: 8px;
+                padding: 12px 16px;
+            }
+            .status-card .label {
+                font-size: 0.75rem;
+                color: #71717a;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+            .status-card .value {
+                font-size: 1rem;
+                color: #e4e4e7;
+                margin-top: 4px;
+            }
+            .status-online { color: #4ade80; }
+            .status-offline { color: #f87171; }
+            .back-link {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                color: #6366f1;
+                text-decoration: none;
+                font-size: 0.9rem;
+                margin-bottom: 24px;
+            }
+            .back-link:hover { text-decoration: underline; }
+            .badge {
+                font-size: 0.65rem;
+                padding: 2px 6px;
+                border-radius: 4px;
+                text-transform: uppercase;
+                font-weight: 600;
+            }
+            .badge-dev { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+            .badge-test { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+            .badge-api { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <a href="/report" class="back-link">&larr; Back to Report</a>
+
+            <h1>Hidden Pages Index</h1>
+            <p class="subtitle">Development tools, test pages, and API endpoints not linked from the main UI.</p>
+
+            <div class="warning-banner">
+                <span class="icon">&#9888;</span>
+                <span class="text">These pages are for development and testing purposes. Some features may be experimental or incomplete.</span>
+            </div>
+
+            <div class="section">
+                <h2><span class="icon">&#129302;</span> AI Test & Development Pages</h2>
+                <div class="page-grid">
+                    <a href="/api/ai/servers/manage" class="page-card">
+                        <h3>Ollama Servers <span class="badge badge-test">Manage</span></h3>
+                        <p>Multi-server connectivity testing and model management - view, pull, and delete models across all configured Ollama servers.</p>
+                        <span class="url">/api/ai/servers/manage</span>
+                    </a>
+                    <a href="/api/ai/report/test" class="page-card">
+                        <h3>AI Report Test Lab <span class="badge badge-dev">Dev</span></h3>
+                        <p>Testing environment for AI report sections with prompt preview and output comparison.</p>
+                        <span class="url">/api/ai/report/test</span>
+                    </a>
+                    <a href="/api/ai/benchmark" class="page-card">
+                        <h3>AI Benchmark Suite <span class="badge badge-test">Test</span></h3>
+                        <p>Comprehensive model benchmarking - quick tests, production prompts, and full matrix runs.</p>
+                        <span class="url">/api/ai/benchmark</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2><span class="icon">&#128279;</span> Useful API Endpoints</h2>
+                <div class="page-grid">
+                    <a href="/api/ai/status" class="page-card">
+                        <h3>AI Status <span class="badge badge-api">API</span></h3>
+                        <p>Check Ollama connection status, available models, and server configuration.</p>
+                        <span class="url">/api/ai/status</span>
+                    </a>
+                    <a href="/api/ai/servers" class="page-card">
+                        <h3>AI Servers <span class="badge badge-api">API</span></h3>
+                        <p>List all configured Ollama servers with their status and available models.</p>
+                        <span class="url">/api/ai/servers</span>
+                    </a>
+                    <a href="/api/ai/report/sections" class="page-card">
+                        <h3>Report Sections <span class="badge badge-api">API</span></h3>
+                        <p>View all AI report section configurations including prompts, models, and temperatures.</p>
+                        <span class="url">/api/ai/report/sections</span>
+                    </a>
+                    <a href="/api/ai/report/data" class="page-card">
+                        <h3>Report Data Summary <span class="badge badge-api">API</span></h3>
+                        <p>Summary of available analysis data for AI report generation.</p>
+                        <span class="url">/api/ai/report/data</span>
+                    </a>
+                    <a href="/api/ai/report/outputs" class="page-card">
+                        <h3>Saved Test Outputs <span class="badge badge-api">API</span></h3>
+                        <p>List of saved AI test outputs from the test lab for comparison and review.</p>
+                        <span class="url">/api/ai/report/outputs</span>
+                    </a>
+                    <a href="/api/ai/aaia/config" class="page-card">
+                        <h3>AAIA Configuration <span class="badge badge-api">API</span></h3>
+                        <p>Advanced AI Analysis configuration with server status and model assignments.</p>
+                        <span class="url">/api/ai/aaia/config</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="status-section">
+                <h2 style="font-size: 1rem; color: #71717a; margin-bottom: 16px;">
+                    <span>&#128994;</span> Current System Status
+                </h2>
+                <div class="status-grid">
+                    <div class="status-card">
+                        <div class="label">Ollama Integration</div>
+                        <div class="value """ + ('class="status-online">Enabled' if ollama_enabled else 'class="status-offline">Disabled') + """</div>
+                    </div>
+                    """ + ''.join([f'''
+                    <div class="status-card">
+                        <div class="label">{s.get("name", s.get("id", "Server"))}</div>
+                        <div class="value {'status-online' if s.get('reachable') else 'status-offline'}">
+                            {'Online - ' + str(len(s.get('available_models', []))) + ' models' if s.get('reachable') else 'Offline'}
+                        </div>
+                    </div>
+                    ''' for s in servers_status.get("servers", [])]) + """
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+
+# Helper function to load session data with fallback to legacy paths
+def _load_session_json(filename: str) -> Optional[dict]:
+    """
+    Load JSON data from the current session folder.
+    Falls back to legacy data/ folder if no session is active.
+    Returns None if file doesn't exist.
+    """
+    session_mgr = get_session_manager()
+    data = session_mgr.load_session_data(filename)
+    return data
+
+
 # Endpoint for Project Statistics Table
 @app.route("/cracking_stats_table")
 @login_required
 def cracking_stats_table() -> Response:
-    with open("data/cracking_stats_table.json") as f:
-        data = json.load(f)
+    data = _load_session_json("cracking_stats_table.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1187,8 +1781,9 @@ def cracking_stats_table() -> Response:
 @app.route("/pw_account_pie")
 @login_required
 def pw_account_pie() -> Response:
-    with open("data/pw_account_pie.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_account_pie.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1196,8 +1791,9 @@ def pw_account_pie() -> Response:
 @app.route("/pw_ntlm_hash_pie")
 @login_required
 def pw_ntlm_hash_pie() -> Response:
-    with open("data/pw_ntlm_hash_pie.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_ntlm_hash_pie.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1205,8 +1801,9 @@ def pw_ntlm_hash_pie() -> Response:
 @app.route("/pw_length_distribution")
 @login_required
 def pw_length_distribution() -> Response:
-    with open("data/pw_length_distribution.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_length_distribution.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1214,8 +1811,9 @@ def pw_length_distribution() -> Response:
 @app.route("/pw_top_passwords")
 @login_required
 def pw_top_passwords() -> Response:
-    with open("data/pw_top_passwords.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_top_passwords.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1223,8 +1821,9 @@ def pw_top_passwords() -> Response:
 @app.route("/pw_substrings")
 @login_required
 def pw_substrings() -> Response:
-    with open("data/pw_substrings.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_substrings.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1232,8 +1831,9 @@ def pw_substrings() -> Response:
 @app.route("/pw_dict_words")
 @login_required
 def pw_dict_words() -> Response:
-    with open("data/pw_dict_words.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_dict_words.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1241,8 +1841,9 @@ def pw_dict_words() -> Response:
 @app.route("/pw_reuse_table")
 @login_required
 def pw_reuse_table() -> Response:
-    with open("data/pw_reuse_table.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_reuse_table.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1250,8 +1851,9 @@ def pw_reuse_table() -> Response:
 @app.route("/pw_fails_min_length")
 @login_required
 def pw_min_len_table() -> Response:
-    with open("data/pw_fails_min_length.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_fails_min_length.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1259,8 +1861,9 @@ def pw_min_len_table() -> Response:
 @app.route("/pw_fails_complexity")
 @login_required
 def pw_complexity_table() -> Response:
-    with open("data/pw_fails_complexity.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_fails_complexity.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1268,8 +1871,9 @@ def pw_complexity_table() -> Response:
 @app.route("/pw_fails_blank")
 @login_required
 def pw_blank_table() -> Response:
-    with open("data/pw_fails_blank.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_fails_blank.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1277,8 +1881,9 @@ def pw_blank_table() -> Response:
 @app.route("/pw_fails_max_age")
 @login_required
 def pw_max_age_table() -> Response:
-    with open("data/pw_fails_max_age.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_fails_max_age.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1286,8 +1891,9 @@ def pw_max_age_table() -> Response:
 @app.route("/pw_lm_hashes")
 @login_required
 def pw_lm_hashes_table() -> Response:
-    with open("data/pw_lm_hashes.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_lm_hashes.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
@@ -1295,22 +1901,378 @@ def pw_lm_hashes_table() -> Response:
 @app.route("/pw_bad_practices")
 @login_required
 def pw_bad_practices() -> Response:
-    with open("data/pw_bad_practices.json") as f:
-        data = json.load(f)
+    data = _load_session_json("pw_bad_practices.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
     return jsonify(data)
 
 
+# Endpoint for Privileged Accounts (ADD JSON)
+@app.route("/privileged_accounts.json")
+@login_required
+def privileged_accounts() -> Response:
+    data = _load_session_json("privileged_accounts.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for Password Sharing Findings (ADD JSON)
+@app.route("/password_sharing_findings.json")
+@login_required
+def password_sharing_findings() -> Response:
+    data = _load_session_json("password_sharing_findings.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for Kerberoast Exposure Report (ADD JSON)
+@app.route("/kerberoast_report.json")
+@login_required
+def kerberoast_report() -> Response:
+    """Return Kerberoast exposure analysis report for the current session."""
+    data = _load_session_json("kerberoast_report.json")
+    if data is None:
+        return jsonify({"error": "No Kerberoast data available. This report requires ADD JSON input with SPNs."}), 404
+    return jsonify(data)
+
+
+# ============================================================================
+# HIBP (Have I Been Pwned) Integration Endpoints
+# ============================================================================
+
+@app.route("/api/hibp/status")
+@login_required
+def hibp_status() -> Response:
+    """
+    Get the status of HIBP integration including local database availability.
+
+    Returns information about:
+    - Whether a local database is configured and loaded
+    - API availability
+    - Recommended check method
+    """
+    from hibp_checker import (
+        get_local_db_status,
+        validate_local_db_path,
+        load_local_hibp_database,
+        test_hibp_connection
+    )
+
+    # Check local database configuration
+    local_db_path = os.environ.get("HIBP_LOCAL_DB_PATH", "").strip()
+    local_db_status = get_local_db_status()
+
+    local_db_info = {
+        "configured": bool(local_db_path),
+        "path": local_db_path if local_db_path else None,
+        "loaded": local_db_status["loaded"],
+        "hash_count": local_db_status["hash_count"],
+        "file_date": local_db_status.get("file_date"),
+        "valid": False,
+        "message": ""
+    }
+
+    # If path is configured but not loaded, validate and try to load it
+    if local_db_path and not local_db_status["loaded"]:
+        is_valid, message, info = validate_local_db_path(local_db_path)
+        local_db_info["valid"] = is_valid
+        local_db_info["message"] = message
+        if is_valid:
+            local_db_info["estimated_entries"] = info.get("estimated_entries", 0)
+            local_db_info["file_size_gb"] = info.get("file_size_gb", 0)
+    elif local_db_status["loaded"]:
+        local_db_info["valid"] = True
+        local_db_info["message"] = f"Database loaded with {local_db_status['hash_count']:,} hashes"
+
+    # Determine available check methods
+    check_methods = []
+    if local_db_status["loaded"]:
+        check_methods.append({
+            "id": "local",
+            "name": "Local Database",
+            "description": f"Fast offline check against {local_db_status['hash_count']:,} known breached hashes",
+            "recommended": True,
+            "requires_consent": False
+        })
+
+    check_methods.append({
+        "id": "api",
+        "name": "HIBP API",
+        "description": "Check against latest Have I Been Pwned database (requires internet)",
+        "recommended": not local_db_status["loaded"],
+        "requires_consent": True
+    })
+
+    return jsonify({
+        "local_database": local_db_info,
+        "check_methods": check_methods,
+        "default_method": "local" if local_db_status["loaded"] else "api"
+    })
+
+
+@app.route("/api/hibp/load-local-db", methods=["POST"])
+@login_required
+def hibp_load_local_db() -> Response:
+    """
+    Load or reload the local HIBP database.
+
+    This can take a while for large databases (typically 20-60 seconds for the full HIBP NTLM database).
+    """
+    from hibp_checker import load_local_hibp_database
+
+    local_db_path = os.environ.get("HIBP_LOCAL_DB_PATH", "").strip()
+
+    if not local_db_path:
+        return jsonify({
+            "success": False,
+            "message": "No local database path configured. Set HIBP_LOCAL_DB_PATH in your .env file."
+        }), 400
+
+    data = request.get_json() or {}
+    force_reload = data.get("force_reload", False)
+
+    success, message, hash_count = load_local_hibp_database(local_db_path, force_reload=force_reload)
+
+    return jsonify({
+        "success": success,
+        "message": message,
+        "hash_count": hash_count
+    })
+
+
+@app.route("/api/hibp/test")
+@login_required
+def hibp_test_connection() -> Response:
+    """Test connectivity to the HIBP Pwned Passwords API."""
+    from hibp_checker import test_hibp_connection
+
+    success, message = test_hibp_connection()
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route("/api/hibp/check", methods=["POST"])
+@login_required
+def hibp_check_hashes() -> Response:
+    """
+    Check account hashes against the HIBP Pwned Passwords database.
+
+    Supports two modes:
+    1. Local mode (method="local"): Uses local HIBP database - fast, no internet required
+    2. API mode (method="api"): Uses HIBP API with k-Anonymity - requires consent
+
+    Request JSON:
+        - method: str (optional) - "local" or "api" (defaults to "local" if available)
+        - consent: bool (required for API mode) - User must explicitly consent
+
+    Returns:
+        JSON with breach check results
+    """
+    from hibp_checker import check_hashes_hibp, check_hashes_local, get_local_db_status
+
+    data = request.get_json() or {}
+
+    # Determine which method to use
+    local_db_status = get_local_db_status()
+    method = data.get("method", "local" if local_db_status["loaded"] else "api")
+
+    # Validate method selection
+    if method == "local" and not local_db_status["loaded"]:
+        return jsonify({
+            "error": "Local database not available",
+            "message": "The local HIBP database is not loaded. Use method='api' or load the database first."
+        }), 400
+
+    if method == "api" and not data.get("consent"):
+        return jsonify({
+            "error": "User consent required",
+            "message": "You must explicitly consent to send partial hash data to the Have I Been Pwned API. Only the first 5 characters of each hash are sent (k-Anonymity model)."
+        }), 400
+
+    # Load account data from session
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    account_data_path = os.path.join(session_dir, "account_data.json")
+
+    if not os.path.exists(account_data_path):
+        return jsonify({"error": "No account data available. Please process a pwdump file first."}), 404
+
+    try:
+        with open(account_data_path, "r") as f:
+            account_data = json.load(f)
+    except Exception as e:
+        return jsonify({"error": f"Failed to load account data: {str(e)}"}), 500
+
+    if not account_data:
+        return jsonify({"error": "Account data is empty"}), 400
+
+    # Convert account_data dict to list format expected by HIBP checker
+    # account_data format: {"username": {"ntlm_hash": "...", "cracked_pw": "...", ...}, ...}
+    # HIBP checker expects: [{"username": "...", "ntlm_hash": "..."}, ...]
+    # Skip accounts with blank passwords - no point checking those against HIBP
+    BLANK_PASSWORD_HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
+    account_list = []
+    username_to_password = {}  # Map username to cracked password for later
+    username_to_status = {}  # Map username to account status (enabled/disabled)
+    for username, acct_data in account_data.items():
+        if isinstance(acct_data, dict) and acct_data.get("ntlm_hash"):
+            # Skip blank password hashes
+            if acct_data["ntlm_hash"].lower() == BLANK_PASSWORD_HASH:
+                continue
+            account_list.append({
+                "username": username,
+                "ntlm_hash": acct_data["ntlm_hash"]
+            })
+            # Store cracked password if available
+            username_to_password[username] = acct_data.get("cracked_pw")
+            # Store account status if available (disabled is a boolean)
+            disabled = acct_data.get("disabled")
+            if disabled is True:
+                username_to_status[username] = "disabled"
+            elif disabled is False:
+                username_to_status[username] = "enabled"
+            else:
+                username_to_status[username] = "unknown"
+
+    if not account_list:
+        return jsonify({"error": "No valid NTLM hashes found in account data"}), 400
+
+    # Run the HIBP check using the selected method
+    try:
+        if method == "local":
+            results = check_hashes_local(account_list)
+            data_source = "local"
+            data_source_info = f"Local database ({local_db_status['hash_count']:,} hashes)"
+        else:
+            results = check_hashes_hibp(account_list)
+            data_source = "api"
+            data_source_info = "Have I Been Pwned API"
+
+        results_dict = results.to_dict()
+
+        # Add data source information
+        results_dict["data_source"] = data_source
+        results_dict["data_source_info"] = data_source_info
+
+        # Add cracked passwords and account status to results
+        for result in results_dict.get("results", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+        for result in results_dict.get("top_breached", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+
+        # Save results to session
+        hibp_results_path = os.path.join(session_dir, "hibp_results.json")
+        with open(hibp_results_path, "w") as f:
+            json.dump(results_dict, f, indent=2)
+
+        return jsonify(results_dict)
+
+    except Exception as e:
+        logging.error(f"HIBP check failed: {e}")
+        return jsonify({"error": f"HIBP check failed: {str(e)}"}), 500
+
+
+@app.route("/hibp_results.json")
+@login_required
+def hibp_results() -> Response:
+    """Get cached HIBP check results."""
+    data = _load_session_json("hibp_results.json")
+    if data is None:
+        return jsonify({"error": "No HIBP results available. Run a check first."}), 404
+    return jsonify(data)
+
+
+def run_automatic_hibp_check(account_data: dict, session_dir: str) -> Optional[dict]:
+    """
+    Run HIBP check automatically during analysis pipeline if local database is available.
+
+    This function checks passwords against the local HIBP database without requiring
+    user consent (since no data leaves the system). Returns the results dict or None
+    if no local database is available.
+    """
+    from hibp_checker import check_hashes_local, get_local_db_status
+
+    local_db_status = get_local_db_status()
+    if not local_db_status["loaded"]:
+        # No local database available - skip automatic check
+        return None
+
+    # Build account list for HIBP check
+    BLANK_PASSWORD_HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
+    account_list = []
+    username_to_password = {}
+    username_to_status = {}
+
+    for username, acct_data in account_data.items():
+        if isinstance(acct_data, dict) and acct_data.get("ntlm_hash"):
+            # Skip blank password hashes
+            if acct_data["ntlm_hash"].lower() == BLANK_PASSWORD_HASH:
+                continue
+            account_list.append({
+                "username": username,
+                "ntlm_hash": acct_data["ntlm_hash"]
+            })
+            username_to_password[username] = acct_data.get("cracked_pw")
+            # Store account status if available (disabled is a boolean)
+            disabled = acct_data.get("disabled")
+            if disabled is True:
+                username_to_status[username] = "disabled"
+            elif disabled is False:
+                username_to_status[username] = "enabled"
+            else:
+                username_to_status[username] = "unknown"
+
+    if not account_list:
+        return None
+
+    try:
+        # Run local HIBP check
+        results = check_hashes_local(account_list)
+        results_dict = results.to_dict()
+
+        # Add data source information
+        results_dict["data_source"] = "local"
+        results_dict["data_source_info"] = f"Local database ({local_db_status['hash_count']:,} hashes)"
+        results_dict["automatic"] = True  # Mark as automatic check
+
+        # Add cracked passwords and account status to results
+        for result in results_dict.get("results", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+        for result in results_dict.get("top_breached", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+
+        # Save results to session
+        hibp_results_path = os.path.join(session_dir, "hibp_results.json")
+        with open(hibp_results_path, "w") as f:
+            json.dump(results_dict, f, indent=2)
+
+        logging.info(f"Automatic HIBP check complete: {results_dict['total_found']}/{results_dict['total_checked']} found in breaches")
+        return results_dict
+
+    except Exception as e:
+        logging.error(f"Automatic HIBP check failed: {e}")
+        return None
+
+
 # Endpoint for Downloading JSON Files
-JSON_FOLDER = os.path.join(os.getcwd(), "data")
-
-
 @app.route("/download/<filename>")
 @login_required
 def download_file(filename: str) -> Response:
     try:
         if not filename.endswith(".json"):
             abort(403)  # Forbidden
-        return send_from_directory(JSON_FOLDER, filename, as_attachment=True)
+        # Get path from current session
+        session_mgr = get_session_manager()
+        session_dir = session_mgr.get_session_dir()
+        return send_from_directory(session_dir, filename, as_attachment=True)
     except FileNotFoundError:
         abort(404)  # File not found
 
@@ -1319,7 +2281,9 @@ def download_file(filename: str) -> Response:
 @login_required
 def list_json_files() -> Response:
     try:
-        files = [f for f in os.listdir(JSON_FOLDER) if f.endswith(".json")]
+        session_mgr = get_session_manager()
+        session_dir = session_mgr.get_session_dir()
+        files = [f for f in os.listdir(session_dir) if f.endswith(".json")]
         return jsonify(files)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1347,42 +2311,86 @@ def validate_single_local_file() -> Response:
         filename = os.path.basename(file_path)
 
         if file_type == "pwdump":
-            result = file_parser.validate_pwdump_file(file_path)
-            result_dict = file_parser.validation_result_to_dict(result)
+            # Check if the file is ADD JSON format
+            if file_parser.is_add_json_file(file_path):
+                # Parse as ADD JSON
+                add_result = file_parser.parse_add_json(file_path)
+                result_dict = file_parser.add_result_to_dict(add_result)
 
-            # Store in session for validation review access
-            session["pwdump_validation"] = result_dict
-            session["pwdump_path"] = file_path
-            session.modified = True
+                # Store in session for validation review access
+                session["add_validation"] = result_dict
+                session["pwdump_path"] = file_path
+                session["input_format"] = "add_json"
+                session.modified = True
 
-            # Calculate status coverage
-            lines_with_status = sum(1 for line in result.lines if line.status is not None and line.is_valid)
-            valid_lines = result.valid_lines
-            status_coverage = (lines_with_status / valid_lines * 100) if valid_lines > 0 else 0
+                return jsonify({
+                    "success": True,
+                    "file_type": "add_json",
+                    "filename": filename,
+                    "total_lines": add_result.total_users,
+                    "valid_lines": add_result.valid_users,
+                    "warning_lines": 0,
+                    "error_lines": add_result.error_users,
+                    "formats_detected": {"add_json": add_result.total_users},
+                    "status_coverage": 0,
+                    "lines_with_status": 0,
+                    "domain_name": add_result.domain_policy.domain_name if add_result.domain_policy else "Unknown",
+                    "tier0_count": add_result.tier0_count,
+                    "elevated_count": add_result.elevated_count,
+                    "privileged_count": add_result.privileged_count,
+                    "users_with_history": add_result.users_with_history,
+                    "total_historical_hashes": add_result.total_historical_hashes,
+                    "problem_lines": [
+                        {
+                            "line_number": i + 1,
+                            "username": entry.sam_account_name,
+                            "status": "disabled" if entry.is_disabled else "enabled",
+                            "is_valid": entry.is_valid,
+                            "errors": [{"severity": e.severity.value, "message": e.message} for e in entry.errors],
+                            "raw_line": f"{entry.sam_account_name} ({entry.logon_name})"
+                        }
+                        for i, entry in enumerate(add_result.entries) if entry.errors
+                    ]
+                })
+            else:
+                # Standard pwdump format
+                result = file_parser.validate_pwdump_file(file_path)
+                result_dict = file_parser.validation_result_to_dict(result)
 
-            return jsonify({
-                "success": True,
-                "file_type": "pwdump",
-                "filename": filename,
-                "total_lines": result.total_lines,
-                "valid_lines": result.valid_lines,
-                "warning_lines": result.warning_lines,
-                "error_lines": result.error_lines,
-                "formats_detected": result.formats_detected,
-                "status_coverage": round(status_coverage, 1),
-                "lines_with_status": lines_with_status,
-                "problem_lines": [
-                    {
-                        "line_number": line.line_number,
-                        "username": line.username,
-                        "status": line.status,
-                        "is_valid": line.is_valid,
-                        "errors": [{"severity": e.severity.value, "message": e.message} for e in line.errors],
-                        "raw_line": line.raw_line[:80] + ("..." if len(line.raw_line) > 80 else "")
-                    }
-                    for line in result.lines if line.errors
-                ]
-            })
+                # Store in session for validation review access
+                session["pwdump_validation"] = result_dict
+                session["pwdump_path"] = file_path
+                session["input_format"] = "pwdump"
+                session.modified = True
+
+                # Calculate status coverage
+                lines_with_status = sum(1 for line in result.lines if line.status is not None and line.is_valid)
+                valid_lines = result.valid_lines
+                status_coverage = (lines_with_status / valid_lines * 100) if valid_lines > 0 else 0
+
+                return jsonify({
+                    "success": True,
+                    "file_type": "pwdump",
+                    "filename": filename,
+                    "total_lines": result.total_lines,
+                    "valid_lines": result.valid_lines,
+                    "warning_lines": result.warning_lines,
+                    "error_lines": result.error_lines,
+                    "formats_detected": result.formats_detected,
+                    "status_coverage": round(status_coverage, 1),
+                    "lines_with_status": lines_with_status,
+                    "problem_lines": [
+                        {
+                            "line_number": line.line_number,
+                            "username": line.username,
+                            "status": line.status,
+                            "is_valid": line.is_valid,
+                            "errors": [{"severity": e.severity.value, "message": e.message} for e in line.errors],
+                            "raw_line": line.raw_line[:80] + ("..." if len(line.raw_line) > 80 else "")
+                        }
+                        for line in result.lines if line.errors
+                    ]
+                })
         else:  # potfile
             result = file_parser.validate_potfile(file_path)
             result_dict = file_parser.potfile_result_to_dict(result)
@@ -1419,6 +2427,353 @@ def validate_single_local_file() -> Response:
     except Exception as e:
         logging.error(f"Single local file validation error: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# ADD (Active Directory Dumper) JSON Format Routes
+# =============================================================================
+# Note: ADD JSON files are now auto-detected in /validate and /validate_local
+# endpoints. The validation_review_add and process_add_validated routes remain
+# for displaying and processing validated ADD JSON data.
+# =============================================================================
+
+@app.route("/validation_review_add")
+@login_required
+def validation_review_add() -> Response:
+    """
+    Display ADD JSON validation results and allow user review.
+    Shows domain policy, user breakdown, and privilege analysis.
+    """
+    add_data = session.get("add_validation")
+    potfile_data = session.get("potfile_validation")
+    master_merge_stats = session.get("master_potfile_merge")
+
+    if not add_data:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    # Extract domain count from unique_domains list
+    domain_count = len(add_data.get("unique_domains", [])) or 1
+
+    return make_response(render_template(
+        "validate_add.html",
+        add_data=add_data,
+        potfile=potfile_data,
+        domain_count=domain_count,
+        master_potfile_enabled=MASTER_POTFILE_ENABLED,
+        master_potfile_merge=master_merge_stats
+    ))
+
+
+@app.route("/process_add_validated", methods=["GET", "POST"])
+@login_required
+def process_add_validated() -> Response:
+    """
+    Process validated ADD JSON with user's configuration.
+    Generates standard reports plus privileged account reports.
+    """
+    add_data = session.get("add_validation")
+    potfile_data = session.get("potfile_validation")
+    add_json_path = session.get("add_json_path")
+
+    if not add_data:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    # Get options from form data if POST, otherwise from session
+    # Preserve company_name and project_description from session (set in Step 1) if not in form
+    existing_options = session.get("analysis_options", {})
+    if request.method == "POST" and request.form:
+        options = {
+            "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
+            "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
+            "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
+            "substring_min_len": request.form.get("substring_min_len", "4"),
+            "substring_max_len": request.form.get("substring_max_len", "20"),
+            "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
+            "substring_disp_nest": str(parse_boolean_field("substring_disp_nest")).lower(),
+            "substring_normalize": str(parse_boolean_field("substring_normalize")).lower(),
+            "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
+            "dictionary_disp_nest": str(parse_boolean_field("dictionary_disp_nest")).lower(),
+            "ignore_disabled_accounts": str(parse_boolean_field("ignore_disabled_accounts")).lower(),
+            "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
+            "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            "custom_keywords": request.form.get("custom_keywords", ""),
+            # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
+            "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
+            "project_description": request.form.get("project_description", "").strip() or existing_options.get("project_description", ""),
+        }
+        session["analysis_options"] = options
+    else:
+        options = existing_options
+
+    try:
+        # Reconstruct validation results from session
+        add_result = file_parser.dict_to_add_result(add_data)
+        potfile_result = None
+        if potfile_data:
+            potfile_result = file_parser.dict_to_potfile_result(potfile_data)
+
+        # Convert ADD data to account_data format
+        account_data, privileged_findings = file_parser.add_to_account_data(
+            add_result,
+            potfile_result,
+            ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
+            ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+        )
+
+        if not account_data:
+            return Response(
+                render_template(
+                    "message.html",
+                    message="No valid accounts to process after filtering.",
+                    message_type="error-message",
+                    status_code=400,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=400,
+            )
+
+        # Build cracked hashes lookup for additional analysis
+        cracked_hashes: dict[str, str] = {file_parser.BLANK_NTLM_HASH: ""}
+        if potfile_result:
+            for entry in potfile_result.entries:
+                if entry.included and entry.is_valid and entry.ntlm_hash:
+                    cracked_hashes[entry.ntlm_hash] = entry.password or ""
+
+        # Run historical hash analysis
+        historical_analysis = file_parser.analyze_historical_hashes(add_result, cracked_hashes)
+
+        # Run password sharing detection
+        password_sharing = file_parser.detect_privilege_password_sharing(add_result, cracked_hashes)
+
+        # Import analysis tools
+        import password_analysis_tools
+
+        # Run standard analysis
+        stats_report = password_analysis_tools.crack_stats(
+            account_data,
+            int(options.get("policy_min_pw_len", "8")),
+            int(options.get("policy_complexity_req", "3")),
+            ignore_blank_passwords=options.get("ignore_blank_passwords", "false") == "true",
+            max_pw_age=int(options.get("policy_max_pw_age", "90")),
+        )
+
+        # Convert stats to array format
+        key_order = [
+            "Cracked Accounts: ",
+            "Uncracked Accounts: ",
+            "Total Accounts Analyzed: ",
+            "Percent of Accounts Cracked: ",
+            "Cracked NTLM Hashes: ",
+            "Uncracked NTLM Hashes: ",
+            "Unique NTLM Hashes Analyzed: ",
+            "Percent of NTLM Hashes Cracked: ",
+            "Total LANMan Hashes: ",
+            "Shortest Cracked Password: ",
+            "Longest Cracked Password: ",
+            "Average Password Length: ",
+        ]
+        stats_table = [{"key": key, "value": stats_report["cracking_stats"][key]} for key in key_order]
+
+        # Create list of cracked passwords (for dictionary analysis)
+        cracked_passwords = [
+            account["cracked_pw"]
+            for account in account_data.values()
+            if account.get("cracked_pw")
+        ]
+
+        # Create list of account/password entries (for substring analysis)
+        account_password_entries = [
+            {"account": username, "password": account["cracked_pw"]}
+            for username, account in account_data.items()
+            if account.get("cracked_pw")
+        ]
+
+        # Run substring analysis
+        substrings = password_analysis_tools.substring_analysis(
+            account_password_entries,
+            int(options.get("substring_min_len", "4")),
+            int(options.get("substring_max_len", "20")),
+            int(options.get("substring_freq_threshold", "5")),
+            options.get("substring_normalize", "false") == "true",
+            options.get("substring_disp_nest", "false") == "true",
+        )
+
+        # Run dictionary analysis
+        detailed_results, english_words = password_analysis_tools.dictionary_analysis(
+            cracked_passwords,
+            int(options.get("dictionary_min_len", "4")),
+            options.get("dictionary_disp_nest", "false") == "true",
+        )
+
+        # Parse custom keywords
+        custom_keywords_raw = options.get("custom_keywords", "").strip()
+        custom_keywords = []
+        if custom_keywords_raw:
+            for line in custom_keywords_raw.replace(",", "\n").split("\n"):
+                keyword = line.strip()
+                if keyword:
+                    custom_keywords.append(keyword)
+
+        # Run bad practices analysis
+        bad_practices = password_analysis_tools.bad_practices_analysis(
+            cracked_passwords, custom_keywords
+        )
+
+        # Create a new session for this analysis
+        session_mgr = get_session_manager()
+
+        # Get company/project info from options, or generate defaults
+        company_name = options.get("company_name", "")
+        project_description = options.get("project_description", "")
+        if not company_name:
+            # Try to use domain name from ADD data
+            domain_name = add_result.domain_policy.domain_name if add_result.domain_policy else None
+            company_name = domain_name if domain_name else "Unknown"
+        if not project_description:
+            project_description = "ADD Analysis"
+
+        # Compute source hash for staleness detection
+        source_hash = session_mgr.compute_source_hash(account_data=list(account_data.values()))
+
+        # Create the session
+        analysis_session = session_mgr.create_session(
+            name="",  # Auto-generated from company + project
+            username=current_user.id,
+            source_files={
+                "add_json": os.path.basename(add_json_path) if add_json_path else "",
+                "potfile": os.path.basename(session.get("potfile_path", "")) if session.get("potfile_path") else ""
+            },
+            source_hash=source_hash,
+            company_name=company_name,
+            project_description=project_description
+        )
+
+        # Set as current session
+        session_mgr.set_current_session(analysis_session.session_id, current_user.id)
+
+        # Save all standard data files
+        session_mgr.save_session_data("cracking_stats_table.json", stats_table, analysis_session.session_id)
+        session_mgr.save_session_data("pw_account_pie.json", stats_report["pw_account_pie"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_ntlm_hash_pie.json", stats_report["pw_ntlm_hash_pie"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_length_distribution.json", stats_report["pw_length_distribution"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_top_passwords.json", stats_report["pw_top_passwords"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_substrings.json", substrings, analysis_session.session_id)
+        session_mgr.save_session_data("pw_dict_words.json", english_words, analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_min_length.json", stats_report["pw_fails_min_length"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_complexity.json", stats_report["pw_fails_complexity"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_blank.json", stats_report["pw_fails_blank"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_fails_max_age.json", stats_report["pw_fails_max_age"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_lm_hashes.json", stats_report["pw_lm_hashes"], analysis_session.session_id)
+        session_mgr.save_session_data("pw_bad_practices.json", bad_practices, analysis_session.session_id)
+        session_mgr.save_session_data("account_data.json", account_data, analysis_session.session_id)
+
+        # Save ADD-specific data files
+        if add_result.domain_policy:
+            session_mgr.save_session_data("domain_policy.json", add_result.domain_policy.to_dict(), analysis_session.session_id)
+        session_mgr.save_session_data("privileged_accounts.json", privileged_findings, analysis_session.session_id)
+        session_mgr.save_session_data("historical_hash_analysis.json", historical_analysis, analysis_session.session_id)
+        session_mgr.save_session_data("password_sharing_findings.json", {
+            "critical_findings": password_sharing,
+            "summary": {
+                "total_sharing_violations": len(password_sharing),
+                "privileged_accounts_affected": len(set(f["privileged_account"] for f in password_sharing)),
+                "standard_accounts_affected": len(set(
+                    acct for f in password_sharing for acct in f["standard_accounts"]
+                )),
+            }
+        }, analysis_session.session_id)
+
+        # Check password reuse from account_data (works with ADD JSON format)
+        pw_reuse_table = password_analysis_tools.check_pw_reuse_from_account_data(account_data)
+        session_mgr.save_session_data("pw_reuse_table.json", pw_reuse_table, analysis_session.session_id)
+        session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
+
+        # Run Kerberoast exposure analysis if raw user data is available
+        if add_result.raw_users:
+            try:
+                import kerberoast_analysis
+
+                # Build cracked accounts dict for Kerberoast analysis
+                kerberoast_cracked = {
+                    username: acc.get("cracked_pw", "")
+                    for username, acc in account_data.items()
+                    if acc.get("cracked_pw")
+                }
+
+                # Build password reuse clusters
+                reuse_clusters: dict[str, list[str]] = {}
+                for item in pw_reuse_table:
+                    if isinstance(item, dict) and "hash" in item and "accounts" in item:
+                        hash_val = item["hash"]
+                        accounts = item["accounts"]
+                        if len(accounts) > 1:
+                            reuse_clusters[hash_val] = accounts
+
+                # Run Kerberoast analysis
+                kerberoast_report = kerberoast_analysis.analyze_kerberoast_exposure(
+                    users=add_result.raw_users,
+                    cracked_accounts=kerberoast_cracked,
+                    hibp_results=None,  # HIBP runs later, can be updated after
+                    password_reuse_clusters=reuse_clusters,
+                )
+
+                # Save Kerberoast report
+                session_mgr.save_session_data(
+                    "kerberoast_report.json",
+                    kerberoast_report.to_dict(),
+                    analysis_session.session_id
+                )
+
+                if kerberoast_report.summary.total_kerberoastable > 0:
+                    print(f"--> Kerberoast analysis: {kerberoast_report.summary.total_kerberoastable} Kerberoastable accounts, "
+                          f"{kerberoast_report.summary.critical_count} Critical, "
+                          f"{kerberoast_report.summary.high_count} High risk")
+            except Exception as kerb_err:
+                logging.warning(f"Kerberoast analysis failed: {kerb_err}")
+
+        # Update session with statistics
+        cracked_count = sum(1 for acc in account_data.values() if acc.get("cracked_pw"))
+        total_count = len(account_data)
+        crack_rate = (cracked_count / total_count * 100) if total_count > 0 else 0.0
+        session_mgr.update_session(
+            analysis_session.session_id,
+            total_accounts=total_count,
+            cracked_accounts=cracked_count,
+            crack_rate=round(crack_rate, 2)
+        )
+
+        # Run automatic HIBP check if local database is available
+        session_dir = session_mgr.get_session_dir(analysis_session.session_id)
+        hibp_results = run_automatic_hibp_check(account_data, session_dir)
+        if hibp_results:
+            print(f"--> HIBP breach check: {hibp_results['total_found']}/{hibp_results['total_checked']} passwords found in breaches ({hibp_results['found_percentage']}%)")
+
+        # Clean up Flask session
+        session.pop("add_validation", None)
+        session.pop("add_json_path", None)
+        session.pop("potfile_validation", None)
+        session.pop("potfile_path", None)
+        session.pop("analysis_options", None)
+
+        print(f"\nADD JSON analysis complete. Session created: {analysis_session.name} ({analysis_session.session_id})\n")
+        return cast(FlaskResponse, redirect(url_for("report")))
+
+    except Exception as e:
+        logging.error(f"ADD JSON processing error: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response(
+            render_template(
+                "message.html",
+                message=f"Error processing ADD JSON: {str(e)}",
+                message_type="error-message",
+                status_code=500,
+                referrer="Start",
+                referrer_url=url_for("index"),
+            ),
+            status=500,
+        )
 
 
 @app.route("/browse_directory", methods=["POST"])
@@ -1509,14 +2864,17 @@ def ai_models():
     """Get list of available models from Ollama server."""
     from ollama_tools import OllamaClient, get_ollama_config
 
-    config = get_ollama_config()
+    # Get server_id from query params to support multi-server setup
+    server_id = request.args.get("server_id")
+    config = get_ollama_config(server_id)
     if not config.enabled:
         return jsonify({"error": "Ollama integration is not enabled"}), 400
 
     client = OllamaClient(config)
-    models = client.list_models()
+    # Get models with details (name and size) for the UI
+    models = client.list_models(include_details=True)
 
-    return jsonify({"models": models})
+    return jsonify({"models": models, "server_id": server_id, "host": config.host})
 
 
 @app.route("/api/ai/library", methods=["GET"])
@@ -1545,17 +2903,18 @@ def ai_pull_model():
     """Pull (download) a model from Ollama library."""
     from ollama_tools import pull_model, get_ollama_config
 
-    config = get_ollama_config()
+    data = request.get_json() or {}
+    server_id = data.get("server_id")  # Optional - defaults to primary server
+    model_name = data.get("model")
+
+    config = get_ollama_config(server_id)
     if not config.enabled:
         return jsonify({"error": "Ollama integration is not enabled"}), 400
-
-    data = request.get_json() or {}
-    model_name = data.get("model")
 
     if not model_name:
         return jsonify({"error": "Model name is required"}), 400
 
-    result = pull_model(model_name)
+    result = pull_model(model_name, server_id=server_id)
     if result["success"]:
         return jsonify(result)
     else:
@@ -1568,17 +2927,18 @@ def ai_delete_model():
     """Delete a model from the Ollama server."""
     from ollama_tools import delete_model, get_ollama_config
 
-    config = get_ollama_config()
+    data = request.get_json() or {}
+    server_id = data.get("server_id")  # Optional - defaults to primary server
+    model_name = data.get("model")
+
+    config = get_ollama_config(server_id)
     if not config.enabled:
         return jsonify({"error": "Ollama integration is not enabled"}), 400
-
-    data = request.get_json() or {}
-    model_name = data.get("model")
 
     if not model_name:
         return jsonify({"error": "Model name is required"}), 400
 
-    result = delete_model(model_name)
+    result = delete_model(model_name, server_id=server_id)
     if result["success"]:
         return jsonify(result)
     else:
@@ -1780,19 +3140,34 @@ def ai_list_servers():
 @app.route("/api/ai/servers/<server_id>/status", methods=["GET"])
 @login_required
 def ai_server_status(server_id):
-    """Get status of a specific Ollama server."""
-    from ollama_tools import test_ollama_connection, get_server_by_id
+    """Get detailed status of a specific Ollama server including running models."""
+    from ollama_tools import test_ollama_connection, get_server_by_id, get_ollama_config, OllamaClient
+
     server = get_server_by_id(server_id)
     if not server:
         return jsonify({"error": f"Unknown server: {server_id}"}), 404
 
+    # Basic connection status
     status = test_ollama_connection(host=server.host)
+
+    # Get extended info if server is reachable
+    running_models = {"models": [], "count": 0, "total_vram": 0, "busy": False}
+    version = None
+
+    if status.get("reachable"):
+        config = get_ollama_config(server_id)
+        client = OllamaClient(config)
+        running_models = client.get_running_models()
+        version = client.get_version()
+
     return jsonify({
         "id": server.id,
         "name": server.name,
         "host": server.host,
         "description": server.description,
         "hardware": server.hardware,
+        "version": version,
+        "running": running_models,
         **status
     })
 
@@ -1834,6 +3209,14 @@ def ai_report_analyze_section(section_id):
     server_id = request_data.get("server_id", "primary")
     data = request_data.get("data", {})
 
+    # If no data provided, load it automatically (fallback)
+    if not data:
+        from ollama_tools import get_ai_data_loader
+        session_mgr = get_session_manager()
+        session_dir = session_mgr.get_session_dir()
+        loader = get_ai_data_loader(session_dir)
+        data = loader.load_section_data(section_id)
+
     # Get server-specific config
     server = get_server_by_id(server_id)
     server_name = server.name if server else "Primary"
@@ -1846,7 +3229,9 @@ def ai_report_analyze_section(section_id):
     # Create client for specific server
     client = OllamaClient(server_config)
     analyzer = AIReportAnalyzer(client=client)
-    result = analyzer.generate_section(
+
+    # Use the new method that returns token usage
+    result_data = analyzer.generate_section_with_usage(
         section_id=section_id,
         data=data,
         model=model,
@@ -1857,6 +3242,18 @@ def ai_report_analyze_section(section_id):
     elapsed_time = time.time() - start_time
     elapsed_seconds = round(elapsed_time, 1)
     elapsed_formatted = f"{int(elapsed_time // 60)}m {int(elapsed_time % 60)}s" if elapsed_time >= 60 else f"{elapsed_seconds}s"
+
+    # Extract result and token info
+    if result_data and isinstance(result_data, dict):
+        result = result_data.get("response", "")
+        prompt_tokens = result_data.get("prompt_tokens", 0)
+        completion_tokens = result_data.get("completion_tokens", 0)
+        total_tokens = result_data.get("total_tokens", 0)
+    else:
+        result = result_data if isinstance(result_data, str) else None
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
 
     if result:
         # Cache the result in session
@@ -1899,6 +3296,7 @@ def ai_report_analyze_section(section_id):
             f.write(f"- **Server:** {server_name} ({server_host})\n")
             f.write(f"- **Temperature:** {used_temp}\n")
             f.write(f"- **Response Time:** {elapsed_formatted} ({elapsed_seconds}s)\n")
+            f.write(f"- **Tokens:** {prompt_tokens:,} prompt + {completion_tokens:,} completion = {total_tokens:,} total\n")
             f.write(f"- **Timestamp:** {timestamp}\n")
             if seems_off_topic:
                 f.write(f"- **WARNING:** Response appears off-topic (only {keyword_matches} relevance keywords found)\n")
@@ -1913,7 +3311,10 @@ def ai_report_analyze_section(section_id):
             "server_name": server_name,
             "saved_to": filename,
             "response_time_seconds": elapsed_seconds,
-            "response_time_formatted": elapsed_formatted
+            "response_time_formatted": elapsed_formatted,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
         }
 
         if seems_off_topic:
@@ -1922,6 +3323,548 @@ def ai_report_analyze_section(section_id):
         return jsonify(response_data)
     else:
         return jsonify({"error": "Failed to generate analysis", "server_id": server_id, "server_name": server_name, "response_time_seconds": elapsed_seconds, "response_time_formatted": elapsed_formatted}), 500
+
+
+# ============================================================================
+# AI Pipeline Endpoints (3-Phase Analysis with SSE Streaming)
+# ============================================================================
+
+
+@app.route("/api/ai/report/pipeline/stream", methods=["GET"])
+@login_required
+def ai_pipeline_stream():
+    """
+    Run 3-phase pipeline with Server-Sent Events (SSE) for real-time progress.
+
+    Query params:
+    - sections: comma-separated section IDs or "all" (default: all)
+    - server_id: Ollama server to use (default: primary)
+    - skip_phase1: If "true", skip Phase 1 and load from cached debug files (default: false)
+
+    Streams JSON events:
+    - type: "progress" - Progress updates
+    - type: "complete" - Final results
+    - type: "error" - Error occurred
+    """
+    import time
+    import glob
+    from flask import Response, stream_with_context
+    from ollama_tools import (
+        AIPipelineRunner, get_ollama_config, OllamaClient,
+        get_ai_data_loader, get_phase_config, AIReportAnalyzer,
+        get_ai_report_sections
+    )
+
+    config = get_ollama_config()
+    if not config.enabled:
+        return jsonify({"error": "Ollama integration is not enabled"}), 400
+
+    # Parse query params
+    sections_param = request.args.get("sections", "all")
+    server_id = request.args.get("server_id", "primary")
+    skip_phase1 = request.args.get("skip_phase1", "false").lower() == "true"
+
+    # Determine sections to process
+    all_sections = get_ai_report_sections()
+    if sections_param == "all":
+        sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+    else:
+        sections = [s.strip() for s in sections_param.split(",") if s.strip() in all_sections and s.strip() != "full-report"]
+        if not sections:
+            sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+
+    def generate():
+        """Generator that yields SSE events as pipeline progresses."""
+        start_time = time.time()
+
+        # Initialize
+        server_config = get_ollama_config(server_id)
+        client = OllamaClient(server_config)
+        # Use session-specific directories for AAIA
+        session_mgr = get_session_manager()
+        session_dir = session_mgr.get_session_dir()
+        session_debug_dir = _get_ai_analysis_dir()
+        runner = AIPipelineRunner(client=client, data_dir=session_dir, debug_dir=session_debug_dir)
+        loader = get_ai_data_loader(session_dir)
+
+        # Adjust total steps based on skip_phase1
+        total_steps = len(sections) * 2 if skip_phase1 else len(sections) * 3
+        step_counter = 0
+
+        results = {}
+        total_time = 0
+        all_phase1_results = {}
+        all_phase2_results = {}
+
+        def load_latest_phase1_file(section_id: str) -> Optional[str]:
+            """Load the most recent Phase 1 debug file for a section."""
+            import glob
+            ai_analysis_dir = _get_ai_analysis_dir()
+            pattern = os.path.join(ai_analysis_dir, f"{section_id}_phase1_raw_*.md")
+            files = glob.glob(pattern)
+            if not files:
+                return None
+            # Sort by modification time, get newest
+            latest_file = max(files, key=os.path.getmtime)
+            try:
+                with open(latest_file, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                logging.error(f"Failed to load {latest_file}: {e}")
+                return None
+
+        # Optimized execution order (minimize model reloads)
+        llama_sections = [s for s in sections if get_phase_config(s).get("phase1", {}).get("model", "").startswith("llama")]
+        deepseek_sections = [s for s in sections if s not in llama_sections]
+        ordered_sections = llama_sections + deepseek_sections
+
+        def send_progress(phase, section, action):
+            nonlocal step_counter
+            step_counter += 1
+            elapsed = time.time() - start_time
+            progress_data = {
+                "type": "progress",
+                "total_steps": total_steps,
+                "current_step": step_counter,
+                "current_phase": phase,
+                "current_section": section,
+                "current_action": action,
+                "elapsed_seconds": round(elapsed, 1),
+                "percent_complete": round(step_counter / total_steps * 100, 1)
+            }
+            return f"data: {json.dumps(progress_data)}\n\n"
+
+        def send_error(error_msg):
+            error_data = {
+                "type": "error",
+                "error": error_msg,
+                "elapsed_seconds": round(time.time() - start_time, 1)
+            }
+            return f"data: {json.dumps(error_data)}\n\n"
+
+        def send_step_complete(phase, section, step_time, prompt_tokens=0, completion_tokens=0, total_tokens=0, tier0_result=None):
+            """Send event when a step completes with timing and token info."""
+            complete_data = {
+                "type": "step_complete",
+                "phase": phase,
+                "section": section,
+                "step_time": round(step_time, 1),
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
+            if tier0_result:
+                complete_data["tier0_result"] = tier0_result  # "skipped", "fast", or "deep"
+            return f"data: {json.dumps(complete_data)}\n\n"
+
+        def send_model_loading(model_name, action="Loading"):
+            """Send event when model is being loaded."""
+            loading_data = {
+                "type": "model_loading",
+                "model": model_name,
+                "action": action,
+                "elapsed_seconds": round(time.time() - start_time, 1)
+            }
+            return f"data: {json.dumps(loading_data)}\n\n"
+
+        try:
+            # Send initial progress
+            yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': 0, 'current_phase': 'initializing', 'current_section': '', 'current_action': 'Starting pipeline...', 'elapsed_seconds': 0, 'percent_complete': 0})}\n\n"
+
+            # Track current model to detect switches
+            current_model = None
+
+            # PHASE 1: Run all initial analyses OR load from cache
+            if skip_phase1:
+                # Load cached Phase 1 results from debug files
+                yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': 0, 'current_phase': 'phase1', 'current_section': '', 'current_action': 'Loading cached Phase 1 results...', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': 0})}\n\n"
+
+                missing_sections = []
+                for section_id in ordered_sections:
+                    cached_content = load_latest_phase1_file(section_id)
+                    if cached_content:
+                        all_phase1_results[section_id] = {
+                            "content": cached_content,
+                            "model": "cached",
+                            "temperature": 0,
+                            "time": 0,
+                            "tokens": 0,
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "cached": True
+                        }
+                    else:
+                        missing_sections.append(section_id)
+                        all_phase1_results[section_id] = {
+                            "content": "",
+                            "model": "cached",
+                            "temperature": 0,
+                            "time": 0,
+                            "tokens": 0,
+                            "error": "No cached Phase 1 file found"
+                        }
+
+                if missing_sections:
+                    yield send_error(f"Missing cached Phase 1 files for: {', '.join(missing_sections)}")
+                    return
+
+                # Send phase1_cached event so frontend knows Phase 1 was skipped
+                yield f"data: {json.dumps({'type': 'phase1_cached', 'sections': list(ordered_sections), 'elapsed_seconds': round(time.time() - start_time, 1)})}\n\n"
+
+            else:
+                # Run Phase 1 normally
+                for section_id in ordered_sections:
+                    phase_config = get_phase_config(section_id)
+                    phase1_model = phase_config.get("phase1", {}).get("model", "llama3.1:70b")
+
+                    # Check if we need to switch models
+                    if current_model is None or current_model != phase1_model:
+                        yield send_model_loading(phase1_model, "Loading")
+                        load_start = time.time()
+
+                        # Ensure model is loaded before proceeding
+                        if not client.ensure_model_loaded(phase1_model, num_ctx=16384):
+                            yield send_error(f"Failed to load model {phase1_model}")
+                            return
+
+                        load_time = time.time() - load_start
+                        current_model = phase1_model
+                        yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
+
+                    data = loader.load_section_data(section_id)
+
+                    yield send_progress("phase1", section_id, f"Generating {section_id}...")
+
+                    start = time.time()
+                    analyzer = AIReportAnalyzer(client=client)
+
+                    phase1_temp = phase_config.get("phase1", {}).get("temperature", 0.3)
+
+                    result = analyzer.generate_section_with_usage(
+                        section_id=section_id,
+                        data=data,
+                        model=phase1_model,
+                        temperature=phase1_temp
+                    )
+
+                    elapsed = time.time() - start
+                    total_time += elapsed
+
+                    if result and isinstance(result, dict):
+                        all_phase1_results[section_id] = {
+                            "content": result.get("response", ""),
+                            "model": phase1_model,
+                            "temperature": phase1_temp,
+                            "time": elapsed,
+                            "tokens": result.get("total_tokens", 0),
+                            "prompt_tokens": result.get("prompt_tokens", 0),
+                            "completion_tokens": result.get("completion_tokens", 0)
+                        }
+
+                        if runner.debug_mode and all_phase1_results[section_id]["content"]:
+                            runner._save_debug_output(section_id, "phase1_raw", all_phase1_results[section_id]["content"])
+
+                        # Send step complete event with token info
+                        yield send_step_complete(
+                            "phase1", section_id, elapsed,
+                            result.get("prompt_tokens", 0),
+                            result.get("completion_tokens", 0),
+                            result.get("total_tokens", 0)
+                        )
+                    else:
+                        all_phase1_results[section_id] = {
+                            "content": "",
+                            "model": phase1_model,
+                            "temperature": phase1_temp,
+                            "time": elapsed,
+                            "tokens": 0,
+                            "error": "Generation failed"
+                        }
+                        yield send_step_complete("phase1", section_id, elapsed, 0, 0, 0)
+
+            # PHASE 2: Validate all sections (with Tier-0 gating)
+            # Model loading is now dynamic based on Tier-0 routing decisions
+            for section_id in ordered_sections:
+                phase_config = get_phase_config(section_id)
+                phase2_config = phase_config.get("phase2", {})
+
+                if not phase2_config.get("enabled", True):
+                    all_phase2_results[section_id] = {
+                        "corrected_content": all_phase1_results.get(section_id, {}).get("content", ""),
+                        "issues": [],
+                        "confidence": 1.0,
+                        "needs_human_review": False,
+                        "skipped": True,
+                        "time": 0
+                    }
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase2', 'current_section': section_id, 'current_action': f'Skipped validation for {section_id}', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    continue
+
+                phase1_content = all_phase1_results.get(section_id, {}).get("content", "")
+                if not phase1_content:
+                    all_phase2_results[section_id] = {
+                        "corrected_content": "",
+                        "issues": [],
+                        "confidence": 0,
+                        "needs_human_review": True,
+                        "skipped": False,
+                        "time": 0,
+                        "error": "No Phase 1 content"
+                    }
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase2', 'current_section': section_id, 'current_action': f'No content to validate for {section_id}', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    continue
+
+                # Run Tier-0 prechecks (fast, deterministic)
+                tier0_result = runner.tier0_validator.run_prechecks(phase1_content, section_id)
+
+                if runner.debug_mode:
+                    runner._save_debug_output(section_id, "tier0_precheck", {
+                        "flags_fired": tier0_result.flags_fired,
+                        "requires_llm": tier0_result.requires_llm_validation,
+                        "suggested_model": tier0_result.suggested_model,
+                        "skip_reason": tier0_result.skip_reason,
+                        "extracted_claims_count": len(tier0_result.extracted_claims)
+                    })
+
+                if not tier0_result.requires_llm_validation:
+                    # Clean content - skip LLM validation entirely
+                    yield send_progress("phase2", section_id, f"Skipping validation (clean)")
+
+                    all_phase2_results[section_id] = {
+                        "corrected_content": phase1_content,
+                        "issues": [],
+                        "confidence": 0.95,
+                        "needs_human_review": False,
+                        "validation_stats": {
+                            "tier0_skipped": True,
+                            "skip_reason": tier0_result.skip_reason
+                        },
+                        "time": 0,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                        "tier0_result": "skipped"
+                    }
+
+                    yield send_step_complete("phase2", section_id, 0, 0, 0, 0, tier0_result="skipped")
+                    continue
+
+                # Tier-0 flagged issues - determine model and run validation
+                validation_model = tier0_result.suggested_model or phase2_config.get("model", "deepseek-r1:671b")
+                model_label = "fast" if validation_model == "llama3.1:70b" else "deep"
+
+                yield send_progress("phase2", section_id, f"Validating {section_id} ({model_label})...")
+
+                # Load the appropriate model if needed
+                if current_model != validation_model:
+                    yield send_model_loading(validation_model, "Loading")
+                    load_start = time.time()
+                    if not client.ensure_model_loaded(validation_model, num_ctx=16384):
+                        yield send_error(f"Failed to load model {validation_model}")
+                        return
+                    load_time = time.time() - load_start
+                    current_model = validation_model
+                    yield send_model_loading(validation_model, f"Ready ({load_time:.1f}s)")
+
+                start = time.time()
+
+                # For user-behavior with extracted claims, use focused validation
+                if section_id == "user-behavior" and tier0_result.extracted_claims:
+                    validation = runner._run_claim_validation(
+                        section_id=section_id,
+                        phase1_content=phase1_content,
+                        claims=tier0_result.extracted_claims,
+                        model=validation_model,
+                        temperature=phase2_config.get("temperature", 0.2)
+                    )
+                else:
+                    validation = runner._run_validation_phase(
+                        section_id=section_id,
+                        phase1_content=phase1_content,
+                        model=validation_model,
+                        temperature=phase2_config.get("temperature", 0.2)
+                    )
+
+                elapsed = time.time() - start
+                total_time += elapsed
+
+                # Add Tier-0 context to validation stats
+                validation_stats = validation.validation_stats.copy() if validation.validation_stats else {}
+                validation_stats["tier0_flags"] = tier0_result.flags_fired
+                validation_stats["tier0_model_suggestion"] = tier0_result.suggested_model
+                validation_stats["actual_model_used"] = validation_model
+
+                all_phase2_results[section_id] = {
+                    "corrected_content": validation.corrected_content,
+                    "issues": validation.issues,
+                    "confidence": validation.confidence,
+                    "needs_human_review": validation.needs_human_review,
+                    "validation_stats": validation_stats,
+                    "time": elapsed,
+                    "prompt_tokens": getattr(validation, 'prompt_tokens', 0),
+                    "completion_tokens": getattr(validation, 'completion_tokens', 0),
+                    "total_tokens": getattr(validation, 'total_tokens', 0),
+                    "tier0_result": model_label
+                }
+
+                if runner.debug_mode:
+                    runner._save_debug_output(section_id, "phase2_validated", validation)
+
+                # Send step complete event
+                yield send_step_complete(
+                    "phase2", section_id, elapsed,
+                    getattr(validation, 'prompt_tokens', 0),
+                    getattr(validation, 'completion_tokens', 0),
+                    getattr(validation, 'total_tokens', 0),
+                    tier0_result=model_label
+                )
+
+            # PHASE 3: Format all sections
+            # All Phase 3 uses llama3.1:70b - ensure it's loaded once at start
+            phase3_model = "llama3.1:70b"
+            if current_model != phase3_model:
+                yield send_model_loading(phase3_model, "Loading")
+                load_start = time.time()
+                if not client.ensure_model_loaded(phase3_model, num_ctx=16384):
+                    yield send_error(f"Failed to load model {phase3_model}")
+                    return
+                load_time = time.time() - load_start
+                current_model = phase3_model
+                yield send_model_loading(phase3_model, f"Ready ({load_time:.1f}s)")
+
+            for section_id in ordered_sections:
+                phase_config = get_phase_config(section_id)
+                phase3_config = phase_config.get("phase3", {})
+
+                if not phase3_config.get("enabled", True):
+                    final_content = all_phase2_results.get(section_id, {}).get("corrected_content", "")
+                    results[section_id] = {
+                        "content": final_content,
+                        "needs_human_review": all_phase2_results.get(section_id, {}).get("needs_human_review", False),
+                        "validation_issues": 0,
+                        "validation_confidence": 1.0,
+                        "timing": {
+                            "phase1": all_phase1_results.get(section_id, {}).get("time", 0),
+                            "phase2": all_phase2_results.get(section_id, {}).get("time", 0),
+                            "phase3": 0
+                        }
+                    }
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase3', 'current_section': section_id, 'current_action': f'Skipped formatting for {section_id}', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    continue
+
+                validated_content = all_phase2_results.get(section_id, {}).get("corrected_content", "")
+                if not validated_content:
+                    results[section_id] = {
+                        "content": "",
+                        "needs_human_review": True,
+                        "validation_issues": 0,
+                        "validation_confidence": 0,
+                        "timing": {"phase1": 0, "phase2": 0, "phase3": 0},
+                        "error": "No validated content"
+                    }
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase3', 'current_section': section_id, 'current_action': f'No content to format for {section_id}', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    continue
+
+                yield send_progress("phase3", section_id, f"Formatting {section_id}...")
+
+                start = time.time()
+                format_result = runner._run_formatting_phase(
+                    validated_content=validated_content,
+                    model=phase3_config.get("model", "llama3.1:70b"),
+                    temperature=phase3_config.get("temperature", 0.15)
+                )
+                elapsed = time.time() - start
+                total_time += elapsed
+
+                # Extract content and tokens from result
+                final_content = format_result.get("content", validated_content)
+                phase3_prompt_tokens = format_result.get("prompt_tokens", 0)
+                phase3_completion_tokens = format_result.get("completion_tokens", 0)
+                phase3_total_tokens = format_result.get("total_tokens", 0)
+
+                if runner.debug_mode and final_content:
+                    runner._save_debug_output(section_id, "phase3_final", final_content)
+
+                results[section_id] = {
+                    "content": final_content,
+                    "needs_human_review": all_phase2_results.get(section_id, {}).get("needs_human_review", False),
+                    "validation_issues": len(all_phase2_results.get(section_id, {}).get("issues", [])),
+                    "validation_confidence": all_phase2_results.get(section_id, {}).get("confidence", 1.0),
+                    "timing": {
+                        "phase1": all_phase1_results.get(section_id, {}).get("time", 0),
+                        "phase2": all_phase2_results.get(section_id, {}).get("time", 0),
+                        "phase3": elapsed
+                    }
+                }
+
+                # Send step complete event with token info
+                yield send_step_complete("phase3", section_id, elapsed, phase3_prompt_tokens, phase3_completion_tokens, phase3_total_tokens)
+
+            # Save results to aaia_results.json
+            aaia_output = {
+                "results": {
+                    section_id: {
+                        "content": data.get("content", ""),
+                        "time": str(round(sum(data.get("timing", {}).values()), 1)) + "s"
+                    }
+                    for section_id, data in results.items()
+                },
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "pipeline_version": "3-phase",
+                    "total_time_seconds": round(total_time, 1),
+                    "server_id": server_id,
+                    "sections": {
+                        section_id: {
+                            "model": all_phase1_results.get(section_id, {}).get("model", ""),
+                            "needs_human_review": data.get("needs_human_review", False),
+                            "validation_confidence": data.get("validation_confidence", 1.0),
+                            "timing": data.get("timing", {})
+                        }
+                        for section_id, data in results.items()
+                    }
+                }
+            }
+
+            # Save to current session
+            session_mgr = get_session_manager()
+            session_mgr.save_session_data("aaia_results.json", aaia_output)
+
+            # Mark AAIA as generated for this session
+            current = session_mgr.get_current_session()
+            if current:
+                session_mgr.mark_aaia_generated(current.get("session_id"))
+
+            # Send final complete event with results
+            complete_data = {
+                "type": "complete",
+                "success": True,
+                "results": results,
+                "total_time_seconds": round(total_time, 1),
+                "sections_processed": len(results),
+                "any_needs_review": any(r.get("needs_human_review", False) for r in results.values())
+            }
+            yield f"data: {json.dumps(complete_data)}\n\n"
+
+        except Exception as e:
+            logging.error(f"Pipeline error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield send_error(str(e))
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'  # Disable nginx buffering
+        }
+    )
 
 
 @app.route("/api/ai/report/cache", methods=["GET"])
@@ -1949,6 +3892,779 @@ def ai_report_clear_all_cache():
     session["ai_report_cache"] = {}
     session.modified = True
     return jsonify({"success": True})
+
+
+# ============================================================================
+# Session Management Endpoints
+# ============================================================================
+
+@app.route("/api/sessions", methods=["GET"])
+@login_required
+def list_sessions():
+    """List all sessions for the current user."""
+    session_mgr = get_session_manager()
+    sessions = session_mgr.list_sessions(username=current_user.id)
+    current = session_mgr.get_current_session()
+    current_id = current.get("session_id") if current else None
+
+    # Also include sessions grouped by company for trend analysis UI
+    grouped = session_mgr.get_sessions_grouped_by_company(username=current_user.id)
+
+    return jsonify({
+        "sessions": [s.to_dict() for s in sessions],
+        "sessions_by_company": {
+            company: [s.to_dict() for s in company_sessions]
+            for company, company_sessions in grouped.items()
+        },
+        "current_session_id": current_id
+    })
+
+
+@app.route("/api/sessions/companies", methods=["GET"])
+@login_required
+def get_company_suggestions():
+    """Get list of company names for autocomplete."""
+    session_mgr = get_session_manager()
+    partial = request.args.get("q", "")
+    companies = session_mgr.get_company_suggestions(
+        partial=partial,
+        username=current_user.id
+    )
+    return jsonify({"companies": companies})
+
+
+@app.route("/api/sessions/current", methods=["GET"])
+@login_required
+def get_current_session_info():
+    """Get information about the current session."""
+    session_mgr = get_session_manager()
+    current = session_mgr.get_current_session()
+
+    if not current:
+        return jsonify({"error": "No active session"}), 404
+
+    metadata = session_mgr.get_session(current.get("session_id"))
+    if not metadata:
+        return jsonify({"error": "Session not found"}), 404
+
+    # Include staleness info
+    staleness = session_mgr.check_aaia_staleness()
+
+    return jsonify({
+        "session": metadata.to_dict(),
+        "aaia_staleness": staleness
+    })
+
+
+@app.route("/api/sessions", methods=["POST"])
+@login_required
+def create_session():
+    """Create a new session."""
+    try:
+        data = request.get_json() or {}
+        name = data.get("name", "").strip()
+
+        if not name:
+            return jsonify({"error": "Session name is required"}), 400
+
+        session_mgr = get_session_manager()
+        new_session = session_mgr.create_session(
+            name=name,
+            username=current_user.id
+        )
+
+        return jsonify({
+            "success": True,
+            "session": new_session.to_dict()
+        })
+    except Exception as e:
+        logging.error(f"Error creating session: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<session_id>", methods=["GET"])
+@login_required
+def get_session_info(session_id: str):
+    """Get information about a specific session."""
+    session_mgr = get_session_manager()
+    metadata = session_mgr.get_session(session_id)
+
+    if not metadata:
+        return jsonify({"error": "Session not found"}), 404
+
+    # Only allow access to own sessions
+    if metadata.created_by != current_user.id:
+        return jsonify({"error": "Access denied"}), 403
+
+    return jsonify({
+        "session": metadata.to_dict()
+    })
+
+
+@app.route("/api/sessions/<session_id>", methods=["PUT"])
+@login_required
+def update_session_info(session_id: str):
+    """Update session metadata (name, notes)."""
+    try:
+        session_mgr = get_session_manager()
+        metadata = session_mgr.get_session(session_id)
+
+        if not metadata:
+            return jsonify({"error": "Session not found"}), 404
+
+        # Only allow update of own sessions
+        if metadata.created_by != current_user.id:
+            return jsonify({"error": "Access denied"}), 403
+
+        data = request.get_json() or {}
+
+        # Only allow updating specific fields
+        updates = {}
+        if "name" in data:
+            updates["name"] = data["name"].strip()
+        if "notes" in data:
+            updates["notes"] = data["notes"]
+
+        if updates:
+            updated = session_mgr.update_session(session_id, **updates)
+            return jsonify({
+                "success": True,
+                "session": updated.to_dict() if updated else None
+            })
+
+        return jsonify({"success": True, "session": metadata.to_dict()})
+    except Exception as e:
+        logging.error(f"Error updating session: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+@login_required
+def delete_session_endpoint(session_id: str):
+    """Delete a session."""
+    try:
+        session_mgr = get_session_manager()
+        metadata = session_mgr.get_session(session_id)
+
+        if not metadata:
+            return jsonify({"error": "Session not found"}), 404
+
+        # Only allow deletion of own sessions
+        if metadata.created_by != current_user.id:
+            return jsonify({"error": "Access denied"}), 403
+
+        success = session_mgr.delete_session(session_id)
+        return jsonify({
+            "success": success,
+            "message": "Session deleted" if success else "Failed to delete session"
+        })
+    except Exception as e:
+        logging.error(f"Error deleting session: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/<session_id>/switch", methods=["POST"])
+@login_required
+def switch_to_session(session_id: str):
+    """Switch to a different session."""
+    try:
+        session_mgr = get_session_manager()
+        metadata = session_mgr.get_session(session_id)
+
+        if not metadata:
+            return jsonify({"error": "Session not found"}), 404
+
+        # Only allow switching to own sessions
+        if metadata.created_by != current_user.id:
+            return jsonify({"error": "Access denied"}), 403
+
+        success = session_mgr.set_current_session(session_id, current_user.id)
+
+        # Load and restore analysis_options from the session
+        if success:
+            saved_options = session_mgr.load_session_data("analysis_options.json", session_id)
+            if saved_options:
+                session["analysis_options"] = saved_options
+
+        return jsonify({
+            "success": success,
+            "session": metadata.to_dict() if success else None
+        })
+    except Exception as e:
+        logging.error(f"Error switching session: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/trend-analysis", methods=["POST"])
+@login_required
+def analyze_session_trends():
+    """
+    Analyze trends across multiple sessions.
+
+    Request body:
+        {
+            "session_ids": ["abc123", "def456", ...]  // At least 2 sessions
+        }
+
+    Returns trend comparison with metrics, changes, and chart data.
+    """
+    try:
+        from trend_analysis import TrendAnalyzer
+
+        data = request.get_json() or {}
+        session_ids = data.get("session_ids", [])
+
+        if len(session_ids) < 2:
+            return jsonify({
+                "error": "At least 2 sessions are required for trend analysis"
+            }), 400
+
+        session_mgr = get_session_manager()
+
+        # Verify all sessions belong to current user
+        for sid in session_ids:
+            metadata = session_mgr.get_session(sid)
+            if not metadata:
+                return jsonify({"error": f"Session not found: {sid}"}), 404
+            if metadata.created_by != current_user.id:
+                return jsonify({"error": "Access denied to one or more sessions"}), 403
+
+        # Perform trend analysis
+        analyzer = TrendAnalyzer(session_mgr)
+        comparison = analyzer.compare_sessions(session_ids)
+
+        if not comparison:
+            return jsonify({
+                "error": "Could not analyze sessions - insufficient data"
+            }), 400
+
+        return jsonify({
+            "success": True,
+            "analysis": analyzer.to_dict(comparison)
+        })
+
+    except Exception as e:
+        logging.error(f"Error analyzing trends: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/by-company/<company_name>", methods=["GET"])
+@login_required
+def get_sessions_by_company(company_name: str):
+    """Get all sessions for a specific company."""
+    try:
+        session_mgr = get_session_manager()
+        sessions = session_mgr.list_sessions_by_company(
+            company_name=company_name,
+            username=current_user.id
+        )
+        return jsonify({
+            "company_name": company_name,
+            "sessions": [s.to_dict() for s in sessions],
+            "count": len(sessions)
+        })
+    except Exception as e:
+        logging.error(f"Error getting sessions by company: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/migrate-legacy", methods=["POST"])
+@login_required
+def migrate_legacy_data():
+    """
+    Migrate legacy data from data/ folder to a new session.
+    Useful for upgrading from pre-session installations.
+    """
+    try:
+        data = request.get_json() or {}
+        name = data.get("name", "").strip() or "Migrated Analysis"
+
+        session_mgr = get_session_manager()
+
+        # Check if legacy data exists
+        legacy_stats = os.path.join("data", "cracking_stats_table.json")
+        if not os.path.exists(legacy_stats):
+            return jsonify({"error": "No legacy data found to migrate"}), 404
+
+        # Create new session
+        new_session = session_mgr.create_session(
+            name=name,
+            username=current_user.id
+        )
+
+        # Migrate files
+        success = session_mgr.migrate_legacy_data_to_session(new_session.session_id)
+
+        if success:
+            # Set as current session
+            session_mgr.set_current_session(new_session.session_id, current_user.id)
+
+            # Try to update stats from migrated data
+            stats = session_mgr.load_session_data("cracking_stats_table.json", new_session.session_id)
+            if stats:
+                # Parse stats from the key-value format
+                stats_dict = {item["key"]: item["value"] for item in stats} if isinstance(stats, list) else {}
+                total_str = stats_dict.get("Total Accounts Analyzed: ", "0")
+                cracked_str = stats_dict.get("Cracked Accounts: ", "0")
+                try:
+                    total = int(total_str.replace(",", ""))
+                    cracked = int(cracked_str.split()[0].replace(",", ""))
+                    crack_rate = (cracked / total * 100) if total > 0 else 0.0
+                    session_mgr.update_session(
+                        new_session.session_id,
+                        total_accounts=total,
+                        cracked_accounts=cracked,
+                        crack_rate=round(crack_rate, 2)
+                    )
+                except (ValueError, IndexError):
+                    pass
+
+            return jsonify({
+                "success": True,
+                "session": session_mgr.get_session(new_session.session_id).to_dict()
+            })
+
+        return jsonify({"error": "Migration failed"}), 500
+    except Exception as e:
+        logging.error(f"Error migrating legacy data: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/check-duplicate", methods=["POST"])
+@login_required
+def check_duplicate_session():
+    """
+    Check if source files match any existing session.
+    Used before processing to warn users about potential duplicates.
+
+    Expects JSON body with either:
+    - pwdump_path and potfile_path (for local files)
+    - validation data in Flask session (for uploaded files)
+    """
+    try:
+        session_mgr = get_session_manager()
+        data = request.get_json() or {}
+
+        # Try to compute source hash from provided paths or session data
+        source_hash = None
+
+        if data.get("pwdump_path") and data.get("potfile_path"):
+            # Local file paths provided
+            source_hash = session_mgr.compute_source_hash(
+                pwdump_path=data["pwdump_path"],
+                potfile_path=data["potfile_path"]
+            )
+        else:
+            # Try to use validation data from Flask session
+            pwdump_data = session.get("pwdump_validation")
+            if pwdump_data and pwdump_data.get("lines"):
+                # Build minimal account data for hashing
+                account_data = []
+                for line in pwdump_data.get("lines", []):
+                    if line.get("is_valid") and line.get("username") and line.get("ntlm_hash"):
+                        account_data.append({
+                            "username": line["username"],
+                            "ntlm_hash": line["ntlm_hash"]
+                        })
+                if account_data:
+                    source_hash = session_mgr.compute_source_hash(account_data=account_data)
+
+        if not source_hash:
+            return jsonify({"error": "Could not compute source hash"}), 400
+
+        # Check all user's sessions for matching hash
+        sessions = session_mgr.list_sessions(username=current_user.id)
+        matching_sessions = []
+
+        for sess in sessions:
+            if sess.source_hash == source_hash:
+                matching_sessions.append({
+                    "session_id": sess.session_id,
+                    "name": sess.name,
+                    "created_at": sess.created_at,
+                    "updated_at": sess.updated_at,
+                    "total_accounts": sess.total_accounts,
+                    "cracked_accounts": sess.cracked_accounts,
+                    "crack_rate": sess.crack_rate,
+                    "aaia_generated": sess.aaia_generated
+                })
+
+        return jsonify({
+            "source_hash": source_hash,
+            "has_duplicates": len(matching_sessions) > 0,
+            "matching_sessions": matching_sessions
+        })
+
+    except Exception as e:
+        logging.error(f"Error checking for duplicate sessions: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# Settings API Endpoints (for report reconfiguration)
+# ============================================================================
+
+@app.route("/api/settings/current", methods=["GET"])
+@login_required
+def get_current_settings() -> Response:
+    """Get current analysis settings from session."""
+    options = session.get("analysis_options", {})
+
+    # If no options in Flask session, try to load from the current session's saved file
+    if not options:
+        session_mgr = get_session_manager()
+        saved_options = session_mgr.load_session_data("analysis_options.json")
+        if saved_options:
+            options = saved_options
+            # Also restore to Flask session for future use
+            session["analysis_options"] = options
+
+    # Return default values if still no options
+    if not options:
+        options = {
+            "policy_min_pw_len": "12",
+            "policy_max_pw_age": "90",
+            "policy_complexity_req": "3",
+            "substring_min_len": "4",
+            "substring_max_len": "30",
+            "substring_freq_threshold": "5",
+            "substring_disp_nest": "true",
+            "substring_normalize": "false",
+            "dictionary_min_len": "4",
+            "dictionary_disp_nest": "true",
+            "company_keywords": "",
+        }
+
+    # Map custom_keywords to company_keywords for the UI
+    if "custom_keywords" in options and "company_keywords" not in options:
+        options["company_keywords"] = options["custom_keywords"]
+
+    return jsonify(options)
+
+
+@app.route("/api/settings/regenerate", methods=["POST"])
+@login_required
+def regenerate_with_settings() -> Response:
+    """Re-run analysis with new settings on the current session's data."""
+    try:
+        new_settings = request.get_json()
+        if not new_settings:
+            return jsonify({"success": False, "error": "No settings provided"}), 400
+
+        # Get current session data
+        session_mgr = get_session_manager()
+        account_data = session_mgr.load_session_data("account_data.json")
+
+        if not account_data:
+            return jsonify({"success": False, "error": "No account data found in current session"}), 400
+
+        # Convert account_data from dict format to list format if needed
+        if isinstance(account_data, dict):
+            account_data_list = []
+            for username, data in account_data.items():
+                if isinstance(data, dict):
+                    entry = {"username": username}
+                    entry.update(data)
+                    account_data_list.append(entry)
+            account_data_for_analysis = {entry["username"]: entry for entry in account_data_list}
+        else:
+            account_data_for_analysis = {entry["username"]: entry for entry in account_data}
+
+        # Update session options
+        options = {
+            "policy_min_pw_len": new_settings.get("policy_min_pw_len", "12"),
+            "policy_max_pw_age": new_settings.get("policy_max_pw_age", "90"),
+            "policy_complexity_req": new_settings.get("policy_complexity_req", "3"),
+            "substring_min_len": new_settings.get("substring_min_len", "4"),
+            "substring_max_len": new_settings.get("substring_max_len", "30"),
+            "substring_freq_threshold": new_settings.get("substring_freq_threshold", "5"),
+            "substring_disp_nest": new_settings.get("substring_disp_nest", "true"),
+            "substring_normalize": new_settings.get("substring_normalize", "false"),
+            "dictionary_min_len": new_settings.get("dictionary_min_len", "4"),
+            "dictionary_disp_nest": new_settings.get("dictionary_disp_nest", "true"),
+            "custom_keywords": new_settings.get("company_keywords", ""),
+            "ignore_blank_passwords": session.get("analysis_options", {}).get("ignore_blank_passwords", "false"),
+        }
+        session["analysis_options"] = options
+
+        # Import analysis tools
+        import password_analysis_tools
+
+        # Re-run analysis with new settings
+        stats_report = password_analysis_tools.crack_stats(
+            account_data_for_analysis,
+            int(options.get("policy_min_pw_len", "12")),
+            int(options.get("policy_complexity_req", "3")),
+            ignore_blank_passwords=options.get("ignore_blank_passwords", "false") == "true",
+            max_pw_age=int(options.get("policy_max_pw_age", "90")),
+        )
+
+        # Create list of cracked passwords (for dictionary analysis)
+        cracked_passwords = [
+            account["cracked_pw"]
+            for account in account_data_for_analysis.values()
+            if account.get("cracked_pw")
+        ]
+
+        # Create list of account/password entries (for substring analysis)
+        account_password_entries = [
+            {"account": username, "password": account["cracked_pw"]}
+            for username, account in account_data_for_analysis.items()
+            if account.get("cracked_pw")
+        ]
+
+        # Re-run substring analysis
+        substrings = password_analysis_tools.substring_analysis(
+            account_password_entries,
+            int(options.get("substring_min_len", "4")),
+            int(options.get("substring_max_len", "30")),
+            int(options.get("substring_freq_threshold", "5")),
+            options.get("substring_normalize", "false") == "true",
+            options.get("substring_disp_nest", "true") == "true",
+        )
+
+        # Re-run dictionary analysis
+        detailed_results, english_words = password_analysis_tools.dictionary_analysis(
+            cracked_passwords,
+            int(options.get("dictionary_min_len", "4")),
+            options.get("dictionary_disp_nest", "true") == "true",
+        )
+
+        # Parse custom keywords
+        custom_keywords_raw = options.get("custom_keywords", "").strip()
+        custom_keywords = []
+        if custom_keywords_raw:
+            for line in custom_keywords_raw.replace(",", "\n").split("\n"):
+                keyword = line.strip()
+                if keyword and len(keyword) >= 3:
+                    custom_keywords.append(keyword)
+
+        # Re-run bad practices analysis
+        bad_practices = password_analysis_tools.bad_practices_analysis(
+            cracked_passwords, custom_keywords
+        )
+
+        # Save updated results to session directory
+        session_dir = session_mgr.get_session_dir()
+
+        # Convert stats to array format
+        key_order = [
+            "Cracked Accounts: ",
+            "Uncracked Accounts: ",
+            "Total Accounts Analyzed: ",
+            "Percent of Accounts Cracked: ",
+            "Cracked NTLM Hashes: ",
+            "Uncracked NTLM Hashes: ",
+            "Unique NTLM Hashes Analyzed: ",
+            "Percent of NTLM Hashes Cracked: ",
+            "Total LANMan Hashes: ",
+            "Shortest Cracked Password: ",
+            "Longest Cracked Password: ",
+            "Average Password Length: ",
+        ]
+        stats_table = [{"key": key, "value": stats_report["cracking_stats"][key]} for key in key_order]
+
+        # Save all updated JSON files
+        with open(os.path.join(session_dir, "cracking_stats_table.json"), "w") as f:
+            json.dump(stats_table, f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_substrings.json"), "w") as f:
+            json.dump(substrings, f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_dict_words.json"), "w") as f:
+            json.dump(english_words, f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_bad_practices.json"), "w") as f:
+            json.dump(bad_practices, f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_length_distribution.json"), "w") as f:
+            json.dump(stats_report["pw_length_distribution"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_top_passwords.json"), "w") as f:
+            json.dump(stats_report["pw_top_passwords"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_fails_min_length.json"), "w") as f:
+            json.dump(stats_report["pw_fails_min_length"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_fails_complexity.json"), "w") as f:
+            json.dump(stats_report["pw_fails_complexity"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_fails_blank.json"), "w") as f:
+            json.dump(stats_report["pw_fails_blank"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_lm_hashes.json"), "w") as f:
+            json.dump(stats_report["pw_lm_hashes"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_account_pie.json"), "w") as f:
+            json.dump(stats_report["pw_account_pie"], f, indent=2)
+
+        with open(os.path.join(session_dir, "pw_ntlm_hash_pie.json"), "w") as f:
+            json.dump(stats_report["pw_ntlm_hash_pie"], f, indent=2)
+
+        # Save max age violations if available
+        if stats_report.get("pw_fails_max_age"):
+            with open(os.path.join(session_dir, "pw_fails_max_age.json"), "w") as f:
+                json.dump(stats_report["pw_fails_max_age"], f, indent=2)
+
+        # Save updated analysis options
+        with open(os.path.join(session_dir, "analysis_options.json"), "w") as f:
+            json.dump(options, f, indent=2)
+
+        # Update session timestamp
+        current_session = session_mgr.get_current_session()
+        if current_session:
+            session_mgr.update_session(current_session["session_id"])
+
+        logging.info(f"Report regenerated with new settings for session {session_dir}")
+
+        return jsonify({"success": True, "message": "Report regenerated successfully"})
+
+    except Exception as e:
+        logging.error(f"Error regenerating report: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============================================================================
+# AAIA (Advanced A.I. Analysis) Endpoints
+# ============================================================================
+
+def _get_aaia_results_path() -> str:
+    """Get path to AAIA results file for current session."""
+    session_mgr = get_session_manager()
+    return session_mgr.get_session_data_path("aaia_results.json")
+
+
+def _get_ai_analysis_dir() -> str:
+    """Get path to AI analysis debug directory for current session."""
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    return os.path.join(session_dir, "ai_analysis")
+
+
+@app.route("/api/ai/aaia/results", methods=["GET"])
+@login_required
+def aaia_get_results():
+    """Get saved AAIA results for current session."""
+    session_mgr = get_session_manager()
+    data = session_mgr.load_session_data("aaia_results.json")
+    if data:
+        # Include session info and staleness check
+        current = session_mgr.get_current_session()
+        if current:
+            staleness = session_mgr.check_aaia_staleness()
+            data["_session_info"] = {
+                "session_id": current.get("session_id"),
+                "is_stale": staleness.get("is_stale", False),
+                "stale_reason": staleness.get("reason", "")
+            }
+        return jsonify(data)
+    return jsonify({"results": {}, "metadata": None})
+
+
+@app.route("/api/ai/aaia/save", methods=["POST"])
+@login_required
+def aaia_save_results():
+    """Save AAIA results to current session folder."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        session_mgr = get_session_manager()
+        session_mgr.save_session_data("aaia_results.json", data)
+
+        # Mark AAIA as generated for this session
+        current = session_mgr.get_current_session()
+        if current:
+            session_mgr.mark_aaia_generated(current.get("session_id"))
+
+        return jsonify({"success": True, "message": "AAIA results saved"})
+    except Exception as e:
+        logging.error(f"Error saving AAIA results: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/aaia/clear", methods=["DELETE"])
+@login_required
+def aaia_clear_results():
+    """Clear saved AAIA results for current session."""
+    try:
+        aaia_path = _get_aaia_results_path()
+        if os.path.exists(aaia_path):
+            os.remove(aaia_path)
+
+        # Update session metadata
+        session_mgr = get_session_manager()
+        current = session_mgr.get_current_session()
+        if current:
+            session_mgr.update_session(
+                current.get("session_id"),
+                aaia_generated=False,
+                aaia_timestamp=""
+            )
+
+        return jsonify({"success": True, "message": "AAIA results cleared"})
+    except Exception as e:
+        logging.error(f"Error clearing AAIA results: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/aaia/config", methods=["GET"])
+@login_required
+def aaia_get_config():
+    """Get AAIA configuration with section recommendations and available servers/models."""
+    from ollama_tools import test_all_servers, OllamaClient, get_ollama_config
+    from ollama_prompts import AI_REPORT_SECTIONS
+
+    # Get all servers and their status
+    servers_data = test_all_servers()
+    online_servers = [s for s in servers_data.get("servers", []) if s.get("reachable")]
+
+    # Get models, running status, and version for each online server
+    for server in online_servers:
+        config = get_ollama_config(server["id"])
+        client = OllamaClient(config)
+        server["models"] = client.list_models(include_details=True)
+        server["running"] = client.get_running_models()
+        server["version"] = client.get_version()
+
+    # AAIA sections (excluding risk-assessment and full-report for now)
+    aaia_sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+
+    sections_config = []
+    for section_id in aaia_sections:
+        section_info = AI_REPORT_SECTIONS.get(section_id, {})
+        recommended_model = section_info.get("recommended_model", "llama3.1:70b")
+
+        # Parse model name and estimate size requirement
+        model_size_gb = 0
+        if "671b" in recommended_model.lower():
+            model_size_gb = 400  # ~400GB for 671B models
+        elif "405b" in recommended_model.lower():
+            model_size_gb = 230  # ~230GB for 405B models
+        elif "70b" in recommended_model.lower():
+            model_size_gb = 40   # ~40GB for 70B models
+        elif "14b" in recommended_model.lower():
+            model_size_gb = 8    # ~8GB for 14B models
+        elif "7b" in recommended_model.lower():
+            model_size_gb = 4    # ~4GB for 7B models
+
+        sections_config.append({
+            "id": section_id,
+            "title": section_info.get("title", section_id),
+            "description": section_info.get("description", ""),
+            "recommended_model": recommended_model,
+            "temperature": section_info.get("temperature", 0.5),
+            "model_size_gb": model_size_gb,
+            "order": section_info.get("order", 99)
+        })
+
+    return jsonify({
+        "servers": online_servers,
+        "sections": sorted(sections_config, key=lambda x: x["order"])
+    })
 
 
 @app.route("/api/ai/report/outputs", methods=["GET"])
@@ -2010,7 +4726,9 @@ def ai_report_data_summary():
     """Get summary of available analysis data for AI reports."""
     from ollama_tools import get_ai_data_loader
 
-    loader = get_ai_data_loader()
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
     summary = loader.get_data_summary()
     return jsonify(summary)
 
@@ -2030,7 +4748,9 @@ def ai_report_section_data(section_id):
     if section_id not in sections:
         return jsonify({"error": f"Unknown section: {section_id}"}), 400
 
-    loader = get_ai_data_loader()
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
 
     if not loader.has_analysis_data():
         return jsonify({
@@ -2062,7 +4782,9 @@ def ai_report_all_section_data():
     """
     from ollama_tools import get_ai_data_loader, get_ai_report_sections
 
-    loader = get_ai_data_loader()
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
 
     if not loader.has_analysis_data():
         return jsonify({
@@ -2119,7 +4841,9 @@ def ai_report_section_prompt(section_id):
     if not prompt_template:
         return jsonify({"error": f"No prompt template for section: {section_id}"}), 400
 
-    loader = get_ai_data_loader()
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
 
     # Load section data
     session_data = {
@@ -2165,7 +4889,9 @@ def ai_report_test_page():
     sections = get_ai_report_sections()
 
     # Check if real analysis data is available
-    loader = get_ai_data_loader()
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
     data_summary = loader.get_data_summary()
 
     # Build model options HTML from all servers (combine unique models)
@@ -2178,19 +4904,6 @@ def ai_report_test_page():
     model_options = ""
     for model in all_models:
         model_options += f'<option value="{model}">{model}</option>'
-
-    # Build benchmark model options (only models available on ALL reachable servers)
-    if len(reachable_servers) >= 2:
-        benchmark_models = set(reachable_servers[0].get("available_models", []))
-        for server in reachable_servers[1:]:
-            benchmark_models &= set(server.get("available_models", []))
-        benchmark_models = sorted(benchmark_models)
-    else:
-        benchmark_models = all_models  # Fall back to all models if < 2 servers
-
-    benchmark_model_options = ""
-    for model in benchmark_models:
-        benchmark_model_options += f'<option value="{model}">{model}</option>'
 
     # Build server options HTML
     server_options = ""
@@ -2352,39 +5065,6 @@ def ai_report_test_page():
             .server-models { color: #666; }
             .server-card .refresh-btn { position: absolute; top: 10px; right: 10px; padding: 4px 8px; font-size: 0.8em; }
             .server-select { min-width: 140px; }
-            /* Benchmark styles */
-            .benchmark-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-            .benchmark-section h3 { color: #00d4ff; margin: 0 0 15px 0; }
-            .benchmark-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
-            .benchmark-results { margin-top: 15px; }
-            .benchmark-result { background: #0f0f1a; border-radius: 8px; padding: 15px; margin-bottom: 10px; }
-            .benchmark-result h4 { color: #00d4ff; margin: 0 0 10px 0; }
-            .benchmark-bar { height: 24px; background: #333; border-radius: 4px; overflow: hidden; margin: 5px 0; }
-            .benchmark-bar-fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #4caf50); display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; color: #000; font-weight: bold; font-size: 0.8em; }
-            /* Benchmark test items */
-            .test-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 8px; }
-            .test-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #0f0f1a; border-radius: 6px; border: 1px solid #333; }
-            .test-item:hover { border-color: #00d4ff; }
-            .test-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
-            .test-item label { cursor: pointer; flex: 1; }
-            .test-item label strong { color: #00d4ff; }
-            /* Matrix run styles */
-            .matrix-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #4caf50; }
-            .matrix-section h3 { color: #4caf50; margin: 0 0 15px 0; }
-            .matrix-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
-            .matrix-progress { margin-top: 15px; }
-            .matrix-progress-bar { height: 30px; background: #333; border-radius: 4px; overflow: hidden; margin: 10px 0; }
-            .matrix-progress-fill { height: 100%; background: linear-gradient(90deg, #4caf50, #00d4ff); transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: #000; font-weight: bold; }
-            .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 15px; }
-            .matrix-item { background: #0f0f1a; border-radius: 8px; padding: 12px; border: 1px solid #333; }
-            .matrix-item.running { border-color: #00d4ff; animation: pulse 1s infinite; }
-            .matrix-item.complete { border-color: #4caf50; }
-            .matrix-item.error { border-color: #f44336; }
-            .matrix-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-            .matrix-item-title { font-weight: bold; color: #00d4ff; }
-            .matrix-item-status { font-size: 0.9em; }
-            .matrix-item-time { color: #888; font-size: 0.85em; }
-            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
         </style>
     </head>
     <body>
@@ -2392,7 +5072,7 @@ def ai_report_test_page():
         <p class="subtitle">Test and refine AI-generated report sections</p>
 
         <div class="nav-links">
-            <a href="/api/ai/test">&larr; Back to AI Test Console</a>
+            <a href="/api/ai/servers/manage">&larr; Manage Ollama Servers</a>
             <a href="/report">View Main Report</a>
         </div>
 
@@ -2401,91 +5081,6 @@ def ai_report_test_page():
             <div class="servers-grid" id="servers-grid">
                 """ + server_cards_html + """
             </div>
-        </div>
-
-        <div class="benchmark-section">
-            <h3>Benchmark Tests</h3>
-            <p style="color: #888; margin-bottom: 15px;">Run predefined tests against a single server to evaluate model performance with real-world prompts.</p>
-            <div class="benchmark-controls">
-                <label style="color: #888;">Server:</label>
-                <select id="benchmark-server" class="server-select">
-                    """ + server_options + """
-                </select>
-                <label style="color: #888; margin-left: 15px;">Model:</label>
-                <select id="benchmark-model" class="model-select">
-                    """ + model_options + """
-                </select>
-            </div>
-            <div class="benchmark-tests" style="margin-top: 15px;">
-                <h4 style="color: #888; margin-bottom: 10px;">Available Tests</h4>
-                <div class="test-list">
-                    <div class="test-item">
-                        <input type="checkbox" id="test-weak-habits" checked>
-                        <label for="test-weak-habits"><strong>Weak Password Habits</strong> - Pattern analysis with real password data</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-company-intel" checked>
-                        <label for="test-company-intel"><strong>Company Intelligence</strong> - OSINT from passwords and accounts</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-user-behavior" checked>
-                        <label for="test-user-behavior"><strong>User Behavior</strong> - Psychological analysis</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-risk-assessment">
-                        <label for="test-risk-assessment"><strong>Risk Assessment</strong> - Business risk quantification</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-recommendations">
-                        <label for="test-recommendations"><strong>Recommendations</strong> - Prioritized security actions</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-reasoning">
-                        <label for="test-reasoning"><strong>Reasoning Test</strong> - Logic and deduction challenge</label>
-                    </div>
-                    <div class="test-item">
-                        <input type="checkbox" id="test-summarization">
-                        <label for="test-summarization"><strong>Summarization</strong> - Condense long text accurately</label>
-                    </div>
-                </div>
-                <div style="margin-top: 15px;">
-                    <label style="color: #888;">Temperature:</label>
-                    <input type="range" id="benchmark-temp" min="0" max="1" step="0.1" value="0.3" style="width: 100px;">
-                    <span id="benchmark-temp-value" style="color: #00d4ff; font-weight: bold;">0.3</span>
-                    <button onclick="runBenchmarkTests()" id="benchmark-btn" style="margin-left: 20px;">Run Selected Tests</button>
-                    <button onclick="stopBenchmark()" id="benchmark-stop-btn" class="danger" style="display: none;">Stop</button>
-                    <span id="benchmark-status" style="color: #888; margin-left: 15px;"></span>
-                </div>
-            </div>
-            <div id="benchmark-progress" style="display: none; margin-top: 15px;">
-                <div class="matrix-progress-bar">
-                    <div class="matrix-progress-fill" id="benchmark-progress-fill" style="width: 0%;">0%</div>
-                </div>
-            </div>
-            <div id="benchmark-results" style="margin-top: 15px;"></div>
-        </div>
-
-        <div class="matrix-section">
-            <h3>Full Matrix Run (All Sections x All Models)</h3>
-            <p style="color: #888; margin-bottom: 15px;">Run every report section against every available model on a single server. Sit back and relax while it runs!</p>
-            <div class="matrix-controls">
-                <label style="color: #888;">Server:</label>
-                <select id="matrix-server" class="server-select">
-                    """ + server_options + """
-                </select>
-                <label style="color: #888; margin-left: 15px;">Temperature:</label>
-                <input type="range" id="matrix-temp" min="0" max="1" step="0.1" value="0.5" style="width: 100px;">
-                <span id="matrix-temp-value" style="color: #00d4ff; font-weight: bold;">0.5</span>
-                <button onclick="runMatrix()" id="matrix-btn" style="background: #4caf50;">Run Full Matrix</button>
-                <button onclick="stopMatrix()" id="matrix-stop-btn" class="danger" style="display: none;">Stop</button>
-            </div>
-            <div id="matrix-status" style="color: #888; margin-top: 10px;"></div>
-            <div id="matrix-progress" class="matrix-progress" style="display: none;">
-                <div class="matrix-progress-bar">
-                    <div class="matrix-progress-fill" id="matrix-progress-fill" style="width: 0%;">0%</div>
-                </div>
-            </div>
-            <div id="matrix-results" class="matrix-grid"></div>
         </div>
 
         <div class="status """ + ("ok" if data_summary["has_data"] else "warning") + """" id="data-status">
@@ -2975,47 +5570,846 @@ Packers!23</textarea>
                 card.style.opacity = '1';
             }
 
-            // Benchmark functionality
-            let benchmarkResults = [];
-            let benchmarkRunning = false;
-            let benchmarkStopped = false;
+            document.addEventListener('DOMContentLoaded', init);
+        </script>
+    </body>
+    </html>
+    """
+    return html
 
-            // Benchmark temperature slider
-            document.getElementById('benchmark-temp').addEventListener('input', function() {
-                document.getElementById('benchmark-temp-value').textContent = this.value;
+
+@app.route("/api/ai/servers/manage")
+@login_required
+def ai_servers_manage_page():
+    """Multi-server Ollama management page - connectivity testing and model management."""
+    from ollama_tools import test_all_servers, get_available_library_models
+
+    # Get all server statuses
+    servers_status = test_all_servers()
+    library_models = get_available_library_models()
+
+    # Build server cards HTML
+    server_cards_html = ""
+    for server in servers_status.get("servers", []):
+        status_class = "ok" if server.get("reachable") else "error"
+        model_count = len(server.get("available_models", []))
+        hardware_info = server.get("hardware", "")
+        error_info = server.get("error", "")
+        models_list = server.get("available_models", [])
+
+        # Sort models by name, then by size tag
+        def model_sort_key(model_name):
+            parts = model_name.split(":")
+            name = parts[0]
+            tag = parts[1] if len(parts) > 1 else ""
+            # Extract numeric size if present (e.g., "70b" -> 70, "8b" -> 8)
+            size_match = re.search(r'(\d+)', tag)
+            size_num = int(size_match.group(1)) if size_match else 0
+            return (name.lower(), size_num, tag.lower())
+
+        models_list = sorted(models_list, key=model_sort_key)
+
+        # Build models list HTML for this server
+        models_html = ""
+        for model in models_list:
+            models_html += f'''
+                <div class="model-item">
+                    <span class="model-name">{model}</span>
+                    <button class="danger small" onclick="deleteModel('{server["id"]}', '{model}')">Delete</button>
+                </div>
+            '''
+
+        server_cards_html += f'''
+        <div class="server-card {status_class}" id="server-{server['id']}">
+            <div class="server-header">
+                <div class="server-status">
+                    <span class="status-dot"></span>
+                    <strong>{server['name']}</strong>
+                </div>
+                <button class="secondary small" onclick="refreshServer('{server['id']}')">↻ Refresh</button>
+            </div>
+            <div class="server-info">
+                <div class="server-host">{server['host']}</div>
+                <div class="server-desc">{server.get('description', '')}</div>
+                {"<div class='server-hardware'>" + hardware_info + "</div>" if hardware_info else ""}
+                {"<div class='server-error'>" + error_info + "</div>" if error_info else ""}
+            </div>
+            <div class="server-models">
+                <div class="models-header">
+                    <strong>{model_count} Models Installed</strong>
+                    <button class="secondary small" onclick="toggleModels('{server['id']}')" id="toggle-{server['id']}">Show</button>
+                </div>
+                <div class="models-list" id="models-{server['id']}" style="display: none;">
+                    {models_html if models_html else '<span class="no-models">No models installed</span>'}
+                </div>
+            </div>
+            <div class="server-actions">
+                <input type="text" id="pull-input-{server['id']}" placeholder="Model name (e.g., llama3.1:70b)" class="pull-input">
+                <button onclick="pullModel('{server['id']}')">Pull Model</button>
+            </div>
+            <div class="server-status-msg" id="status-{server['id']}"></div>
+        </div>
+        '''
+
+    # Build library models HTML
+    library_html = ""
+    for model in library_models:
+        sizes_html = ""
+        model_name = model["name"]
+        for size in model.get("sizes", []):
+            sizes_html += f'<button class="size-btn" onclick="showPullDialog(\'{model_name}:{size}\')">{size}</button>'
+        if not sizes_html:
+            sizes_html = f'<button class="size-btn" onclick="showPullDialog(\'{model_name}\')">{model_name}</button>'
+
+        rec_tags = ""
+        for rec in model.get("recommended_for", []):
+            rec_tags += f'<span class="rec-tag">{rec}</span>'
+
+        library_html += f'''
+        <div class="library-model">
+            <div class="model-header">
+                <strong>{model["name"]}</strong>
+                {rec_tags}
+            </div>
+            <div class="model-desc">{model.get("description", "")}</div>
+            <div class="model-sizes">{sizes_html}</div>
+        </div>
+        '''
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>HM1K Ollama Server Management</title>
+        <style>
+            body { font-family: system-ui, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
+            h1 { color: #00d4ff; margin-bottom: 5px; }
+            .subtitle { color: #888; margin-bottom: 25px; }
+            .nav-links { margin-bottom: 20px; }
+            .nav-links a { color: #00d4ff; margin-right: 20px; text-decoration: none; }
+            .nav-links a:hover { text-decoration: underline; }
+
+            /* Server cards grid */
+            .servers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }
+            .server-card { background: #16213e; border-radius: 8px; padding: 20px; border: 2px solid #333; }
+            .server-card.ok { border-color: #4caf50; }
+            .server-card.error { border-color: #f44336; }
+            .server-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+            .server-status { display: flex; align-items: center; gap: 10px; }
+            .status-dot { width: 12px; height: 12px; border-radius: 50%; }
+            .server-card.ok .status-dot { background: #4caf50; }
+            .server-card.error .status-dot { background: #f44336; }
+            .server-info { margin-bottom: 15px; }
+            .server-host { color: #00d4ff; font-family: monospace; margin-bottom: 5px; }
+            .server-desc { color: #888; font-size: 0.9em; }
+            .server-hardware { color: #666; font-size: 0.85em; margin-top: 5px; }
+            .server-error { color: #f44336; font-size: 0.85em; margin-top: 5px; }
+
+            /* Models list */
+            .server-models { background: #0f0f1a; border-radius: 6px; padding: 12px; margin-bottom: 15px; }
+            .models-header { display: flex; justify-content: space-between; align-items: center; }
+            .models-list { margin-top: 10px; max-height: 200px; overflow-y: auto; padding-right: 10px; }
+            .model-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #222; gap: 10px; }
+            .model-item:last-child { border-bottom: none; }
+            .model-name { font-family: monospace; color: #aaa; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+            .no-models { color: #666; font-style: italic; }
+
+            /* Server actions */
+            .server-actions { display: flex; gap: 10px; }
+            .pull-input { flex: 1; background: #0f0f1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 8px 12px; }
+            .server-status-msg { margin-top: 10px; font-size: 0.9em; min-height: 20px; }
+            .server-status-msg.success { color: #4caf50; }
+            .server-status-msg.error { color: #f44336; }
+            .server-status-msg.loading { color: #00d4ff; }
+
+            /* Buttons */
+            button { background: #00d4ff; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            button:hover { background: #00b8e6; }
+            button:disabled { background: #555; cursor: not-allowed; }
+            button.secondary { background: #555; color: #fff; }
+            button.secondary:hover { background: #666; }
+            button.danger { background: #f44336; color: #fff; }
+            button.danger:hover { background: #d32f2f; }
+            button.small { padding: 4px 10px; font-size: 0.85em; }
+
+            /* Library section */
+            .section { background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+            h2 { color: #00d4ff; margin-top: 0; }
+            .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+            .library-model { background: #0f0f1a; padding: 15px; border-radius: 6px; border: 1px solid #333; }
+            .library-model:hover { border-color: #00d4ff; }
+            .model-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+            .model-desc { color: #888; font-size: 0.9em; margin-bottom: 10px; }
+            .model-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
+            .size-btn { background: #1a3a5c; color: #00d4ff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+            .size-btn:hover { background: #2a4a6c; }
+            .rec-tag { background: #1e3a1e; color: #4caf50; padding: 2px 8px; border-radius: 3px; font-size: 0.75em; }
+
+            /* Pull dialog */
+            .dialog-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; }
+            .dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #16213e; padding: 25px; border-radius: 8px; min-width: 400px; z-index: 1001; }
+            .dialog h3 { color: #00d4ff; margin-top: 0; }
+            .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+            .server-select { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 8px 12px; border-radius: 4px; width: 100%; margin: 10px 0; }
+        </style>
+    </head>
+    <body>
+        <h1>Ollama Server Management</h1>
+        <p class="subtitle">Manage connectivity and models across all configured Ollama servers</p>
+
+        <div class="nav-links">
+            <a href="/api/ai/report/test">← Report Testing</a>
+            <a href="/api/ai/benchmark">Benchmark Suite</a>
+            <a href="/report">Back to Report</a>
+        </div>
+
+        <h2>Configured Servers</h2>
+        <div class="servers-grid">
+            """ + server_cards_html + """
+        </div>
+
+        <div class="section">
+            <h2>Model Library</h2>
+            <p style="color: #888; margin-bottom: 15px;">Click a size to pull that model variant. You'll be prompted to select which server to install it on.</p>
+            <div class="library-grid">
+                """ + library_html + """
+            </div>
+        </div>
+
+        <!-- Pull Dialog -->
+        <div class="dialog-overlay" id="pullDialog">
+            <div class="dialog">
+                <h3>Pull Model</h3>
+                <p>Model: <strong id="dialogModelName"></strong></p>
+                <label style="color: #888;">Select target server:</label>
+                <select id="dialogServerSelect" class="server-select"></select>
+                <div class="dialog-actions">
+                    <button class="secondary" onclick="closePullDialog()">Cancel</button>
+                    <button onclick="confirmPull()">Pull Model</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Global operation lock - prevents concurrent pull/delete operations
+            let operationInProgress = false;
+            let operationServerId = null;
+
+            function setOperationLock(serverId) {
+                operationInProgress = true;
+                operationServerId = serverId;
+                // Disable all pull buttons and inputs
+                document.querySelectorAll('.server-actions button').forEach(btn => btn.disabled = true);
+                document.querySelectorAll('.pull-input').forEach(input => input.disabled = true);
+                document.querySelectorAll('.model-item button').forEach(btn => btn.disabled = true);
+                document.querySelectorAll('.size-btn').forEach(btn => btn.disabled = true);
+            }
+
+            function clearOperationLock() {
+                operationInProgress = false;
+                operationServerId = null;
+                // Re-enable all buttons and inputs
+                document.querySelectorAll('.server-actions button').forEach(btn => btn.disabled = false);
+                document.querySelectorAll('.pull-input').forEach(input => input.disabled = false);
+                document.querySelectorAll('.model-item button').forEach(btn => btn.disabled = false);
+                document.querySelectorAll('.size-btn').forEach(btn => btn.disabled = false);
+            }
+
+            // Toggle models list visibility
+            function toggleModels(serverId) {
+                const list = document.getElementById('models-' + serverId);
+                const btn = document.getElementById('toggle-' + serverId);
+                if (list.style.display === 'none') {
+                    list.style.display = 'block';
+                    btn.textContent = 'Hide';
+                } else {
+                    list.style.display = 'none';
+                    btn.textContent = 'Show';
+                }
+            }
+
+            // Refresh server status
+            async function refreshServer(serverId) {
+                const card = document.getElementById('server-' + serverId);
+                const statusMsg = document.getElementById('status-' + serverId);
+                statusMsg.className = 'server-status-msg loading';
+                statusMsg.textContent = 'Refreshing...';
+
+                try {
+                    const resp = await fetch('/api/ai/servers/' + serverId + '/status');
+                    const data = await resp.json();
+
+                    // Update status indicator
+                    card.className = 'server-card ' + (data.reachable ? 'ok' : 'error');
+
+                    // Update models list
+                    const modelsList = document.getElementById('models-' + serverId);
+                    if (data.available_models && data.available_models.length > 0) {
+                        modelsList.innerHTML = data.available_models.map(model =>
+                            '<div class="model-item">' +
+                            '<span class="model-name">' + model + '</span>' +
+                            '<button class="danger small" onclick="deleteModel(\\'' + serverId + '\\', \\'' + model + '\\')">Delete</button>' +
+                            '</div>'
+                        ).join('');
+                        card.querySelector('.models-header strong').textContent = data.available_models.length + ' Models Installed';
+                    } else {
+                        modelsList.innerHTML = '<span class="no-models">No models installed</span>';
+                        card.querySelector('.models-header strong').textContent = '0 Models Installed';
+                    }
+
+                    statusMsg.className = 'server-status-msg success';
+                    statusMsg.textContent = 'Refreshed successfully';
+                    setTimeout(() => { statusMsg.textContent = ''; }, 3000);
+                } catch (e) {
+                    statusMsg.className = 'server-status-msg error';
+                    statusMsg.textContent = 'Error: ' + e.message;
+                }
+            }
+
+            // Pull model to specific server
+            async function pullModel(serverId) {
+                if (operationInProgress) {
+                    alert('Another operation is in progress. Please wait for it to complete.');
+                    return;
+                }
+
+                const input = document.getElementById('pull-input-' + serverId);
+                const modelName = input.value.trim();
+                if (!modelName) {
+                    alert('Please enter a model name');
+                    return;
+                }
+
+                setOperationLock(serverId);
+                const statusMsg = document.getElementById('status-' + serverId);
+                statusMsg.className = 'server-status-msg loading';
+                statusMsg.textContent = 'Pulling ' + modelName + '... This may take several minutes.';
+
+                try {
+                    const resp = await fetch('/api/ai/pull', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ model: modelName, server_id: serverId })
+                    });
+                    const data = await resp.json();
+
+                    if (data.success) {
+                        statusMsg.className = 'server-status-msg success';
+                        statusMsg.textContent = 'Successfully pulled ' + modelName;
+                        input.value = '';
+                        await refreshServer(serverId);
+                    } else {
+                        statusMsg.className = 'server-status-msg error';
+                        statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
+                    }
+                } catch (e) {
+                    statusMsg.className = 'server-status-msg error';
+                    statusMsg.textContent = 'Error: ' + e.message;
+                } finally {
+                    clearOperationLock();
+                }
+            }
+
+            // Delete model from server
+            async function deleteModel(serverId, modelName) {
+                if (operationInProgress) {
+                    alert('Another operation is in progress. Please wait for it to complete.');
+                    return;
+                }
+
+                if (!confirm('Delete ' + modelName + ' from this server?')) return;
+
+                setOperationLock(serverId);
+                const statusMsg = document.getElementById('status-' + serverId);
+                statusMsg.className = 'server-status-msg loading';
+                statusMsg.textContent = 'Deleting ' + modelName + '...';
+
+                try {
+                    const resp = await fetch('/api/ai/delete', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ model: modelName, server_id: serverId })
+                    });
+                    const data = await resp.json();
+
+                    if (data.success) {
+                        statusMsg.className = 'server-status-msg success';
+                        statusMsg.textContent = 'Deleted ' + modelName;
+                        await refreshServer(serverId);
+                    } else {
+                        statusMsg.className = 'server-status-msg error';
+                        statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
+                    }
+                } catch (e) {
+                    statusMsg.className = 'server-status-msg error';
+                    statusMsg.textContent = 'Error: ' + e.message;
+                } finally {
+                    clearOperationLock();
+                }
+            }
+
+            // Pull dialog for library models
+            let pendingPullModel = null;
+
+            function showPullDialog(modelName) {
+                if (operationInProgress) {
+                    alert('Another operation is in progress. Please wait for it to complete.');
+                    return;
+                }
+
+                pendingPullModel = modelName;
+                document.getElementById('dialogModelName').textContent = modelName;
+
+                // Populate server select with reachable servers
+                const select = document.getElementById('dialogServerSelect');
+                select.innerHTML = '';
+                document.querySelectorAll('.server-card.ok').forEach(card => {
+                    const serverId = card.id.replace('server-', '');
+                    const serverName = card.querySelector('.server-status strong').textContent;
+                    select.innerHTML += '<option value="' + serverId + '">' + serverName + '</option>';
+                });
+
+                if (select.options.length === 0) {
+                    alert('No reachable servers available');
+                    return;
+                }
+
+                document.getElementById('pullDialog').style.display = 'block';
+            }
+
+            function closePullDialog() {
+                document.getElementById('pullDialog').style.display = 'none';
+                pendingPullModel = null;
+            }
+
+            async function confirmPull() {
+                const serverId = document.getElementById('dialogServerSelect').value;
+                const modelName = pendingPullModel;  // Save before closing dialog
+                closePullDialog();
+
+                // Use the pull function
+                document.getElementById('pull-input-' + serverId).value = modelName;
+                await pullModel(serverId);
+            }
+
+            // Close dialog on overlay click
+            document.getElementById('pullDialog').addEventListener('click', function(e) {
+                if (e.target === this) closePullDialog();
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return html
+
+
+@app.route("/api/ai/benchmark")
+@login_required
+def ai_benchmark_page():
+    """AI Benchmark Suite - comprehensive model benchmarking and comparison."""
+    from ollama_tools import test_all_servers, get_ai_report_sections
+
+    # Get all server statuses
+    servers_status = test_all_servers()
+    sections = get_ai_report_sections()
+
+    # Check if production data exists
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+    required_files = ["account_data.json", "pw_top_passwords.json", "pw_reuse_table.json"]
+    data_exists = all(os.path.exists(os.path.join(data_dir, f)) for f in required_files)
+
+    # Check if any of the required files have content
+    data_has_content = False
+    if data_exists:
+        try:
+            account_data_path = os.path.join(data_dir, "account_data.json")
+            with open(account_data_path, "r") as f:
+                content = json.load(f)
+                data_has_content = len(content) > 0
+        except:
+            data_has_content = False
+
+    # Build model options HTML from all servers
+    all_models = set()
+    reachable_servers = [s for s in servers_status.get("servers", []) if s.get("reachable")]
+    for server in reachable_servers:
+        all_models.update(server.get("available_models", []))
+    all_models = sorted(all_models)
+
+    model_options = ""
+    for model in all_models:
+        model_options += f'<option value="{model}">{model}</option>'
+
+    # Build server options HTML
+    server_options = ""
+    for server in servers_status.get("servers", []):
+        status_indicator = "✓" if server.get("reachable") else "✗"
+        server_options += f'<option value="{server["id"]}" {"" if server.get("reachable") else "disabled"}>{status_indicator} {server["name"]}</option>'
+
+    # Build server status cards
+    server_cards_html = ""
+    for server in servers_status.get("servers", []):
+        status_class = "ok" if server.get("reachable") else "error"
+        model_count = len(server.get("available_models", []))
+        hardware_info = f" | {server['hardware']}" if server.get("hardware") else ""
+        error_info = f" | Error: {server['error']}" if server.get("error") else ""
+        server_cards_html += f'''
+        <div class="server-card {status_class}" data-server-id="{server['id']}">
+            <div class="server-header">
+                <span class="server-status-dot"></span>
+                <strong>{server['name']}</strong>
+            </div>
+            <div class="server-details">
+                <div class="server-host">{server['host']}</div>
+                <div class="server-info">{server['description']}{hardware_info}</div>
+                <div class="server-models">{model_count} models available{error_info}</div>
+            </div>
+        </div>
+        '''
+
+    # Build section options (exclude full-report)
+    section_checkboxes = ""
+    for section_id, config in sorted(sections.items(), key=lambda x: x[1].get("order", 99)):
+        if section_id == "full-report":
+            continue
+        section_checkboxes += f'''
+        <div class="test-item">
+            <input type="checkbox" id="test-{section_id}" checked>
+            <label for="test-{section_id}"><strong>{config["title"]}</strong> - {config["description"]}</label>
+        </div>
+        '''
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>AI Benchmark Suite - HM1K</title>
+        <meta charset="UTF-8">
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #0f0f1a; color: #eee; }
+            h1 { color: #00d4ff; margin-bottom: 5px; }
+            h2 { color: #00d4ff; margin: 30px 0 15px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+            h3 { color: #888; margin: 20px 0 10px; }
+            .subtitle { color: #888; margin-bottom: 20px; }
+            .nav-links { margin-bottom: 20px; display: flex; gap: 15px; }
+            .nav-links a { color: #00d4ff; text-decoration: none; }
+            .nav-links a:hover { text-decoration: underline; }
+            button { background: #00d4ff; color: #000; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            button:hover { background: #00b8e0; }
+            button:disabled { background: #555; cursor: not-allowed; }
+            button.danger { background: #f44336; color: #fff; }
+            button.danger:hover { background: #d32f2f; }
+            button.secondary { background: #555; color: #fff; }
+            button.secondary:hover { background: #666; }
+            select { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 8px 12px; border-radius: 4px; font-size: 14px; min-width: 200px; }
+
+            /* Server cards */
+            .servers-section { background: #16213e; border-radius: 8px; padding: 15px; margin-bottom: 20px; border: 1px solid #4caf50; }
+            .servers-section h3 { color: #4caf50; margin-top: 0; }
+            .servers-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+            .server-card { background: #0f0f1a; border-radius: 6px; padding: 12px; border: 2px solid #333; min-width: 180px; flex: 1; max-width: 280px; position: relative; }
+            .server-card.ok { border-color: #4caf50; }
+            .server-card.error { border-color: #f44336; }
+            .server-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+            .server-status-dot { width: 10px; height: 10px; border-radius: 50%; }
+            .server-card.ok .server-status-dot { background: #4caf50; }
+            .server-card.error .server-status-dot { background: #f44336; }
+            .server-details { font-size: 0.85em; }
+            .server-host { color: #00d4ff; font-family: monospace; }
+            .server-info { color: #888; margin: 5px 0; }
+            .server-models { color: #666; }
+
+            /* Benchmark controls */
+            .benchmark-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #00d4ff; }
+            .benchmark-section h2 { color: #00d4ff; }
+            .benchmark-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
+
+            /* Test items */
+            .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 10px; margin: 15px 0; }
+            .test-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #0f0f1a; border-radius: 6px; border: 1px solid #333; }
+            .test-item:hover { border-color: #00d4ff; }
+            .test-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+            .test-item label { cursor: pointer; flex: 1; }
+            .test-item label strong { color: #00d4ff; }
+
+            /* Progress bar */
+            .progress-container { margin: 15px 0; display: none; }
+            .progress-bar { height: 30px; background: #333; border-radius: 4px; overflow: hidden; }
+            .progress-fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #4caf50); transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: #000; font-weight: bold; }
+
+            /* Results table */
+            .results-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            .results-table th, .results-table td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+            .results-table th { color: #888; font-weight: normal; }
+            .results-table tr:hover { background: #1a1a2e; }
+
+            /* Matrix grid */
+            .matrix-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #4caf50; }
+            .matrix-section h3 { color: #4caf50; }
+            .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 15px; }
+            .matrix-item { background: #0f0f1a; border-radius: 8px; padding: 12px; border: 1px solid #333; }
+            .matrix-item.running { border-color: #00d4ff; animation: pulse 1s infinite; }
+            .matrix-item.complete { border-color: #4caf50; }
+            .matrix-item.error { border-color: #f44336; }
+            .matrix-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+            .matrix-item-title { font-weight: bold; color: #00d4ff; }
+            .matrix-item-model { color: #888; font-size: 0.85em; }
+            .matrix-item-time { color: #666; font-size: 0.85em; margin-top: 5px; }
+            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+            /* Status messages */
+            .status-msg { margin-top: 10px; padding: 10px; border-radius: 4px; }
+            .status-msg.loading { background: #1a2a4a; color: #00d4ff; }
+            .status-msg.success { background: #1e3a1e; color: #4caf50; }
+            .status-msg.error { background: #3a1e1e; color: #f44336; }
+
+            /* Summary stats */
+            .summary-stats { display: flex; gap: 30px; padding: 15px; background: #0f0f1a; border-radius: 6px; margin-top: 15px; flex-wrap: wrap; }
+            .summary-stat { }
+            .summary-stat .label { color: #888; font-size: 0.9em; }
+            .summary-stat .value { color: #00d4ff; font-weight: bold; font-size: 1.2em; }
+
+            /* Model comparison section */
+            .compare-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #ff9800; }
+            .compare-section h2 { color: #ff9800; border-bottom-color: #ff9800; }
+            .model-select-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0; max-height: 200px; overflow-y: auto; padding: 10px; background: #0f0f1a; border-radius: 6px; border: 1px solid #333; }
+            .model-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #1a1a2e; border-radius: 4px; border: 1px solid #333; cursor: pointer; transition: all 0.2s; }
+            .model-checkbox:hover { border-color: #ff9800; }
+            .model-checkbox.selected { border-color: #ff9800; background: #2a2a3e; }
+            .model-checkbox input { display: none; }
+            .model-checkbox .model-label { font-family: monospace; font-size: 0.9em; color: #ccc; }
+            .prompt-area { width: 100%; min-height: 150px; background: #0f0f1a; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; resize: vertical; margin: 10px 0; box-sizing: border-box; }
+            .prompt-area:focus { border-color: #ff9800; outline: none; }
+            .preset-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+            .preset-btn { background: #333; color: #ccc; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+            .preset-btn:hover { background: #444; border-color: #ff9800; }
+            .preset-btn.active { background: #ff9800; color: #000; border-color: #ff9800; }
+            .preset-btn.section-preset { border-color: #9c27b0; }
+            .preset-btn.section-preset:hover { border-color: #ce93d8; }
+            .preset-btn.section-preset.active { background: #9c27b0; color: #fff; border-color: #9c27b0; }
+            .compare-result { background: #0f0f1a; border-radius: 8px; padding: 15px; margin-bottom: 15px; border: 1px solid #333; }
+            .compare-result.running { border-color: #00d4ff; }
+            .compare-result.complete { border-color: #4caf50; }
+            .compare-result.error { border-color: #f44336; }
+            .compare-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+            .compare-result-model { font-weight: bold; color: #ff9800; font-family: monospace; }
+            .compare-result-stats { display: flex; gap: 20px; font-size: 0.85em; color: #888; }
+            .compare-result-content { background: #1a1a2e; border-radius: 4px; padding: 12px; max-height: 300px; overflow-y: auto; font-size: 0.9em; line-height: 1.5; white-space: pre-wrap; }
+            .compare-result-actions { margin-top: 10px; display: flex; gap: 10px; }
+            .compare-result-actions button { padding: 5px 12px; font-size: 0.85em; }
+            .history-section { margin-top: 20px; padding-top: 20px; border-top: 1px solid #333; }
+            .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #0f0f1a; border-radius: 6px; border: 1px solid #333; }
+            .history-item:hover { border-color: #ff9800; }
+            .history-item-info { flex: 1; }
+            .history-item-date { color: #888; font-size: 0.85em; }
+            .history-item-models { color: #ff9800; font-family: monospace; font-size: 0.9em; margin-top: 3px; }
+            .history-item-prompt { color: #666; font-size: 0.85em; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+        </style>
+    </head>
+    <body>
+        <h1>AI Benchmark Suite</h1>
+        <p class="subtitle">Comprehensive model benchmarking and comparison</p>
+
+        <div class="nav-links">
+            <a href="/api/ai/servers/manage">&larr; Manage Servers</a>
+            <a href="/api/ai/report/test">Report Testing</a>
+            <a href="/report">View Main Report</a>
+        </div>
+
+        <div class="servers-section">
+            <h3 style="display: flex; align-items: center; gap: 15px;">
+                Ollama Servers
+                <button onclick="refreshServers()" id="refresh-servers-btn" class="secondary" style="padding: 5px 12px; font-size: 0.85em;">Refresh</button>
+                <span id="refresh-status" style="font-size: 0.85em; font-weight: normal; color: #888;"></span>
+            </h3>
+            <div class="servers-grid" id="servers-grid">
+                """ + server_cards_html + """
+            </div>
+        </div>
+
+        <!-- Quick Benchmark Tests -->
+        <div class="benchmark-section">
+            <h2>Quick Benchmark Tests</h2>
+            <p style="color: #888;">Run predefined tests to evaluate model performance. Select tests, choose a server and model, then run.</p>
+
+            <div class="benchmark-controls">
+                <label style="color: #888;">Server:</label>
+                <select id="quick-server">
+                    """ + server_options + """
+                </select>
+                <label style="color: #888; margin-left: 15px;">Model:</label>
+                <select id="quick-model">
+                    """ + model_options + """
+                </select>
+                <label style="color: #888; margin-left: 15px;">Temp:</label>
+                <input type="range" id="quick-temp" min="0" max="1" step="0.1" value="0.3" style="width: 80px;">
+                <span id="quick-temp-value" style="color: #00d4ff; font-weight: bold; width: 30px;">0.3</span>
+            </div>
+
+            <h3>Quick Tests</h3>
+            <div class="test-grid">
+                <div class="test-item">
+                    <input type="checkbox" id="test-reasoning" checked>
+                    <label for="test-reasoning"><strong>Reasoning Test</strong> - Logic puzzle with IT administrators</label>
+                </div>
+                <div class="test-item">
+                    <input type="checkbox" id="test-summarization" checked>
+                    <label for="test-summarization"><strong>Summarization</strong> - Condense security audit findings</label>
+                </div>
+                <div class="test-item">
+                    <input type="checkbox" id="test-password-mini">
+                    <label for="test-password-mini"><strong>Password Mini-Test</strong> - Quick password analysis (10 samples)</label>
+                </div>
+                <div class="test-item">
+                    <input type="checkbox" id="test-instruction">
+                    <label for="test-instruction"><strong>Instruction Following</strong> - Format compliance test</label>
+                </div>
+            </div>
+
+            <h3>Production Section Tests</h3>
+            """ + ('' if data_has_content else '<div style="background: #3a2a1e; border: 1px solid #ff9800; border-radius: 6px; padding: 10px 15px; margin-bottom: 10px;"><span style="color: #ff9800;">⚠️ Warning:</span> <span style="color: #ccc;">No password analysis data found. Run a password analysis first to use production sections.</span></div>') + """
+            <div class="test-grid" """ + ('style="opacity: 0.5; pointer-events: none;"' if not data_has_content else '') + """>
+                """ + section_checkboxes + """
+            </div>
+
+            <div style="margin-top: 20px; display: flex; gap: 15px; align-items: center;">
+                <button onclick="runQuickBenchmark()" id="quick-run-btn">Run Selected Tests</button>
+                <button onclick="stopQuickBenchmark()" id="quick-stop-btn" class="danger" style="display: none;">Stop</button>
+                <span id="quick-status" style="color: #888;"></span>
+            </div>
+
+            <div class="progress-container" id="quick-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="quick-progress-fill" style="width: 0%;">0%</div>
+                </div>
+            </div>
+
+            <div id="quick-results"></div>
+        </div>
+
+        <!-- Model Comparison -->
+        <div class="compare-section">
+            <h2>Model Comparison</h2>
+            <p style="color: #888;">Compare multiple models on the same prompt. Results are saved for manual quality review.</p>
+
+            <div class="benchmark-controls">
+                <label style="color: #888;">Server:</label>
+                <select id="compare-server" onchange="updateCompareModels()">
+                    """ + server_options + """
+                </select>
+                <label style="color: #888; margin-left: 15px;">Temp:</label>
+                <input type="range" id="compare-temp" min="0" max="1" step="0.1" value="0.3" style="width: 80px;">
+                <span id="compare-temp-value" style="color: #ff9800; font-weight: bold; width: 30px;">0.3</span>
+            </div>
+
+            <h3 style="color: #ff9800;">Select Models to Compare</h3>
+            <div class="model-select-grid" id="compare-models-grid">
+                <span style="color: #666;">Loading models...</span>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 10px;">
+                <button onclick="selectAllCompareModels()" class="secondary" style="padding: 5px 12px; font-size: 0.85em;">Select All</button>
+                <button onclick="deselectAllCompareModels()" class="secondary" style="padding: 5px 12px; font-size: 0.85em;">Deselect All</button>
+                <span id="compare-models-count" style="color: #888; font-size: 0.9em; align-self: center;"></span>
+            </div>
+
+            <h3 style="color: #ff9800;">Prompt</h3>
+            <p style="color: #666; font-size: 0.9em; margin-bottom: 10px;">Quick Tests:</p>
+            <div class="preset-buttons">
+                <button class="preset-btn active" onclick="setComparePreset('reasoning', this)">Reasoning</button>
+                <button class="preset-btn" onclick="setComparePreset('summarization', this)">Summarization</button>
+                <button class="preset-btn" onclick="setComparePreset('password', this)">Password Analysis</button>
+                <button class="preset-btn" onclick="setComparePreset('instruction', this)">Instruction Following</button>
+                <button class="preset-btn" onclick="setComparePreset('custom', this)">Custom</button>
+            </div>
+            <p style="color: #666; font-size: 0.9em; margin: 15px 0 10px;">Production Sections (uses real data):</p>
+            """ + ('' if data_has_content else '<div style="background: #3a2a1e; border: 1px solid #ff9800; border-radius: 6px; padding: 10px 15px; margin-bottom: 10px;"><span style="color: #ff9800;">⚠️ Warning:</span> <span style="color: #ccc;">No password analysis data found. Run a password analysis first to use production sections.</span></div>') + """
+            <div class="preset-buttons">
+                <button class="preset-btn section-preset" onclick="setCompareSectionPreset('weak-habits', this)" """ + ('disabled style="opacity: 0.5; cursor: not-allowed;"' if not data_has_content else '') + """>Weak Habits</button>
+                <button class="preset-btn section-preset" onclick="setCompareSectionPreset('company-intel', this)" """ + ('disabled style="opacity: 0.5; cursor: not-allowed;"' if not data_has_content else '') + """>Company Intel</button>
+                <button class="preset-btn section-preset" onclick="setCompareSectionPreset('user-behavior', this)" """ + ('disabled style="opacity: 0.5; cursor: not-allowed;"' if not data_has_content else '') + """>User Behavior</button>
+                <button class="preset-btn section-preset" onclick="setCompareSectionPreset('recommendations', this)" """ + ('disabled style="opacity: 0.5; cursor: not-allowed;"' if not data_has_content else '') + """>Recommendations</button>
+            </div>
+            <textarea id="compare-prompt" class="prompt-area" placeholder="Enter your prompt here..."></textarea>
+
+            <div style="margin-top: 15px; display: flex; gap: 15px; align-items: center;">
+                <button onclick="runComparison()" id="compare-run-btn" style="background: #ff9800;">Run Comparison</button>
+                <button onclick="stopComparison()" id="compare-stop-btn" class="danger" style="display: none;">Stop</button>
+                <span id="compare-status" style="color: #888;"></span>
+            </div>
+
+            <div class="progress-container" id="compare-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="compare-progress-fill" style="width: 0%; background: linear-gradient(90deg, #ff9800, #ffc107);">0%</div>
+                </div>
+            </div>
+
+            <div id="compare-results"></div>
+
+            <!-- Comparison History -->
+            <div class="history-section" id="compare-history-section" style="display: none;">
+                <h3 style="color: #ff9800;">Comparison History</h3>
+                <div id="compare-history-list" class="history-list"></div>
+            </div>
+        </div>
+
+        <!-- Full Matrix Run -->
+        <div class="matrix-section">
+            <h2>Full Matrix Run</h2>
+            <p style="color: #888;">Run all production sections against all models on a selected server. Results are saved to test_outputs/.</p>
+            """ + ('' if data_has_content else '<div style="background: #3a2a1e; border: 1px solid #ff9800; border-radius: 6px; padding: 10px 15px; margin: 10px 0;"><span style="color: #ff9800;">⚠️ Warning:</span> <span style="color: #ccc;">No password analysis data found. Run a password analysis first to use the matrix run.</span></div>') + """
+
+            <div class="benchmark-controls" """ + ('style="opacity: 0.5; pointer-events: none;"' if not data_has_content else '') + """>
+                <label style="color: #888;">Server:</label>
+                <select id="matrix-server">
+                    """ + server_options + """
+                </select>
+                <label style="color: #888; margin-left: 15px;">Temp:</label>
+                <input type="range" id="matrix-temp" min="0" max="1" step="0.1" value="0.3" style="width: 80px;">
+                <span id="matrix-temp-value" style="color: #00d4ff; font-weight: bold; width: 30px;">0.3</span>
+                <button onclick="runMatrix()" id="matrix-run-btn" style="background: #4caf50; margin-left: 20px;">Run Full Matrix</button>
+                <button onclick="stopMatrix()" id="matrix-stop-btn" class="danger" style="display: none;">Stop</button>
+            </div>
+
+            <div id="matrix-status" class="status-msg" style="display: none;"></div>
+
+            <div class="progress-container" id="matrix-progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="matrix-progress-fill" style="width: 0%;">0%</div>
+                </div>
+            </div>
+
+            <div id="matrix-results" class="matrix-grid"></div>
+        </div>
+
+        <script>
+            // Format time helper
+            function formatTime(seconds) {
+                if (seconds < 60) return seconds.toFixed(1) + 's';
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.round(seconds % 60);
+                return mins + 'm ' + secs + 's';
+            }
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text || '';
+                return div.innerHTML;
+            }
+
+            // Temperature sliders
+            document.getElementById('quick-temp').addEventListener('input', function() {
+                document.getElementById('quick-temp-value').textContent = this.value;
+            });
+            document.getElementById('matrix-temp').addEventListener('input', function() {
+                document.getElementById('matrix-temp-value').textContent = this.value;
             });
 
-            // Define benchmark tests
-            const BENCHMARK_TESTS = {
-                'weak-habits': {
-                    name: 'Weak Password Habits',
-                    type: 'section',
-                    description: 'Pattern analysis with real password data'
-                },
-                'company-intel': {
-                    name: 'Company Intelligence',
-                    type: 'section',
-                    description: 'OSINT from passwords and accounts'
-                },
-                'user-behavior': {
-                    name: 'User Behavior',
-                    type: 'section',
-                    description: 'Psychological analysis'
-                },
-                'risk-assessment': {
-                    name: 'Risk Assessment',
-                    type: 'section',
-                    description: 'Business risk quantification'
-                },
-                'recommendations': {
-                    name: 'Recommendations',
-                    type: 'section',
-                    description: 'Prioritized security actions'
-                },
+            // Quick benchmark tests definitions
+            const QUICK_TESTS = {
                 'reasoning': {
                     name: 'Reasoning Test',
                     type: 'custom',
-                    description: 'Logic and deduction challenge',
                     prompt: `Solve this logic puzzle step by step:
 
 Three IT administrators - Alice, Bob, and Charlie - each manage a different system (Active Directory, Azure, and Linux servers) and use different password managers (Bitwarden, 1Password, and KeePass).
@@ -3037,7 +6431,6 @@ Provide a clear, structured answer with your step-by-step logic.`
                 'summarization': {
                     name: 'Summarization Test',
                     type: 'custom',
-                    description: 'Condense long text accurately',
                     prompt: `Summarize the following security audit findings in exactly 3 bullet points, capturing the most critical issues:
 
 During the comprehensive password security assessment of the organization's Active Directory environment, we discovered several critical vulnerabilities that require immediate attention. The analysis covered 847 user accounts across three domains, with a password cracking success rate of 67.2% using standard dictionary and rule-based attacks executed over a 48-hour period.
@@ -3049,28 +6442,93 @@ Password reuse emerged as another significant concern, with 33 accounts sharing 
 The technical analysis revealed that 89 accounts still have LM hashes stored, indicating legacy compatibility settings that significantly weaken the security posture. Additionally, 23 service accounts were found to have passwords that haven't been rotated in over 2 years, with 7 of those being cracked during testing.
 
 Provide exactly 3 bullet points summarizing the most critical findings.`
+                },
+                'password-mini': {
+                    name: 'Password Mini-Test',
+                    type: 'custom',
+                    prompt: `Analyze these 10 passwords from a security perspective and identify patterns:
+
+1. Summer2024
+2. Welcome1!
+3. Password123
+4. Company2024!
+5. qwerty123
+6. Baseball!1
+7. JohnSmith1
+8. Winter2023
+9. P@ssw0rd!
+10. Football99
+
+For each password, briefly explain:
+- Why it's weak
+- What pattern category it falls into (season+year, keyboard pattern, name-based, etc.)
+
+Then provide a summary of the overall password hygiene issues observed.
+
+Keep your response concise but thorough.`
+                },
+                'instruction': {
+                    name: 'Instruction Following Test',
+                    type: 'custom',
+                    prompt: `You are testing your ability to follow formatting instructions precisely.
+
+TASK: Analyze the following list and respond EXACTLY in the format specified.
+
+Input data:
+- apples: 50
+- bananas: 30
+- oranges: 45
+- grapes: 25
+- mangoes: 40
+
+REQUIRED FORMAT (follow EXACTLY):
+1. Start with "ANALYSIS RESULTS" on its own line
+2. List each item as "- [item]: [count] units" (all lowercase for item name)
+3. Add a blank line
+4. Write "TOTAL: [sum] units"
+5. Add a blank line
+6. Write "TOP ITEM: [highest item] with [count] units"
+7. Write "BOTTOM ITEM: [lowest item] with [count] units"
+
+Your response should contain ONLY the formatted output, nothing else. No explanations, no additional text.`
                 }
             };
 
-            async function runBenchmarkTests() {
-                const serverId = document.getElementById('benchmark-server').value;
-                const model = document.getElementById('benchmark-model').value;
-                const temperature = parseFloat(document.getElementById('benchmark-temp').value);
-                const btn = document.getElementById('benchmark-btn');
-                const stopBtn = document.getElementById('benchmark-stop-btn');
-                const statusSpan = document.getElementById('benchmark-status');
-                const progressDiv = document.getElementById('benchmark-progress');
-                const progressFill = document.getElementById('benchmark-progress-fill');
-                const resultsDiv = document.getElementById('benchmark-results');
+            // Section tests (production prompts)
+            const SECTION_TESTS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
 
-                if (benchmarkRunning) return;
+            let quickRunning = false;
+            let quickStopped = false;
+            let quickResults = [];
+
+            async function runQuickBenchmark() {
+                if (quickRunning) return;
+
+                const serverId = document.getElementById('quick-server').value;
+                const model = document.getElementById('quick-model').value;
+                const temperature = parseFloat(document.getElementById('quick-temp').value);
+
+                if (!model) {
+                    alert('Please select a model');
+                    return;
+                }
 
                 // Get selected tests
                 const selectedTests = [];
-                for (const testId of Object.keys(BENCHMARK_TESTS)) {
+
+                // Quick tests
+                for (const testId of Object.keys(QUICK_TESTS)) {
                     const checkbox = document.getElementById('test-' + testId);
                     if (checkbox && checkbox.checked) {
-                        selectedTests.push(testId);
+                        selectedTests.push({ id: testId, ...QUICK_TESTS[testId] });
+                    }
+                }
+
+                // Section tests
+                for (const sectionId of SECTION_TESTS) {
+                    const checkbox = document.getElementById('test-' + sectionId);
+                    if (checkbox && checkbox.checked) {
+                        selectedTests.push({ id: sectionId, type: 'section', name: sectionId.replace('-', ' ').replace(/\\b\\w/g, l => l.toUpperCase()) });
                     }
                 }
 
@@ -3079,24 +6537,27 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                     return;
                 }
 
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
                 // Verify server is reachable
                 const serverResp = await fetch('/api/ai/servers/' + serverId + '/status');
                 const serverData = await serverResp.json();
                 if (!serverData.reachable) {
-                    statusSpan.innerHTML = '<span style="color: #f44336;">Server not reachable</span>';
+                    document.getElementById('quick-status').innerHTML = '<span style="color: #f44336;">Server not reachable</span>';
                     return;
                 }
 
                 // Setup UI
-                benchmarkRunning = true;
-                benchmarkStopped = false;
-                benchmarkResults = [];
-                btn.disabled = true;
+                quickRunning = true;
+                quickStopped = false;
+                quickResults = [];
+
+                const runBtn = document.getElementById('quick-run-btn');
+                const stopBtn = document.getElementById('quick-stop-btn');
+                const statusSpan = document.getElementById('quick-status');
+                const progressDiv = document.getElementById('quick-progress');
+                const progressFill = document.getElementById('quick-progress-fill');
+                const resultsDiv = document.getElementById('quick-results');
+
+                runBtn.disabled = true;
                 stopBtn.style.display = 'inline';
                 progressDiv.style.display = 'block';
                 resultsDiv.innerHTML = '';
@@ -3105,13 +6566,11 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
 
                 // Run each test
                 for (let i = 0; i < selectedTests.length; i++) {
-                    if (benchmarkStopped) break;
+                    if (quickStopped) break;
 
-                    const testId = selectedTests[i];
-                    const test = BENCHMARK_TESTS[testId];
+                    const test = selectedTests[i];
                     statusSpan.innerHTML = `Running: <strong>${escapeHtml(test.name)}</strong> (${i + 1}/${selectedTests.length})`;
 
-                    // Update progress
                     const pct = Math.round((i / selectedTests.length) * 100);
                     progressFill.style.width = pct + '%';
                     progressFill.textContent = pct + '%';
@@ -3125,21 +6584,17 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                     try {
                         let result;
                         if (test.type === 'section') {
-                            // Use the existing section analysis endpoint
-                            const sectionData = await getSectionData(testId);
-                            const analyzeResp = await fetch('/api/ai/report/analyze/' + testId, {
+                            const analyzeResp = await fetch('/api/ai/report/analyze/' + test.id, {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({
                                     model: model,
                                     temperature: temperature,
-                                    server_id: serverId,
-                                    data: sectionData
+                                    server_id: serverId
                                 })
                             });
                             result = await analyzeResp.json();
                         } else {
-                            // Custom prompt test - use raw generate endpoint
                             const genResp = await fetch('/api/ai/generate', {
                                 method: 'POST',
                                 headers: {'Content-Type': 'application/json'},
@@ -3154,23 +6609,19 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                         }
 
                         clearInterval(timerId);
-                        benchmarkResults.push({
-                            testId: testId,
+                        quickResults.push({
                             test: test,
                             time: result.response_time_seconds || testSeconds,
-                            timeFormatted: result.response_time_formatted || formatTime(testSeconds),
-                            success: !!result.content || !!result.response,
+                            success: !!(result.content || result.response),
                             error: result.error,
-                            savedTo: result.saved_to,
-                            contentLength: (result.content || result.response || '').length
+                            contentLength: (result.content || result.response || '').length,
+                            savedTo: result.saved_to
                         });
                     } catch (e) {
                         clearInterval(timerId);
-                        benchmarkResults.push({
-                            testId: testId,
+                        quickResults.push({
                             test: test,
                             time: 0,
-                            timeFormatted: 'Error',
                             success: false,
                             error: e.message,
                             contentLength: 0
@@ -3179,53 +6630,50 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                 }
 
                 // Complete
-                benchmarkRunning = false;
-                btn.disabled = false;
+                quickRunning = false;
+                runBtn.disabled = false;
                 stopBtn.style.display = 'none';
                 progressFill.style.width = '100%';
                 progressFill.textContent = '100%';
 
                 const totalTime = Math.round((Date.now() - startTime) / 1000);
-                const successCount = benchmarkResults.filter(r => r.success).length;
+                const successCount = quickResults.filter(r => r.success).length;
                 statusSpan.innerHTML = `<span style="color: #4caf50;">Complete!</span> ${successCount}/${selectedTests.length} passed in ${formatTime(totalTime)}`;
 
-                displayBenchmarkResults(model, serverId);
+                displayQuickResults(model);
             }
 
-            function stopBenchmark() {
-                benchmarkStopped = true;
-                document.getElementById('benchmark-status').innerHTML += ' <span style="color: #ff9800;">Stopping...</span>';
+            function stopQuickBenchmark() {
+                quickStopped = true;
+                document.getElementById('quick-status').innerHTML += ' <span style="color: #ff9800;">Stopping...</span>';
             }
 
-            function displayBenchmarkResults(model, serverId) {
-                const resultsDiv = document.getElementById('benchmark-results');
+            function displayQuickResults(model) {
+                const resultsDiv = document.getElementById('quick-results');
+                const maxTime = Math.max(...quickResults.map(r => r.time || 0), 1);
 
-                // Find max time for bar scaling
-                const maxTime = Math.max(...benchmarkResults.map(r => r.time || 0), 1);
+                let html = '<table class="results-table">';
+                html += '<tr><th>Test</th><th style="text-align: right;">Time</th><th style="text-align: right;">Output</th><th style="width: 35%;"></th></tr>';
 
-                let html = '<h4 style="color: #888;">Results for ' + escapeHtml(model) + '</h4>';
-                html += '<table style="width: 100%; border-collapse: collapse;">';
-                html += '<tr style="border-bottom: 1px solid #333;"><th style="text-align: left; padding: 8px; color: #888;">Test</th><th style="text-align: right; padding: 8px; color: #888;">Time</th><th style="text-align: right; padding: 8px; color: #888;">Output</th><th style="width: 40%; padding: 8px;"></th></tr>';
-
-                benchmarkResults.forEach((result) => {
+                quickResults.forEach(result => {
                     const barWidth = result.success ? Math.max((result.time / maxTime) * 100, 5) : 100;
                     const barColor = result.success ? '#4caf50' : '#f44336';
-                    const statusIcon = result.success ? '✓' : '✗';
-                    const statusColor = result.success ? '#4caf50' : '#f44336';
+                    const icon = result.success ? '✓' : '✗';
+                    const iconColor = result.success ? '#4caf50' : '#f44336';
 
                     html += `
-                        <tr style="border-bottom: 1px solid #222;">
-                            <td style="padding: 8px;">
-                                <span style="color: ${statusColor}; margin-right: 8px;">${statusIcon}</span>
+                        <tr>
+                            <td>
+                                <span style="color: ${iconColor}; margin-right: 8px;">${icon}</span>
                                 <strong style="color: #00d4ff;">${escapeHtml(result.test.name)}</strong>
                             </td>
-                            <td style="padding: 8px; text-align: right; color: ${result.success ? '#4caf50' : '#f44336'}; font-weight: bold;">
-                                ${escapeHtml(result.timeFormatted)}
+                            <td style="text-align: right; color: ${result.success ? '#4caf50' : '#f44336'}; font-weight: bold;">
+                                ${formatTime(result.time)}
                             </td>
-                            <td style="padding: 8px; text-align: right; color: #888;">
+                            <td style="text-align: right; color: #888;">
                                 ${result.success ? (result.contentLength / 1000).toFixed(1) + 'KB' : '-'}
                             </td>
-                            <td style="padding: 8px;">
+                            <td>
                                 <div style="height: 20px; background: #333; border-radius: 3px; overflow: hidden;">
                                     <div style="height: 100%; width: ${barWidth}%; background: ${barColor};"></div>
                                 </div>
@@ -3235,19 +6683,19 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                 });
                 html += '</table>';
 
-                // Summary stats
-                const successful = benchmarkResults.filter(r => r.success);
+                // Summary
+                const successful = quickResults.filter(r => r.success);
                 if (successful.length > 0) {
                     const totalTime = successful.reduce((sum, r) => sum + r.time, 0);
                     const avgTime = totalTime / successful.length;
                     const totalOutput = successful.reduce((sum, r) => sum + r.contentLength, 0);
 
                     html += `
-                        <div style="margin-top: 15px; padding: 12px; background: #0f0f1a; border-radius: 6px; display: flex; gap: 30px;">
-                            <div><span style="color: #888;">Tests Passed:</span> <strong style="color: #4caf50;">${successful.length}/${benchmarkResults.length}</strong></div>
-                            <div><span style="color: #888;">Total Time:</span> <strong>${formatTime(Math.round(totalTime))}</strong></div>
-                            <div><span style="color: #888;">Avg Time:</span> <strong>${formatTime(Math.round(avgTime))}</strong></div>
-                            <div><span style="color: #888;">Total Output:</span> <strong>${(totalOutput / 1000).toFixed(1)}KB</strong></div>
+                        <div class="summary-stats">
+                            <div class="summary-stat"><span class="label">Tests Passed</span><br><span class="value" style="color: #4caf50;">${successful.length}/${quickResults.length}</span></div>
+                            <div class="summary-stat"><span class="label">Total Time</span><br><span class="value">${formatTime(Math.round(totalTime))}</span></div>
+                            <div class="summary-stat"><span class="label">Avg Time</span><br><span class="value">${formatTime(Math.round(avgTime))}</span></div>
+                            <div class="summary-stat"><span class="label">Total Output</span><br><span class="value">${(totalOutput / 1000).toFixed(1)}KB</span></div>
                         </div>
                     `;
                 }
@@ -3255,53 +6703,54 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                 resultsDiv.innerHTML = html;
             }
 
-            // Matrix temperature slider
-            document.getElementById('matrix-temp').addEventListener('input', function() {
-                document.getElementById('matrix-temp-value').textContent = this.value;
-            });
-
-            // Full Matrix Run functionality
+            // Matrix run
             let matrixRunning = false;
             let matrixStopped = false;
             let matrixResults = [];
 
             async function runMatrix() {
+                if (matrixRunning) return;
+
                 const serverId = document.getElementById('matrix-server').value;
                 const temperature = parseFloat(document.getElementById('matrix-temp').value);
-                const btn = document.getElementById('matrix-btn');
+
+                const runBtn = document.getElementById('matrix-run-btn');
                 const stopBtn = document.getElementById('matrix-stop-btn');
                 const statusDiv = document.getElementById('matrix-status');
                 const progressDiv = document.getElementById('matrix-progress');
                 const progressFill = document.getElementById('matrix-progress-fill');
                 const resultsDiv = document.getElementById('matrix-results');
 
-                if (matrixRunning) return;
+                // Get server models
+                statusDiv.style.display = 'block';
+                statusDiv.className = 'status-msg loading';
+                statusDiv.textContent = 'Fetching server models...';
 
-                // Get server info and models
-                statusDiv.innerHTML = 'Fetching server models...';
                 const serverResp = await fetch('/api/ai/servers/' + serverId + '/status');
                 const serverData = await serverResp.json();
 
                 if (!serverData.reachable) {
-                    statusDiv.innerHTML = '<span style="color: #f44336;">Server not reachable: ' + (serverData.error || 'Unknown error') + '</span>';
+                    statusDiv.className = 'status-msg error';
+                    statusDiv.textContent = 'Server not reachable: ' + (serverData.error || 'Unknown error');
                     return;
                 }
 
                 const models = serverData.available_models || [];
                 if (models.length === 0) {
-                    statusDiv.innerHTML = '<span style="color: #f44336;">No models available on this server</span>';
+                    statusDiv.className = 'status-msg error';
+                    statusDiv.textContent = 'No models available on this server';
                     return;
                 }
 
-                // Get available sections
-                const sections = ['weak-habits', 'company-intel', 'user-behavior'];
+                const sections = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
                 const sectionNames = {
                     'weak-habits': 'Weak Password Habits',
                     'company-intel': 'Company Intelligence',
-                    'user-behavior': 'User Behavior Insights'
+                    'user-behavior': 'User Behavior',
+                    'recommendations': 'Recommendations'
                 };
 
-                // Build matrix of all combinations
+                // Build matrix
                 const matrix = [];
                 for (const section of sections) {
                     for (const model of models) {
@@ -3310,34 +6759,35 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                 }
 
                 const totalRuns = matrix.length;
-                statusDiv.innerHTML = `Starting matrix run: ${sections.length} sections x ${models.length} models = <strong>${totalRuns} total runs</strong>`;
+                statusDiv.className = 'status-msg loading';
+                statusDiv.innerHTML = `Starting: ${sections.length} sections × ${models.length} models = <strong>${totalRuns} runs</strong>`;
 
                 // Setup UI
                 matrixRunning = true;
                 matrixStopped = false;
                 matrixResults = [];
-                btn.disabled = true;
+                runBtn.disabled = true;
                 stopBtn.style.display = 'inline';
                 progressDiv.style.display = 'block';
                 resultsDiv.innerHTML = '';
 
-                // Create placeholder items for each run
+                // Create placeholders
                 matrix.forEach((item, idx) => {
                     resultsDiv.innerHTML += `
                         <div class="matrix-item" id="matrix-item-${idx}">
                             <div class="matrix-item-header">
                                 <span class="matrix-item-title">${escapeHtml(item.sectionName)}</span>
-                                <span class="matrix-item-status" id="matrix-status-${idx}">Pending</span>
+                                <span id="matrix-status-${idx}" style="color: #888;">Pending</span>
                             </div>
-                            <div style="color: #888; font-size: 0.85em;">${escapeHtml(item.model)}</div>
+                            <div class="matrix-item-model">${escapeHtml(item.model)}</div>
                             <div class="matrix-item-time" id="matrix-time-${idx}"></div>
                         </div>
                     `;
                 });
 
-                // Run each combination sequentially
+                // Run matrix
                 let completed = 0;
-                let startTime = Date.now();
+                const startTime = Date.now();
 
                 for (let i = 0; i < matrix.length; i++) {
                     if (matrixStopped) break;
@@ -3350,51 +6800,43 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                     itemDiv.classList.add('running');
                     statusSpan.innerHTML = '<span style="color: #00d4ff;">Running...</span>';
 
-                    // Start timer for this item
                     let itemSeconds = 0;
-                    const itemTimerId = setInterval(() => {
+                    const timerId = setInterval(() => {
                         itemSeconds++;
                         timeDiv.textContent = formatTime(itemSeconds);
                     }, 1000);
 
-                    // Get section data
-                    const sectionData = await getSectionData(item.section);
-
                     try {
-                        const analyzeResp = await fetch('/api/ai/report/analyze/' + item.section, {
+                        const resp = await fetch('/api/ai/report/analyze/' + item.section, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({
                                 model: item.model,
                                 temperature: temperature,
-                                server_id: serverId,
-                                data: sectionData
+                                server_id: serverId
                             })
                         });
 
-                        clearInterval(itemTimerId);
-                        const result = await analyzeResp.json();
+                        clearInterval(timerId);
+                        const result = await resp.json();
 
                         itemDiv.classList.remove('running');
                         if (result.content) {
                             itemDiv.classList.add('complete');
-                            statusSpan.innerHTML = '<span style="color: #4caf50;">✓ Complete</span>';
+                            statusSpan.innerHTML = '<span style="color: #4caf50;">✓</span>';
                             timeDiv.textContent = result.response_time_formatted || formatTime(itemSeconds);
-                            if (result.saved_to) {
-                                timeDiv.innerHTML += ' <span style="color: #666;">→ ' + escapeHtml(result.saved_to) + '</span>';
-                            }
-                            matrixResults.push({ ...item, success: true, time: result.response_time_seconds, savedTo: result.saved_to });
+                            matrixResults.push({ ...item, success: true, time: result.response_time_seconds });
                         } else {
                             itemDiv.classList.add('error');
-                            statusSpan.innerHTML = '<span style="color: #f44336;">✗ Failed</span>';
-                            timeDiv.textContent = result.error || 'Unknown error';
+                            statusSpan.innerHTML = '<span style="color: #f44336;">✗</span>';
+                            timeDiv.textContent = result.error || 'Failed';
                             matrixResults.push({ ...item, success: false, error: result.error });
                         }
                     } catch (e) {
-                        clearInterval(itemTimerId);
+                        clearInterval(timerId);
                         itemDiv.classList.remove('running');
                         itemDiv.classList.add('error');
-                        statusSpan.innerHTML = '<span style="color: #f44336;">✗ Error</span>';
+                        statusSpan.innerHTML = '<span style="color: #f44336;">✗</span>';
                         timeDiv.textContent = e.message;
                         matrixResults.push({ ...item, success: false, error: e.message });
                     }
@@ -3402,9 +6844,8 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
                     completed++;
                     const pct = Math.round((completed / totalRuns) * 100);
                     progressFill.style.width = pct + '%';
-                    progressFill.textContent = pct + '% (' + completed + '/' + totalRuns + ')';
+                    progressFill.textContent = pct + '%';
 
-                    // Update elapsed time
                     const elapsed = Math.round((Date.now() - startTime) / 1000);
                     const avgPerRun = elapsed / completed;
                     const remaining = Math.round(avgPerRun * (totalRuns - completed));
@@ -3413,12 +6854,13 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
 
                 // Complete
                 matrixRunning = false;
-                btn.disabled = false;
+                runBtn.disabled = false;
                 stopBtn.style.display = 'none';
 
                 const totalElapsed = Math.round((Date.now() - startTime) / 1000);
                 const successCount = matrixResults.filter(r => r.success).length;
-                statusDiv.innerHTML = `<span style="color: #4caf50;">Matrix run complete!</span> ${successCount}/${totalRuns} successful in ${formatTime(totalElapsed)}`;
+                statusDiv.className = 'status-msg success';
+                statusDiv.innerHTML = `<strong>Complete!</strong> ${successCount}/${totalRuns} successful in ${formatTime(totalElapsed)}`;
 
                 if (matrixStopped) {
                     statusDiv.innerHTML += ' <span style="color: #ff9800;">(Stopped early)</span>';
@@ -3427,10 +6869,657 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
 
             function stopMatrix() {
                 matrixStopped = true;
-                document.getElementById('matrix-status').innerHTML += ' <span style="color: #ff9800;">Stopping after current run...</span>';
+                document.getElementById('matrix-status').innerHTML += ' <span style="color: #ff9800;">Stopping...</span>';
             }
 
-            document.addEventListener('DOMContentLoaded', init);
+            // Model Comparison
+            const COMPARE_PRESETS = {
+                'reasoning': {
+                    name: 'Reasoning',
+                    prompt: `Solve this logic puzzle step by step:
+
+Three IT administrators - Alice, Bob, and Charlie - each manage a different system (Active Directory, Azure, and Linux servers) and use different password managers (Bitwarden, 1Password, and KeePass).
+
+Clues:
+1. Alice doesn't manage Active Directory
+2. The person who uses Bitwarden manages Linux servers
+3. Charlie uses 1Password
+4. Bob doesn't manage Azure
+5. The person who manages Active Directory uses KeePass
+
+Questions:
+1. Which system does each person manage?
+2. Which password manager does each person use?
+3. Explain your reasoning process.
+
+Provide a clear, structured answer with your step-by-step logic.`
+                },
+                'summarization': {
+                    name: 'Summarization',
+                    prompt: `Summarize the following security audit findings in exactly 3 bullet points, capturing the most critical issues:
+
+During the comprehensive password security assessment of the organization's Active Directory environment, we discovered several critical vulnerabilities that require immediate attention. The analysis covered 847 user accounts across three domains, with a password cracking success rate of 67.2% using standard dictionary and rule-based attacks executed over a 48-hour period.
+
+The most alarming finding was the widespread use of company-related terms in passwords. Over 40% of cracked passwords contained variations of the company name "TechCorp", project codes like "Project Phoenix" or "Initiative Blue", or product names. This pattern suggests either a failure in security awareness training or an overly permissive password policy that allows predictable constructions.
+
+Password reuse emerged as another significant concern, with 33 accounts sharing the single password "TechCorp2024!" and 11 additional accounts using "Summer2024". This level of reuse suggests either credential sharing among team members or IT-provisioned default passwords that were never changed. Either scenario represents a serious security risk.
+
+The technical analysis revealed that 89 accounts still have LM hashes stored, indicating legacy compatibility settings that significantly weaken the security posture. Additionally, 23 service accounts were found to have passwords that haven't been rotated in over 2 years, with 7 of those being cracked during testing.
+
+Provide exactly 3 bullet points summarizing the most critical findings.`
+                },
+                'password': {
+                    name: 'Password Analysis',
+                    prompt: `Analyze these 10 passwords from a security perspective and identify patterns:
+
+1. Summer2024
+2. Welcome1!
+3. Password123
+4. Company2024!
+5. qwerty123
+6. Baseball!1
+7. JohnSmith1
+8. Winter2023
+9. P@ssw0rd!
+10. Football99
+
+For each password, briefly explain:
+- Why it's weak
+- What pattern category it falls into (season+year, keyboard pattern, name-based, etc.)
+
+Then provide a summary of the overall password hygiene issues observed.
+
+Keep your response concise but thorough.`
+                },
+                'instruction': {
+                    name: 'Instruction Following',
+                    prompt: `You are testing your ability to follow formatting instructions precisely.
+
+TASK: Analyze the following list and respond EXACTLY in the format specified.
+
+Input data:
+- apples: 50
+- bananas: 30
+- oranges: 45
+- grapes: 25
+- mangoes: 40
+
+REQUIRED FORMAT (follow EXACTLY):
+1. Start with "ANALYSIS RESULTS" on its own line
+2. List each item as "- [item]: [count] units" (all lowercase for item name)
+3. Add a blank line
+4. Write "TOTAL: [sum] units"
+5. Add a blank line
+6. Write "TOP ITEM: [highest item] with [count] units"
+7. Write "BOTTOM ITEM: [lowest item] with [count] units"
+
+Your response should contain ONLY the formatted output, nothing else. No explanations, no additional text.`
+                }
+            };
+
+            let compareRunning = false;
+            let compareStopped = false;
+            let compareResults = [];
+            let currentComparePreset = 'reasoning';
+            let currentCompareSection = null;  // If set, use section API instead of generate
+
+            // Initialize comparison section
+            document.addEventListener('DOMContentLoaded', function() {
+                document.getElementById('compare-temp').addEventListener('input', function() {
+                    document.getElementById('compare-temp-value').textContent = this.value;
+                });
+                // Load initial prompt (button already has 'active' class in HTML)
+                const textarea = document.getElementById('compare-prompt');
+                textarea.value = COMPARE_PRESETS['reasoning'].prompt;
+                // Load models for the default selected server
+                updateCompareModels();
+                // Load comparison history
+                loadCompareHistory();
+            });
+
+            async function refreshServers() {
+                const btn = document.getElementById('refresh-servers-btn');
+                const status = document.getElementById('refresh-status');
+                const grid = document.getElementById('servers-grid');
+
+                btn.disabled = true;
+                status.textContent = 'Refreshing...';
+                status.style.color = '#00d4ff';
+
+                try {
+                    const resp = await fetch('/api/ai/servers');
+                    const data = await resp.json();
+
+                    if (!data.servers || data.servers.length === 0) {
+                        status.textContent = 'No servers configured';
+                        status.style.color = '#f44336';
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    // Rebuild server cards
+                    let cardsHtml = '';
+                    for (const server of data.servers) {
+                        const statusClass = server.reachable ? 'ok' : 'error';
+                        const modelCount = (server.available_models || []).length;
+                        const hardwareInfo = server.hardware ? ' | ' + server.hardware : '';
+                        const errorInfo = server.error ? ' | Error: ' + server.error : '';
+
+                        cardsHtml += `
+                            <div class="server-card ${statusClass}" data-server-id="${server.id}">
+                                <div class="server-header">
+                                    <span class="server-status-dot"></span>
+                                    <strong>${escapeHtml(server.name)}</strong>
+                                </div>
+                                <div class="server-details">
+                                    <div class="server-host">${escapeHtml(server.host)}</div>
+                                    <div class="server-info">${escapeHtml(server.description || '')}${hardwareInfo}</div>
+                                    <div class="server-models">${modelCount} models available${errorInfo}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    grid.innerHTML = cardsHtml;
+
+                    // Update server dropdowns
+                    const serverSelects = document.querySelectorAll('#quick-server, #compare-server, #matrix-server');
+                    serverSelects.forEach(select => {
+                        const currentValue = select.value;
+                        select.innerHTML = '';
+                        for (const server of data.servers) {
+                            const indicator = server.reachable ? '✓' : '✗';
+                            const option = document.createElement('option');
+                            option.value = server.id;
+                            option.textContent = indicator + ' ' + server.name;
+                            option.disabled = !server.reachable;
+                            select.appendChild(option);
+                        }
+                        // Try to restore previous selection
+                        if (currentValue && select.querySelector(`option[value="${currentValue}"]`)) {
+                            select.value = currentValue;
+                        }
+                    });
+
+                    // Update model dropdown for quick tests
+                    const quickServer = document.getElementById('quick-server');
+                    if (quickServer.value) {
+                        const selectedServer = data.servers.find(s => s.id === quickServer.value);
+                        if (selectedServer && selectedServer.available_models) {
+                            const quickModel = document.getElementById('quick-model');
+                            const currentModel = quickModel.value;
+                            quickModel.innerHTML = '';
+                            for (const model of selectedServer.available_models) {
+                                const option = document.createElement('option');
+                                option.value = model;
+                                option.textContent = model;
+                                quickModel.appendChild(option);
+                            }
+                            if (currentModel && quickModel.querySelector(`option[value="${currentModel}"]`)) {
+                                quickModel.value = currentModel;
+                            }
+                        }
+                    }
+
+                    // Refresh compare models grid
+                    updateCompareModels();
+
+                    const reachableCount = data.servers.filter(s => s.reachable).length;
+                    status.textContent = `${reachableCount}/${data.servers.length} servers online`;
+                    status.style.color = '#4caf50';
+
+                } catch (e) {
+                    status.textContent = 'Error: ' + e.message;
+                    status.style.color = '#f44336';
+                }
+
+                btn.disabled = false;
+            }
+
+            async function updateCompareModels() {
+                const serverId = document.getElementById('compare-server').value;
+                const grid = document.getElementById('compare-models-grid');
+                grid.innerHTML = '<span style="color: #666;">Loading models...</span>';
+
+                try {
+                    const resp = await fetch('/api/ai/servers/' + serverId + '/status');
+                    const data = await resp.json();
+
+                    if (!data.reachable) {
+                        grid.innerHTML = '<span style="color: #f44336;">Server not reachable</span>';
+                        return;
+                    }
+
+                    const models = data.available_models || [];
+                    if (models.length === 0) {
+                        grid.innerHTML = '<span style="color: #666;">No models available</span>';
+                        return;
+                    }
+
+                    grid.innerHTML = models.map(model => `
+                        <label class="model-checkbox" onclick="toggleModelCheckbox(this)">
+                            <input type="checkbox" name="compare-model" value="${escapeHtml(model)}">
+                            <span class="model-label">${escapeHtml(model)}</span>
+                        </label>
+                    `).join('');
+
+                    updateCompareModelsCount();
+                } catch (e) {
+                    grid.innerHTML = '<span style="color: #f44336;">Error loading models: ' + escapeHtml(e.message) + '</span>';
+                }
+            }
+
+            function toggleModelCheckbox(label) {
+                const checkbox = label.querySelector('input');
+                checkbox.checked = !checkbox.checked;
+                label.classList.toggle('selected', checkbox.checked);
+                updateCompareModelsCount();
+            }
+
+            function selectAllCompareModels() {
+                document.querySelectorAll('#compare-models-grid .model-checkbox').forEach(label => {
+                    const checkbox = label.querySelector('input');
+                    checkbox.checked = true;
+                    label.classList.add('selected');
+                });
+                updateCompareModelsCount();
+            }
+
+            function deselectAllCompareModels() {
+                document.querySelectorAll('#compare-models-grid .model-checkbox').forEach(label => {
+                    const checkbox = label.querySelector('input');
+                    checkbox.checked = false;
+                    label.classList.remove('selected');
+                });
+                updateCompareModelsCount();
+            }
+
+            function updateCompareModelsCount() {
+                const selected = document.querySelectorAll('#compare-models-grid input:checked').length;
+                const total = document.querySelectorAll('#compare-models-grid input').length;
+                document.getElementById('compare-models-count').textContent = selected + ' of ' + total + ' selected';
+            }
+
+            function setComparePreset(presetId, clickedBtn) {
+                // Update active button
+                document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+                // Use clicked button if provided, otherwise find by preset name
+                if (clickedBtn) {
+                    clickedBtn.classList.add('active');
+                } else {
+                    const presetNames = {'reasoning': 'Reasoning', 'summarization': 'Summarization', 'password': 'Password Analysis', 'instruction': 'Instruction Following', 'custom': 'Custom'};
+                    document.querySelectorAll('.preset-btn').forEach(btn => {
+                        if (btn.textContent === presetNames[presetId]) btn.classList.add('active');
+                    });
+                }
+
+                currentComparePreset = presetId;
+                currentCompareSection = null;  // Clear section mode
+                const textarea = document.getElementById('compare-prompt');
+                textarea.disabled = false;
+
+                if (presetId === 'custom') {
+                    textarea.placeholder = 'Enter your custom prompt here...';
+                    if (textarea.value === '' || Object.values(COMPARE_PRESETS).some(p => p.prompt === textarea.value)) {
+                        textarea.value = '';
+                    }
+                } else {
+                    textarea.value = COMPARE_PRESETS[presetId].prompt;
+                }
+            }
+
+            async function setCompareSectionPreset(sectionId, clickedBtn) {
+                // Update active button - clear all then set this one
+                document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
+                clickedBtn.classList.add('active');
+
+                currentComparePreset = 'section:' + sectionId;
+                currentCompareSection = sectionId;
+
+                const textarea = document.getElementById('compare-prompt');
+                textarea.value = 'Loading production prompt for ' + sectionId + '...';
+                textarea.disabled = true;
+
+                // Fetch the actual prompt for this section
+                try {
+                    const resp = await fetch('/api/ai/report/prompt/' + sectionId);
+                    const data = await resp.json();
+                    if (data.formatted_prompt) {
+                        textarea.value = data.formatted_prompt;
+                    } else {
+                        textarea.value = '[Production section: ' + sectionId + ']\\n\\nThis will use the production prompt with real data when run.';
+                    }
+                } catch (e) {
+                    textarea.value = '[Production section: ' + sectionId + ']\\n\\nUnable to load prompt preview. Will use production prompt when run.';
+                }
+            }
+
+            async function runComparison() {
+                if (compareRunning) return;
+
+                const serverId = document.getElementById('compare-server').value;
+                const temperature = parseFloat(document.getElementById('compare-temp').value);
+                const prompt = document.getElementById('compare-prompt').value.trim();
+
+                // Get selected models
+                const selectedModels = [];
+                document.querySelectorAll('#compare-models-grid input:checked').forEach(cb => {
+                    selectedModels.push(cb.value);
+                });
+
+                if (selectedModels.length === 0) {
+                    alert('Please select at least one model');
+                    return;
+                }
+
+                // Only check prompt for non-section presets
+                if (!currentCompareSection && !prompt) {
+                    alert('Please enter a prompt');
+                    return;
+                }
+
+                // Verify server is reachable
+                const serverResp = await fetch('/api/ai/servers/' + serverId + '/status');
+                const serverData = await serverResp.json();
+                if (!serverData.reachable) {
+                    document.getElementById('compare-status').innerHTML = '<span style="color: #f44336;">Server not reachable</span>';
+                    return;
+                }
+
+                // Setup UI
+                compareRunning = true;
+                compareStopped = false;
+                compareResults = [];
+
+                const runBtn = document.getElementById('compare-run-btn');
+                const stopBtn = document.getElementById('compare-stop-btn');
+                const statusSpan = document.getElementById('compare-status');
+                const progressDiv = document.getElementById('compare-progress');
+                const progressFill = document.getElementById('compare-progress-fill');
+                const resultsDiv = document.getElementById('compare-results');
+
+                runBtn.disabled = true;
+                stopBtn.style.display = 'inline';
+                progressDiv.style.display = 'block';
+                resultsDiv.innerHTML = '';
+
+                const startTime = Date.now();
+                const comparisonId = 'compare_' + Date.now();
+
+                // Run each model
+                for (let i = 0; i < selectedModels.length; i++) {
+                    if (compareStopped) break;
+
+                    const model = selectedModels[i];
+                    statusSpan.innerHTML = `Running: <strong>${escapeHtml(model)}</strong> (${i + 1}/${selectedModels.length})`;
+
+                    const pct = Math.round((i / selectedModels.length) * 100);
+                    progressFill.style.width = pct + '%';
+                    progressFill.textContent = pct + '%';
+
+                    // Add placeholder result
+                    const resultId = 'compare-result-' + i;
+                    resultsDiv.innerHTML += `
+                        <div class="compare-result running" id="${resultId}">
+                            <div class="compare-result-header">
+                                <span class="compare-result-model">${escapeHtml(model)}</span>
+                                <div class="compare-result-stats">
+                                    <span id="${resultId}-time">Running...</span>
+                                </div>
+                            </div>
+                            <div class="compare-result-content" id="${resultId}-content">
+                                <span style="color: #00d4ff;">Generating response...</span>
+                            </div>
+                        </div>
+                    `;
+
+                    let testSeconds = 0;
+                    const timerId = setInterval(() => {
+                        testSeconds++;
+                        document.getElementById(resultId + '-time').textContent = formatTime(testSeconds);
+                    }, 1000);
+
+                    try {
+                        let genResp;
+                        if (currentCompareSection) {
+                            // Use section API for production prompts
+                            genResp = await fetch('/api/ai/report/analyze/' + currentCompareSection, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    model: model,
+                                    temperature: temperature,
+                                    server_id: serverId
+                                })
+                            });
+                        } else {
+                            // Use generate API for custom prompts
+                            genResp = await fetch('/api/ai/generate', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({
+                                    prompt: prompt,
+                                    model: model,
+                                    temperature: temperature,
+                                    server_id: serverId
+                                })
+                            });
+                        }
+                        const result = await genResp.json();
+                        clearInterval(timerId);
+
+                        const resultDiv = document.getElementById(resultId);
+                        const contentDiv = document.getElementById(resultId + '-content');
+                        const timeSpan = document.getElementById(resultId + '-time');
+
+                        if (result.response || result.content) {
+                            const content = result.response || result.content;
+                            const responseTime = result.response_time_seconds || testSeconds;
+
+                            resultDiv.classList.remove('running');
+                            resultDiv.classList.add('complete');
+                            contentDiv.textContent = content;
+                            timeSpan.innerHTML = `<span style="color: #4caf50;">${formatTime(responseTime)}</span> | ${(content.length / 1000).toFixed(1)}KB`;
+
+                            compareResults.push({
+                                model: model,
+                                success: true,
+                                time: responseTime,
+                                content: content,
+                                contentLength: content.length
+                            });
+                        } else {
+                            resultDiv.classList.remove('running');
+                            resultDiv.classList.add('error');
+                            contentDiv.innerHTML = '<span style="color: #f44336;">Error: ' + escapeHtml(result.error || 'Unknown error') + '</span>';
+                            timeSpan.innerHTML = '<span style="color: #f44336;">Failed</span>';
+
+                            compareResults.push({
+                                model: model,
+                                success: false,
+                                error: result.error || 'Unknown error',
+                                time: 0,
+                                contentLength: 0
+                            });
+                        }
+                    } catch (e) {
+                        clearInterval(timerId);
+                        const resultDiv = document.getElementById(resultId);
+                        const contentDiv = document.getElementById(resultId + '-content');
+                        const timeSpan = document.getElementById(resultId + '-time');
+
+                        resultDiv.classList.remove('running');
+                        resultDiv.classList.add('error');
+                        contentDiv.innerHTML = '<span style="color: #f44336;">Error: ' + escapeHtml(e.message) + '</span>';
+                        timeSpan.innerHTML = '<span style="color: #f44336;">Failed</span>';
+
+                        compareResults.push({
+                            model: model,
+                            success: false,
+                            error: e.message,
+                            time: 0,
+                            contentLength: 0
+                        });
+                    }
+                }
+
+                // Complete
+                compareRunning = false;
+                runBtn.disabled = false;
+                stopBtn.style.display = 'none';
+                progressFill.style.width = '100%';
+                progressFill.textContent = '100%';
+
+                const totalTime = Math.round((Date.now() - startTime) / 1000);
+                const successCount = compareResults.filter(r => r.success).length;
+                statusSpan.innerHTML = `<span style="color: #4caf50;">Complete!</span> ${successCount}/${selectedModels.length} succeeded in ${formatTime(totalTime)}`;
+
+                // Save comparison results
+                if (successCount > 0) {
+                    saveComparisonResults(comparisonId, serverId, temperature, prompt, compareResults);
+                }
+
+                // Display summary
+                displayCompareSummary();
+            }
+
+            function stopComparison() {
+                compareStopped = true;
+                document.getElementById('compare-status').innerHTML += ' <span style="color: #ff9800;">Stopping...</span>';
+            }
+
+            function displayCompareSummary() {
+                const successful = compareResults.filter(r => r.success);
+                if (successful.length === 0) return;
+
+                const resultsDiv = document.getElementById('compare-results');
+
+                // Sort by time for ranking
+                successful.sort((a, b) => a.time - b.time);
+                const fastest = successful[0];
+                const slowest = successful[successful.length - 1];
+                const avgTime = successful.reduce((sum, r) => sum + r.time, 0) / successful.length;
+                const totalOutput = successful.reduce((sum, r) => sum + r.contentLength, 0);
+
+                resultsDiv.innerHTML = `
+                    <div class="summary-stats" style="border: 1px solid #ff9800; margin-bottom: 20px;">
+                        <div class="summary-stat"><span class="label">Successful</span><br><span class="value" style="color: #4caf50;">${successful.length}/${compareResults.length}</span></div>
+                        <div class="summary-stat"><span class="label">Fastest</span><br><span class="value">${escapeHtml(fastest.model)}<br><small style="color: #4caf50;">${formatTime(fastest.time)}</small></span></div>
+                        <div class="summary-stat"><span class="label">Slowest</span><br><span class="value">${escapeHtml(slowest.model)}<br><small style="color: #f44336;">${formatTime(slowest.time)}</small></span></div>
+                        <div class="summary-stat"><span class="label">Avg Time</span><br><span class="value">${formatTime(avgTime)}</span></div>
+                        <div class="summary-stat"><span class="label">Total Output</span><br><span class="value">${(totalOutput / 1000).toFixed(1)}KB</span></div>
+                    </div>
+                ` + resultsDiv.innerHTML;
+            }
+
+            async function saveComparisonResults(comparisonId, serverId, temperature, prompt, results) {
+                try {
+                    await fetch('/api/ai/benchmark/comparison/save', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            comparison_id: comparisonId,
+                            server_id: serverId,
+                            temperature: temperature,
+                            prompt: prompt,
+                            preset: currentComparePreset,
+                            results: results,
+                            timestamp: new Date().toISOString()
+                        })
+                    });
+                    loadCompareHistory();
+                } catch (e) {
+                    console.error('Failed to save comparison results:', e);
+                }
+            }
+
+            async function loadCompareHistory() {
+                try {
+                    const resp = await fetch('/api/ai/benchmark/comparison/history');
+                    const data = await resp.json();
+
+                    const historySection = document.getElementById('compare-history-section');
+                    const historyList = document.getElementById('compare-history-list');
+
+                    if (!data.comparisons || data.comparisons.length === 0) {
+                        historySection.style.display = 'none';
+                        return;
+                    }
+
+                    historySection.style.display = 'block';
+                    historyList.innerHTML = data.comparisons.map(comp => `
+                        <div class="history-item">
+                            <div class="history-item-info">
+                                <div class="history-item-date">${new Date(comp.timestamp).toLocaleString()}</div>
+                                <div class="history-item-models">${comp.models.length} models: ${comp.models.slice(0, 3).join(', ')}${comp.models.length > 3 ? '...' : ''}</div>
+                                <div class="history-item-prompt">${escapeHtml(comp.prompt.substring(0, 80))}${comp.prompt.length > 80 ? '...' : ''}</div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="viewComparisonHistory('${comp.id}')" class="secondary" style="padding: 5px 12px; font-size: 0.85em;">View</button>
+                                <button onclick="deleteComparisonHistory('${comp.id}')" class="danger" style="padding: 5px 12px; font-size: 0.85em;">Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } catch (e) {
+                    console.error('Failed to load comparison history:', e);
+                }
+            }
+
+            async function viewComparisonHistory(comparisonId) {
+                try {
+                    const resp = await fetch('/api/ai/benchmark/comparison/' + comparisonId);
+                    const data = await resp.json();
+
+                    if (data.error) {
+                        alert('Error loading comparison: ' + data.error);
+                        return;
+                    }
+
+                    // Display results
+                    const resultsDiv = document.getElementById('compare-results');
+                    resultsDiv.innerHTML = '';
+
+                    // Add info header
+                    resultsDiv.innerHTML = `
+                        <div style="background: #1a2a4a; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <strong style="color: #ff9800;">Viewing saved comparison from ${new Date(data.timestamp).toLocaleString()}</strong>
+                            <br><span style="color: #888;">Preset: ${data.preset || 'custom'} | Temperature: ${data.temperature} | Server: ${data.server_id}</span>
+                        </div>
+                    `;
+
+                    // Display each result
+                    data.results.forEach((result, i) => {
+                        const statusClass = result.success ? 'complete' : 'error';
+                        resultsDiv.innerHTML += `
+                            <div class="compare-result ${statusClass}">
+                                <div class="compare-result-header">
+                                    <span class="compare-result-model">${escapeHtml(result.model)}</span>
+                                    <div class="compare-result-stats">
+                                        <span style="color: ${result.success ? '#4caf50' : '#f44336'};">${result.success ? formatTime(result.time) : 'Failed'}</span>
+                                        ${result.success ? ' | ' + (result.contentLength / 1000).toFixed(1) + 'KB' : ''}
+                                    </div>
+                                </div>
+                                <div class="compare-result-content">${result.success ? escapeHtml(result.content) : '<span style="color: #f44336;">Error: ' + escapeHtml(result.error) + '</span>'}</div>
+                            </div>
+                        `;
+                    });
+
+                    // Scroll to results
+                    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+                } catch (e) {
+                    alert('Error loading comparison: ' + e.message);
+                }
+            }
+
+            async function deleteComparisonHistory(comparisonId) {
+                if (!confirm('Delete this comparison result?')) return;
+
+                try {
+                    await fetch('/api/ai/benchmark/comparison/' + comparisonId, { method: 'DELETE' });
+                    loadCompareHistory();
+                } catch (e) {
+                    alert('Error deleting comparison: ' + e.message);
+                }
+            }
         </script>
     </body>
     </html>
@@ -3438,528 +7527,105 @@ Provide exactly 3 bullet points summarizing the most critical findings.`
     return html
 
 
-@app.route("/api/ai/test")
+# Comparison results storage directory
+COMPARISON_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "benchmark_results")
+
+
+@app.route("/api/ai/benchmark/comparison/save", methods=["POST"])
 @login_required
-def ai_test_page():
-    """Hidden test page for experimenting with AI features."""
-    from ollama_tools import test_ollama_connection
+def save_comparison_results():
+    """Save model comparison benchmark results to a file."""
+    # Ensure directory exists
+    os.makedirs(COMPARISON_RESULTS_DIR, exist_ok=True)
 
-    status = test_ollama_connection()
+    data = request.get_json()
+    comparison_id = data.get("comparison_id", f"compare_{int(time.time())}")
 
-    # Build model options HTML
-    model_options = ""
-    for model in status.get("available_models", []):
-        model_options += f'<option value="{model}">{model}</option>'
+    # Build result data
+    result_data = {
+        "id": comparison_id,
+        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        "server_id": data.get("server_id"),
+        "temperature": data.get("temperature"),
+        "prompt": data.get("prompt"),
+        "preset": data.get("preset", "custom"),
+        "results": data.get("results", []),
+        "models": [r.get("model") for r in data.get("results", [])],
+    }
 
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>HM1K AI Test Console</title>
-        <style>
-            body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
-            h1 { color: #00d4ff; }
-            .status { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-            .status.ok { background: #1e3a1e; border: 1px solid #4caf50; }
-            .status.error { background: #3a1e1e; border: 1px solid #f44336; }
-            .section { background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-            h2 { color: #00d4ff; margin-top: 0; }
-            h3 { color: #aaa; margin-top: 20px; margin-bottom: 10px; }
-            textarea { width: 100%; height: 150px; background: #0f0f1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 10px; font-family: monospace; box-sizing: border-box; }
-            button { background: #00d4ff; color: #000; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 10px; }
-            button:hover { background: #00b8e6; }
-            button:disabled { background: #555; cursor: not-allowed; }
-            button.danger { background: #f44336; color: #fff; }
-            button.danger:hover { background: #d32f2f; }
-            button.secondary { background: #555; color: #fff; }
-            button.secondary:hover { background: #666; }
-            .response { background: #0f0f1a; padding: 15px; border-radius: 4px; margin-top: 15px; white-space: pre-wrap; font-family: monospace; max-height: 400px; overflow-y: auto; }
-            .loading { color: #00d4ff; }
-            select { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 8px 12px; border-radius: 4px; font-size: 14px; min-width: 200px; }
-            input[type="text"] { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 8px 12px; border-radius: 4px; font-size: 14px; }
-            label { display: block; margin-bottom: 5px; color: #888; }
-            .form-group { margin-bottom: 15px; }
-            .model-selector { background: #0f3460; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
-            .model-selector label { margin: 0; color: #00d4ff; font-weight: bold; }
-            .model-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 15px; }
-            .model-card { background: #0f0f1a; padding: 12px; border-radius: 6px; border: 1px solid #333; }
-            .model-card.installed { border-color: #4caf50; }
-            .model-card .model-name { font-weight: bold; color: #00d4ff; }
-            .model-card .model-desc { color: #888; font-size: 0.9em; margin: 5px 0; }
-            .model-card .model-sizes { color: #666; font-size: 0.85em; }
-            .model-card .model-actions { margin-top: 10px; }
-            .model-card button { padding: 6px 12px; font-size: 0.85em; }
-            .installed-models { margin-bottom: 20px; }
-            .installed-model { display: inline-flex; align-items: center; background: #1e3a1e; border: 1px solid #4caf50; padding: 6px 12px; border-radius: 4px; margin: 4px; }
-            .installed-model .name { margin-right: 10px; }
-            .installed-model button { padding: 2px 8px; font-size: 0.8em; margin: 0; }
-            .preset-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 15px; }
-            .preset-card { background: #0f0f1a; padding: 15px; border-radius: 8px; border: 1px solid #333; cursor: pointer; transition: all 0.2s; }
-            .preset-card:hover { border-color: #00d4ff; transform: translateY(-2px); }
-            .preset-card.active { border-color: #00d4ff; background: #1a2a4a; }
-            .preset-card .preset-name { font-weight: bold; color: #00d4ff; font-size: 1.1em; }
-            .preset-card .preset-desc { color: #888; font-size: 0.9em; margin: 8px 0; }
-            .preset-card .preset-models { color: #666; font-size: 0.8em; }
-            .preset-card .preset-tip { color: #4caf50; font-size: 0.8em; margin-top: 8px; font-style: italic; }
-            .model-card .model-notes { color: #4caf50; font-size: 0.8em; margin-top: 5px; font-style: italic; }
-            .model-card .model-recommended { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-            .model-card .rec-tag { background: #1a3a5c; color: #00d4ff; padding: 2px 6px; border-radius: 3px; font-size: 0.75em; }
-            .temp-slider { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-            .temp-slider input[type="range"] { flex: 1; }
-            .temp-slider .temp-value { color: #00d4ff; font-weight: bold; min-width: 40px; }
-        </style>
-    </head>
-    <body>
-        <h1>HM1K AI Test Console</h1>
+    # Save to file
+    filename = f"{comparison_id}.json"
+    filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
 
-        <div class="status """ + ("ok" if status["reachable"] else "error") + """">
-            <strong>Ollama Status:</strong>
-            """ + ("Connected" if status["reachable"] else "Not Available") + """<br>
-            <strong>Host:</strong> """ + status["host"] + """<br>
-            <strong>Enabled:</strong> """ + str(status["enabled"]) + """
-            """ + (f"<br><strong>Error:</strong> {status['error']}" if status.get("error") else "") + """
-        </div>
+    with open(filepath, "w") as f:
+        json.dump(result_data, f, indent=2)
 
-        <div class="model-selector">
-            <label for="modelSelect">Model:</label>
-            <select id="modelSelect">
-                """ + model_options + """
-            </select>
-            <span style="color: #888; font-size: 0.9em;">Select the model to use for all requests</span>
-            <button class="secondary" onclick="refreshModels()">Refresh</button>
-        </div>
+    return jsonify({"success": True, "saved_to": filename})
 
-        <div class="section">
-            <h2>Analysis Presets</h2>
-            <p style="color: #888; font-size: 0.9em;">Select a preset to auto-configure model selection and temperature for your task.</p>
-            <div id="presetCards" class="preset-cards">
-                <span class="loading">Loading presets...</span>
-            </div>
-            <div class="temp-slider" style="margin-top: 15px;">
-                <label style="color: #888;">Temperature:</label>
-                <input type="range" id="temperatureSlider" min="0" max="1" step="0.1" value="0.7">
-                <span class="temp-value" id="tempValue">0.7</span>
-                <span style="color: #666; font-size: 0.85em;">(Lower = more consistent, Higher = more creative)</span>
-            </div>
-        </div>
 
-        <div class="section">
-            <h2>Model Management</h2>
+@app.route("/api/ai/benchmark/comparison/history", methods=["GET"])
+@login_required
+def get_comparison_history():
+    """Get list of saved comparison results."""
+    os.makedirs(COMPARISON_RESULTS_DIR, exist_ok=True)
 
-            <h3>Installed Models</h3>
-            <div id="installedModels" class="installed-models">
-                <span class="loading">Loading installed models...</span>
-            </div>
+    comparisons = []
+    for filename in os.listdir(COMPARISON_RESULTS_DIR):
+        if filename.endswith(".json") and filename.startswith("compare_"):
+            filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
+            try:
+                with open(filepath, "r") as f:
+                    data = json.load(f)
+                    comparisons.append({
+                        "id": data.get("id", filename.replace(".json", "")),
+                        "timestamp": data.get("timestamp"),
+                        "models": data.get("models", []),
+                        "prompt": data.get("prompt", "")[:100],
+                        "preset": data.get("preset", "custom"),
+                        "server_id": data.get("server_id"),
+                    })
+            except Exception as e:
+                logging.error(f"Error loading comparison file {filename}: {e}")
 
-            <h3>Pull a Model</h3>
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
-                <input type="text" id="customModelName" placeholder="e.g., llama3.1:70b or mistral" style="width: 300px;">
-                <button onclick="pullCustomModel()">Pull Model</button>
-            </div>
-            <div id="pullStatus" class="response" style="display:none;"></div>
+    # Sort by timestamp descending
+    comparisons.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
-            <h3>Available Models from Ollama Library</h3>
-            <p style="color: #888; font-size: 0.9em;">Click on a size to pull that specific variant.</p>
-            <div id="libraryModels" class="model-list">
-                <span class="loading">Loading available models...</span>
-            </div>
-        </div>
+    return jsonify({"comparisons": comparisons})
 
-        <div class="section">
-            <h2>Free-form Prompt</h2>
-            <div class="form-group">
-                <label>System Prompt (optional):</label>
-                <textarea id="systemPrompt" rows="4">You are a cybersecurity analyst specializing in password security. You recently completed an Active Directory domain password assessment by collecting (dumping) the domain hashes and then running them through hashcat doing multiple rounds of brute force guessing (up to 9 character passwords), dictionary attacks, hybrid dictionary attacks with rules (like One Rule to Rule them All) and mask attacks. Your job is to analyze the domain dump output and the hashcat output, and be prepared to answer questions about your analysis so your user can report your findings.</textarea>
-            </div>
-            <div class="form-group">
-                <label>User Prompt:</label>
-                <textarea id="userPrompt">Analyze the security implications of users choosing "Summer2024" as their password.</textarea>
-            </div>
-            <button onclick="sendPrompt()">Send Prompt</button>
-            <div id="promptResponse" class="response" style="display:none;"></div>
-        </div>
 
-        <div class="section">
-            <h2>Executive Summary Generator</h2>
-            <p style="color: #888;">Uses session data if available, or provide custom JSON.</p>
-            <div class="form-group">
-                <label>Stats JSON (optional override):</label>
-                <textarea id="summaryStats" rows="3">{"total_accounts": 5000, "cracked_accounts": 3350, "cracked_percent": 67, "unique_passwords": 2100, "avg_length": 9.2, "min_length": 4, "max_length": 24, "blank_passwords": 12}</textarea>
-            </div>
-            <button onclick="generateSummary()">Generate Summary</button>
-            <div id="summaryResponse" class="response" style="display:none;"></div>
-        </div>
+@app.route("/api/ai/benchmark/comparison/<comparison_id>", methods=["GET"])
+@login_required
+def get_comparison_result(comparison_id):
+    """Get a specific comparison result."""
+    filename = f"{comparison_id}.json"
+    filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
 
-        <div class="section">
-            <h2>Pattern Analyzer</h2>
-            <div class="form-group">
-                <label>Patterns JSON:</label>
-                <textarea id="patternData" rows="4">{"Password Variants": {"count": 234, "examples": {"P@ssw0rd": 45, "password123": 32}}, "Season + Year": {"count": 567, "examples": {"Summer2024": 89, "Winter2023": 45}}, "Keyboard Walks": {"count": 123, "examples": {"qwerty123": 34}}}</textarea>
-            </div>
-            <button onclick="analyzePatterns()">Analyze Patterns</button>
-            <div id="patternResponse" class="response" style="display:none;"></div>
-        </div>
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Comparison not found"}), 404
 
-        <div class="section">
-            <h2>Password Clustering</h2>
-            <div class="form-group">
-                <label>Passwords (one per line):</label>
-                <textarea id="clusterPasswords" rows="6">Summer2024
-Winter2023!
-GoPackers!
-yankees123
-JohnSmith1
-password123
-Welcome1!
-Jesus2024
-NewYork99
-football!</textarea>
-            </div>
-            <button onclick="clusterPasswords()">Cluster Passwords</button>
-            <div id="clusterResponse" class="response" style="display:none;"></div>
-        </div>
+    try:
+        with open(filepath, "r") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-        <script>
-            let installedModels = [];
 
-            function getSelectedModel() {
-                return document.getElementById('modelSelect').value;
-            }
+@app.route("/api/ai/benchmark/comparison/<comparison_id>", methods=["DELETE"])
+@login_required
+def delete_comparison_result(comparison_id):
+    """Delete a comparison result."""
+    filename = f"{comparison_id}.json"
+    filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
 
-            // Model Management Functions
-            async function loadInstalledModels() {
-                try {
-                    const resp = await fetch('/api/ai/models');
-                    const data = await resp.json();
-                    installedModels = data.models || [];
-                    renderInstalledModels();
-                    updateModelSelect();
-                } catch (e) {
-                    document.getElementById('installedModels').innerHTML = '<span style="color: #f44336;">Error loading models: ' + e.message + '</span>';
-                }
-            }
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Comparison not found"}), 404
 
-            function renderInstalledModels() {
-                const container = document.getElementById('installedModels');
-                if (installedModels.length === 0) {
-                    container.innerHTML = '<span style="color: #888;">No models installed</span>';
-                    return;
-                }
-                container.innerHTML = installedModels.map(model =>
-                    '<div class="installed-model">' +
-                    '<span class="name">' + model + '</span>' +
-                    '<button class="danger" onclick="deleteModel(\\'' + model + '\\')">Delete</button>' +
-                    '</div>'
-                ).join('');
-            }
-
-            function updateModelSelect() {
-                const select = document.getElementById('modelSelect');
-                const currentValue = select.value;
-                select.innerHTML = installedModels.map(model =>
-                    '<option value="' + model + '"' + (model === currentValue ? ' selected' : '') + '>' + model + '</option>'
-                ).join('');
-            }
-
-            async function loadLibraryModels() {
-                try {
-                    const resp = await fetch('/api/ai/library');
-                    const data = await resp.json();
-                    renderLibraryModels(data.models || []);
-                } catch (e) {
-                    document.getElementById('libraryModels').innerHTML = '<span style="color: #f44336;">Error loading library: ' + e.message + '</span>';
-                }
-            }
-
-            function renderLibraryModels(models) {
-                const container = document.getElementById('libraryModels');
-                container.innerHTML = models.map(model => {
-                    const isInstalled = installedModels.some(m => m.startsWith(model.name));
-                    const sizesHtml = model.sizes.length > 0
-                        ? model.sizes.map(size =>
-                            '<button class="secondary" style="padding: 4px 8px; margin: 2px;" onclick="pullModel(\\'' + model.name + ':' + size + '\\')">' + size + '</button>'
-                          ).join('')
-                        : '<button class="secondary" style="padding: 4px 8px; margin: 2px;" onclick="pullModel(\\'' + model.name + '\\')">Pull</button>';
-                    const recommendedHtml = (model.recommended_for && model.recommended_for.length > 0)
-                        ? '<div class="model-recommended">' + model.recommended_for.map(r => '<span class="rec-tag">' + r + '</span>').join('') + '</div>'
-                        : '';
-                    const notesHtml = model.notes ? '<div class="model-notes">' + model.notes + '</div>' : '';
-                    return '<div class="model-card' + (isInstalled ? ' installed' : '') + '">' +
-                        '<div class="model-name">' + model.name + (isInstalled ? ' (installed)' : '') + '</div>' +
-                        '<div class="model-desc">' + model.description + '</div>' +
-                        recommendedHtml +
-                        notesHtml +
-                        '<div class="model-actions">' + sizesHtml + '</div>' +
-                        '</div>';
-                }).join('');
-            }
-
-            async function pullModel(modelName) {
-                const statusDiv = document.getElementById('pullStatus');
-                statusDiv.style.display = 'block';
-                statusDiv.innerHTML = '<span class="loading">Pulling ' + modelName + '... This may take several minutes for large models.</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/pull', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ model: modelName })
-                    });
-                    const data = await resp.json();
-                    if (data.success) {
-                        statusDiv.innerHTML = '<span style="color: #4caf50;">Successfully pulled ' + modelName + '</span>';
-                        await loadInstalledModels();
-                        await loadLibraryModels();
-                    } else {
-                        statusDiv.innerHTML = '<span style="color: #f44336;">Failed to pull ' + modelName + ': ' + (data.error || 'Unknown error') + '</span>';
-                    }
-                } catch (e) {
-                    statusDiv.innerHTML = '<span style="color: #f44336;">Error: ' + e.message + '</span>';
-                }
-            }
-
-            async function pullCustomModel() {
-                const modelName = document.getElementById('customModelName').value.trim();
-                if (!modelName) {
-                    alert('Please enter a model name');
-                    return;
-                }
-                await pullModel(modelName);
-            }
-
-            async function deleteModel(modelName) {
-                if (!confirm('Are you sure you want to delete ' + modelName + '?')) {
-                    return;
-                }
-
-                const statusDiv = document.getElementById('pullStatus');
-                statusDiv.style.display = 'block';
-                statusDiv.innerHTML = '<span class="loading">Deleting ' + modelName + '...</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/delete', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ model: modelName })
-                    });
-                    const data = await resp.json();
-                    if (data.success) {
-                        statusDiv.innerHTML = '<span style="color: #4caf50;">Successfully deleted ' + modelName + '</span>';
-                        await loadInstalledModels();
-                        await loadLibraryModels();
-                    } else {
-                        statusDiv.innerHTML = '<span style="color: #f44336;">Failed to delete ' + modelName + ': ' + (data.error || 'Unknown error') + '</span>';
-                    }
-                } catch (e) {
-                    statusDiv.innerHTML = '<span style="color: #f44336;">Error: ' + e.message + '</span>';
-                }
-            }
-
-            async function refreshModels() {
-                await loadInstalledModels();
-                await loadLibraryModels();
-            }
-
-            // Preset Functions
-            let presets = {};
-            let activePreset = null;
-
-            async function loadPresets() {
-                try {
-                    const resp = await fetch('/api/ai/presets');
-                    const data = await resp.json();
-                    presets = data.presets || {};
-                    renderPresets();
-                } catch (e) {
-                    document.getElementById('presetCards').innerHTML = '<span style="color: #f44336;">Error loading presets: ' + e.message + '</span>';
-                }
-            }
-
-            function renderPresets() {
-                const container = document.getElementById('presetCards');
-                container.innerHTML = Object.entries(presets).map(([key, preset]) => {
-                    const availableModels = preset.recommended_models.filter(m =>
-                        installedModels.some(installed => installed.includes(m.split(':')[0]))
-                    );
-                    const modelsText = availableModels.length > 0
-                        ? 'Available: ' + availableModels.slice(0, 3).join(', ')
-                        : 'Recommended: ' + preset.recommended_models.slice(0, 2).join(', ');
-                    return '<div class="preset-card' + (activePreset === key ? ' active' : '') + '" onclick="selectPreset(\\'' + key + '\\')">' +
-                        '<div class="preset-name">' + preset.name + '</div>' +
-                        '<div class="preset-desc">' + preset.description + '</div>' +
-                        '<div class="preset-models">' + modelsText + '</div>' +
-                        '<div class="preset-tip">' + preset.tips + '</div>' +
-                        '</div>';
-                }).join('');
-            }
-
-            function selectPreset(presetKey) {
-                activePreset = presetKey;
-                const preset = presets[presetKey];
-                if (!preset) return;
-
-                // Update temperature slider
-                document.getElementById('temperatureSlider').value = preset.temperature;
-                document.getElementById('tempValue').textContent = preset.temperature;
-
-                // Try to select a recommended model that's installed
-                const modelSelect = document.getElementById('modelSelect');
-                for (const recModel of preset.recommended_models) {
-                    const matchingInstalled = installedModels.find(m => m.includes(recModel.split(':')[0]));
-                    if (matchingInstalled) {
-                        modelSelect.value = matchingInstalled;
-                        break;
-                    }
-                }
-
-                // Re-render to show active state
-                renderPresets();
-            }
-
-            // Temperature slider handler
-            document.addEventListener('DOMContentLoaded', function() {
-                const slider = document.getElementById('temperatureSlider');
-                const tempValue = document.getElementById('tempValue');
-                slider.addEventListener('input', function() {
-                    tempValue.textContent = this.value;
-                });
-            });
-
-            // Load everything on page load
-            document.addEventListener('DOMContentLoaded', function() {
-                loadInstalledModels().then(() => {
-                    loadPresets();
-                });
-                loadLibraryModels();
-            });
-
-            function getTemperature() {
-                return parseFloat(document.getElementById('temperatureSlider').value);
-            }
-
-            async function sendPrompt() {
-                const model = getSelectedModel();
-                const systemPrompt = document.getElementById('systemPrompt').value;
-                const userPrompt = document.getElementById('userPrompt').value;
-                const temperature = getTemperature();
-                const responseDiv = document.getElementById('promptResponse');
-
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
-                responseDiv.style.display = 'block';
-                responseDiv.innerHTML = '<span class="loading">Generating response using ' + model + ' (temp: ' + temperature + ')...</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/generate', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            model: model,
-                            prompt: userPrompt,
-                            system: systemPrompt,
-                            temperature: temperature
-                        })
-                    });
-                    const data = await resp.json();
-                    responseDiv.textContent = data.response || data.error || 'No response';
-                } catch (e) {
-                    responseDiv.textContent = 'Error: ' + e.message;
-                }
-            }
-
-            async function generateSummary() {
-                const model = getSelectedModel();
-                const statsJson = document.getElementById('summaryStats').value;
-                const responseDiv = document.getElementById('summaryResponse');
-
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
-                responseDiv.style.display = 'block';
-                responseDiv.innerHTML = '<span class="loading">Generating executive summary using ' + model + '...</span>';
-
-                try {
-                    let body = { model: model };
-                    if (statsJson.trim()) {
-                        body.stats = JSON.parse(statsJson);
-                    }
-
-                    const resp = await fetch('/api/ai/executive-summary', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(body)
-                    });
-                    const data = await resp.json();
-                    responseDiv.textContent = data.summary || data.error || 'No response';
-                } catch (e) {
-                    responseDiv.textContent = 'Error: ' + e.message;
-                }
-            }
-
-            async function analyzePatterns() {
-                const model = getSelectedModel();
-                const patternJson = document.getElementById('patternData').value;
-                const responseDiv = document.getElementById('patternResponse');
-
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
-                responseDiv.style.display = 'block';
-                responseDiv.innerHTML = '<span class="loading">Analyzing patterns using ' + model + '...</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/analyze-patterns', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            model: model,
-                            patterns: JSON.parse(patternJson)
-                        })
-                    });
-                    const data = await resp.json();
-                    responseDiv.textContent = data.analysis || data.error || 'No response';
-                } catch (e) {
-                    responseDiv.textContent = 'Error: ' + e.message;
-                }
-            }
-
-            async function clusterPasswords() {
-                const model = getSelectedModel();
-                const passwords = document.getElementById('clusterPasswords').value.split('\\n').filter(p => p.trim());
-                const responseDiv = document.getElementById('clusterResponse');
-
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
-                responseDiv.style.display = 'block';
-                responseDiv.innerHTML = '<span class="loading">Clustering passwords using ' + model + '...</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/cluster-passwords', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ model: model, passwords: passwords })
-                    });
-                    const data = await resp.json();
-                    responseDiv.textContent = JSON.stringify(data, null, 2);
-                } catch (e) {
-                    responseDiv.textContent = 'Error: ' + e.message;
-                }
-            }
-        </script>
-    </body>
-    </html>
-    """
-    return html
+    try:
+        os.remove(filepath)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
@@ -3984,6 +7650,19 @@ if __name__ == "__main__":
         raise ValueError(
             "Environment variable ADMIN_PASSWORD_HASH must be set in a local .env file."
         )
+
+    # Initialize local HIBP database if configured (uses binary search - no memory loading)
+    hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
+    if hibp_local_db_path:
+        from hibp_checker import init_local_hibp_database
+        print(f"\n--> Checking local HIBP database at: {hibp_local_db_path}")
+        success, message, estimated_entries = init_local_hibp_database(hibp_local_db_path)
+        if success:
+            print(f"--> Local HIBP database ready: ~{estimated_entries:,} hashes (binary search, no memory loading)")
+        else:
+            print(f"--> Warning: Could not initialize local HIBP database: {message}")
+    else:
+        print("\n--> No local HIBP database configured (HIBP_LOCAL_DB_PATH not set)")
 
     # Start Flask application
     app.run(host="0.0.0.0", port=8443, ssl_context=("cert.pem", "key.pem"), debug=False)

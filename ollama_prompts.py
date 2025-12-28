@@ -213,7 +213,10 @@ football!"""
 #   {total_accounts} - Total accounts in the analysis
 #   {cracked_count} - Number of passwords cracked
 
-WEAK_HABITS_PROMPT = """You are analyzing cracked passwords from a corporate Active Directory domain password audit. Your goal is to independently discover weak password creation habits and patterns that make these passwords predictable and vulnerable to attack.
+WEAK_HABITS_PROMPT = """You are analyzing cracked passwords from a corporate Active Directory domain password audit.
+
+⚠️ CRITICAL: DO NOT INVENT PASSWORDS ⚠️
+Every password example you use MUST appear EXACTLY in the data below. If you cite a password that is not in the data, your analysis will be rejected. When in doubt, use fewer examples rather than making up passwords.
 
 ## AUDIT STATISTICS
 - Total accounts analyzed: {total_accounts}
@@ -222,60 +225,76 @@ WEAK_HABITS_PROMPT = """You are analyzing cracked passwords from a corporate Act
 ## ORGANIZATIONAL CONTEXT
 {org_context}
 
-## ALL CRACKED PASSWORDS
-The following is the complete list of cracked passwords from this domain. Analyze them to discover patterns:
+## PASSWORD LENGTH DISTRIBUTION
+{length_distribution}
 
+## ALL CRACKED PASSWORDS (use ONLY these as examples)
 {cracked_passwords}
 
-## ACCOUNT-PASSWORD PAIRS (sample for username context)
-These show how usernames relate to password choices:
+## ACCOUNT-PASSWORD PAIRS
 {account_passwords}
 
-## PASSWORD REUSE (passwords shared by multiple accounts)
+## PASSWORD REUSE
 {password_reuse}
-
----
 
 ## YOUR ANALYSIS TASK
 
-Examine these passwords as a security analyst would. Discover and categorize ALL weak password habits you can identify. Think beyond obvious patterns - look for:
+Examine these passwords and discover weak password habits. Look for:
+- Structural patterns (Word+Number, Word+Symbol+Year, etc.)
+- Semantic themes (names, dates, seasons, sports teams, company references, pop culture)
+- Keyboard patterns (qwerty, sequential, repeated characters)
+- Lazy complexity additions (ending with 1!, 123, @2024)
+- Username-password relationships (ONLY if the password contains the username as a substring)
+- Password reuse patterns
 
-1. **Structural Patterns**: How are passwords constructed? (e.g., Word+Number, Word+Symbol+Year)
+## STRICT RULES FOR EXAMPLES
 
-2. **Semantic Categories**: What themes appear? Consider:
-   - Personal names (first names, family names, pets)
-   - Temporal references (seasons, years, months, dates)
-   - Geographic references (cities, states, sports teams, landmarks)
-   - Company/work references (company name, products, projects, jargon)
-   - Pop culture (movies, TV, music, games, celebrities)
-   - Religious references
-   - Sports teams and mascots
-   - Hobbies and interests
+**Rule 1: ONLY USE REAL PASSWORDS**
+- Every password example MUST appear EXACTLY in "ALL CRACKED PASSWORDS" or "PASSWORD REUSE" above
+- Do NOT invent passwords like `kp39a`, `qpf02`, `IPCw0rks` - these are hallucinations
+- Do NOT combine parts of different passwords to create new ones
+- If you cannot find 2+ real examples for a pattern, skip the pattern entirely
 
-3. **Keyboard and Character Patterns**:
-   - Keyboard walks (qwerty, asdf, etc.)
-   - Sequential characters (123, abc, etc.)
-   - Repeated characters (aaa, 111)
-   - Common substitutions (@ for a, 0 for o, $ for s, 3 for e)
-   - Lazy complexity additions (ending with 1!, #1, 123, etc.)
+**Rule 2: USERNAME-PASSWORD CLAIMS**
+- The username MUST appear in ACCOUNT-PASSWORD PAIRS
+- The password MUST be the one associated with that username in the data
+- If you cannot verify the relationship, do not include the section
 
-4. **Policy Circumvention**: How are users meeting minimum requirements while staying predictable?
+**Rule 3: STATISTICS**
+- ONLY cite specific counts if you counted them from the data
+- If unsure, write "Not measured" - never guess
 
-5. **Username-Password Relationships**: Are users incorporating their username or name into passwords?
-
-6. **Shared Password Patterns**: What do the reused passwords reveal about organizational practices?
+**Rule 4: DOMAIN NAMES ARE NOT PASSWORDS**
+- Domain names like "electronics.org" are part of account identifiers, not passwords
+- Do not list them as password examples
 
 ## OUTPUT FORMAT
 
-For each pattern category you discover:
-1. **Pattern Name**: Give it a clear, descriptive name
-2. **Description**: Explain what the pattern is
-3. **Examples**: List 3-5 specific passwords that match this pattern
-4. **Count/Prevalence**: Estimate how many passwords follow this pattern
-5. **Attack Vulnerability**: Explain how an attacker would exploit this pattern
-6. **Why Users Choose This**: Explain the psychology behind this choice
+Provide your analysis as a numbered list of pattern findings. For EACH pattern found, use this EXACT format (no blank lines within each pattern):
 
-Rank your findings from most prevalent to least prevalent. Be thorough - discover patterns that might not be obvious at first glance. Your analysis will help the organization understand the true predictability of their passwords."""
+### 1. [Pattern Name]
+**Description:** One sentence explaining the pattern.
+**Examples:** `example1`, `example2`, `example3` (MUST be from the data above)
+**Prevalence:** If you can compute it from evidence, write `N accounts (X%)` where X is out of **cracked passwords**. If you cannot compute it, write `Not measured` (do NOT guess).
+**Relative Rank:** High/Medium/Low (based on how often you observe the pattern in the provided passwords, even if exact counts are not available)
+**Attack Risk:** How attackers exploit this.
+**Psychology:** Why users choose this.
+
+### 2. [Next Pattern Name]
+**Description:** ...
+(continue for each pattern discovered)
+
+## SUMMARY
+
+After listing all patterns, provide a brief 2-3 sentence summary of the most critical findings.
+
+IMPORTANT FORMATTING RULES:
+- Use ### for each pattern header with a number
+- Keep each pattern section compact (no extra blank lines)
+- Use backticks for password examples inline
+- Rank patterns from most to least prevalent (use measured prevalence when available, otherwise use Relative Rank)
+- Aim for 8-12 distinct patterns
+- EVERY example must come from the actual data - no invented passwords"""
 
 
 # -----------------------------------------------------------------------------
@@ -291,84 +310,63 @@ Rank your findings from most prevalent to least prevalent. Be thorough - discove
 #   {total_accounts} - Total accounts in the analysis
 #   {cracked_count} - Number of passwords cracked
 
-COMPANY_INTEL_PROMPT = """You are a cybersecurity analyst who has just completed a password audit of an Active Directory domain. Your goal is to analyze the passwords and account names to infer information about the organization - without being told anything about the company beforehand.
+COMPANY_INTEL_PROMPT = """You are a cybersecurity analyst inferring organizational information from password audit data.
 
 ## AUDIT STATISTICS
-- Total accounts analyzed: {total_accounts}
+- Total accounts: {total_accounts}
 - Passwords cracked: {cracked_count}
 
 ## ORGANIZATIONAL CONTEXT
 {org_context}
 
-## ALL ACCOUNT NAMES
-These are all the account/usernames from the domain. Analyze them for:
-- Domain names that might reveal company identity
-- Naming conventions (first.last, flast, etc.)
-- Department or role indicators
-- Service account naming patterns
-
+## ACCOUNT NAMES
 {account_names}
 
-## ALL CRACKED PASSWORDS
-Analyze these passwords for company-identifying information:
-
+## CRACKED PASSWORDS
 {cracked_passwords}
 
----
+## YOUR TASK
 
-## YOUR INTELLIGENCE GATHERING TASK
-
-Examine the passwords and account names as an investigator would. Look for clues that reveal:
-
-### 1. Company Identity
-- **Company name or abbreviations** appearing in passwords or account names
-- **Brand names, products, or services** the company might offer
-- **Domain names** that reveal the company
-- **Internal project names or codenames**
-- Rate your confidence: How certain are you of the company identity?
-
-### 2. Industry Sector
-Look for industry-specific terminology:
-- **Healthcare**: medical terms, patient references, HIPAA-related
-- **Finance**: banking terms, trading, compliance references
-- **Technology**: technical jargon, software names, coding references
-- **Manufacturing**: product codes, machinery terms
-- **Education**: school terms, academic references
-- **Government**: agency terms, clearance references
-- **Retail**: product/inventory terms, POS references
-What evidence supports your industry assessment?
-
-### 3. Geographic Location
-Identify location clues:
-- **Sports teams** (NFL, NBA, MLB, NHL, college teams)
-- **City or state names** in passwords
-- **Area codes or zip codes**
-- **Regional slang or cultural references**
-- **Local landmarks or attractions**
-Where is this company likely located?
-
-### 4. Company Culture & Demographics
-What do the passwords reveal about:
-- **Company age/founding year** (years appearing in passwords)
-- **Workforce demographics** (names, cultural references)
-- **Company events or milestones**
-- **Internal terminology or acronyms**
-- **Tech-savviness** of employees
-
-### 5. Security Posture Indicators
-Based on account naming and password patterns:
-- How mature is their IT organization?
-- Do they appear to have security awareness training?
-- Are there signs of password policy enforcement?
+Analyze the data to identify information about this organization. Provide findings for each category below.
 
 ## OUTPUT FORMAT
 
-For each category above:
-1. **Finding**: What you discovered
-2. **Evidence**: Specific passwords/accounts that support this (cite 3-5 examples)
-3. **Confidence**: Low/Medium/High with justification
+Use this EXACT structure for your response:
 
-Be specific with evidence. If you cannot determine something, say "Insufficient evidence" rather than guessing. Your analysis should read like an intelligence briefing."""
+### 1. Company Identity
+**Finding:** What company name, abbreviations, brands, or products appear in the data.
+**Evidence:** `example1`, `example2`, `example3` (cite specific passwords/accounts)
+**Confidence:** High/Medium/Low - brief justification
+
+### 2. Industry Sector
+**Finding:** What industry this organization operates in (tech, finance, healthcare, manufacturing, education, government, retail, etc.)
+**Evidence:** Industry-specific terms found in passwords/accounts.
+**Confidence:** High/Medium/Low - brief justification
+
+### 3. Geographic Location
+**Finding:** Where this organization is likely located based on sports teams, city names, area codes, regional references.
+**Evidence:** Specific location indicators found.
+**Confidence:** High/Medium/Low - brief justification
+
+### 4. Culture & Demographics
+**Finding:** Workforce characteristics revealed by password choices (age range, interests, tenure, diversity).
+**Evidence:** Years, cultural references, hobbies, or interests appearing in passwords.
+**Confidence:** High/Medium/Low - brief justification
+
+### 5. Security Posture
+**Finding:** Assessment of IT maturity, security awareness, and policy enforcement.
+**Evidence:** Password complexity patterns, naming conventions, or weak patterns observed.
+**Confidence:** High/Medium/Low - brief justification
+
+## SUMMARY
+Provide a 2-3 sentence executive summary of key intelligence findings.
+
+FORMATTING RULES:
+- Use ### headers exactly as shown above
+- Keep each section concise (3-5 lines max)
+- Use backticks for specific examples
+- Say "Insufficient evidence" if data doesn't support a finding
+- Do not add extra sections or change the structure"""
 
 
 # -----------------------------------------------------------------------------
@@ -385,83 +383,92 @@ Be specific with evidence. If you cannot determine something, say "Insufficient 
 #   {total_accounts} - Total accounts in the analysis
 #   {cracked_count} - Number of passwords cracked
 
-USER_BEHAVIOR_PROMPT = """You are a behavioral psychologist specializing in cybersecurity. You've been given the results of a password audit and your task is to analyze what these passwords reveal about user psychology, decision-making, and behavior patterns.
+USER_BEHAVIOR_PROMPT = """You are a behavioral psychologist analyzing password choices to understand user psychology and decision-making.
 
 ## AUDIT STATISTICS
-- Total accounts analyzed: {total_accounts}
+- Total accounts: {total_accounts}
 - Passwords cracked: {cracked_count}
 
 ## ORGANIZATIONAL CONTEXT
 {org_context}
 
-## ALL CRACKED PASSWORDS
-Analyze these passwords for behavioral patterns:
+## PASSWORD LENGTH DISTRIBUTION
+{length_distribution}
 
+## CRACKED PASSWORDS
 {cracked_passwords}
 
-## ACCOUNT-PASSWORD RELATIONSHIPS
-These show how users' identities relate to their password choices:
+## ACCOUNT-PASSWORD PAIRS
 {account_passwords}
 
-## PASSWORD REUSE PATTERNS
-These passwords are shared across multiple accounts:
+## PASSWORD REUSE
 {password_reuse}
 
----
+## YOUR TASK
 
-## YOUR BEHAVIORAL ANALYSIS TASK
-
-Examine these passwords through a behavioral psychology lens. Your goal is to understand WHY users make the choices they do, what it reveals about their mindset, and how this knowledge can improve security awareness.
-
-Provide insights on:
-
-### 1. Memorability vs Security Trade-off
-- How are users balancing these competing needs?
-- What mental shortcuts and heuristics do they use?
-- What does their password construction reveal about their security priorities?
-
-### 2. Personal vs Professional Identity
-- What percentage of passwords appear personal (names, family, pets, dates, hobbies)?
-- What percentage incorporate work/company elements?
-- What does this ratio suggest about how users view their work accounts?
-
-### 3. Minimum Effort Patterns
-- Identify specific patterns where users do the bare minimum to meet complexity requirements
-- Common additions like "1!", "123", "@2024" at the end
-- What does this reveal about their motivation and understanding?
-
-### 4. Cultural and Demographic Insights
-- What do the passwords suggest about workforce demographics?
-- Age indicators (generational references, pop culture from specific eras)
-- Geographic/regional indicators (sports teams, local references)
-- Cultural or religious elements
-- Hobbies and interests prevalent in the workforce
-
-### 5. Policy Circumvention Psychology
-- How are users technically complying while undermining security?
-- What creative workarounds have they developed?
-- What does this adversarial stance suggest about security culture?
-
-### 6. Risk Awareness Assessment
-- Do password choices suggest users understand password attacks?
-- Evidence of security awareness (or lack thereof)
-- Signs of security fatigue or apathy
-
-### 7. Social and Organizational Dynamics
-- Evidence of password sharing or coordination between users
-- Patterns that might indicate IT-assigned passwords
-- Department or team-specific patterns
+Analyze what these passwords reveal about user behavior, psychology, and security culture. Provide insights that help design better security awareness programs.
 
 ## OUTPUT FORMAT
 
-For each insight:
-1. **Observation**: What you found in the data
-2. **Examples**: 3-5 specific passwords that illustrate this behavior
-3. **Psychology**: Why users likely make this choice
-4. **Security Implication**: How this behavior creates risk
-5. **Recommendation**: How security awareness training could address this
+Use this EXACT structure for your response:
 
-Write in a way that helps security teams understand their users' mindset so they can design more effective security awareness programs and policies."""
+### 1. Memorability vs Security
+**Observation:** How users balance ease of memory with security requirements.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** Why users make this trade-off.
+**Risk:** Security implications of this behavior.
+**Recommendation:** How to address this in training.
+
+### 2. Personal vs Professional
+**Observation:** Ratio of personal (names, hobbies, dates) vs work-related passwords.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** What this reveals about how users view work accounts.
+**Risk:** How personal information enables attacks.
+**Recommendation:** Training approach.
+
+### 3. Minimum Effort Patterns
+**Observation:** How users meet complexity requirements with minimal effort (adding 1!, 123, @2024).
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** Why users optimize for convenience over security.
+**Risk:** How attackers exploit these patterns.
+**Recommendation:** Policy or training changes.
+
+### 4. Demographics & Culture
+**Observation:** Age indicators, geographic references, cultural elements, hobbies visible in passwords.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** How personal identity influences password choices.
+**Risk:** How attackers use demographic profiling.
+**Recommendation:** Awareness approach.
+
+### 5. Policy Circumvention
+**Observation:** Creative workarounds users employ to technically comply while staying predictable.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** Adversarial relationship with security policies.
+**Risk:** How circumvention undermines security controls.
+**Recommendation:** Policy redesign suggestions.
+
+### 6. Risk Awareness
+**Observation:** Evidence of security awareness (or lack thereof) in password choices.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** User understanding of password attacks.
+**Risk:** Signs of security fatigue or apathy.
+**Recommendation:** Targeted training needs.
+
+### 7. Organizational Dynamics
+**Observation:** Evidence of password sharing, IT-assigned defaults, or team patterns.
+**Examples:** `password1`, `password2`, `password3`
+**Psychology:** Workflow or cultural factors driving shared passwords.
+**Risk:** Accountability and lateral movement risks.
+**Recommendation:** Process or policy changes.
+
+## SUMMARY
+Provide 2-3 sentences summarizing the most important behavioral insights and top recommendations.
+
+FORMATTING RULES:
+- Use ### headers exactly as shown
+- Keep each section concise
+- Use backticks for password examples
+- Every section must include Examples, Psychology, Risk, and Recommendation"""
 
 
 # -----------------------------------------------------------------------------
@@ -505,43 +512,75 @@ Be specific and quantitative where possible. This assessment will be used to jus
 # Section: Recommendations
 # -----------------------------------------------------------------------------
 # Provides actionable security recommendations.
-# Variables: {key_findings}, {current_policy}, {worst_practices}
+# Variables: {audit_stats}, {key_findings}, {current_policy}, {worst_practices}
 
-RECOMMENDATIONS_PROMPT = """Based on the password audit findings, provide prioritized security recommendations.
+RECOMMENDATIONS_PROMPT = """Provide prioritized security recommendations based on password audit findings.
 
-KEY FINDINGS:
+## AUDIT STATISTICS
+{audit_stats}
+
+## KEY FINDINGS
 {key_findings}
 
-CURRENT PASSWORD POLICY:
+## CURRENT POLICY
 {current_policy}
 
-WORST PRACTICES OBSERVED:
+## WORST PRACTICES
 {worst_practices}
 
-Provide recommendations in three categories:
+## IMPORTANT NOTES
+- Severity labels: CRITICAL (urgent), HIGH (important), LOW (minor), INFO (awareness only)
+- Account status: "ENABLED" = active risk, "disabled" = already mitigated
+- Do NOT recommend actions for already-mitigated issues (e.g., don't say "disable" accounts marked as disabled)
+- Focus on ENABLED accounts and active threats first
 
-## Immediate Actions (This Week)
-- Quick wins that can be implemented immediately
-- Focus on highest-risk items
-- Include specific implementation steps
+## OUTPUT FORMAT
 
-## Short-Term Improvements (This Quarter)
-- Policy changes and their expected impact
-- Technical controls to implement
-- User education initiatives
+Use this EXACT structure:
 
-## Strategic Changes (This Year)
-- Long-term architectural improvements
-- Consider passwordless authentication options
-- Investment recommendations with ROI justification
+### Immediate Actions (This Week)
 
-For each recommendation:
-1. Describe the action clearly
-2. Explain what risk it mitigates
-3. Estimate implementation effort (Low/Medium/High)
-4. Estimate impact on security posture
+**1. [Action Title]**
+- **Action:** Specific steps to implement
+- **Mitigates:** What risk this addresses
+- **Effort:** Low/Medium/High
+- **Impact:** High/Medium/Low
+- **Status:** Note if partially mitigated already
 
-Prioritize recommendations by impact-to-effort ratio."""
+**2. [Action Title]**
+(repeat format for 3-5 immediate actions)
+
+### Short-Term Improvements (This Quarter)
+
+**1. [Improvement Title]**
+- **Action:** What to implement
+- **Mitigates:** Risk addressed
+- **Effort:** Low/Medium/High
+- **Impact:** High/Medium/Low
+
+**2. [Improvement Title]**
+(repeat format for 3-5 short-term items)
+
+### Strategic Changes (This Year)
+
+**1. [Strategic Initiative]**
+- **Action:** Long-term change to implement
+- **Mitigates:** Systemic risk addressed
+- **Effort:** High
+- **Impact:** High
+- **ROI:** Brief justification
+
+**2. [Strategic Initiative]**
+(repeat format for 2-3 strategic items)
+
+## SUMMARY
+One paragraph summarizing the top 3 priorities and expected security improvement.
+
+FORMATTING RULES:
+- Use ### for section headers, **1.** for numbered items
+- Keep each recommendation concise (4-5 lines max)
+- Always include Effort and Impact ratings
+- Prioritize by impact-to-effort ratio within each section"""
 
 
 # -----------------------------------------------------------------------------
@@ -555,12 +594,11 @@ Prioritize recommendations by impact-to-effort ratio."""
 #   {weak_habits_analysis} - Output from weak-habits section
 #   {company_intel_analysis} - Output from company-intel section
 #   {user_behavior_analysis} - Output from user-behavior section
-#   {risk_assessment_analysis} - Output from risk-assessment section
 #   {recommendations_analysis} - Output from recommendations section
 #   {raw_data_summary} - Summary of all raw JSON data available
 #   {org_context} - Organizational context derived from the data
 
-FULL_REPORT_PROMPT = """You are a senior security consultant preparing a comprehensive Password Security Assessment Report for executive leadership and the security team. You have access to complete audit data and five specialized AI analyses that have already been performed.
+FULL_REPORT_PROMPT = """You are a senior security consultant preparing a comprehensive Password Security Assessment Report for executive leadership and the security team. You have access to complete audit data and four specialized AI analyses that have already been performed.
 
 Your task is to synthesize all of this information into a polished, professional report that tells a cohesive story about the organization's password security posture.
 
@@ -581,10 +619,7 @@ Your task is to synthesize all of this information into a polished, professional
 ### 3. User Behavior Insights
 {user_behavior_analysis}
 
-### 4. Risk Assessment
-{risk_assessment_analysis}
-
-### 5. Security Recommendations
+### 4. Security Recommendations
 {recommendations_analysis}
 
 ## RAW DATA SUMMARY
@@ -704,6 +739,7 @@ AI_REPORT_SECTIONS = {
             "cracked_passwords": "derived:all_cracked_passwords",
             "account_passwords": "derived:account_password_pairs",
             "password_reuse": "derived:password_reuse_details",
+            "length_distribution": "derived:password_length_distribution",
             "org_context": "derived:organizational_context",
             "total_accounts": "derived:total_account_count",
             "cracked_count": "derived:cracked_account_count"
@@ -737,32 +773,21 @@ AI_REPORT_SECTIONS = {
             "cracked_passwords": "derived:all_cracked_passwords",
             "account_passwords": "derived:account_password_pairs",
             "password_reuse": "derived:password_reuse_details",
+            "length_distribution": "derived:password_length_distribution",
             "org_context": "derived:organizational_context",
             "total_accounts": "derived:total_account_count",
             "cracked_count": "derived:cracked_account_count"
-        }
-    },
-    "risk-assessment": {
-        "title": "Risk Assessment",
-        "description": "Quantifies business and security risk",
-        "prompt_key": "RISK_ASSESSMENT_PROMPT",
-        "recommended_model": "deepseek-r1:70b",
-        "temperature": 0.4,
-        "order": 4,
-        "data_sources": {
-            "stats": "file:cracking_stats_table",
-            "policy_failures": "derived:policy_failures",
-            "critical_findings": "derived:critical_findings"
         }
     },
     "recommendations": {
         "title": "Security Recommendations",
         "description": "Prioritized actionable recommendations",
         "prompt_key": "RECOMMENDATIONS_PROMPT",
-        "recommended_model": "llama3.1:70b",
+        "recommended_model": "deepseek-r1:671b",
         "temperature": 0.4,  # Slightly lower for more actionable, less verbose output
         "order": 5,
         "data_sources": {
+            "audit_stats": "derived:audit_stats_summary",
             "key_findings": "derived:key_findings",
             "current_policy": "session:analysis_options",
             "worst_practices": "derived:worst_practices"
@@ -783,7 +808,6 @@ AI_REPORT_SECTIONS = {
             "weak_habits_analysis": "session:ai_output_weak-habits",
             "company_intel_analysis": "session:ai_output_company-intel",
             "user_behavior_analysis": "session:ai_output_user-behavior",
-            "risk_assessment_analysis": "session:ai_output_risk-assessment",
             "recommendations_analysis": "session:ai_output_recommendations",
             # Raw data summary for appendix
             "raw_data_summary": "derived:raw_data_summary",
@@ -791,3 +815,506 @@ AI_REPORT_SECTIONS = {
         }
     }
 }
+
+
+# =============================================================================
+# SECTION-SPECIFIC VALIDATION PROMPTS (Phase 2)
+# =============================================================================
+# Each section has specific validation rules based on what claims need checking.
+# Variables: {evidence_pack}, {content_to_validate}
+#
+# VALIDATION PHILOSOPHY (applies to all validators):
+# - Do NOT invent facts, policies, metrics, counts, or percentages
+# - If a number/policy/config is not explicitly supported by evidence, mark it unsupported
+# - Do NOT recommend actions for already-mitigated issues (disabled accounts, resolved findings)
+# - Keep recommendations realistic for on-prem Active Directory
+# - Flag outdated guidance (e.g., periodic forced password rotation without evidence of compromise)
+# - Never mask or redact passwords - this is an audit report
+
+VALIDATION_PROMPT_WEAK_HABITS = """You are validating the "Password Pattern Analysis" section of a security audit.
+
+## EVIDENCE DATA
+{evidence_pack}
+
+## CONTENT TO VALIDATE
+{content_to_validate}
+
+## SECTION-SPECIFIC VALIDATION RULES
+
+For Password Pattern Analysis, verify these specific claims:
+
+1. **HALLUCINATION CHECK (CRITICAL)**: Every password example MUST exist in the PASSWORD WHITELIST in the evidence data.
+   - The evidence includes a "PASSWORD WHITELIST" section - ONLY passwords in that list are valid
+   - For EACH password example in the content, check if it appears in the whitelist
+   - If a password is NOT in the whitelist, it is HALLUCINATED and must be REMOVED
+   - Check EVERY password example, not just suspicious ones
+   - Common hallucinations: `kp39a`, `qpf02`, `IPCw0rks`, `ipcftp`, `IPC@2025A`, `Bunnies7!Bunnies7!`, `Winter2468#`
+   - When in doubt, REMOVE the password - it's better to have fewer examples than hallucinated ones
+
+2. **Username-Password Relationships**: If a claim says a password is "derived from" or "related to" a username, verify BOTH conditions:
+   - The username MUST exist in the evidence data (account names)
+   - The password MUST contain the username or a clear substring/variation of it
+   Example: username "jsmith" with password "Jsmith123!" is valid (contains "jsmith").
+   INVALID examples (flag for removal):
+   - Any username not found in the evidence data
+   - Password that doesn't contain the username as a substring (e.g., "zhouro" + "Winter2468#")
+   - Made-up or invented username-password pairs
+   - Pairs where you cannot verify BOTH the username AND password exist together in the data
+
+3. **Pattern Examples**: Verify that password examples actually match the pattern being described:
+   - "Sequential keyboard patterns" should show actual keyboard walks (qwerty, asdfgh)
+   - "Company references" should contain company name/abbreviation in the PASSWORD itself, NOT domain names from account names
+   - "Word+Number" should show word followed by numbers
+   - "Repeated characters" patterns like `Bunnies7!Bunnies7!` are likely hallucinated - verify they exist
+   - EXCLUDE domain names (e.g., "electronics.org", "company.com") - these are part of account identifiers, NOT passwords
+
+4. **Prevalence Claims**: If specific counts are given (e.g., "14 accounts"), check if evidence supports this. Allow ~20% variance. If a count cannot be verified, replace with "Not measured".
+
+5. **Password Examples**: Keep ALL valid password examples - this is an audit report. Do NOT mask or redact. But REMOVE hallucinated passwords.
+
+6. **Orphaned Sections**: If after validation a pattern category has only 1 example remaining, or all examples are invalid:
+   - If 0 valid examples remain: Remove the entire pattern section
+   - If only 1 example remains: Either find more valid examples from evidence OR merge into a related category
+
+## WHAT TO FIX (in priority order)
+1. **Hallucinated passwords** - Remove any password not found in evidence data
+2. **Invented statistics** - Replace with "Not measured" or remove
+3. **Username-password pairs** where the username doesn't exist in evidence OR the password doesn't contain the username
+4. Examples that don't match the pattern category they're listed under
+5. Domain names incorrectly listed as password examples
+6. Pattern sections left with 0-1 examples after removing invalid ones
+
+## WHAT TO PRESERVE
+- All password examples (never mask these)
+- Reasonable estimates (~X%, approximately)
+- Pattern categories even if exact counts aren't in evidence
+- Psychological insights about why users choose passwords
+
+## OUTPUT (JSON only)
+Return ONLY JSON. Be concise - do NOT reproduce content unnecessarily.
+
+**If NO issues found:**
+```json
+{{"issues":[],"confidence":0.95,"needs_human_review":false}}
+```
+
+**If issues found:**
+```json
+{{
+  "issues": [
+    {{
+      "rule_id": "NO_INVENTED_NUMBERS|PATTERN_INTEGRITY|OTHER",
+      "severity": "high|medium|low",
+      "location": "Pattern # or section name",
+      "find": "exact text to replace",
+      "replace": "corrected text or empty string to remove"
+    }}
+  ],
+  "confidence": 0.8,
+  "needs_human_review": false
+}}
+```
+
+IMPORTANT: Only include `corrected_content` if there are complex structural changes that cannot be expressed as find/replace pairs. For simple fixes, use the find/replace approach."""
+
+
+VALIDATION_PROMPT_COMPANY_INTEL = """You are validating the "Company Intelligence Assessment" section of a security audit.
+
+## EVIDENCE DATA
+{evidence_pack}
+
+## CONTENT TO VALIDATE
+{content_to_validate}
+
+## SECTION-SPECIFIC VALIDATION RULES
+
+For Company Intelligence, verify these specific claims:
+
+1. **Company Name Inferences**: If claiming the company is "XYZ Corp", verify passwords actually contain "xyz", "XYZ", or related terms.
+
+2. **Geographic Claims**: Location inferences should be supported by:
+   - City/state names in passwords
+   - Area codes or zip codes
+   - Regional sports teams or landmarks
+
+3. **Industry Inferences**: Industry claims should have password evidence (tech terms, medical terms, etc.)
+
+4. **Confidence Levels**: Verify HIGH confidence claims have strong evidence (multiple passwords). MEDIUM/LOW can be more speculative.
+
+## WHAT TO FIX
+- Company name claims with no supporting password evidence
+- Geographic claims that contradict the evidence
+- HIGH confidence ratings on weak evidence
+
+## WHAT TO PRESERVE
+- All password examples (never mask)
+- Reasonable inferences with MEDIUM/LOW confidence
+- Industry speculation based on terminology patterns
+
+## OUTPUT (JSON only)
+Return ONLY JSON. Be concise - do NOT reproduce content unnecessarily.
+
+**If NO issues found:**
+```json
+{{"issues":[],"confidence":0.95,"needs_human_review":false}}
+```
+
+**If issues found:**
+```json
+{{
+  "issues": [
+    {{
+      "type": "unsupported_inference|wrong_confidence|contradicts_evidence",
+      "severity": "high|medium|low",
+      "location": "Finding name",
+      "find": "exact text to replace",
+      "replace": "corrected text or empty string to remove"
+    }}
+  ],
+  "confidence": 0.8,
+  "needs_human_review": false
+}}
+```
+
+IMPORTANT: Only include `corrected_content` if there are complex structural changes. For simple fixes, use find/replace."""
+
+
+VALIDATION_PROMPT_USER_BEHAVIOR = """You are validating the "User Behavior Insights" section of a security audit.
+
+## EVIDENCE DATA
+{evidence_pack}
+
+## CONTENT TO VALIDATE
+{content_to_validate}
+
+## SECTION-SPECIFIC VALIDATION RULES
+
+For User Behavior, verify these specific claims:
+
+1. **Behavioral Claims**: Statements about user behavior should be supported by password patterns in the evidence.
+
+2. **Risk Assessments**: Risk levels should match the severity of the behavior described.
+
+3. **Statistical Claims**: Any percentages or counts should roughly match evidence data.
+
+4. **Remove "Risk Prioritization Framework"**: This meta-section does not belong in the user behavior analysis. If present, remove it.
+
+## WHAT TO FIX
+- Statistical claims that are >50% off from evidence
+- Risk levels that don't match the actual threat
+- Any "Risk Prioritization Framework" section (remove entirely)
+
+## WHAT TO PRESERVE
+- All password examples (never mask)
+- Behavioral observations supported by patterns
+- Reasonable risk assessments
+- Recommendations tied to observed behaviors
+
+## OUTPUT (JSON only)
+Return ONLY JSON. Be concise - do NOT reproduce content unnecessarily.
+
+**If NO issues found:**
+```json
+{{"issues":[],"confidence":0.95,"needs_human_review":false}}
+```
+
+**If issues found:**
+```json
+{{
+  "issues": [
+    {{
+      "type": "invented_statistic|irrelevant_section|risk_mismatch",
+      "severity": "high|medium|low",
+      "location": "Section name",
+      "find": "exact text to replace",
+      "replace": "corrected text or empty string to remove"
+    }}
+  ],
+  "confidence": 0.8,
+  "needs_human_review": false
+}}
+```
+
+IMPORTANT: Only include `corrected_content` if there are complex structural changes (like removing entire sections). For simple fixes, use find/replace."""
+
+
+VALIDATION_PROMPT_RECOMMENDATIONS = """You are validating the "Security Recommendations" section of a security audit.
+
+## EVIDENCE DATA
+{evidence_pack}
+
+## CONTENT TO VALIDATE
+{content_to_validate}
+
+## SECTION-SPECIFIC VALIDATION RULES
+
+For Recommendations, verify these specific claims:
+
+1. **Already Mitigated**: Check if recommended actions address issues that are already fixed (disabled accounts, etc.). Do NOT recommend actions on already-mitigated items.
+
+2. **Relevance**: Each recommendation should address a finding from the audit data.
+
+3. **Priority/Effort Ratings**: These should be reasonable based on the recommendation scope.
+
+4. **AD Realism**: Recommendations must be implementable in native Active Directory OR explicitly state dependencies:
+   - "Enforce password uniqueness across users" is NOT native AD - must be framed as detect/remediate with third-party tooling or identity platform
+   - If an action requires Entra ID, third-party tools, or cloud controls, explicitly state that dependency
+   - Prefer: Group Policy, Fine-Grained Password Policies, PAM/PAW tiering, authentication policies
+
+5. **Outdated Guidance**: Flag periodic forced password rotation as a default control. Only recommend rotation if:
+   - There is evidence of compromise
+   - There is a specific compliance requirement
+   - Instead prioritize: longer passphrases, banned-password lists, MFA, monitoring
+
+6. **Scope Creep**: Do not recommend cloud products/controls unless evidence explicitly includes cloud scope.
+
+## WHAT TO FIX
+- Recommendations for already-mitigated issues (remove or note as already addressed)
+- Actions that aren't technically feasible in native AD (add dependency note or reframe)
+- Periodic rotation recommendations without justification (reframe or remove)
+- Priority ratings that don't match urgency
+
+## WHAT TO PRESERVE
+- All specific recommendations (with corrections applied)
+- Priority, Effort, Impact ratings (even if you'd rate differently)
+- Implementation details
+- Timeline suggestions
+
+## OUTPUT (JSON only)
+Return ONLY JSON. Be concise - do NOT reproduce content unnecessarily.
+
+**If NO issues found:**
+```json
+{{"issues":[],"confidence":0.95,"needs_human_review":false}}
+```
+
+**If issues found:**
+```json
+{{
+  "issues": [
+    {{
+      "rule_id": "AD_REALISM|MITIGATED_ACTION|OUTDATED_GUIDANCE|SCOPE_CREEP|OTHER",
+      "type": "technical_inaccuracy|not_feasible_in_ad|mitigated_action|outdated_guidance|scope_creep",
+      "severity": "high|medium|low",
+      "location": "Immediate/Short-Term/Strategic item #",
+      "find": "exact text to replace",
+      "replace": "corrected text or empty string to remove"
+    }}
+  ],
+  "confidence": 0.8,
+  "needs_human_review": false
+}}
+```
+
+Set `"needs_human_review": true` if any issue has severity "high" or if you are unsure about feasibility.
+
+IMPORTANT: Only include `corrected_content` if there are complex structural changes. For simple fixes, use find/replace."""
+
+
+# Dictionary to get the right validation prompt by section ID
+VALIDATION_PROMPTS = {
+    "weak-habits": VALIDATION_PROMPT_WEAK_HABITS,
+    "company-intel": VALIDATION_PROMPT_COMPANY_INTEL,
+    "user-behavior": VALIDATION_PROMPT_USER_BEHAVIOR,
+    "recommendations": VALIDATION_PROMPT_RECOMMENDATIONS
+}
+
+def get_validation_prompt(section_id: str) -> str:
+    """Get the section-specific validation prompt."""
+    return VALIDATION_PROMPTS.get(section_id, VALIDATION_PROMPT_WEAK_HABITS)
+
+
+# =============================================================================
+# SECTION-SPECIFIC FORMATTING PROMPTS (Phase 3)
+# =============================================================================
+# Each section has specific formatting requirements.
+# Variables: {validated_content}
+
+FORMATTING_PROMPT_WEAK_HABITS = """You are formatting the "Password Pattern Analysis" section for executive presentation.
+
+## CONTENT TO FORMAT
+{validated_content}
+
+## FORMATTING REQUIREMENTS
+
+1. **Structure each pattern category with**:
+   - Pattern name as ### header
+   - Description paragraph
+   - `**Examples:**` with 5-10 password examples in backticks (e.g., `Password123`)
+   - `**Prevalence:**` with percentage, count, OR "Not measured" - NEVER leave this field empty
+   - `**Risk:**` brief risk statement
+
+2. **Highlight passwords** using backticks: `actualpassword`
+
+3. **Include 5-10 examples per pattern** when available in the content. If fewer exist, keep what's there.
+
+4. **Prevalence handling**:
+   - If a specific count is provided (e.g., "87 accounts (31.3%)"), use it as-is
+   - If empty or blank, write "Not measured"
+   - NEVER leave `**Prevalence:**` with no value after it
+
+5. **NO NEW CONTENT**: Only reformat what exists. Do not add examples or statistics.
+
+## OUTPUT
+
+Return ONLY clean markdown. No preamble, no JSON, no "VALIDATED CONTENT" header."""
+
+
+FORMATTING_PROMPT_COMPANY_INTEL = """You are formatting the "Company Intelligence Assessment" section for executive presentation.
+
+## CONTENT TO FORMAT
+{validated_content}
+
+## FORMATTING REQUIREMENTS
+
+1. **Structure each finding with these on SEPARATE LINES**:
+   ```
+   ### Finding Name
+
+   **Finding:** [The intelligence finding]
+
+   **Evidence:** [Password examples in backticks]
+
+   **Confidence:** [HIGH/MEDIUM/LOW with explanation]
+   ```
+
+2. **Highlight passwords and evidence** using backticks: `IPC2024!`
+
+3. **Each field on its own line** - Finding, Evidence, and Confidence must each start on a new line with a blank line between them.
+
+4. **NO NEW CONTENT**: Only reformat what exists.
+
+## OUTPUT
+
+Return ONLY clean markdown. No preamble, no JSON, no "VALIDATED CONTENT" header."""
+
+
+FORMATTING_PROMPT_USER_BEHAVIOR = """You are formatting the "User Behavior Insights" section for executive presentation.
+
+## CONTENT TO FORMAT
+{validated_content}
+
+## FORMATTING REQUIREMENTS
+
+1. **Structure each behavior insight with these on SEPARATE LINES**:
+   ```
+   ### Behavior Pattern Name
+
+   **Observation:** [What was observed]
+
+   **Examples:** [Password examples in backticks]
+
+   **Risk:** [Risk level and explanation]
+
+   **Recommendation:** [Suggested action]
+   ```
+
+2. **Each field on its own line** - Observation, Examples, Risk, and Recommendation must each start on a new line with a blank line between them.
+
+3. **Highlight passwords** using backticks: `Summer2024!`
+
+4. **REMOVE any "Risk Prioritization Framework" section** - this does not belong here.
+
+5. **NO NEW CONTENT**: Only reformat what exists.
+
+## OUTPUT
+
+Return ONLY clean markdown. No preamble, no JSON, no "VALIDATED CONTENT" header."""
+
+
+FORMATTING_PROMPT_RECOMMENDATIONS = """You are formatting the "Security Recommendations" section for executive presentation.
+
+## CONTENT TO FORMAT
+{validated_content}
+
+## FORMATTING REQUIREMENTS
+
+1. **Structure each recommendation with**:
+   ```
+   ### Recommendation Title
+
+   **Priority:** [Critical/High/Medium/Low]
+   **Effort:** [Low/Medium/High]
+   **Impact:** [Description]
+
+   [Detailed recommendation text]
+
+   **Implementation Steps:**
+   1. Step one
+   2. Step two
+   ```
+
+2. **Keep Priority/Effort/Impact on separate lines** at the top of each recommendation.
+
+3. **Preserve all existing ratings** - do not change Priority, Effort, or Impact values.
+
+4. **NO NEW CONTENT**: Only reformat what exists.
+
+## OUTPUT
+
+Return ONLY clean markdown. No preamble, no JSON, no "VALIDATED CONTENT" header."""
+
+
+# Dictionary to get the right formatting prompt by section ID
+FORMATTING_PROMPTS = {
+    "weak-habits": FORMATTING_PROMPT_WEAK_HABITS,
+    "company-intel": FORMATTING_PROMPT_COMPANY_INTEL,
+    "user-behavior": FORMATTING_PROMPT_USER_BEHAVIOR,
+    "recommendations": FORMATTING_PROMPT_RECOMMENDATIONS
+}
+
+def get_formatting_prompt(section_id: str) -> str:
+    """Get the section-specific formatting prompt."""
+    return FORMATTING_PROMPTS.get(section_id, FORMATTING_PROMPT_WEAK_HABITS)
+
+
+# =============================================================================
+# Phase Configuration for AI Report Sections
+# =============================================================================
+# Defines model and temperature settings for each phase of the 3-phase pipeline.
+# Phase 1: Initial analysis (section-specific model)
+# Phase 2: Validation (deepseek-r1:671b for fact-checking)
+# Phase 3: Formatting (llama3.1:70b for polishing)
+
+PHASE_CONFIG = {
+    "weak-habits": {
+        "phase1": {"model": "llama3.1:70b", "temperature": 0.3},
+        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
+        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
+        "evidence_sources": ["cracking_stats_table", "pw_top_passwords", "pw_bad_practices", "pw_length_distribution"]
+    },
+    "company-intel": {
+        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.3},
+        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
+        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
+        "evidence_sources": ["cracking_stats_table", "pw_top_passwords", "pw_dict_words"]
+    },
+    "user-behavior": {
+        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.4},
+        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
+        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
+        "evidence_sources": ["cracking_stats_table", "pw_top_passwords", "pw_reuse_table", "pw_bad_practices"]
+    },
+    "recommendations": {
+        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.4},
+        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
+        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
+        "evidence_sources": ["cracking_stats_table", "pw_lm_hashes", "pw_fails_blank", "pw_reuse_table", "pw_bad_practices"]
+    },
+    "full-report": {
+        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.5},
+        "phase2": {"model": None, "temperature": None, "enabled": False},  # Skip - synthesizes already validated content
+        "phase3": {"model": None, "temperature": None, "enabled": False},  # Skip - has its own formatting
+        "evidence_sources": []
+    }
+}
+
+
+def get_phase_config(section_id: str) -> dict:
+    """Get the phase configuration for a specific section."""
+    return PHASE_CONFIG.get(section_id, {
+        "phase1": {"model": "llama3.1:70b", "temperature": 0.3},
+        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
+        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
+        "evidence_sources": ["cracking_stats_table"]
+    })

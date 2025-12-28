@@ -18,8 +18,11 @@
             <span class="brand-tagline">Password & Hash Analyzer</span>
         </div>
         <div class="header-actions">
-            <button type="button" class="header-btn" onclick="window.location.href='{{ url_for('index') }}'">Start Over</button>
-            <button id="logoutButton" class="header-btn logout">Logout</button>
+            {% if advanced_options_enabled %}
+            <a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
+            {% endif %}
+            <button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('index') }}'"><span class="btn-icon">↩</span>Start Over</button>
+            <button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
         </div>
     </header>
 
@@ -61,6 +64,22 @@
                         </p>
 
                         <div class="validation-container">
+                            <!-- Duplicate Session Warning (populated by JS) -->
+                            <div id="duplicateSessionWarning" class="duplicate-session-warning" style="display: none;">
+                                <div class="duplicate-warning-content">
+                                    <div class="duplicate-warning-header">
+                                        <span class="duplicate-warning-icon">⚠️</span>
+                                        <h3>Existing Session Found</h3>
+                                    </div>
+                                    <p>You already have a session with this exact data. Would you like to restore it instead of creating a new one?</p>
+                                    <div id="duplicateSessionList" class="duplicate-session-list"></div>
+                                    <div class="duplicate-warning-actions">
+                                        <button type="button" class="btn btn-primary" onclick="restoreDuplicateSession()">Restore Existing Session</button>
+                                        <button type="button" class="btn btn-secondary" onclick="dismissDuplicateWarning()">Create New Anyway</button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Summary Cards -->
         <div class="validation-summary">
             {% if pwdump %}
@@ -95,6 +114,35 @@
             {% endif %}
             {% endif %}
         </div>
+
+        <!-- Master Potfile Merge Results -->
+        {% if master_potfile_enabled and master_potfile_merge %}
+        <div class="master-potfile-merge-summary">
+            <div class="merge-header">
+                <span class="merge-icon">&#128218;</span>
+                <h3>Master Potfile Merge Results</h3>
+            </div>
+            <div class="merge-stats">
+                <div class="merge-stat added">
+                    <span class="merge-stat-value">{{ master_potfile_merge.added }}</span>
+                    <span class="merge-stat-label">New entries added</span>
+                </div>
+                <div class="merge-stat skipped">
+                    <span class="merge-stat-value">{{ master_potfile_merge.skipped }}</span>
+                    <span class="merge-stat-label">Already in master</span>
+                </div>
+                <div class="merge-stat total">
+                    <span class="merge-stat-value">{{ master_potfile_merge.total }}</span>
+                    <span class="merge-stat-label">Master potfile total</span>
+                </div>
+            </div>
+            {% if master_potfile_merge.added > 0 %}
+            <p class="merge-note">Your cracked hashes have been merged into the master potfile. The master potfile will be used for password matching.</p>
+            {% else %}
+            <p class="merge-note">No new hashes to add. Using existing master potfile for password matching.</p>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <!-- Account Statistics Cards (for configuration preview) -->
         {% if pwdump %}
@@ -347,6 +395,110 @@
                 console.error('Logout error:', error);
             }
         });
+
+        // ============================================
+        // Duplicate Session Detection
+        // ============================================
+        let duplicateState = {
+            matchingSessions: [],
+            selectedSessionId: null,
+            dismissed: false
+        };
+
+        async function checkForDuplicateSessions() {
+            try {
+                const response = await fetch('/api/sessions/check-duplicate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})  // Will use Flask session data
+                });
+
+                const data = await response.json();
+
+                if (data.has_duplicates && data.matching_sessions.length > 0) {
+                    duplicateState.matchingSessions = data.matching_sessions;
+                    duplicateState.selectedSessionId = data.matching_sessions[0].session_id;
+                    showDuplicateWarning(data.matching_sessions);
+                }
+            } catch (error) {
+                console.error('Error checking for duplicates:', error);
+            }
+        }
+
+        function showDuplicateWarning(sessions) {
+            const warning = document.getElementById('duplicateSessionWarning');
+            const list = document.getElementById('duplicateSessionList');
+
+            let html = '';
+            for (const session of sessions) {
+                const isSelected = duplicateState.selectedSessionId === session.session_id;
+                const selectedClass = isSelected ? 'selected' : '';
+                const updatedDate = new Date(session.updated_at).toLocaleDateString();
+                const crackRate = session.crack_rate ? `${session.crack_rate.toFixed(1)}%` : '-';
+                const aaiaIcon = session.aaia_generated ? '<span class="duplicate-aaia-icon" title="AAIA Generated">✨</span>' : '';
+
+                html += `
+                    <div class="duplicate-session-card ${selectedClass}" data-session-id="${session.session_id}"
+                         onclick="selectDuplicateSession('${session.session_id}')">
+                        <div class="duplicate-session-info">
+                            <div class="duplicate-session-name">${escapeHtml(session.name)} ${aaiaIcon}</div>
+                            <div class="duplicate-session-meta">
+                                <span>${session.total_accounts || 0} accounts</span>
+                                <span>${crackRate} cracked</span>
+                                <span>Updated: ${updatedDate}</span>
+                            </div>
+                        </div>
+                        <div class="duplicate-session-check">${isSelected ? '✓' : ''}</div>
+                    </div>
+                `;
+            }
+            list.innerHTML = html;
+            warning.style.display = 'block';
+        }
+
+        function selectDuplicateSession(sessionId) {
+            duplicateState.selectedSessionId = sessionId;
+            // Re-render to update selection
+            showDuplicateWarning(duplicateState.matchingSessions);
+        }
+
+        async function restoreDuplicateSession() {
+            if (!duplicateState.selectedSessionId) return;
+
+            try {
+                const response = await fetch(`/api/sessions/${duplicateState.selectedSessionId}/switch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Failed to restore session: ' + data.error);
+                    return;
+                }
+
+                // Redirect to report page
+                window.location.href = '/report';
+            } catch (error) {
+                console.error('Error restoring session:', error);
+                alert('Failed to restore session: ' + error.message);
+            }
+        }
+
+        function dismissDuplicateWarning() {
+            duplicateState.dismissed = true;
+            document.getElementById('duplicateSessionWarning').style.display = 'none';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check for duplicates when page loads
+        checkForDuplicateSessions();
     </script>
 </body>
 </html>

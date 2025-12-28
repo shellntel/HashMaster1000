@@ -24,6 +24,701 @@
 		<link rel="preconnect" href="https://fonts.googleapis.com">
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 		<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+		<!-- Markdown rendering for AI Analysis -->
+		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<!-- Privileged Accounts Styles -->
+		<style>
+			.report-nav-btn-critical {
+				border: 2px solid #dc3545 !important;
+				color: #ff6b6b !important;
+			}
+			.report-nav-btn-critical:hover {
+				border-color: #ff4444 !important;
+				background: rgba(220, 53, 69, 0.15) !important;
+			}
+			.privileged-accounts-section {
+				margin-top: 30px;
+			}
+			.domain-policy-summary {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				padding: 16px;
+				margin-bottom: 20px;
+			}
+			.policy-summary-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+				gap: 12px;
+			}
+			.policy-item {
+				display: flex;
+				justify-content: space-between;
+				padding: 8px;
+				background: rgba(0,0,0,0.2);
+				border-radius: 4px;
+			}
+			.policy-label { color: var(--text-secondary, #aaa); }
+			.policy-value { font-weight: bold; color: var(--text-primary, #fff); }
+			.privilege-stats-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+				gap: 16px;
+				margin-bottom: 24px;
+			}
+			.privilege-stat-card {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 8px;
+				padding: 16px;
+				text-align: center;
+			}
+			.privilege-stat-card.tier0 { border-left: 4px solid #ff4444; }
+			.privilege-stat-card.elevated { border-left: 4px solid #feca57; }
+			.privilege-stat-card.total { border-left: 4px solid #00d4ff; }
+			.privilege-stat-card .stat-value {
+				font-size: 2rem;
+				font-weight: bold;
+				color: var(--accent-color, #00d4ff);
+			}
+			.privilege-stat-card.tier0 .stat-value { color: #ff4444; }
+			.privilege-stat-card.elevated .stat-value { color: #feca57; }
+			.privilege-stat-card .stat-label { color: var(--text-secondary, #aaa); }
+			.privilege-stat-card .stat-detail { font-size: 0.9rem; color: #888; }
+			.section-header-critical { color: var(--text-color, #e4e4e7); }
+			.warning-text { color: var(--text-secondary, #aaa); margin-bottom: 16px; font-size: 0.9rem; }
+			.cracked-row { background: rgba(255, 68, 68, 0.15) !important; }
+			.warning-row { background: rgba(254, 202, 87, 0.15) !important; }
+			.cracked-yes { color: #ff4444; font-weight: bold; }
+			.cracked-no { color: #54a0ff; }
+			.status-enabled {
+				display: inline-block;
+				padding: 2px 8px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				background: rgba(29, 209, 161, 0.15);
+				color: #1dd1a1;
+			}
+			.status-disabled {
+				display: inline-block;
+				padding: 2px 8px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				background: rgba(136, 136, 136, 0.2);
+				color: #999;
+			}
+			.privilege-badge {
+				display: inline-block;
+				padding: 2px 8px;
+				border-radius: 4px;
+				font-size: 0.75rem;
+				font-weight: 500;
+			}
+			.privilege-badge.tier0 { background: rgba(255, 68, 68, 0.15); color: #ff6b6b; }
+			.privilege-badge.elevated { background: rgba(254, 202, 87, 0.15); color: #feca57; }
+			#crackedPrivilegedTable .groups-cell { font-size: 0.85rem; color: var(--text-secondary, #aaa); }
+			/* Print/light mode overrides for privileged account styles */
+			@media print {
+				.privilege-badge.tier0 { background: #ffe0e0; color: #b00; }
+				.privilege-badge.elevated { background: #fff3cd; color: #856404; }
+				.status-enabled { background: #d4edda; color: #155724; }
+				.status-disabled { background: #e9ecef; color: #495057; }
+				#crackedPrivilegedTable .groups-cell { color: #666; }
+			}
+			body.print-mode .privilege-badge.tier0 { background: #ffe0e0; color: #b00; }
+			body.print-mode .privilege-badge.elevated { background: #fff3cd; color: #856404; }
+			body.print-mode .status-enabled { background: #d4edda; color: #155724; }
+			body.print-mode .status-disabled { background: #e9ecef; color: #495057; }
+			body.print-mode #crackedPrivilegedTable .groups-cell { color: #666; }
+			/* Password sharing summary */
+			.sharing-summary {
+				display: flex;
+				gap: 16px;
+				margin-bottom: 16px;
+				flex-wrap: wrap;
+			}
+			.sharing-stat {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				padding: 8px 16px;
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 6px;
+				min-width: 100px;
+			}
+			.sharing-stat-value {
+				font-size: 1.3rem;
+				font-weight: bold;
+			}
+			.sharing-stat-value.critical { color: #ff6b6b; }
+			.sharing-stat-value.high { color: #feca57; }
+			.sharing-stat-label { font-size: 0.8rem; color: var(--text-secondary, #aaa); }
+			#passwordSharingTable .shared-accounts { font-size: 0.9rem; color: var(--text-secondary, #aaa); }
+			#passwordSharingTable .sharing-password {
+				font-family: monospace;
+				font-size: 0.85rem;
+			}
+			body.print-mode .sharing-stat { background: #f8f9fa; }
+			body.print-mode .sharing-stat-value.critical { color: #dc3545; }
+			body.print-mode .sharing-stat-value.high { color: #856404; }
+			body.print-mode #passwordSharingTable .shared-accounts { color: #666; }
+			.historical-stats {
+				display: flex;
+				gap: 24px;
+				margin-bottom: 20px;
+			}
+			.hist-stat {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+			}
+			.hist-stat-value {
+				font-size: 1.5rem;
+				font-weight: bold;
+				color: var(--accent-color, #00d4ff);
+			}
+			.hist-stat-label { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
+			.password-sharing-section { margin-bottom: 24px; }
+			.cracked-privileged-section { margin-bottom: 24px; }
+			.cracked-privileged-section .table-actions {
+				margin-bottom: 12px;
+			}
+			/* Section dividers for privileged account subsections */
+			.privileged-subsection {
+				padding-top: 20px;
+				margin-top: 20px;
+				border-top: 1px solid var(--border-color, #444);
+			}
+			.privileged-subsection:first-child {
+				padding-top: 0;
+				margin-top: 0;
+				border-top: none;
+			}
+			body.print-mode .privileged-subsection {
+				border-top-color: #ddd;
+			}
+			/* Password blurring for cracked privileged table */
+			#crackedPrivilegedTable .priv-password-cell {
+				font-family: monospace;
+			}
+			#crackedPrivilegedTable.blurred .priv-password-blurred {
+				filter: blur(4px);
+				user-select: none;
+			}
+			#crackedPrivilegedTable:not(.blurred) .priv-password-blurred {
+				filter: none;
+			}
+			/* Password blurring for password sharing table */
+			#passwordSharingTable.blurred .sharing-password-blurred {
+				filter: blur(4px);
+				user-select: none;
+			}
+			#passwordSharingTable:not(.blurred) .sharing-password-blurred {
+				filter: none;
+			}
+
+			/* HIBP Section Styles */
+			.hibp-section { margin-top: 30px; }
+			.hibp-db-status {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				padding: 16px 20px;
+				margin-bottom: 16px;
+				display: flex;
+				align-items: center;
+				gap: 12px;
+			}
+			.hibp-db-status.loaded {
+				border-color: rgba(76, 175, 80, 0.5);
+				background: rgba(76, 175, 80, 0.08);
+			}
+			.hibp-db-status.not-loaded {
+				border-color: rgba(255, 193, 7, 0.5);
+				background: rgba(255, 193, 7, 0.08);
+			}
+			.hibp-db-status-icon {
+				font-size: 1.5rem;
+			}
+			.hibp-db-status-content {
+				flex: 1;
+			}
+			.hibp-db-status-title {
+				font-weight: 600;
+				margin-bottom: 2px;
+			}
+			.hibp-db-status.loaded .hibp-db-status-title {
+				color: #4CAF50;
+			}
+			.hibp-db-status.not-loaded .hibp-db-status-title {
+				color: #FFC107;
+			}
+			.hibp-db-status-detail {
+				font-size: 0.85rem;
+				color: var(--text-secondary, #aaa);
+			}
+			.hibp-status-panel {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				padding: 24px;
+				text-align: center;
+			}
+			.hibp-intro { margin-bottom: 20px; }
+			.hibp-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
+			.hibp-intro a { color: var(--accent-color, #00d4ff); }
+			.hibp-privacy-note {
+				background: rgba(0, 212, 255, 0.1);
+				border: 1px solid rgba(0, 212, 255, 0.3);
+				border-radius: 6px;
+				padding: 12px 16px;
+				font-size: 0.9rem;
+				text-align: left;
+				color: var(--text-primary, #fff);
+				margin-bottom: 16px;
+			}
+			.hibp-local-info {
+				background: rgba(76, 175, 80, 0.1);
+				border: 1px solid rgba(76, 175, 80, 0.3);
+				border-radius: 6px;
+				padding: 12px 16px;
+				font-size: 0.9rem;
+				text-align: left;
+				color: var(--text-primary, #fff);
+				margin-bottom: 16px;
+			}
+			.hibp-method-selector {
+				margin: 16px 0;
+				text-align: left;
+			}
+			.hibp-method-selector h4 {
+				margin-bottom: 12px;
+				color: var(--text-primary, #fff);
+			}
+			.hibp-method-options {
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+			}
+			.hibp-method-option {
+				display: flex;
+				align-items: flex-start;
+				gap: 12px;
+				padding: 12px 16px;
+				background: var(--bg-secondary, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				cursor: pointer;
+				transition: border-color 0.2s, background 0.2s;
+			}
+			.hibp-method-option:hover {
+				border-color: var(--accent-color, #00d4ff);
+			}
+			.hibp-method-option input[type="radio"] {
+				margin-top: 4px;
+			}
+			.hibp-method-option input[type="radio"]:checked + .hibp-method-info {
+				color: var(--accent-color, #00d4ff);
+			}
+			.hibp-method-info {
+				display: flex;
+				flex-direction: column;
+				gap: 4px;
+			}
+			.hibp-method-name {
+				font-weight: 600;
+				color: var(--text-primary, #fff);
+			}
+			.hibp-method-desc {
+				font-size: 0.85rem;
+				color: var(--text-secondary, #aaa);
+			}
+			.hibp-method-badge {
+				font-size: 0.75rem;
+				padding: 2px 8px;
+				border-radius: 4px;
+				display: inline-block;
+				width: fit-content;
+			}
+			.hibp-method-badge.recommended {
+				background: rgba(76, 175, 80, 0.2);
+				color: #4caf50;
+				border: 1px solid rgba(76, 175, 80, 0.5);
+			}
+			.hibp-data-source {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				padding: 8px 12px;
+				background: var(--bg-secondary, #2a2a2a);
+				border-radius: 6px;
+				margin-bottom: 16px;
+				font-size: 0.9rem;
+			}
+			.hibp-data-source-icon {
+				font-size: 1.1rem;
+			}
+			.hibp-data-source-label {
+				color: var(--text-secondary, #aaa);
+			}
+			.hibp-data-source-value {
+				color: var(--text-primary, #fff);
+				font-weight: 500;
+			}
+			.hibp-rerun-section {
+				margin-top: 16px;
+				text-align: center;
+			}
+			.hibp-rerun-btn {
+				background: transparent;
+				border: 1px solid var(--border-color, #444);
+				color: var(--text-secondary, #aaa);
+				padding: 8px 16px;
+				border-radius: 6px;
+				cursor: pointer;
+				font-size: 0.9rem;
+				transition: border-color 0.2s, color 0.2s;
+			}
+			.hibp-rerun-btn:hover {
+				border-color: var(--accent-color, #00d4ff);
+				color: var(--text-primary, #fff);
+			}
+			.hibp-start-btn {
+				background: linear-gradient(135deg, #00d4ff, #0099cc);
+				color: white;
+				border: none;
+				padding: 14px 28px;
+				font-size: 1.1rem;
+				border-radius: 8px;
+				cursor: pointer;
+				display: inline-flex;
+				align-items: center;
+				gap: 10px;
+				transition: transform 0.2s, box-shadow 0.2s;
+			}
+			.hibp-start-btn:hover {
+				transform: translateY(-2px);
+				box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
+			}
+			.hibp-icon { font-size: 1.3rem; }
+			.hibp-progress {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 16px;
+			}
+			.hibp-spinner {
+				width: 48px;
+				height: 48px;
+				border: 4px solid var(--border-color, #444);
+				border-top-color: var(--accent-color, #00d4ff);
+				border-radius: 50%;
+				animation: hibp-spin 1s linear infinite;
+			}
+			@keyframes hibp-spin {
+				to { transform: rotate(360deg); }
+			}
+			.hibp-progress-detail { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
+			.hibp-results-panel { margin-top: 20px; }
+			.hibp-summary-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+				gap: 16px;
+				margin-bottom: 24px;
+			}
+			.hibp-stat-card {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 8px;
+				padding: 16px;
+				text-align: center;
+			}
+			.hibp-stat-card.found { border-left: 4px solid #ff4444; }
+			.hibp-stat-card.safe { border-left: 4px solid #1dd1a1; }
+			.hibp-stat-card.total { border-left: 4px solid #00d4ff; }
+			.hibp-stat-card .stat-value {
+				font-size: 2rem;
+				font-weight: bold;
+			}
+			.hibp-stat-card.found .stat-value { color: #ff4444; }
+			.hibp-stat-card.safe .stat-value { color: #1dd1a1; }
+			.hibp-stat-card.total .stat-value { color: #00d4ff; }
+			.hibp-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
+			.hibp-stat-card .stat-detail { font-size: 0.85rem; color: #888; }
+			.hibp-table-section { margin-top: 24px; }
+			.hibp-table-section h3 { margin-bottom: 8px; }
+			/* HIBP table column alignment - use !important to override DataTables defaults */
+			#hibpAllBreachedTable td:nth-child(2),
+			#hibpAllBreachedTable th:nth-child(2),
+			#hibpAllBreachedTable td:nth-child(3),
+			#hibpAllBreachedTable th:nth-child(3),
+			#hibpAllBreachedTable td:nth-child(4),
+			#hibpAllBreachedTable th:nth-child(4) { text-align: center !important; }
+			/* DataTables center class fallback */
+			table.dataTable td.dt-center,
+			table.dataTable th.dt-center { text-align: center !important; }
+			.hibp-password-unknown { color: #888; font-style: italic; }
+			.hibp-password-blurred { filter: blur(4px); user-select: none; }
+			.hibp-tables-unblurred .hibp-password-blurred { filter: none; }
+			.hibp-table-section .status-enabled { color: #28a745; }
+			.hibp-table-section .status-disabled { color: #6c757d; }
+
+			/* HIBP Modal Styles */
+			.hibp-modal {
+				position: fixed;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				background: rgba(0, 0, 0, 0.8);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 10000;
+			}
+			.hibp-modal-content {
+				background: var(--card-bg, #1e1e1e);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 12px;
+				max-width: 600px;
+				width: 90%;
+				max-height: 90vh;
+				overflow-y: auto;
+			}
+			.hibp-modal-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 16px 20px;
+				border-bottom: 1px solid var(--border-color, #444);
+			}
+			.hibp-modal-header h2 { margin: 0; font-size: 1.3rem; }
+			.hibp-modal-close {
+				background: none;
+				border: none;
+				color: var(--text-secondary, #aaa);
+				font-size: 1.5rem;
+				cursor: pointer;
+			}
+			.hibp-modal-close:hover { color: var(--text-primary, #fff); }
+			.hibp-modal-body { padding: 20px; }
+			.hibp-consent-warning {
+				background: rgba(255, 200, 50, 0.15);
+				border: 1px solid rgba(255, 200, 50, 0.4);
+				border-radius: 8px;
+				padding: 16px;
+				margin-bottom: 20px;
+				text-align: center;
+			}
+			.hibp-warning-icon { font-size: 2.5rem; margin-bottom: 8px; }
+			.hibp-consent-warning h3 { color: #feca57; margin: 8px 0; }
+			.hibp-consent-warning p { color: var(--text-secondary, #aaa); margin: 0; }
+			.hibp-consent-details { margin-bottom: 20px; }
+			.hibp-consent-details h4 {
+				color: var(--text-primary, #fff);
+				margin: 16px 0 8px 0;
+				font-size: 1rem;
+			}
+			.hibp-consent-details ul {
+				margin: 0;
+				padding-left: 20px;
+				color: var(--text-secondary, #aaa);
+			}
+			.hibp-consent-details li { margin: 6px 0; }
+			.hibp-consent-details p { color: var(--text-secondary, #aaa); margin: 8px 0; }
+			.hibp-consent-details a { color: var(--accent-color, #00d4ff); }
+			.hibp-consent-checkbox {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 6px;
+				padding: 12px 16px;
+			}
+			.hibp-consent-checkbox label {
+				display: flex;
+				align-items: flex-start;
+				gap: 10px;
+				cursor: pointer;
+				color: var(--text-primary, #fff);
+			}
+			.hibp-consent-checkbox input { margin-top: 3px; }
+			.hibp-modal-footer {
+				display: flex;
+				justify-content: flex-end;
+				gap: 12px;
+				padding: 16px 20px;
+				border-top: 1px solid var(--border-color, #444);
+			}
+			.hibp-btn-secondary {
+				background: var(--surface-color, #2a2a2a);
+				color: var(--text-primary, #fff);
+				border: 1px solid var(--border-color, #444);
+				padding: 10px 20px;
+				border-radius: 6px;
+				cursor: pointer;
+			}
+			.hibp-btn-secondary:hover { background: var(--border-color, #444); }
+			.hibp-btn-primary {
+				background: linear-gradient(135deg, #00d4ff, #0099cc);
+				color: white;
+				border: none;
+				padding: 10px 20px;
+				border-radius: 6px;
+				cursor: pointer;
+			}
+			.hibp-btn-primary:disabled {
+				background: #555;
+				cursor: not-allowed;
+				opacity: 0.6;
+			}
+			.hibp-btn-primary:not(:disabled):hover {
+				box-shadow: 0 2px 8px rgba(0, 212, 255, 0.4);
+			}
+
+			/* Kerberoast Section Styles */
+			.kerberoast-section { margin-top: 30px; }
+			.kerberoast-intro { margin-bottom: 20px; }
+			.kerberoast-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
+			.kerberoast-info-note {
+				background: rgba(255, 152, 0, 0.1);
+				border: 1px solid rgba(255, 152, 0, 0.3);
+				border-radius: 6px;
+				padding: 12px 16px;
+				font-size: 0.9rem;
+				text-align: left;
+				color: var(--text-primary, #fff);
+				margin-bottom: 16px;
+			}
+			.kerberoast-summary-grid {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+				margin-bottom: 24px;
+			}
+			.kerberoast-stat-card {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 6px;
+				padding: 10px 16px;
+				text-align: center;
+				flex: 1 1 auto;
+				min-width: 90px;
+			}
+			.kerberoast-stat-card.critical { border-left: 4px solid #dc3545; }
+			.kerberoast-stat-card.high { border-left: 4px solid #ff6b35; }
+			.kerberoast-stat-card.medium { border-left: 4px solid #ffc107; }
+			.kerberoast-stat-card.low { border-left: 4px solid #28a745; }
+			.kerberoast-stat-card.total { border-left: 4px solid #00d4ff; }
+			.kerberoast-stat-card .stat-value {
+				font-size: 1.5rem;
+				font-weight: bold;
+				line-height: 1.2;
+			}
+			.kerberoast-stat-card.critical .stat-value { color: #dc3545; }
+			.kerberoast-stat-card.high .stat-value { color: #ff6b35; }
+			.kerberoast-stat-card.medium .stat-value { color: #ffc107; }
+			.kerberoast-stat-card.low .stat-value { color: #28a745; }
+			.kerberoast-stat-card.total .stat-value { color: #00d4ff; }
+			.kerberoast-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
+			.kerberoast-charts-grid {
+				display: grid;
+				grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+				gap: 24px;
+				margin-bottom: 24px;
+			}
+			.kerberoast-chart-container {
+				background: var(--surface-color, #2a2a2a);
+				border-radius: 8px;
+				padding: 16px;
+			}
+			.kerberoast-chart-container h4 {
+				margin-bottom: 12px;
+				color: var(--text-primary, #fff);
+			}
+			.kerberoast-table-section { margin-top: 24px; }
+			.kerberoast-table-section h3 { margin-bottom: 8px; }
+			.kerberoast-risk-badge {
+				display: inline-block;
+				padding: 4px 10px;
+				border-radius: 4px;
+				font-size: 0.8rem;
+				font-weight: 600;
+				text-transform: uppercase;
+			}
+			.kerberoast-risk-badge.critical { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
+			.kerberoast-risk-badge.high { background: rgba(255, 107, 53, 0.2); color: #ff6b35; }
+			.kerberoast-risk-badge.medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+			.kerberoast-risk-badge.low { background: rgba(40, 167, 69, 0.2); color: #28a745; }
+			.kerberoast-risk-reasons {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 4px;
+				max-width: 350px;
+			}
+			.kerberoast-reason-tag {
+				display: inline-block;
+				padding: 2px 6px;
+				border-radius: 3px;
+				font-size: 0.7rem;
+				background: rgba(100, 100, 100, 0.3);
+				color: var(--text-secondary, #aaa);
+			}
+			.kerberoast-reason-tag.positive { background: rgba(220, 53, 69, 0.15); color: #ff6b6b; }
+			.kerberoast-reason-tag.negative { background: rgba(40, 167, 69, 0.15); color: #5fba7d; }
+			.kerberoast-not-available {
+				background: var(--surface-color, #2a2a2a);
+				border: 1px solid var(--border-color, #444);
+				border-radius: 8px;
+				padding: 24px;
+				text-align: center;
+			}
+			.kerberoast-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
+			.kerberoast-spn-list {
+				max-height: 80px;
+				overflow-y: auto;
+				font-size: 0.85rem;
+			}
+			.kerberoast-spn-item {
+				padding: 2px 0;
+				color: var(--text-secondary, #aaa);
+				font-family: monospace;
+				word-break: break-all;
+			}
+			/* Kerberoast table styling */
+			#kerberoastTable { table-layout: fixed; width: 100%; }
+			#kerberoastTable th,
+			#kerberoastTable td {
+				vertical-align: middle !important;
+				padding: 10px 8px !important;
+			}
+			/* Column widths via colgroup/CSS */
+			#kerberoastTable th:nth-child(1), #kerberoastTable td:nth-child(1) { width: 14%; }
+			#kerberoastTable th:nth-child(2), #kerberoastTable td:nth-child(2) { width: 7%; text-align: center; }
+			#kerberoastTable th:nth-child(3), #kerberoastTable td:nth-child(3) { width: 9%; text-align: center; }
+			#kerberoastTable th:nth-child(4), #kerberoastTable td:nth-child(4) { width: 28%; }
+			#kerberoastTable th:nth-child(5), #kerberoastTable td:nth-child(5) { width: 32%; }
+			#kerberoastTable th:nth-child(6), #kerberoastTable td:nth-child(6) { width: 10%; text-align: center; }
+			/* Status column styling */
+			#kerberoastTable .status-enabled,
+			#kerberoastTable .status-disabled {
+				display: inline-block;
+				font-weight: 500;
+			}
+			#kerberoastTable .status-enabled { color: #28a745; }
+			#kerberoastTable .status-disabled { color: #6c757d; }
+			/* Info category for special accounts with 0 score */
+			.kerberoast-risk-badge.info { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+			.kerberoast-stat-card.secure { border-left: 4px solid #17a2b8; }
+			.kerberoast-stat-card.secure .stat-value { color: #17a2b8; }
+			/* Print mode overrides for Kerberoast */
+			body.print-mode .kerberoast-stat-card { background: #f8f9fa; }
+			body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
+
+			/* Print mode overrides */
+			body.print-mode .hibp-status-panel { background: #f8f9fa; border-color: #ddd; }
+			body.print-mode .hibp-privacy-note { background: #e3f2fd; border-color: #2196f3; }
+			body.print-mode .hibp-stat-card { background: #f8f9fa; }
+			body.print-mode .hibp-stat-card.found .stat-value { color: #dc3545; }
+			body.print-mode .hibp-stat-card.safe .stat-value { color: #28a745; }
+			@media print {
+				.hibp-start-btn, .hibp-modal { display: none !important; }
+			}
+		</style>
 	</head>
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
 	<body id="reportPage" class="dark-theme">
@@ -34,19 +729,186 @@
 				<span class="brand-tagline">Password & Hash Analysis Report</span>
 			</div>
 			<div class="header-actions">
-				<button type="button" class="header-btn" onclick="window.location.href='{{ url_for('clear_and_restart') }}'">Start Over</button>
-				<button type="button" id="themeToggle" class="header-btn theme">Switch to Print View</button>
+				{% if advanced_options_enabled %}
+				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
+				{% endif %}
+				<button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('clear_and_restart') }}'"><span class="btn-icon">↩</span>Start Over</button>
+				<button type="button" id="themeToggle" class="header-btn theme icon-btn" title="Switch to Print View"><span class="btn-icon">☀</span></button>
 				<form action="/logout" method="post" style="display: inline; margin: 0;">
-					<button type="submit" class="header-btn logout">Logout</button>
+					<button type="submit" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
 				</form>
 			</div>
 		</header>
 
+		<!-- Session Picker Modal -->
+		<div id="sessionPickerModal" class="session-modal" style="display: none;">
+			<div class="session-modal-content">
+				<div class="session-modal-header">
+					<h2>Session Manager</h2>
+					<button class="session-modal-close" onclick="closeSessionPicker()">&times;</button>
+				</div>
+				<div class="session-modal-body">
+					<div class="session-current-info" id="sessionCurrentInfo">
+						<!-- Current session details shown here -->
+					</div>
+					<div class="session-list-header">
+						<h3>Available Sessions</h3>
+						<button class="session-migrate-btn" id="migrateLegacyBtn" onclick="migrateLegacyData()" style="display: none;">
+							📥 Import Legacy Data
+						</button>
+					</div>
+					<div class="session-list" id="sessionList">
+						<div class="session-loading">Loading sessions...</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
 		<!-- Report Content Container -->
 		<div class="report-content">
-		<!-- Download All JSON Files button at top -->
-		<div style="text-align: center; margin-bottom: 20px;">
-			<button id="downloadAllJsonFiles">Download All JSON Files</button>
+		<!-- Action buttons row -->
+		<div class="report-action-bar">
+			<div class="session-indicator" id="sessionIndicator" onclick="openSessionPicker()" title="Click to manage sessions">
+				<span class="session-icon">📂</span>
+				<span class="session-name">Load Saved Session</span>
+			</div>
+			<div class="report-action-buttons">
+				<button id="reconfigureSettingsBtn" class="settings-btn" onclick="openSettingsModal()"><span class="settings-icon">⚙️</span> Edit Report Settings</button>
+				<button id="downloadAllJsonFiles" class="download-btn"><span class="download-icon">📦</span> Download JSON Files</button>
+				<button id="generateAIAnalysisBtn" class="aaia-btn"><span class="aaia-sparkle">✨</span> Advanced AI Analysis</button>
+			</div>
+		</div>
+
+		<!-- Report Section Navigation -->
+		<nav class="report-nav">
+			<div class="report-nav-label">Jump to:</div>
+			<div class="report-nav-buttons">
+				<button class="report-nav-btn" onclick="scrollToSection('statsAndCharts')">Statistics</button>
+				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topDictionaryWordsChart')">Dictionary Words</button>
+				<button class="report-nav-btn" onclick="scrollToSection('badPracticesChart')">Bad Practices</button>
+				<button class="report-nav-btn" onclick="scrollToSection('tableSection')">Password Reuse</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
+				<button class="report-nav-btn" id="navBlankPasswords" onclick="scrollToSection('policyBlankSection')">Blank Passwords</button>
+				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
+				<button class="report-nav-btn" id="navMaxAge" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
+				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
+				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
+				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
+				<button class="report-nav-btn" id="navTrendAnalysis" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
+				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysis" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
+			</div>
+		</nav>
+
+		<!-- AAIA Warning Modal -->
+		<div id="aaiaModal" class="aaia-modal" style="display: none;">
+			<div class="aaia-modal-content aaia-modal-wide">
+				<div class="aaia-modal-header">
+					<h2>Advanced A.I. Analysis (AAIA)</h2>
+					<button class="aaia-modal-close" onclick="closeAAIAModal()">&times;</button>
+				</div>
+				<div class="aaia-modal-body">
+					<!-- Step 1: Disclaimer & Requirements -->
+					<div id="aaiaStep1" class="aaia-step">
+						<div class="aaia-step-indicator">
+							<span class="aaia-step-badge active">1</span>
+							<span class="aaia-step-label">Disclaimer</span>
+							<span class="aaia-step-divider">―</span>
+							<span class="aaia-step-badge">2</span>
+							<span class="aaia-step-label">Configuration</span>
+						</div>
+						<div class="aaia-disclaimer">
+							<div class="aaia-disclaimer-header">
+								<span class="aaia-disclaimer-icon">⚠️</span>
+								<strong>Experimental Feature - Read Before Use</strong>
+							</div>
+							<div class="aaia-disclaimer-content">
+								<p><strong>AI Limitations:</strong> This feature uses large language models which may produce inaccurate, incomplete, or inconsistent results. AI can "hallucinate" facts, misinterpret data, and generate different outputs even with identical inputs. <em>Do not rely on AI-generated reports as authoritative.</em></p>
+								<p><strong>Privacy Warning:</strong> Only use AAIA with <strong>private, internal Ollama servers</strong> that you own and control. Intercepted Ollama communications or stored prompts/responses could expose sensitive password data. Never use public or untrusted AI endpoints.</p>
+								<p><strong>Intended Use:</strong> AAIA is designed to <em>assist</em> analysts by suggesting patterns to investigate, helping draft findings, and providing executive risk context. All AI outputs should be verified by a qualified security professional before inclusion in final reports.</p>
+							</div>
+						</div>
+						<div class="aaia-warning">
+							<p><strong>Requirements:</strong></p>
+							<ul>
+								<li>An accessible Ollama server with the required models installed</li>
+								<li>AAIA can take an hour or longer depending on the AI processing power of the selected Ollama server(s)</li>
+							</ul>
+						</div>
+					</div>
+					<!-- Step 2: Server & Section Configuration -->
+					<div id="aaiaStep2" class="aaia-step" style="display: none;">
+						<div class="aaia-step-indicator">
+							<span class="aaia-step-badge completed">✓</span>
+							<span class="aaia-step-label">Disclaimer</span>
+							<span class="aaia-step-divider">―</span>
+							<span class="aaia-step-badge active">2</span>
+							<span class="aaia-step-label">Configuration</span>
+						</div>
+						<div id="aaiaServerStatus" class="aaia-server-status">
+							<p>Loading configuration...</p>
+						</div>
+						<div id="aaiaSectionConfig" class="aaia-section-config" style="display: none;">
+							<h3>Analysis Sections</h3>
+							<p class="aaia-config-help">Each section has a recommended model. Available models are shown based on your server capabilities.</p>
+							<div id="aaiaSectionList" class="aaia-section-list">
+								<!-- Populated by JavaScript -->
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="aaia-modal-footer">
+					<button id="aaiaBackBtn" class="aaia-back-btn" style="display: none;" onclick="aaiaGoToStep(1)">← Back</button>
+					<button id="aaiaContinueBtn" class="aaia-continue-btn" onclick="aaiaGoToStep(2)">Continue →</button>
+					<button id="aaiaStartBtn" class="aaia-start-btn" style="display: none;" disabled>Start Analysis</button>
+					<button id="aaiaRevalidateBtn" class="aaia-revalidate-btn" style="display: none;" disabled title="Skip Phase 1, reuse previous analysis">Revalidate & Format</button>
+					<button class="aaia-cancel-btn" onclick="closeAAIAModal()">Cancel</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- AAIA Progress Overlay -->
+		<div id="aaiaProgress" class="aaia-progress-overlay" style="display: none;">
+			<div class="aaia-progress-content">
+				<div class="aaia-progress-header">
+					<div id="aaiaProgressText" class="aaia-progress-text">Initializing...</div>
+					<div id="aaiaProgressSubtext" class="aaia-progress-subtext"></div>
+				</div>
+				<div class="aaia-progress-status">
+					<div class="aaia-progress-bar-container">
+						<div id="aaiaProgressBar" class="aaia-progress-bar" style="width: 0%;"></div>
+					</div>
+					<div class="aaia-progress-info">
+						<span id="aaiaProgressDetail" class="aaia-progress-detail">Step 0 of 12</span>
+						<span id="aaiaElapsedTime" class="aaia-elapsed-time">Elapsed: 0:00</span>
+					</div>
+				</div>
+				<div id="aaiaProgressSections" class="aaia-progress-sections">
+					<!-- Dynamically populated based on optimized order -->
+				</div>
+				<div id="aaiaTokenSummary" class="aaia-token-summary"></div>
+				<div id="aaiaCompletionSummary" class="aaia-completion-summary" style="display: none;">
+					<h3>Analysis Complete</h3>
+					<div class="aaia-completion-stats">
+						<div class="aaia-completion-stat">
+							<span class="aaia-completion-label">Total Time</span>
+							<span id="aaiaCompletionTime" class="aaia-completion-value">--</span>
+						</div>
+						<div class="aaia-completion-stat">
+							<span class="aaia-completion-label">Total Tokens</span>
+							<span id="aaiaCompletionTokens" class="aaia-completion-value">--</span>
+						</div>
+						<div class="aaia-completion-stat">
+							<span class="aaia-completion-label">Sections</span>
+							<span id="aaiaCompletionSections" class="aaia-completion-value">--</span>
+						</div>
+					</div>
+					<button id="aaiaCloseBtn" class="aaia-close-btn" onclick="closeAAIAProgress()">View Results</button>
+				</div>
+			</div>
 		</div>
 		<!-- Combined Section for Stats Table and Stacked Bar Charts -->
 		<section id="statsAndCharts">
@@ -409,6 +1271,7 @@
 				<thead>
 					<tr>
 						<th>Account</th>
+						<th>Status</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -456,8 +1319,8 @@
 				</button>
 			</div>
 		</section>
-		<!-- Section for the (Accounts) Passwords Failing Max Age Table -->
-		<section id="policyMaxAgeSection">
+		<!-- Section for the (Accounts) Passwords Failing Max Age Table (ADD JSON only) -->
+		<section id="policyMaxAgeSection" style="display: none;">
 			<h2>Accounts Failing Maximum Age Password Policy</h2>
 			<table
 				id="passwordFailsMaxAgeTable"
@@ -487,10 +1350,1667 @@
 				</button>
 			</div>
 		</section>
+
+		<!-- Privileged Accounts Section (ADD JSON only) -->
+		<section id="privilegedAccountsSection" class="privileged-accounts-section" style="display: none;">
+			<h2>Privileged Account Analysis</h2>
+			<p class="section-description">Analysis of accounts with elevated privileges from Active Directory.</p>
+
+			<!-- Domain Policy Summary (if available) -->
+			<div id="domainPolicyCard" class="domain-policy-summary" style="display: none;">
+				<h3>Domain Password Policy</h3>
+				<div class="policy-summary-grid" id="domainPolicySummary">
+					<!-- Populated by JavaScript -->
+				</div>
+			</div>
+
+			<!-- Privilege Statistics Cards -->
+			<div class="privilege-stats-grid" id="privilegeStatsGrid">
+				<!-- Populated by JavaScript -->
+			</div>
+
+			<!-- Cracked Privileged Accounts (Critical Finding) -->
+			<div id="crackedPrivilegedSection" class="cracked-privileged-section privileged-subsection" style="display: none;">
+				<h3 class="section-header-critical">Cracked Privileged Account Passwords</h3>
+				<p class="warning-text">The following privileged accounts have passwords that were successfully cracked. These represent high-priority security risks.</p>
+				<div class="table-actions">
+					<button id="toggleCrackedPrivilegedBlur" class="toggle-visibility-button" onclick="toggleCrackedPrivilegedBlur()">Show Passwords</button>
+				</div>
+				<table id="crackedPrivilegedTable" class="display blurred" style="width: 100%">
+					<thead>
+						<tr>
+							<th>Account</th>
+							<th>Privilege Level</th>
+							<th>Groups</th>
+							<th>Password</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						<!-- Populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Password Sharing Findings (Critical) -->
+			<div id="passwordSharingSection" class="password-sharing-section privileged-subsection" style="display: none;">
+				<h3>Password Sharing Violations</h3>
+				<p class="warning-text">Privileged accounts sharing passwords with standard users enables lateral movement attacks.</p>
+				<div class="sharing-summary" id="sharingSummary"></div>
+				<table id="passwordSharingTable" class="display blurred" style="width: 100%">
+					<thead>
+						<tr>
+							<th>Privileged Account</th>
+							<th>Level</th>
+							<th>Shares Password With</th>
+							<th>Password</th>
+						</tr>
+					</thead>
+					<tbody>
+						<!-- Populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Tier 0 Accounts -->
+			<div id="tier0AccountsSection" class="privileged-subsection" style="display: none;">
+				<h3>Tier 0 Accounts (Domain/Enterprise Admins)</h3>
+				<table id="tier0AccountsTable" class="display" style="width: 100%">
+					<thead>
+						<tr>
+							<th>Account</th>
+							<th>Groups</th>
+							<th>Status</th>
+							<th>Password Cracked</th>
+						</tr>
+					</thead>
+					<tbody>
+						<!-- Populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Elevated Accounts -->
+			<div id="elevatedAccountsSection" class="privileged-subsection" style="display: none;">
+				<h3>Elevated Accounts (Other Privileged Groups)</h3>
+				<table id="elevatedAccountsTable" class="display" style="width: 100%">
+					<thead>
+						<tr>
+							<th>Account</th>
+							<th>Groups</th>
+							<th>Status</th>
+							<th>Password Cracked</th>
+						</tr>
+					</thead>
+					<tbody>
+						<!-- Populated by JavaScript -->
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Historical Hash Analysis -->
+			<div id="historicalHashSection" style="display: none;">
+				<h3>Password History Analysis</h3>
+				<div class="historical-stats" id="historicalStats">
+					<!-- Populated by JavaScript -->
+				</div>
+				<div id="passwordReuseViolations" style="display: none;">
+					<h4>Password Reuse Violations</h4>
+					<table id="passwordReuseTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Current Password</th>
+								<th>Violation Type</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
+		<!-- HIBP (Have I Been Pwned) Breach Check Section -->
+		<section id="hibpSection" class="report-section hibp-section">
+			<h2>Have I Been Pwned - Breach Check</h2>
+
+			<!-- Database Status Panel (always visible) -->
+			<div id="hibpDbStatus" class="hibp-db-status" style="display: none;">
+				<!-- Populated by JavaScript - shows local DB status -->
+			</div>
+
+			<!-- Initial state: Not yet run -->
+			<div id="hibpNotRun" class="hibp-status-panel">
+				<div class="hibp-intro">
+					<p>Check your password hashes against the <a href="https://haveibeenpwned.com/" target="_blank" rel="noopener">Have I Been Pwned</a> database of over 800 million breached passwords.</p>
+				</div>
+
+				<!-- Method selection (only shown when both methods available) -->
+				<div id="hibpMethodSelector" class="hibp-method-selector" style="display: none;">
+					<h4>Select Check Method:</h4>
+					<div class="hibp-method-options">
+						<label class="hibp-method-option" id="hibpMethodLocalLabel" style="display: none;">
+							<input type="radio" name="hibpMethod" value="local" id="hibpMethodLocal">
+							<div class="hibp-method-info">
+								<span class="hibp-method-name">Local Database</span>
+								<span class="hibp-method-desc" id="hibpLocalDbDesc">Fast offline check</span>
+								<span class="hibp-method-badge recommended">Recommended</span>
+							</div>
+						</label>
+						<label class="hibp-method-option" id="hibpMethodApiLabel">
+							<input type="radio" name="hibpMethod" value="api" id="hibpMethodApi">
+							<div class="hibp-method-info">
+								<span class="hibp-method-name">HIBP API</span>
+								<span class="hibp-method-desc">Check against latest breach data (requires internet)</span>
+							</div>
+						</label>
+					</div>
+				</div>
+
+				<!-- Privacy note for API mode - only shown when API is selected -->
+				<div id="hibpPrivacyNote" class="hibp-privacy-note" style="display: none;">
+					<strong>Privacy Protection:</strong> This check uses k-Anonymity. Only the first 5 characters of each hash are sent to the API - your full hashes and passwords are never transmitted.
+				</div>
+
+				<!-- Local mode info - only shown when local is selected -->
+				<div id="hibpLocalInfo" class="hibp-local-info" style="display: none;">
+					<strong>Local Mode:</strong> All checks are performed locally. No data is sent to external services.
+				</div>
+
+				<button id="hibpStartCheckBtn" class="hibp-start-btn" onclick="startHIBPCheck()">
+					<span class="hibp-icon">🔍</span> Check Against Breach Database
+				</button>
+			</div>
+
+			<!-- Running state -->
+			<div id="hibpRunning" class="hibp-status-panel" style="display: none;">
+				<div class="hibp-progress">
+					<div class="hibp-spinner"></div>
+					<p>Checking hashes against HIBP database...</p>
+					<p class="hibp-progress-detail" id="hibpProgressDetail">Initializing...</p>
+				</div>
+			</div>
+
+			<!-- Results state -->
+			<div id="hibpResults" class="hibp-results-panel" style="display: none;">
+				<!-- Data source indicator -->
+				<div class="hibp-data-source" id="hibpDataSource">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<div class="hibp-summary-grid" id="hibpSummaryGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<!-- Option to re-run with different method -->
+				<div class="hibp-rerun-section" id="hibpRerunSection" style="display: none;">
+					<button class="hibp-rerun-btn" onclick="showHIBPMethodSelector()">
+						Check with HIBP API
+					</button>
+				</div>
+
+				<!-- Accounts Found in Breaches -->
+				<div class="hibp-table-section">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+						<h3 style="margin: 0;">Accounts Found in Breaches</h3>
+						<div style="display: flex; gap: 8px;">
+							<button id="downloadHIBPCSV" onclick="downloadHIBPCSV()">Download CSV</button>
+							<button id="toggleHIBPBlur" class="toggle-visibility-button" onclick="toggleHIBPBlur()">Show Passwords</button>
+						</div>
+					</div>
+					<p class="warning-text">These accounts have password hashes that appear in known data breaches. The "Times Seen" count indicates how commonly the password is used globally.</p>
+					<table id="hibpAllBreachedTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Username</th>
+								<th>Status</th>
+								<th>Password</th>
+								<th>Times Seen in Breaches</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
+		<!-- HIBP Consent Modal -->
+		<div id="hibpConsentModal" class="hibp-modal" style="display: none;">
+			<div class="hibp-modal-content">
+				<div class="hibp-modal-header">
+					<h2>External Service Notice</h2>
+					<button class="hibp-modal-close" onclick="closeHIBPConsentModal()">&times;</button>
+				</div>
+				<div class="hibp-modal-body">
+					<div class="hibp-consent-warning">
+						<div class="hibp-warning-icon">⚠️</div>
+						<h3>Third-Party API Connection</h3>
+						<p>You are about to connect to the <strong>Have I Been Pwned</strong> API, an external third-party service operated by Troy Hunt.</p>
+					</div>
+
+					<div class="hibp-consent-details">
+						<h4>What data is sent?</h4>
+						<ul>
+							<li>Only the <strong>first 5 characters</strong> of each NTLM hash (k-Anonymity model)</li>
+							<li>Full hashes are <strong>never transmitted</strong></li>
+							<li>Passwords are <strong>never transmitted</strong></li>
+							<li>Usernames are <strong>never transmitted</strong></li>
+						</ul>
+
+						<h4>How it works:</h4>
+						<p>The API returns all hash suffixes matching your prefix. Your browser then checks locally for matches, ensuring your actual data never leaves your network.</p>
+
+						<h4>About HIBP:</h4>
+						<p>Have I Been Pwned is a free service created by security researcher Troy Hunt. It maintains a database of over 800 million passwords from known data breaches.</p>
+						<p><a href="https://haveibeenpwned.com/API/v3#PwnedPasswords" target="_blank" rel="noopener">Learn more about the API</a></p>
+					</div>
+
+					<div class="hibp-consent-checkbox">
+						<label>
+							<input type="checkbox" id="hibpConsentCheckbox">
+							I understand that partial hash data will be sent to an external service and consent to proceed
+						</label>
+					</div>
+				</div>
+				<div class="hibp-modal-footer">
+					<button class="hibp-btn-secondary" onclick="closeHIBPConsentModal()">Cancel</button>
+					<button class="hibp-btn-primary" id="hibpConsentConfirmBtn" onclick="runHIBPCheck()" disabled>Check Passwords</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Kerberoast Exposure Analysis Section -->
+		<section id="kerberoastSection" class="report-section kerberoast-section" style="display: none;">
+			<h2>Kerberoast Exposure Analysis</h2>
+
+			<!-- Info panel when no data available -->
+			<div id="kerberoastNotAvailable" class="kerberoast-not-available" style="display: none;">
+				<p>Kerberoast analysis requires ADD JSON input with Service Principal Names (SPNs).</p>
+				<p style="margin-top: 8px; font-size: 0.9rem;">This analysis is only available when using the Active Directory Dumper (ADD) JSON format.</p>
+			</div>
+
+			<!-- Results when data is available -->
+			<div id="kerberoastResults" style="display: none;">
+				<div class="kerberoast-intro">
+					<p>Analysis of service accounts vulnerable to Kerberoasting attacks. Accounts with Service Principal Names (SPNs) can have their Kerberos tickets requested by any authenticated user for offline password cracking.</p>
+				</div>
+
+				<div class="kerberoast-info-note">
+					<strong>Risk Scoring:</strong> Each account is scored based on factors including: privilege level (adminCount), password age, encryption types supported, delegation configuration, and whether the password was cracked or found in breaches.
+				</div>
+
+				<!-- Summary Stats -->
+				<div class="kerberoast-summary-grid" id="kerberoastSummaryGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<!-- Charts -->
+				<div class="kerberoast-charts-grid">
+					<div class="kerberoast-chart-container">
+						<h4>Risk Distribution</h4>
+						<canvas id="kerberoastRiskChart"></canvas>
+					</div>
+					<div class="kerberoast-chart-container">
+						<h4>Top Risk Factors</h4>
+						<canvas id="kerberoastFactorsChart"></canvas>
+					</div>
+				</div>
+
+				<!-- Accounts Table -->
+				<div class="kerberoast-table-section">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+						<h3 style="margin: 0;">Kerberoastable Accounts</h3>
+						<button id="downloadKerberoastCSV" onclick="downloadKerberoastCSV()">Download CSV</button>
+					</div>
+					<p class="warning-text">Accounts with SPNs that can be targeted for Kerberoasting. Higher risk scores indicate greater urgency for remediation.</p>
+					<table id="kerberoastTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Risk Score</th>
+								<th>Category</th>
+								<th>Risk Factors</th>
+								<th>SPNs</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
+		<!-- Historical Trend Analysis Section -->
+		<section id="trendAnalysisSection" class="report-section trend-section" style="display: none;">
+			<h2>Historical Trend Analysis</h2>
+
+			<div class="trend-intro">
+				<p>Compare the current session against historical assessments for <strong id="trendCurrentCompanyName">this company</strong> to track security improvements over time.</p>
+			</div>
+
+			<!-- Session Selector (no company dropdown - uses current session's company) -->
+			<div class="trend-session-selector" id="trendSessionSelector">
+				<!-- Current session (always included) -->
+				<div class="trend-current-session" id="trendCurrentSessionInfo">
+					<label>Current Session:</label>
+					<div class="trend-current-session-name" id="trendCurrentSessionName">
+						<!-- Populated by JavaScript -->
+					</div>
+				</div>
+
+				<div class="trend-sessions-list" id="trendSessionsList">
+					<label>Select historical sessions to compare (minimum 1):</label>
+					<div class="trend-sessions-checkboxes" id="trendSessionsCheckboxes">
+						<!-- Populated by JavaScript -->
+					</div>
+					<button id="analyzeTrendsBtn" class="trend-analyze-btn" onclick="runTrendAnalysis()" disabled>
+						Analyze Trends
+					</button>
+				</div>
+			</div>
+
+			<!-- Loading state -->
+			<div id="trendLoading" class="trend-status-panel" style="display: none;">
+				<div class="trend-spinner"></div>
+				<p>Analyzing historical trends...</p>
+			</div>
+
+			<!-- Results Section -->
+			<div id="trendResults" class="trend-results-panel" style="display: none;">
+				<!-- Summary Cards -->
+				<div class="trend-summary-header" id="trendSummaryHeader">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<div class="trend-summary-grid" id="trendSummaryGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<!-- Trend Charts -->
+				<div class="trend-charts-container">
+					<div class="trend-chart-wrapper">
+						<h3>Crack Rate Over Time</h3>
+						<canvas id="trendCrackRateChart"></canvas>
+					</div>
+					<div class="trend-chart-wrapper">
+						<h3>Average Password Length Over Time</h3>
+						<canvas id="trendPasswordLengthChart"></canvas>
+					</div>
+				</div>
+
+				<div class="trend-charts-container">
+					<div class="trend-chart-wrapper">
+						<h3>Policy Violations Over Time</h3>
+						<canvas id="trendViolationsChart"></canvas>
+					</div>
+					<div class="trend-chart-wrapper">
+						<h3>Bad Practices Over Time</h3>
+						<canvas id="trendBadPracticesChart"></canvas>
+					</div>
+				</div>
+
+				<!-- Comparison Table -->
+				<div class="trend-comparison-table-section">
+					<h3>Detailed Metric Comparison</h3>
+					<table id="trendComparisonTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Metric</th>
+								<th>Oldest Session</th>
+								<th>Latest Session</th>
+								<th>Change</th>
+								<th>Direction</th>
+							</tr>
+						</thead>
+						<tbody id="trendComparisonTableBody">
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+
+				<!-- Per-Session Details -->
+				<div class="trend-session-details-section">
+					<h3>Session Details</h3>
+					<div class="trend-session-cards" id="trendSessionCards">
+						<!-- Populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- Advanced A.I. Analysis (AAIA) Results Section -->
+		<section id="aaiaResultsSection" class="aaia-results-section" style="display: none;">
+			<div class="aaia-results-header">
+				<h2>Advanced A.I. Analysis</h2>
+				<div class="aaia-results-meta" id="aaiaResultsMeta">
+					<!-- Populated by JavaScript with model, server, timestamp info -->
+				</div>
+				<div class="aaia-results-actions">
+					<button id="aaiaRegenerateBtn" class="aaia-regenerate-btn">Regenerate Analysis</button>
+				</div>
+			</div>
+
+			<!-- Password Pattern Analysis Section -->
+			<div class="aaia-result-card" id="aaiaWeakHabits">
+				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaWeakHabits')">
+					<h3>Password Pattern Analysis</h3>
+					<span class="aaia-card-toggle">&#9660;</span>
+				</div>
+				<div class="aaia-card-content">
+					<div class="aaia-card-body" id="aaiaWeakHabitsContent">
+						<!-- Content populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+
+			<!-- Company Intelligence Section -->
+			<div class="aaia-result-card" id="aaiaCompanyIntel">
+				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaCompanyIntel')">
+					<h3>Company Intelligence</h3>
+					<span class="aaia-card-toggle">&#9660;</span>
+				</div>
+				<div class="aaia-card-content">
+					<div class="aaia-card-body" id="aaiaCompanyIntelContent">
+						<!-- Content populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+
+			<!-- User Behavior Analysis Section -->
+			<div class="aaia-result-card" id="aaiaUserBehavior">
+				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaUserBehavior')">
+					<h3>User Behavior Analysis</h3>
+					<span class="aaia-card-toggle">&#9660;</span>
+				</div>
+				<div class="aaia-card-content">
+					<div class="aaia-card-body" id="aaiaUserBehaviorContent">
+						<!-- Content populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+
+			<!-- Security Recommendations Section -->
+			<div class="aaia-result-card" id="aaiaRecommendations">
+				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaRecommendations')">
+					<h3>Security Recommendations</h3>
+					<span class="aaia-card-toggle">&#9660;</span>
+				</div>
+				<div class="aaia-card-content">
+					<div class="aaia-card-body" id="aaiaRecommendationsContent">
+						<!-- Content populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+		</section>
+
 		</div><!-- End report-content -->
 
 		<!-- -------------------- JavaScript Section -------------------- -->
 		<script>
+			// ==================== NAVIGATION ====================
+			// Scroll to a section smoothly
+			function scrollToSection(sectionId) {
+				const element = document.getElementById(sectionId);
+				if (element) {
+					// Get the header height for offset
+					const header = document.querySelector('.app-header');
+					const headerHeight = header ? header.offsetHeight : 0;
+					const navHeight = 60; // Approximate nav height
+					const offset = headerHeight + navHeight + 20;
+
+					const elementPosition = element.getBoundingClientRect().top;
+					const offsetPosition = elementPosition + window.pageYOffset - offset;
+
+					window.scrollTo({
+						top: offsetPosition,
+						behavior: 'smooth'
+					});
+				}
+			}
+
+			// ==================== HIBP (Have I Been Pwned) ====================
+			let hibpStatus = null;  // Cached HIBP status
+
+			// Initialize HIBP section - check for local database availability
+			async function initHIBPSection() {
+				try {
+					const response = await fetch('/api/hibp/status', { credentials: 'same-origin' });
+					if (response.ok) {
+						hibpStatus = await response.json();
+						updateHIBPDbStatus();
+						updateHIBPMethodUI();
+					}
+				} catch (e) {
+					console.log('Could not fetch HIBP status:', e);
+				}
+			}
+
+			// Update the database status panel
+			function updateHIBPDbStatus() {
+				const statusPanel = document.getElementById('hibpDbStatus');
+				if (!hibpStatus || !statusPanel) return;
+
+				const localDb = hibpStatus.local_database;
+				statusPanel.style.display = 'flex';
+
+				if (localDb && localDb.loaded) {
+					statusPanel.className = 'hibp-db-status loaded';
+					statusPanel.innerHTML = `
+						<span class="hibp-db-status-icon">✓</span>
+						<div class="hibp-db-status-content">
+							<div class="hibp-db-status-title">Local HIBP Database Ready</div>
+							<div class="hibp-db-status-detail">${localDb.hash_count.toLocaleString()} breached password hashes${localDb.file_date ? ` (updated ${localDb.file_date})` : ''} - checks run locally without external connections</div>
+						</div>
+					`;
+				} else if (localDb && localDb.configured) {
+					statusPanel.className = 'hibp-db-status not-loaded';
+					statusPanel.innerHTML = `
+						<span class="hibp-db-status-icon">⚠</span>
+						<div class="hibp-db-status-content">
+							<div class="hibp-db-status-title">Local Database Configured But Not Loaded</div>
+							<div class="hibp-db-status-detail">${escapeHtml(localDb.message || 'Database file may be missing or invalid')}</div>
+						</div>
+					`;
+				} else {
+					// No local database - just hide the status panel and use API
+					statusPanel.style.display = 'none';
+				}
+			}
+
+			// Update the UI based on available HIBP methods
+			function updateHIBPMethodUI() {
+				if (!hibpStatus) return;
+
+				const methodSelector = document.getElementById('hibpMethodSelector');
+				const localLabel = document.getElementById('hibpMethodLocalLabel');
+				const localRadio = document.getElementById('hibpMethodLocal');
+				const apiRadio = document.getElementById('hibpMethodApi');
+				const privacyNote = document.getElementById('hibpPrivacyNote');
+				const localInfo = document.getElementById('hibpLocalInfo');
+				const localDesc = document.getElementById('hibpLocalDbDesc');
+
+				const localDbLoaded = hibpStatus.local_database && hibpStatus.local_database.loaded;
+
+				// If local database is loaded, show method selector with both options
+				if (localDbLoaded) {
+					methodSelector.style.display = 'block';
+					localLabel.style.display = 'flex';
+					localDesc.textContent = `Fast offline check (${hibpStatus.local_database.hash_count.toLocaleString()} hashes)`;
+
+					// Set default selection to local
+					localRadio.checked = true;
+					privacyNote.style.display = 'none';
+					localInfo.style.display = 'block';
+
+					// Add change listeners
+					localRadio.addEventListener('change', function() {
+						if (this.checked) {
+							privacyNote.style.display = 'none';
+							localInfo.style.display = 'block';
+						}
+					});
+					apiRadio.addEventListener('change', function() {
+						if (this.checked) {
+							privacyNote.style.display = 'block';
+							localInfo.style.display = 'none';
+						}
+					});
+				} else {
+					// Only API available - hide method selector, show privacy note
+					methodSelector.style.display = 'none';
+					localLabel.style.display = 'none';
+					privacyNote.style.display = 'block';
+					localInfo.style.display = 'none';
+					apiRadio.checked = true;
+				}
+			}
+
+			// Start HIBP check - routes to appropriate method
+			function startHIBPCheck() {
+				const localRadio = document.getElementById('hibpMethodLocal');
+				const useLocal = localRadio && localRadio.checked;
+
+				if (useLocal) {
+					// Local check - no consent needed
+					runHIBPCheckLocal();
+				} else {
+					// API check - show consent modal
+					showHIBPConsentModal();
+				}
+			}
+
+			function showHIBPConsentModal() {
+				document.getElementById('hibpConsentModal').style.display = 'flex';
+				document.getElementById('hibpConsentCheckbox').checked = false;
+				document.getElementById('hibpConsentConfirmBtn').disabled = true;
+
+				// Set up checkbox listener
+				document.getElementById('hibpConsentCheckbox').addEventListener('change', function() {
+					document.getElementById('hibpConsentConfirmBtn').disabled = !this.checked;
+				});
+			}
+
+			function closeHIBPConsentModal() {
+				document.getElementById('hibpConsentModal').style.display = 'none';
+			}
+
+			// Run HIBP check using local database
+			async function runHIBPCheckLocal() {
+				document.getElementById('hibpNotRun').style.display = 'none';
+				document.getElementById('hibpRunning').style.display = 'block';
+				document.getElementById('hibpResults').style.display = 'none';
+				document.getElementById('hibpProgressDetail').textContent = 'Checking against local database...';
+
+				try {
+					const response = await fetch('/api/hibp/check', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ method: 'local' }),
+						credentials: 'same-origin'
+					});
+
+					const data = await response.json();
+					if (!response.ok) {
+						throw new Error(data.error || 'HIBP check failed');
+					}
+					displayHIBPResults(data);
+				} catch (error) {
+					console.error('HIBP local check error:', error);
+					document.getElementById('hibpRunning').style.display = 'none';
+					document.getElementById('hibpNotRun').style.display = 'block';
+					alert('HIBP check failed: ' + error.message);
+				}
+			}
+
+			// Run HIBP check using API (after consent)
+			async function runHIBPCheck() {
+				closeHIBPConsentModal();
+
+				// Show running state
+				document.getElementById('hibpNotRun').style.display = 'none';
+				document.getElementById('hibpRunning').style.display = 'block';
+				document.getElementById('hibpResults').style.display = 'none';
+				document.getElementById('hibpProgressDetail').textContent = 'Connecting to HIBP API...';
+
+				try {
+					const response = await fetch('/api/hibp/check', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ method: 'api', consent: true }),
+						credentials: 'same-origin'
+					});
+
+					// Check content type before parsing
+					const contentType = response.headers.get('content-type');
+					if (!contentType || !contentType.includes('application/json')) {
+						const text = await response.text();
+						console.error('Non-JSON response:', text.substring(0, 500));
+						throw new Error('Server returned non-JSON response. Check console for details.');
+					}
+
+					const data = await response.json();
+
+					if (!response.ok) {
+						throw new Error(data.error || 'HIBP check failed');
+					}
+
+					// Show results
+					displayHIBPResults(data);
+
+				} catch (error) {
+					console.error('HIBP check error:', error);
+					document.getElementById('hibpRunning').style.display = 'none';
+					document.getElementById('hibpNotRun').style.display = 'block';
+					alert('HIBP check failed: ' + error.message);
+				}
+			}
+
+			// Show method selector to re-run with different method
+			function showHIBPMethodSelector() {
+				document.getElementById('hibpResults').style.display = 'none';
+				document.getElementById('hibpNotRun').style.display = 'block';
+				updateHIBPMethodUI();
+			}
+
+			function displayHIBPResults(data) {
+				document.getElementById('hibpRunning').style.display = 'none';
+				document.getElementById('hibpResults').style.display = 'block';
+
+				// Data source indicator
+				const dataSourceEl = document.getElementById('hibpDataSource');
+				const sourceIcon = data.data_source === 'local' ? '💾' : '🌐';
+				const sourceInfo = data.data_source_info || (data.data_source === 'local' ? 'Local Database' : 'HIBP API');
+				dataSourceEl.innerHTML = `
+					<span class="hibp-data-source-icon">${sourceIcon}</span>
+					<span class="hibp-data-source-label">Data Source:</span>
+					<span class="hibp-data-source-value">${escapeHtml(sourceInfo)}</span>
+				`;
+
+				// Show re-run option if both methods are available
+				const rerunSection = document.getElementById('hibpRerunSection');
+				if (hibpStatus && hibpStatus.check_methods && hibpStatus.check_methods.length > 1) {
+					rerunSection.style.display = 'block';
+				} else {
+					rerunSection.style.display = 'none';
+				}
+
+				// Summary grid
+				const safeCount = data.total_checked - data.total_found;
+				document.getElementById('hibpSummaryGrid').innerHTML = `
+					<div class="hibp-stat-card found">
+						<div class="stat-value">${data.total_found}</div>
+						<div class="stat-label">Found in Breaches</div>
+						<div class="stat-detail">${data.found_percentage}% of accounts</div>
+					</div>
+					<div class="hibp-stat-card safe">
+						<div class="stat-value">${safeCount}</div>
+						<div class="stat-label">Not Found</div>
+						<div class="stat-detail">Unique passwords</div>
+					</div>
+					<div class="hibp-stat-card total">
+						<div class="stat-value">${data.total_checked}</div>
+						<div class="stat-label">Total Checked</div>
+						<div class="stat-detail">${data.check_duration_seconds}s</div>
+					</div>
+				`;
+
+				// Helper to format password display with blur structure
+				function formatHIBPPassword(pw) {
+					if (pw === null || pw === undefined) {
+						return '<span class="hibp-password-unknown">(not cracked)</span>';
+					}
+					if (pw === '') {
+						return '<span class="hibp-password-unknown">(blank)</span>';
+					}
+					// Apply blur structure: show first 2 and last 2, blur middle
+					if (pw.length <= 4) {
+						// Short passwords - blur entirely
+						return `<span class="hibp-password-blurred">${escapeHtml(pw)}</span>`;
+					}
+					const start = escapeHtml(pw.slice(0, 2));
+					const middle = escapeHtml(pw.slice(2, -2));
+					const end = escapeHtml(pw.slice(-2));
+					return `<span class="hibp-password-visible">${start}</span><span class="hibp-password-blurred">${middle}</span><span class="hibp-password-visible">${end}</span>`;
+				}
+
+				// Breached accounts table
+				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+				const breachedResults = data.results.filter(r => r.found_in_breach);
+				if (breachedResults.length > 0) {
+					// Sort by breach count descending
+					breachedResults.sort((a, b) => b.breach_count - a.breach_count);
+					allBreachedBody.innerHTML = breachedResults.map(item => {
+						const status = item.account_status || 'unknown';
+						const statusClass = status === 'enabled' ? 'status-enabled' : (status === 'disabled' ? 'status-disabled' : '');
+						const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1);
+						return `
+						<tr>
+							<td>${escapeHtml(item.username)}</td>
+							<td class="${statusClass}" style="text-align: center">${statusDisplay}</td>
+							<td style="text-align: center">${formatHIBPPassword(item.cracked_pw)}</td>
+							<td style="text-align: center">${item.breach_count.toLocaleString()}</td>
+						</tr>
+					`}).join('');
+				} else {
+					allBreachedBody.innerHTML = '<tr><td colspan="4">No breached passwords found</td></tr>';
+				}
+
+				// Initialize DataTable if available
+				if (typeof $.fn.DataTable !== 'undefined') {
+					if (!$.fn.DataTable.isDataTable('#hibpAllBreachedTable')) {
+						$('#hibpAllBreachedTable').DataTable({
+							pageLength: 10,
+							order: [[3, 'desc']],  // Times Seen in Breaches column
+							language: { search: "Filter:" },
+							columnDefs: [
+								{ targets: [1, 2, 3], className: 'dt-center' }  // Center Status, Password, Times Seen columns
+							]
+						});
+					}
+				}
+			}
+
+			// Check for existing HIBP results on page load
+			async function checkExistingHIBPResults() {
+				try {
+					const response = await fetch('/hibp_results.json');
+					if (response.ok) {
+						const data = await response.json();
+						if (data && data.total_checked > 0) {
+							displayHIBPResults(data);
+							document.getElementById('hibpNotRun').style.display = 'none';
+						}
+					}
+				} catch (e) {
+					// No existing results, that's fine
+				}
+			}
+
+			// Toggle blur for HIBP password tables
+			function toggleHIBPBlur() {
+				const resultsPanel = document.getElementById('hibpResults');
+				const button = document.getElementById('toggleHIBPBlur');
+
+				if (!resultsPanel || !button) return;
+
+				const isCurrentlyBlurred = !resultsPanel.classList.contains('hibp-tables-unblurred');
+
+				if (isCurrentlyBlurred) {
+					// Show passwords
+					resultsPanel.classList.add('hibp-tables-unblurred');
+					button.textContent = 'Blur Passwords';
+				} else {
+					// Blur passwords
+					resultsPanel.classList.remove('hibp-tables-unblurred');
+					button.textContent = 'Show Passwords';
+				}
+			}
+
+			// Download HIBP results as CSV
+			function downloadHIBPCSV() {
+				fetch('hibp_results.json')
+					.then(response => {
+						if (!response.ok) {
+							throw new Error('No HIBP results available');
+						}
+						return response.json();
+					})
+					.then(data => {
+						// Filter to only breached accounts
+						const breached = (data.results || []).filter(r => r.found_in_breach);
+
+						if (breached.length === 0) {
+							alert('No breached accounts to export.');
+							return;
+						}
+
+						// Build CSV content
+						let csvContent = '"Username","Status","Password","Times Seen in Breaches"\n';
+
+						breached.forEach(item => {
+							const username = String(item.username || '').replace(/"/g, '""');
+							const status = item.account_status || 'unknown';
+							const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1);
+							const password = item.cracked_pw === null || item.cracked_pw === undefined
+								? '(not cracked)'
+								: item.cracked_pw === ''
+									? '(blank)'
+									: String(item.cracked_pw).replace(/"/g, '""');
+							const count = item.breach_count || 0;
+
+							csvContent += `"${username}","${statusDisplay}","${password}","${count}"\n`;
+						});
+
+						// Download the file
+						const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+						const url = URL.createObjectURL(blob);
+						const link = document.createElement('a');
+						link.href = url;
+						link.download = 'HIBP_Breach_Check.csv';
+						document.body.appendChild(link);
+						link.click();
+						document.body.removeChild(link);
+						URL.revokeObjectURL(url);
+					})
+					.catch(error => {
+						console.error('Error downloading HIBP CSV:', error);
+						alert('Unable to download CSV. Please run a breach check first.');
+					});
+			}
+
+			// ==================== KERBEROAST ANALYSIS FUNCTIONS ====================
+			let kerberoastRiskChart = null;
+			let kerberoastFactorsChart = null;
+			let kerberoastDataTable = null;
+			let kerberoastData = null;
+
+			// Initialize Kerberoast section - check for available data
+			async function initKerberoastSection() {
+				try {
+					const response = await fetch('/kerberoast_report.json');
+					if (response.ok) {
+						kerberoastData = await response.json();
+						if (kerberoastData && kerberoastData.summary && kerberoastData.summary.total_kerberoastable > 0) {
+							displayKerberoastResults(kerberoastData);
+							// Show section and nav button
+							document.getElementById('kerberoastSection').style.display = 'block';
+							document.getElementById('navKerberoast').style.display = 'inline-block';
+						}
+					}
+				} catch (e) {
+					console.log('No Kerberoast data available:', e);
+				}
+			}
+
+			// Display Kerberoast analysis results
+			function displayKerberoastResults(data) {
+				document.getElementById('kerberoastNotAvailable').style.display = 'none';
+				document.getElementById('kerberoastResults').style.display = 'block';
+
+				const summary = data.summary;
+
+				// Use info_count from backend (accounts with score < 10)
+				const infoCount = summary.info_count || 0;
+
+				// Populate summary grid - compact single-row layout
+				const summaryGrid = document.getElementById('kerberoastSummaryGrid');
+				summaryGrid.innerHTML = `
+					<div class="kerberoast-stat-card total">
+						<div class="stat-value">${summary.total_kerberoastable}</div>
+						<div class="stat-label">Total</div>
+					</div>
+					<div class="kerberoast-stat-card critical">
+						<div class="stat-value">${summary.critical_count}</div>
+						<div class="stat-label">Critical</div>
+					</div>
+					<div class="kerberoast-stat-card high">
+						<div class="stat-value">${summary.high_count}</div>
+						<div class="stat-label">High</div>
+					</div>
+					<div class="kerberoast-stat-card medium">
+						<div class="stat-value">${summary.medium_count}</div>
+						<div class="stat-label">Medium</div>
+					</div>
+					<div class="kerberoast-stat-card low">
+						<div class="stat-value">${summary.low_count}</div>
+						<div class="stat-label">Low</div>
+					</div>
+					<div class="kerberoast-stat-card secure">
+						<div class="stat-value">${infoCount}</div>
+						<div class="stat-label">Secure</div>
+					</div>
+				`;
+
+				// Create risk distribution chart
+				createKerberoastRiskChart(summary);
+
+				// Create risk factors chart if available
+				if (data.chart_data && data.chart_data.risk_factors) {
+					createKerberoastFactorsChart(data.chart_data.risk_factors);
+				}
+
+				// Populate accounts table
+				populateKerberoastTable(data.assessments || []);
+			}
+
+			// Create risk distribution pie/doughnut chart
+			function createKerberoastRiskChart(summary) {
+				const ctx = document.getElementById('kerberoastRiskChart').getContext('2d');
+
+				if (kerberoastRiskChart) {
+					kerberoastRiskChart.destroy();
+				}
+
+				// Include Secure (info_count) in the chart
+				const infoCount = summary.info_count || 0;
+
+				kerberoastRiskChart = new Chart(ctx, {
+					type: 'doughnut',
+					data: {
+						labels: ['Critical', 'High', 'Medium', 'Low', 'Secure'],
+						datasets: [{
+							data: [
+								summary.critical_count,
+								summary.high_count,
+								summary.medium_count,
+								summary.low_count,
+								infoCount
+							],
+							backgroundColor: [
+								'rgba(220, 53, 69, 0.8)',
+								'rgba(255, 107, 53, 0.8)',
+								'rgba(255, 193, 7, 0.8)',
+								'rgba(40, 167, 69, 0.8)',
+								'rgba(23, 162, 184, 0.8)'
+							],
+							borderColor: [
+								'#dc3545',
+								'#ff6b35',
+								'#ffc107',
+								'#28a745',
+								'#17a2b8'
+							],
+							borderWidth: 1
+						}]
+					},
+					options: {
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: {
+								position: 'bottom',
+								labels: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff'
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Create risk factors bar chart
+			function createKerberoastFactorsChart(factorsData) {
+				const ctx = document.getElementById('kerberoastFactorsChart').getContext('2d');
+
+				if (kerberoastFactorsChart) {
+					kerberoastFactorsChart.destroy();
+				}
+
+				// factorsData comes pre-formatted from Python as Chart.js data structure
+				// It has 'labels' array and 'datasets' array
+				let labels, values;
+
+				if (factorsData.labels && factorsData.datasets) {
+					// Pre-formatted Chart.js data - use human-readable labels
+					labels = factorsData.labels.map(name => formatRiskFactorName(name));
+					values = factorsData.datasets[0].data;
+				} else {
+					// Fallback: treat as key-value pairs
+					const sortedFactors = Object.entries(factorsData)
+						.filter(([key]) => key !== 'labels' && key !== 'datasets')
+						.sort((a, b) => b[1] - a[1])
+						.slice(0, 10);
+					labels = sortedFactors.map(([name]) => formatRiskFactorName(name));
+					values = sortedFactors.map(([, count]) => count);
+				}
+
+				// Don't create chart if no data
+				if (!labels.length || !values.length || values.every(v => v === 0)) {
+					document.getElementById('kerberoastFactorsChart').parentElement.innerHTML =
+						'<h4>Top Risk Factors</h4><p style="color: var(--text-secondary); text-align: center; padding: 40px 0;">No significant risk factors detected</p>';
+					return;
+				}
+
+				kerberoastFactorsChart = new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: labels,
+						datasets: [{
+							label: 'Affected Accounts',
+							data: values,
+							backgroundColor: 'rgba(255, 152, 0, 0.7)',
+							borderColor: '#ff9800',
+							borderWidth: 1
+						}]
+					},
+					options: {
+						indexAxis: 'y',
+						responsive: true,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: { display: false }
+						},
+						scales: {
+							x: {
+								beginAtZero: true,
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								},
+								grid: {
+									color: 'rgba(255, 255, 255, 0.1)'
+								}
+							},
+							y: {
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								},
+								grid: {
+									display: false
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Format risk factor names for display
+			function formatRiskFactorName(name) {
+				const mapping = {
+					'SPN_PRESENT': 'Has SPN',
+					'CRACKED_PASSWORD': 'Cracked',
+					'HIBP_EXPOSED': 'HIBP Breach',
+					'PRIVILEGED_ADMINCOUNT': 'Privileged',
+					'ASREP_PREAUTH_DISABLED': 'AS-REP Roast',
+					'PASSWORD_NEVER_EXPIRES': 'No Expiry',
+					'PASSWORD_AGE_3Y_PLUS': 'Pwd 3+ Years',
+					'PASSWORD_AGE_1Y_PLUS': 'Pwd 1+ Years',
+					'DELEGATION_ENABLED': 'Unconstrained',
+					'CONSTRAINED_DELEGATION_SET': 'Constrained',
+					'WEAK_ENCRYPTION_RC4': 'RC4 Enabled',
+					'WEAK_ENCRYPTION_DES': 'DES Enabled',
+					'REUSED_PASSWORD_CLUSTER': 'Pwd Reused',
+					'ACCOUNT_DISABLED': 'Disabled'
+				};
+				return mapping[name] || name.replace(/_/g, ' ');
+			}
+
+			// Populate the Kerberoast accounts table
+			function populateKerberoastTable(accounts) {
+				const tbody = document.querySelector('#kerberoastTable tbody');
+				if (!tbody) return;
+
+				// Sort by risk score descending
+				accounts.sort((a, b) => b.risk_score - a.risk_score);
+
+				tbody.innerHTML = accounts.map(acc => {
+					const categoryClass = acc.risk_category.toLowerCase();
+					const status = acc.enabled ? 'Enabled' : 'Disabled';
+					const statusClass = acc.enabled ? 'status-enabled' : 'status-disabled';
+
+					// Format risk reasons as tags
+					const reasonsHtml = (acc.risk_reasons || []).map(reason => {
+						const isNegative = reason === 'ACCOUNT_DISABLED';
+						const tagClass = isNegative ? 'negative' : 'positive';
+						return `<span class="kerberoast-reason-tag ${tagClass}">${formatRiskFactorName(reason)}</span>`;
+					}).join('');
+
+					// Format SPNs
+					const spnsHtml = (acc.spns || []).map(spn =>
+						`<div class="kerberoast-spn-item">${escapeHtml(spn)}</div>`
+					).join('');
+
+					return `
+						<tr>
+							<td>${escapeHtml(acc.sam_account_name)}</td>
+							<td>${acc.risk_score}</td>
+							<td><span class="kerberoast-risk-badge ${categoryClass}">${acc.risk_category}</span></td>
+							<td><div class="kerberoast-risk-reasons">${reasonsHtml}</div></td>
+							<td><div class="kerberoast-spn-list">${spnsHtml}</div></td>
+							<td><span class="${statusClass}">${status}</span></td>
+						</tr>
+					`;
+				}).join('');
+
+				// Initialize DataTable if jQuery is available
+				if (typeof $ !== 'undefined' && $.fn.DataTable) {
+					if (kerberoastDataTable) {
+						kerberoastDataTable.destroy();
+					}
+					kerberoastDataTable = $('#kerberoastTable').DataTable({
+						pageLength: 25,
+						order: [[1, 'desc']],
+						autoWidth: false,
+						columnDefs: [
+							{ orderable: false, targets: [3, 4] },
+							{ width: '14%', targets: 0 },  // Account
+							{ width: '7%', className: 'dt-center', targets: 1 },  // Score
+							{ width: '9%', className: 'dt-center', targets: 2 },  // Category
+							{ width: '28%', targets: 3 },  // Risk Factors
+							{ width: '32%', targets: 4 },  // SPNs
+							{ width: '10%', className: 'dt-center', targets: 5 }  // Status
+						]
+					});
+				}
+			}
+
+			// Download Kerberoast results as CSV
+			function downloadKerberoastCSV() {
+				if (!kerberoastData || !kerberoastData.assessments) {
+					alert('No Kerberoast data available to export.');
+					return;
+				}
+
+				const accounts = kerberoastData.assessments;
+
+				// Build CSV content
+				let csvContent = '"Account","Risk Score","Category","Risk Factors","SPNs","Enabled","Privileged"\n';
+
+				accounts.forEach(acc => {
+					const account = String(acc.sam_account_name || '').replace(/"/g, '""');
+					const riskScore = acc.risk_score || 0;
+					const category = acc.risk_category || 'Unknown';
+					const factors = (acc.risk_reasons || []).join('; ');
+					const spns = (acc.spns || []).join('; ').replace(/"/g, '""');
+					const enabled = acc.enabled ? 'Yes' : 'No';
+					const privileged = acc.is_privileged ? 'Yes' : 'No';
+
+					csvContent += `"${account}","${riskScore}","${category}","${factors}","${spns}","${enabled}","${privileged}"\n`;
+				});
+
+				// Download the file
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = 'Kerberoast_Analysis.csv';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
+			}
+
+			// ==================== TREND ANALYSIS FUNCTIONS ====================
+			// Store chart instances for cleanup
+			let trendCrackRateChart = null;
+			let trendPasswordLengthChart = null;
+			let trendViolationsChart = null;
+			let trendBadPracticesChart = null;
+			let trendSessionsByCompany = {};
+			let currentTrendCompany = null;
+
+			// Initialize trend analysis UI - auto-detects current session's company
+			async function initTrendAnalysis() {
+				try {
+					const response = await fetch('/api/sessions');
+					if (!response.ok) return;
+
+					const data = await response.json();
+					trendSessionsByCompany = data.sessions_by_company || {};
+					const currentSessionId = data.current_session_id;
+
+					// Find the current session and its company
+					let currentSession = null;
+					for (const [company, sessions] of Object.entries(trendSessionsByCompany)) {
+						const found = sessions.find(s => s.session_id === currentSessionId);
+						if (found) {
+							currentSession = found;
+							currentTrendCompany = company;
+							break;
+						}
+					}
+
+					// If no current session found, hide trend analysis
+					if (!currentSession || !currentTrendCompany) {
+						console.log('No current session found for trend analysis');
+						return;
+					}
+
+					// Store the current session ID for later use
+					currentTrendSessionId = currentSessionId;
+
+					// Check if the current company has 2+ sessions
+					const companySessions = trendSessionsByCompany[currentTrendCompany] || [];
+					if (companySessions.length < 2) {
+						console.log(`Trend analysis hidden: ${currentTrendCompany} only has ${companySessions.length} session(s)`);
+						return;
+					}
+
+					// Show trend analysis section and nav button
+					const navBtn = document.getElementById('navTrendAnalysis');
+					if (navBtn) navBtn.style.display = 'inline-block';
+					const trendSection = document.getElementById('trendAnalysisSection');
+					if (trendSection) trendSection.style.display = 'block';
+
+					// Update the company name in the intro text
+					const companyNameEl = document.getElementById('trendCurrentCompanyName');
+					if (companyNameEl) {
+						companyNameEl.textContent = currentTrendCompany;
+					}
+
+					// Auto-load sessions for the current company
+					loadCurrentCompanySessions();
+
+				} catch (error) {
+					console.error('Error initializing trend analysis:', error);
+				}
+			}
+
+			// Store current session ID for trend analysis
+			let currentTrendSessionId = null;
+
+			// Load sessions for the current session's company (auto-detected)
+			function loadCurrentCompanySessions() {
+				const sessionsListDiv = document.getElementById('trendSessionsList');
+				const checkboxesDiv = document.getElementById('trendSessionsCheckboxes');
+				const currentSessionNameDiv = document.getElementById('trendCurrentSessionName');
+
+				if (!sessionsListDiv || !checkboxesDiv || !currentTrendCompany) return;
+
+				const sessions = trendSessionsByCompany[currentTrendCompany] || [];
+				checkboxesDiv.innerHTML = '';
+
+				// Sort sessions by date (oldest first for chronological order)
+				const sortedSessions = [...sessions].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+				// Find and display the current session
+				const currentSession = sortedSessions.find(s => s.session_id === currentTrendSessionId);
+				if (currentSession && currentSessionNameDiv) {
+					const dateStr = new Date(currentSession.created_at).toLocaleDateString();
+					const projectDesc = currentSession.project_description || currentSession.name || 'Assessment';
+					currentSessionNameDiv.innerHTML = `<strong>${projectDesc}</strong> (${dateStr})`;
+				}
+
+				// Filter out the current session from the checkbox list
+				const historicalSessions = sortedSessions.filter(s => s.session_id !== currentTrendSessionId);
+
+				if (historicalSessions.length === 0) {
+					checkboxesDiv.innerHTML = '<p class="trend-no-sessions">No historical sessions available for comparison.</p>';
+					sessionsListDiv.style.display = 'block';
+					updateAnalyzeButtonState();
+					return;
+				}
+
+				historicalSessions.forEach((session, idx) => {
+					const div = document.createElement('div');
+					div.className = 'trend-session-checkbox-item';
+
+					const checkbox = document.createElement('input');
+					checkbox.type = 'checkbox';
+					checkbox.id = `trend_session_${session.session_id}`;
+					checkbox.value = session.session_id;
+					checkbox.checked = true; // Select all by default
+					checkbox.addEventListener('change', updateAnalyzeButtonState);
+
+					const label = document.createElement('label');
+					label.htmlFor = checkbox.id;
+					const dateStr = new Date(session.created_at).toLocaleDateString();
+					const projectDesc = session.project_description || session.name || 'Assessment';
+					label.textContent = `${projectDesc} (${dateStr})`;
+
+					div.appendChild(checkbox);
+					div.appendChild(label);
+					checkboxesDiv.appendChild(div);
+				});
+
+				sessionsListDiv.style.display = 'block';
+				updateAnalyzeButtonState();
+			}
+
+			// Enable/disable analyze button based on selection count
+			function updateAnalyzeButtonState() {
+				const checkboxes = document.querySelectorAll('#trendSessionsCheckboxes input[type="checkbox"]:checked');
+				const analyzeBtn = document.getElementById('analyzeTrendsBtn');
+				if (analyzeBtn) {
+					// Need at least 1 historical session selected (current session is always included)
+					analyzeBtn.disabled = checkboxes.length < 1;
+				}
+			}
+
+			// Run trend analysis
+			async function runTrendAnalysis() {
+				const checkboxes = document.querySelectorAll('#trendSessionsCheckboxes input[type="checkbox"]:checked');
+				const selectedHistoricalIds = Array.from(checkboxes).map(cb => cb.value);
+
+				if (selectedHistoricalIds.length < 1) {
+					alert('Please select at least 1 historical session to compare.');
+					return;
+				}
+
+				// Always include the current session + selected historical sessions
+				const sessionIds = [...selectedHistoricalIds];
+				if (currentTrendSessionId && !sessionIds.includes(currentTrendSessionId)) {
+					sessionIds.push(currentTrendSessionId);
+				}
+
+				// Show loading
+				document.getElementById('trendSessionSelector').style.display = 'none';
+				document.getElementById('trendLoading').style.display = 'block';
+				document.getElementById('trendResults').style.display = 'none';
+
+				try {
+					const response = await fetch('/api/sessions/trend-analysis', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ session_ids: sessionIds })
+					});
+
+					if (!response.ok) {
+						const error = await response.json();
+						throw new Error(error.error || 'Failed to analyze trends');
+					}
+
+					const result = await response.json();
+					displayTrendResults(result.analysis);
+
+				} catch (error) {
+					console.error('Error running trend analysis:', error);
+					alert('Error analyzing trends: ' + error.message);
+					document.getElementById('trendSessionSelector').style.display = 'block';
+				} finally {
+					document.getElementById('trendLoading').style.display = 'none';
+				}
+			}
+
+			// Display trend analysis results
+			function displayTrendResults(analysis) {
+				// Show results panel
+				document.getElementById('trendResults').style.display = 'block';
+				document.getElementById('trendSessionSelector').style.display = 'block';
+
+				// Summary header
+				const summaryHeader = document.getElementById('trendSummaryHeader');
+				const directionEmoji = {
+					'improving': '📈',
+					'regressing': '📉',
+					'stable': '➡️'
+				}[analysis.overall_direction] || '➡️';
+
+				const directionClass = {
+					'improving': 'trend-improving',
+					'regressing': 'trend-regressing',
+					'stable': 'trend-stable'
+				}[analysis.overall_direction] || 'trend-stable';
+
+				summaryHeader.innerHTML = `
+					<div class="trend-summary-title ${directionClass}">
+						<span class="trend-direction-emoji">${directionEmoji}</span>
+						<h3>${analysis.company_name} - Security Trend: ${analysis.overall_direction.charAt(0).toUpperCase() + analysis.overall_direction.slice(1)}</h3>
+					</div>
+					<p class="trend-summary-text">${analysis.summary}</p>
+				`;
+
+				// Summary grid with key metrics
+				const summaryGrid = document.getElementById('trendSummaryGrid');
+				const chartData = analysis.chart_data;
+				summaryGrid.innerHTML = '';
+
+				// Show key changes
+				const keyChanges = analysis.changes.filter(c => c.is_significant).slice(0, 4);
+				keyChanges.forEach(change => {
+					const card = document.createElement('div');
+					card.className = `trend-metric-card ${change.direction}`;
+
+					const arrow = change.direction === 'improvement' ? '↓' : change.direction === 'regression' ? '↑' : '→';
+					const sign = change.absolute_change >= 0 ? '+' : '';
+
+					card.innerHTML = `
+						<div class="trend-metric-name">${change.display_name}</div>
+						<div class="trend-metric-value">${change.new_value}${change.metric && change.metric.includes('rate') ? '%' : ''}</div>
+						<div class="trend-metric-change ${change.direction}">
+							<span class="trend-arrow">${arrow}</span>
+							${sign}${change.absolute_change.toFixed(1)} (${sign}${change.percent_change.toFixed(1)}%)
+						</div>
+					`;
+					summaryGrid.appendChild(card);
+				});
+
+				// Render charts
+				renderTrendCharts(chartData);
+
+				// Populate comparison table
+				populateTrendComparisonTable(analysis.changes, analysis.sessions);
+
+				// Populate session cards
+				populateTrendSessionCards(analysis.sessions);
+			}
+
+			// Render trend charts
+			function renderTrendCharts(chartData) {
+				const labels = chartData.labels;
+				const datasets = chartData.datasets;
+
+				// Destroy existing charts
+				if (trendCrackRateChart) trendCrackRateChart.destroy();
+				if (trendPasswordLengthChart) trendPasswordLengthChart.destroy();
+				if (trendViolationsChart) trendViolationsChart.destroy();
+				if (trendBadPracticesChart) trendBadPracticesChart.destroy();
+
+				const chartOptions = {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: { display: false }
+					},
+					scales: {
+						y: { beginAtZero: true }
+					}
+				};
+
+				const barChartOptions = {
+					responsive: true,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: { display: false }
+					},
+					scales: {
+						y: { beginAtZero: true },
+						x: {
+							grid: { display: false }
+						}
+					},
+					barPercentage: 0.6,
+					categoryPercentage: 0.8,
+					maxBarThickness: 60
+				};
+
+				// Crack Rate Chart
+				const crackRateCtx = document.getElementById('trendCrackRateChart');
+				if (crackRateCtx) {
+					trendCrackRateChart = new Chart(crackRateCtx, {
+						type: 'line',
+						data: {
+							labels: labels,
+							datasets: [{
+								...datasets.crack_rate,
+								fill: true,
+								tension: 0.3
+							}]
+						},
+						options: {
+							...chartOptions,
+							scales: { y: { beginAtZero: true, max: 100 } }
+						}
+					});
+				}
+
+				// Password Length Chart
+				const lengthCtx = document.getElementById('trendPasswordLengthChart');
+				if (lengthCtx) {
+					trendPasswordLengthChart = new Chart(lengthCtx, {
+						type: 'line',
+						data: {
+							labels: labels,
+							datasets: [{
+								...datasets.avg_password_length,
+								fill: true,
+								tension: 0.3
+							}]
+						},
+						options: chartOptions
+					});
+				}
+
+				// Violations Chart
+				const violationsCtx = document.getElementById('trendViolationsChart');
+				if (violationsCtx) {
+					trendViolationsChart = new Chart(violationsCtx, {
+						type: 'bar',
+						data: {
+							labels: labels,
+							datasets: [{
+								...datasets.policy_violations,
+								backgroundColor: 'rgba(243, 156, 18, 0.7)'
+							}]
+						},
+						options: barChartOptions
+					});
+				}
+
+				// Bad Practices Chart
+				const badPracticesCtx = document.getElementById('trendBadPracticesChart');
+				if (badPracticesCtx) {
+					trendBadPracticesChart = new Chart(badPracticesCtx, {
+						type: 'bar',
+						data: {
+							labels: labels,
+							datasets: [{
+								...datasets.bad_practices,
+								backgroundColor: 'rgba(155, 89, 182, 0.7)'
+							}]
+						},
+						options: barChartOptions
+					});
+				}
+			}
+
+			// Populate comparison table
+			function populateTrendComparisonTable(changes, sessions) {
+				const tbody = document.getElementById('trendComparisonTableBody');
+				if (!tbody || sessions.length < 2) return;
+
+				const oldest = sessions[0];
+				const newest = sessions[sessions.length - 1];
+
+				tbody.innerHTML = '';
+
+				changes.forEach(change => {
+					const row = document.createElement('tr');
+					row.className = change.is_significant ? `trend-row-${change.direction}` : '';
+
+					const arrow = change.direction === 'improvement' ? '↓ Improved' :
+								  change.direction === 'regression' ? '↑ Regressed' : '→ Stable';
+					const sign = change.absolute_change >= 0 ? '+' : '';
+
+					row.innerHTML = `
+						<td>${change.display_name}</td>
+						<td>${change.old_value}${change.metric && change.metric.includes('rate') ? '%' : ''}</td>
+						<td>${change.new_value}${change.metric && change.metric.includes('rate') ? '%' : ''}</td>
+						<td>${sign}${change.absolute_change.toFixed(2)} (${sign}${change.percent_change.toFixed(1)}%)</td>
+						<td class="trend-direction-cell ${change.direction}">${arrow}</td>
+					`;
+					tbody.appendChild(row);
+				});
+			}
+
+			// Populate session cards
+			function populateTrendSessionCards(sessions) {
+				const container = document.getElementById('trendSessionCards');
+				if (!container) return;
+
+				container.innerHTML = '';
+
+				sessions.forEach((session, idx) => {
+					const card = document.createElement('div');
+					card.className = 'trend-session-card';
+
+					const dateStr = new Date(session.session_date).toLocaleDateString();
+					const metrics = session.metrics;
+
+					card.innerHTML = `
+						<div class="trend-session-card-header">
+							<span class="trend-session-number">#${idx + 1}</span>
+							<span class="trend-session-date">${dateStr}</span>
+						</div>
+						<div class="trend-session-card-title">${session.project_description}</div>
+						<div class="trend-session-card-metrics">
+							<div class="trend-session-metric">
+								<span class="metric-label">Accounts:</span>
+								<span class="metric-value">${metrics.total_accounts}</span>
+							</div>
+							<div class="trend-session-metric">
+								<span class="metric-label">Cracked:</span>
+								<span class="metric-value">${metrics.cracked_count} (${metrics.crack_rate}%)</span>
+							</div>
+							<div class="trend-session-metric">
+								<span class="metric-label">Avg Length:</span>
+								<span class="metric-value">${metrics.avg_password_length}</span>
+							</div>
+							<div class="trend-session-metric">
+								<span class="metric-label">Bad Practices:</span>
+								<span class="metric-value">${metrics.total_bad_practices}</span>
+							</div>
+						</div>
+					`;
+					container.appendChild(card);
+				});
+			}
+
 			// ==================== THEME MANAGEMENT ====================
 			// Theme colors for dark and light modes
 			const themeColors = {
@@ -579,8 +3099,9 @@
 				body.classList.toggle('dark-theme', !isCurrentlyDark);
 				body.classList.toggle('light-theme', isCurrentlyDark);
 
-				// Update button text
-				toggleBtn.textContent = isCurrentlyDark ? 'Switch to Analysis View' : 'Switch to Print View';
+				// Update button icon and title (sun = light mode available, moon = dark mode available)
+				toggleBtn.innerHTML = isCurrentlyDark ? '<span class="btn-icon">☽</span>' : '<span class="btn-icon">☀</span>';
+				toggleBtn.title = isCurrentlyDark ? 'Switch to Analysis View' : 'Switch to Print View';
 
 				// Update charts
 				updateChartsForTheme(!isCurrentlyDark);
@@ -598,7 +3119,8 @@
 				// Always default to dark theme (Analysis View) to match input screens
 				body.classList.remove('light-theme');
 				body.classList.add('dark-theme');
-				toggleBtn.textContent = 'Switch to Print View';
+				toggleBtn.innerHTML = '<span class="btn-icon">☀</span>';
+				toggleBtn.title = 'Switch to Print View';
 			}
 
 			// Add theme toggle click handler
@@ -610,12 +3132,16 @@
 				setTimeout(() => {
 					updateChartsForTheme(getCurrentTheme() === 'dark');
 				}, 1000);
+
+				// Initialize trend analysis
+				initTrendAnalysis();
 			});
 
 			// Setup colors for pie charts and bar charts
 			const colors = {
-				pie: ["#FD3F01", "#0B89FD"], // Red and blue
-				bar: "#0B89FD", // Blue
+				pie: ["rgba(253, 63, 1, 0.8)", "rgba(11, 137, 253, 0.8)"], // Red and blue with opacity
+				bar: "rgba(11, 137, 253, 0.8)", // Blue with opacity
+				barBorder: "#0B89FD", // Solid blue border
 			};
 
 			// Function to format numbers with commas
@@ -944,6 +3470,41 @@
 				button.textContent = isBlurred ? "Show Hashes" : "Blur Hashes";
 			}
 
+			// Function to toggle blur for cracked privileged accounts table
+			function toggleCrackedPrivilegedBlur() {
+				const table = document.getElementById('crackedPrivilegedTable');
+				const button = document.getElementById('toggleCrackedPrivilegedBlur');
+
+				if (!table || !button) {
+					console.error("Cracked privileged table or button not found.");
+					return;
+				}
+
+				// Helper to escape HTML
+				const safeEscape = (text) => {
+					const div = document.createElement('div');
+					div.textContent = text;
+					return div.innerHTML;
+				};
+
+				// Toggle blur state for both privileged tables
+				const crackedTable = document.getElementById('crackedPrivilegedTable');
+				const sharingTable = document.getElementById('passwordSharingTable');
+
+				// Toggle both tables together
+				const isNowBlurred = crackedTable.classList.toggle("blurred");
+				if (sharingTable) {
+					if (isNowBlurred) {
+						sharingTable.classList.add("blurred");
+					} else {
+						sharingTable.classList.remove("blurred");
+					}
+				}
+
+				// Update button label based on new state
+				button.textContent = isNowBlurred ? "Show Passwords" : "Blur Passwords";
+			}
+
 			// Function to blur passwords in chart axis labels
 			function toggleChartLabelBlur(chartInstance, buttonId) {
 				const button = document.getElementById(buttonId);
@@ -1198,8 +3759,10 @@
 
 			// Colors for stacked bar charts: green for uncracked (secure), red for cracked (insecure)
 			const stackedBarColors = {
-				uncracked: "#31b005",    // Green - secure/preferred
-				cracked: "#dc3545"       // Red - insecure/vulnerable
+				uncracked: "rgba(49, 176, 5, 0.8)",    // Green - secure/preferred
+				uncrackedBorder: "#31b005",
+				cracked: "rgba(220, 53, 69, 0.8)",    // Red - insecure/vulnerable
+				crackedBorder: "#dc3545"
 			};
 
 			// Function to create a horizontal stacked bar chart from "data" for the provided canvas ID
@@ -1216,6 +3779,13 @@
 						return stackedBarColors.uncracked;
 					}
 					return stackedBarColors.cracked;
+				};
+
+				const getBorderColor = (label) => {
+					if (label.toLowerCase().includes('uncracked')) {
+						return stackedBarColors.uncrackedBorder;
+					}
+					return stackedBarColors.crackedBorder;
 				};
 
 				// Reorder datasets so Uncracked appears first (left side of bar)
@@ -1236,7 +3806,8 @@
 							label: entry.label,
 							data: [entry.value],
 							backgroundColor: getColor(entry.label),
-							borderWidth: 0,
+							borderColor: getBorderColor(entry.label),
+							borderWidth: 1,
 							barPercentage: 1.0,
 							categoryPercentage: 1.0,
 						})),
@@ -1331,6 +3902,8 @@
 								label: yLabel,
 								data: values,
 								backgroundColor: colors.bar,
+								borderColor: colors.barBorder,
+								borderWidth: 1,
 							},
 						],
 					},
@@ -1826,6 +4399,8 @@
 									label: "Count",
 									data: Object.values(topPasswordsData),
 									backgroundColor: colors.bar,
+									borderColor: colors.barBorder,
+									borderWidth: 1,
 								},
 							],
 						},
@@ -1995,6 +4570,8 @@
 									label: "Passwords",
 									data: counts,
 									backgroundColor: colors.bar,
+									borderColor: colors.barBorder,
+									borderWidth: 1,
 								},
 							],
 						},
@@ -2149,6 +4726,8 @@
 									label: "Count",
 									data: Object.values(sortedData),
 									backgroundColor: colors.bar,
+									borderColor: colors.barBorder,
+									borderWidth: 1,
 								},
 							],
 						},
@@ -2259,7 +4838,9 @@
 							datasets: [{
 								label: "Password Count",
 								data: counts,
-								backgroundColor: "#dc3545", // Red to indicate bad practices
+								backgroundColor: "rgba(220, 53, 69, 0.8)", // Red to indicate bad practices
+								borderColor: "#dc3545",
+								borderWidth: 1,
 							}],
 						},
 						options: {
@@ -2539,15 +5120,46 @@
 				.then((response) => response.json())
 				.then((data) => {
 					// Transform the JSON data into an array format suitable for DataTables
-					const transformedData = data.map((account) => ({
-						Account: account,
-					}));
+					const transformedData = data.map((item) => {
+						// Handle new format (object with account and status)
+						return {
+							Account: item.account,
+							Status: item.status
+						};
+					});
+
+					// Check if any enabled accounts have blank passwords
+					const hasEnabledBlank = transformedData.some(item => item.Status === 'Enabled');
+					if (hasEnabledBlank) {
+						const navBlankBtn = document.getElementById('navBlankPasswords');
+						if (navBlankBtn) {
+							navBlankBtn.classList.add('report-nav-btn-critical');
+						}
+					}
 
 					// Initialize the DataTable
 					$("#passwordFailsBlankTable").DataTable({
 						data: transformedData,
-						columns: [{ title: "Account", data: "Account" }],
-						order: [[0, "desc"]], // Sort by the account name column in descending order
+						columns: [
+							{ title: "Account", data: "Account" },
+							{
+								title: "Status",
+								data: "Status",
+								render: function(data, type, row) {
+									if (type === 'display') {
+										if (data === 'Enabled') {
+											return '<span class="status-badge status-enabled">Enabled</span>';
+										} else if (data === 'Disabled') {
+											return '<span class="status-badge status-disabled">Disabled</span>';
+										} else {
+											return '<span class="status-badge status-unknown">Unknown</span>';
+										}
+									}
+									return data;
+								}
+							}
+						],
+						order: [[1, "asc"], [0, "asc"]], // Sort by status first (Enabled < Disabled alphabetically), then account name
 						responsive: true,
 						destroy: true,
 					});
@@ -2578,10 +5190,24 @@
 					console.error("Error loading pw_lm_hashes:", error)
 				);
 
-			// Fetch and populate the Password Fails Max Age table
+			// Fetch and populate the Password Fails Max Age table (ADD JSON only)
 			fetch("pw_fails_max_age")
-				.then((response) => response.json())
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error('No max age data available');
+					}
+					return response.json();
+				})
 				.then((data) => {
+					// Only show section if there's data (from ADD JSON source)
+					if (!data || Object.keys(data).length === 0) {
+						return;
+					}
+
+					// Show the section and nav button
+					document.getElementById('policyMaxAgeSection').style.display = 'block';
+					document.getElementById('navMaxAge').style.display = 'inline-block';
+
 					// Transform JSON data into the structure required for DataTables
 					const transformedData = Object.entries(data).map(
 						([account, details]) => ({
@@ -2598,17 +5224,18 @@
 						data: transformedData,
 						columns: [
 							{ title: "Account", data: "Account" },
-							{ title: "Password Changed", data: "Changed" },
-							{ title: "Password Age (Days)", data: "Age" },
+							{ title: "Password Changed", data: "Changed", className: "dt-center" },
+							{ title: "Password Age (Days)", data: "Age", className: "dt-center" },
 						],
 						order: [[2, "desc"]], // Sort by Age in descending order
 						responsive: true, // Make the table responsive
 						destroy: true, // Allow reinitialization
 					});
 				})
-				.catch((error) =>
-					console.error("Error loading pw_fails_max_age:", error)
-				);
+				.catch((error) => {
+					// Silently ignore - this is expected for non-ADD JSON sessions
+					console.log("Max age data not available (expected for non-ADD JSON sources)");
+				});
 		</script>
 
 		<!-- Bad Practices Details Modal -->
@@ -2645,6 +5272,117 @@
 				</div>
 				<div class="modal-footer">
 					<button class="btn btn-secondary" onclick="closeSubstringModal()">Close</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Settings Reconfiguration Modal -->
+		<div id="settingsModal" class="session-modal" style="display: none;">
+			<div class="session-modal-content" style="max-width: 700px;">
+				<div class="session-modal-header">
+					<h2>Reconfigure Analysis Settings</h2>
+					<button class="session-modal-close" onclick="closeSettingsModal()">&times;</button>
+				</div>
+				<div class="session-modal-body">
+					<p style="color: #9ca3af; margin-bottom: 20px;">
+						Adjust the settings below and regenerate the report. This will re-run the analysis with the new parameters.
+					</p>
+
+					<form id="settingsForm">
+						<div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+							<!-- Policy Compliance -->
+							<div class="settings-group">
+								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Policy Compliance</h3>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Min Password Length</label>
+									<input type="number" name="policy_min_pw_len" id="settings_policy_min_pw_len" min="6" max="30" value="12"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Complexity Required (0-5)</label>
+									<input type="number" name="policy_complexity_req" id="settings_policy_complexity_req" min="0" max="5" value="3"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Max Password Age (days)</label>
+									<div style="display: flex; gap: 8px; align-items: center;">
+										<input type="number" name="policy_max_pw_age" id="settings_policy_max_pw_age" min="1" max="999" value="90"
+											style="flex: 1; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+										<label style="display: flex; align-items: center; gap: 4px; color: #9ca3af; font-size: 12px; white-space: nowrap;">
+											<input type="checkbox" id="settings_max_age_never" onchange="toggleSettingsMaxAge(this)" />
+											Never
+										</label>
+									</div>
+								</div>
+							</div>
+
+							<!-- Substring Analysis -->
+							<div class="settings-group">
+								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Substring Analysis</h3>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Min Length</label>
+									<input type="number" name="substring_min_len" id="settings_substring_min_len" min="2" max="20" value="4"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Max Length</label>
+									<input type="number" name="substring_max_len" id="settings_substring_max_len" min="3" max="30" value="30"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Frequency Threshold</label>
+									<input type="number" name="substring_freq_threshold" id="settings_substring_freq_threshold" min="2" max="20" value="5"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row" style="margin-bottom: 8px;">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="substring_disp_nest" id="settings_substring_disp_nest" checked />
+										Suppress Nested
+									</label>
+								</div>
+								<div class="settings-row">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="substring_normalize" id="settings_substring_normalize" />
+										Lowercase Only
+									</label>
+								</div>
+							</div>
+
+							<!-- Dictionary Analysis -->
+							<div class="settings-group">
+								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Dictionary Analysis</h3>
+								<div class="settings-row" style="margin-bottom: 12px;">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Min Word Length</label>
+									<input type="number" name="dictionary_min_len" id="settings_dictionary_min_len" min="2" max="10" value="4"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7;" />
+								</div>
+								<div class="settings-row">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="dictionary_disp_nest" id="settings_dictionary_disp_nest" checked />
+										Suppress Nested
+									</label>
+								</div>
+							</div>
+
+							<!-- Company Keywords -->
+							<div class="settings-group">
+								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Company Name & Terms</h3>
+								<div class="settings-row">
+									<label style="display: block; color: #9ca3af; font-size: 13px; margin-bottom: 4px;">Keywords (one per line, min 3 chars)</label>
+									<textarea name="company_keywords" id="settings_company_keywords" rows="4"
+										style="width: 100%; padding: 8px; border: 1px solid #374151; border-radius: 6px; background: #1f2937; color: #e4e4e7; resize: vertical;"
+										placeholder="acme&#10;corp&#10;secret"></textarea>
+								</div>
+							</div>
+						</div>
+
+						<div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px;">
+							<button type="button" class="btn btn-secondary" onclick="closeSettingsModal()" style="padding: 10px 20px;">Cancel</button>
+							<button type="submit" class="btn btn-primary" id="regenerateBtn" style="padding: 10px 20px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: none; color: white; border-radius: 6px; cursor: pointer;">
+								Regenerate Report
+							</button>
+						</div>
+					</form>
 				</div>
 			</div>
 		</div>
@@ -2756,6 +5494,2054 @@
 					closeSubstringModal();
 				}
 			});
+		</script>
+
+		<!-- AAIA (Advanced A.I. Analysis) JavaScript -->
+		<script>
+			// ==================== AAIA FUNCTIONALITY ====================
+
+			// AAIA Configuration
+			const AAIA_SECTIONS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+			const AAIA_CONTENT_IDS = {
+				'weak-habits': 'aaiaWeakHabitsContent',
+				'company-intel': 'aaiaCompanyIntelContent',
+				'user-behavior': 'aaiaUserBehaviorContent',
+				'recommendations': 'aaiaRecommendationsContent'
+			};
+
+			let aaiaConfig = null;  // Stores servers, sections, and model info
+			let aaiaAnalysisRunning = false;
+			let aaiaSectionConfigs = {};  // Per-section server/model selections
+			let aaiaElapsedTimer = null;  // Timer for elapsed time display
+			let aaiaStartTimestamp = null;  // When analysis started
+			let aaiaTotalTokens = { prompt: 0, completion: 0, total: 0 };  // Token usage tracking
+
+			// Initialize AAIA on page load
+			document.addEventListener('DOMContentLoaded', function() {
+				// Check for existing AAIA results
+				loadExistingAAIAResults();
+
+				// Check for privileged accounts data (ADD JSON sessions)
+				loadPrivilegedAccountsData();
+
+				// Initialize HIBP section (check for local database)
+				initHIBPSection();
+
+				// Check for existing HIBP results
+				checkExistingHIBPResults();
+
+				// Initialize Kerberoast section (check for available data)
+				initKerberoastSection();
+
+				// Setup button handlers
+				document.getElementById('generateAIAnalysisBtn').addEventListener('click', openAAIAModal);
+				document.getElementById('aaiaStartBtn').addEventListener('click', startAAIAAnalysis);
+				document.getElementById('aaiaRevalidateBtn').addEventListener('click', startRevalidateAnalysis);
+				document.getElementById('aaiaRegenerateBtn').addEventListener('click', openAAIAModal);
+			});
+
+			// Load privileged accounts data if available (ADD JSON sessions only)
+			async function loadPrivilegedAccountsData() {
+				try {
+					// Check for privileged_accounts.json
+					const privResponse = await fetch('privileged_accounts.json');
+					if (!privResponse.ok) return; // Not an ADD JSON session
+
+					const privData = await privResponse.json();
+
+					// Show the navigation button and section
+					const navPrivBtn = document.getElementById('navPrivilegedAccounts');
+					navPrivBtn.style.display = 'inline-block';
+					document.getElementById('privilegedAccountsSection').style.display = 'block';
+
+					// Make button red if there are cracked privileged accounts
+					if (privData.summary.cracked_privileged > 0) {
+						navPrivBtn.classList.add('report-nav-btn-critical');
+					}
+
+					// Populate privilege statistics
+					const statsGrid = document.getElementById('privilegeStatsGrid');
+					statsGrid.innerHTML = `
+						<div class="privilege-stat-card tier0">
+							<div class="stat-value">${privData.summary.tier0_count}</div>
+							<div class="stat-label">Tier 0 Accounts</div>
+							<div class="stat-detail">${privData.summary.cracked_tier0} cracked</div>
+						</div>
+						<div class="privilege-stat-card elevated">
+							<div class="stat-value">${privData.summary.elevated_count}</div>
+							<div class="stat-label">Elevated Accounts</div>
+						</div>
+						<div class="privilege-stat-card total">
+							<div class="stat-value">${privData.summary.total_privileged}</div>
+							<div class="stat-label">Total Privileged</div>
+							<div class="stat-detail">${privData.summary.cracked_privileged} cracked</div>
+						</div>
+					`;
+
+					// Collect all cracked privileged accounts (both tier0 and elevated)
+					const crackedPrivileged = [
+						...privData.tier0.filter(acc => acc.cracked).map(acc => ({ ...acc, level: 'tier0' })),
+						...privData.elevated.filter(acc => acc.cracked).map(acc => ({ ...acc, level: 'elevated' }))
+					];
+
+					// Populate Cracked Privileged Accounts table
+					if (crackedPrivileged.length > 0) {
+						document.getElementById('crackedPrivilegedSection').style.display = 'block';
+						const crackedBody = document.querySelector('#crackedPrivilegedTable tbody');
+						crackedBody.innerHTML = crackedPrivileged.map(acc => {
+							// Format password with blur structure
+							const password = acc.password || '';
+							let passwordHtml;
+							if (!password || password === '') {
+								passwordHtml = '<span class="priv-password-cell">{Blank}</span>';
+							} else if (password.length <= 4) {
+								// Short passwords - show fully
+								passwordHtml = `<span class="priv-password-cell">${escapeHtml(password)}</span>`;
+							} else {
+								// Blur middle of password
+								const start = password.slice(0, 2);
+								const middle = password.slice(2, -2);
+								const end = password.slice(-2);
+								passwordHtml = `<span class="priv-password-cell" data-visible="${escapeHtml(password)}" data-blur="${escapeHtml(middle)}"><span class="priv-password-visible">${escapeHtml(start)}</span><span class="priv-password-blurred">${escapeHtml(middle)}</span><span class="priv-password-visible">${escapeHtml(end)}</span></span>`;
+							}
+							return `
+								<tr>
+									<td>${escapeHtml(acc.username)}</td>
+									<td><span class="privilege-badge ${acc.level}">${acc.level === 'tier0' ? 'Tier 0' : 'Elevated'}</span></td>
+									<td class="groups-cell">${acc.groups.map(g => escapeHtml(g)).join(', ')}</td>
+									<td>${passwordHtml}</td>
+									<td>${acc.disabled ? '<span class="status-disabled">Disabled</span>' : '<span class="status-enabled">Enabled</span>'}</td>
+								</tr>
+							`;
+						}).join('');
+					}
+
+					// Populate Tier 0 accounts table
+					if (privData.tier0 && privData.tier0.length > 0) {
+						document.getElementById('tier0AccountsSection').style.display = 'block';
+						const tier0Body = document.querySelector('#tier0AccountsTable tbody');
+						tier0Body.innerHTML = privData.tier0.map(acc => `
+							<tr class="${acc.cracked ? 'cracked-row' : ''}">
+								<td>${acc.username}</td>
+								<td>${acc.groups.join(', ')}</td>
+								<td>${acc.disabled ? '<span class="status-disabled">Disabled</span>' : '<span class="status-enabled">Enabled</span>'}</td>
+								<td>${acc.cracked ? '<span class="cracked-yes">Yes</span>' : '<span class="cracked-no">No</span>'}</td>
+							</tr>
+						`).join('');
+					}
+
+					// Populate Elevated accounts table
+					if (privData.elevated && privData.elevated.length > 0) {
+						document.getElementById('elevatedAccountsSection').style.display = 'block';
+						const elevatedBody = document.querySelector('#elevatedAccountsTable tbody');
+						elevatedBody.innerHTML = privData.elevated.map(acc => `
+							<tr class="${acc.cracked ? 'cracked-row' : ''}">
+								<td>${acc.username}</td>
+								<td>${acc.groups.join(', ')}</td>
+								<td>${acc.disabled ? '<span class="status-disabled">Disabled</span>' : '<span class="status-enabled">Enabled</span>'}</td>
+								<td>${acc.cracked ? '<span class="cracked-yes">Yes</span>' : '<span class="cracked-no">No</span>'}</td>
+							</tr>
+						`).join('');
+					}
+
+					// Load password sharing findings
+					const sharingResponse = await fetch('password_sharing_findings.json');
+					if (sharingResponse.ok) {
+						const sharingData = await sharingResponse.json();
+						if (sharingData.critical_findings && sharingData.critical_findings.length > 0) {
+							document.getElementById('passwordSharingSection').style.display = 'block';
+
+							// Count tier0 vs elevated sharing violations
+							const tier0Sharing = sharingData.critical_findings.filter(f => f.privilege_level === 'tier0').length;
+							const elevatedSharing = sharingData.critical_findings.filter(f => f.privilege_level === 'elevated').length;
+
+							// Populate summary
+							document.getElementById('sharingSummary').innerHTML = `
+								<div class="sharing-stat">
+									<span class="sharing-stat-value critical">${tier0Sharing}</span>
+									<span class="sharing-stat-label">Tier 0 Violations</span>
+								</div>
+								<div class="sharing-stat">
+									<span class="sharing-stat-value high">${elevatedSharing}</span>
+									<span class="sharing-stat-label">Elevated Violations</span>
+								</div>
+								<div class="sharing-stat">
+									<span class="sharing-stat-value">${sharingData.summary.standard_accounts_affected}</span>
+									<span class="sharing-stat-label">Standard Accounts At Risk</span>
+								</div>
+							`;
+
+							// Populate table - sort by privilege level (tier0 first)
+							const sortedFindings = [...sharingData.critical_findings].sort((a, b) => {
+								if (a.privilege_level === 'tier0' && b.privilege_level !== 'tier0') return -1;
+								if (a.privilege_level !== 'tier0' && b.privilege_level === 'tier0') return 1;
+								return 0;
+							});
+
+							const sharingBody = document.querySelector('#passwordSharingTable tbody');
+							sharingBody.innerHTML = sortedFindings.map(finding => {
+								const password = finding.password || '';
+								let passwordDisplay;
+								if (!finding.password_cracked) {
+									passwordDisplay = '<span class="sharing-password">(not cracked)</span>';
+								} else if (!password) {
+									passwordDisplay = '<span class="sharing-password">{Blank}</span>';
+								} else if (password.length <= 4) {
+									// Short passwords - blur entirely
+									passwordDisplay = `<span class="sharing-password"><span class="sharing-password-blurred">${escapeHtml(password)}</span></span>`;
+								} else {
+									// Standard blur: first 2 + blurred middle + last 2
+									const start = password.slice(0, 2);
+									const middle = password.slice(2, -2);
+									const end = password.slice(-2);
+									passwordDisplay = `<span class="sharing-password"><span class="sharing-password-visible">${escapeHtml(start)}</span><span class="sharing-password-blurred">${escapeHtml(middle)}</span><span class="sharing-password-visible">${escapeHtml(end)}</span></span>`;
+								}
+								return `
+								<tr>
+									<td>${escapeHtml(finding.privileged_account)}</td>
+									<td><span class="privilege-badge ${finding.privilege_level}">${finding.privilege_level === 'tier0' ? 'Tier 0' : 'Elevated'}</span></td>
+									<td class="shared-accounts">${finding.standard_accounts.map(a => escapeHtml(a)).join(', ')}</td>
+									<td>${passwordDisplay}</td>
+								</tr>
+							`;
+							}).join('');
+						}
+					}
+
+					// Load historical hash analysis (silently fail if not available)
+					try {
+						const histResponse = await fetch('historical_hash_analysis.json');
+						if (histResponse.ok) {
+							const histData = await histResponse.json();
+							if (histData.users_with_history > 0) {
+								document.getElementById('historicalHashSection').style.display = 'block';
+								document.getElementById('historicalStats').innerHTML = `
+									<div class="hist-stat">
+										<span class="hist-stat-value">${histData.users_analyzed}</span>
+										<span class="hist-stat-label">Users Analyzed</span>
+									</div>
+									<div class="hist-stat">
+										<span class="hist-stat-value">${histData.users_with_history}</span>
+										<span class="hist-stat-label">With Password History</span>
+									</div>
+									<div class="hist-stat">
+										<span class="hist-stat-value">${histData.historical_passwords_cracked}</span>
+										<span class="hist-stat-label">Historical Passwords Cracked</span>
+									</div>
+								`;
+
+								// Show reuse violations if any
+								if (histData.password_reuse_violations && histData.password_reuse_violations.length > 0) {
+									document.getElementById('passwordReuseViolations').style.display = 'block';
+									const reuseBody = document.querySelector('#passwordReuseTable tbody');
+									reuseBody.innerHTML = histData.password_reuse_violations.map(v => `
+										<tr class="warning-row">
+											<td>${v.username}</td>
+											<td>${v.current_password || '(unknown)'}</td>
+											<td>${v.violation_type}</td>
+										</tr>
+									`).join('');
+								}
+							}
+						}
+					} catch (e) { /* Historical hash data not available */ }
+
+					// Load domain policy (silently fail if not available)
+					try {
+						const policyResponse = await fetch('domain_policy.json');
+						if (policyResponse.ok) {
+							const policyData = await policyResponse.json();
+							document.getElementById('domainPolicyCard').style.display = 'block';
+							const maxAgeDisplay = (policyData.max_password_age === 0 || policyData.max_password_age > 999) ? 'Never' : `${policyData.max_password_age} days`;
+							document.getElementById('domainPolicySummary').innerHTML = `
+								<div class="policy-item"><span class="policy-label">Domain:</span> <span class="policy-value">${policyData.domain_name}</span></div>
+								<div class="policy-item"><span class="policy-label">Min Password Length:</span> <span class="policy-value">${policyData.min_password_length}</span></div>
+								<div class="policy-item"><span class="policy-label">Max Password Age:</span> <span class="policy-value">${maxAgeDisplay}</span></div>
+								<div class="policy-item"><span class="policy-label">Password History:</span> <span class="policy-value">${policyData.pwd_history_length}</span></div>
+								<div class="policy-item"><span class="policy-label">Lockout Threshold:</span> <span class="policy-value">${policyData.lockout_threshold}</span></div>
+							`;
+						}
+					} catch (e) { /* Domain policy data not available */ }
+
+				} catch (error) {
+					// Not an ADD JSON session - privileged accounts data not available
+				}
+			}
+
+			// Load existing AAIA results if available
+			async function loadExistingAAIAResults() {
+				try {
+					const response = await fetch('/api/ai/aaia/results');
+					if (response.ok) {
+						const data = await response.json();
+						if (data.results && Object.keys(data.results).length > 0) {
+							displayAAIAResults(data, false);  // Don't scroll on page load
+						}
+					}
+				} catch (error) {
+					console.log('No existing AAIA results found');
+				}
+			}
+
+			// Open the AAIA modal
+			async function openAAIAModal() {
+				document.getElementById('aaiaModal').style.display = 'flex';
+				// Reset to step 1
+				aaiaGoToStep(1);
+			}
+
+			// Navigate between modal steps
+			function aaiaGoToStep(step) {
+				const step1 = document.getElementById('aaiaStep1');
+				const step2 = document.getElementById('aaiaStep2');
+				const backBtn = document.getElementById('aaiaBackBtn');
+				const continueBtn = document.getElementById('aaiaContinueBtn');
+				const startBtn = document.getElementById('aaiaStartBtn');
+				const revalidateBtn = document.getElementById('aaiaRevalidateBtn');
+
+				if (step === 1) {
+					// Show step 1 (disclaimer)
+					step1.style.display = 'block';
+					step2.style.display = 'none';
+					backBtn.style.display = 'none';
+					continueBtn.style.display = 'inline-block';
+					startBtn.style.display = 'none';
+					revalidateBtn.style.display = 'none';
+				} else if (step === 2) {
+					// Show step 2 (configuration)
+					step1.style.display = 'none';
+					step2.style.display = 'block';
+					backBtn.style.display = 'inline-block';
+					continueBtn.style.display = 'none';
+					startBtn.style.display = 'inline-block';
+					revalidateBtn.style.display = 'inline-block';
+					// Load configuration when entering step 2
+					loadAAIAConfig();
+				}
+			}
+
+			// Close the AAIA modal
+			function closeAAIAModal() {
+				document.getElementById('aaiaModal').style.display = 'none';
+			}
+
+			// Load AAIA configuration from server
+			async function loadAAIAConfig() {
+				const statusDiv = document.getElementById('aaiaServerStatus');
+				const sectionConfigDiv = document.getElementById('aaiaSectionConfig');
+
+				statusDiv.innerHTML = '<p>Loading configuration...</p>';
+				sectionConfigDiv.style.display = 'none';
+
+				try {
+					const response = await fetch('/api/ai/aaia/config');
+					if (!response.ok) throw new Error('Failed to load configuration');
+
+					aaiaConfig = await response.json();
+
+					if (!aaiaConfig.servers || aaiaConfig.servers.length === 0) {
+						statusDiv.innerHTML = `
+							<div class="aaia-status-error">
+								<p><strong>No Ollama servers available</strong></p>
+								<p>Please ensure your Ollama server is running and accessible.</p>
+							</div>
+						`;
+						return;
+					}
+
+					// Build combined model list from all servers
+					const allModels = [];
+					for (const server of aaiaConfig.servers) {
+						for (const model of (server.models || [])) {
+							allModels.push({
+								...model,
+								server_id: server.id,
+								server_name: server.name,
+								server_hardware: server.hardware
+							});
+						}
+					}
+
+					// Show server status
+					const serverNames = aaiaConfig.servers.map(s => s.name).join(', ');
+					statusDiv.innerHTML = `
+						<div class="aaia-status-success">
+							<p><strong>${aaiaConfig.servers.length} server${aaiaConfig.servers.length > 1 ? 's' : ''} available:</strong> ${serverNames}</p>
+						</div>
+					`;
+
+					// Build section configuration UI
+					const sectionListDiv = document.getElementById('aaiaSectionList');
+					sectionListDiv.innerHTML = '';
+
+					// First, compute assignments for all sections
+					for (const section of aaiaConfig.sections) {
+						const assignment = findBestModelForSection(section, allModels);
+						aaiaSectionConfigs[section.id] = assignment;
+					}
+
+					// Sort sections by server+model to show optimized execution order
+					const sortedSections = [...aaiaConfig.sections].sort((a, b) => {
+						const configA = aaiaSectionConfigs[a.id];
+						const configB = aaiaSectionConfigs[b.id];
+						const keyA = `${configA?.server_id || 'z'}:${configA?.name || 'z'}`;
+						const keyB = `${configB?.server_id || 'z'}:${configB?.name || 'z'}`;
+						return keyA.localeCompare(keyB);
+					});
+
+					// Track current model group for visual grouping
+					let currentModelKey = null;
+					let stepNumber = 1;
+
+					for (const section of sortedSections) {
+						const assignment = aaiaSectionConfigs[section.id];
+						const modelKey = `${assignment?.server_id}:${assignment?.name}`;
+
+						// Add group header when model changes
+						if (modelKey !== currentModelKey && assignment?.available) {
+							currentModelKey = modelKey;
+							const groupHeader = document.createElement('div');
+							groupHeader.className = 'aaia-model-group-header';
+							groupHeader.innerHTML = `<span class="aaia-group-model">${assignment.name}</span> <span class="aaia-group-server">on ${assignment.server_name}</span>`;
+							sectionListDiv.appendChild(groupHeader);
+						}
+
+						const sectionEl = document.createElement('div');
+						sectionEl.className = 'aaia-section-config-item';
+						sectionEl.innerHTML = `
+							<div class="aaia-section-config-header">
+								<span class="aaia-section-step">Step ${stepNumber++}</span>
+								<span class="aaia-section-config-title">${section.title}</span>
+								<span class="aaia-section-config-rec">Recommended: ${section.recommended_model}</span>
+							</div>
+							<div class="aaia-section-config-selects">
+								<select id="aaia-model-${section.id}" class="aaia-section-model-select" onchange="updateSectionConfig('${section.id}')">
+									${buildModelOptions(allModels, section, assignment)}
+								</select>
+							</div>
+							<div class="aaia-section-config-status" id="aaia-status-${section.id}">
+								${assignment.available ?
+									`<span class="aaia-config-ok">Will run on ${assignment.server_name}</span>` :
+									`<span class="aaia-config-warn">No suitable model found</span>`}
+							</div>
+						`;
+						sectionListDiv.appendChild(sectionEl);
+					}
+
+					sectionConfigDiv.style.display = 'block';
+
+					// Enable start button if all sections have valid assignments
+					updateStartButton();
+
+				} catch (error) {
+					statusDiv.innerHTML = `
+						<div class="aaia-status-error">
+							<p><strong>Error loading configuration</strong></p>
+							<p>${error.message}</p>
+						</div>
+					`;
+				}
+			}
+
+			// Find the best model/server for a section based on recommendations
+			function findBestModelForSection(section, allModels) {
+				// First try to find the exact recommended model
+				let match = allModels.find(m => m.name === section.recommended_model);
+				if (match) {
+					return { ...match, available: true };
+				}
+
+				// Try to find a model from the same family (e.g., deepseek-r1:70b if 671b not available)
+				const recBase = section.recommended_model.split(':')[0];
+				const familyMatches = allModels.filter(m => m.name.startsWith(recBase));
+				if (familyMatches.length > 0) {
+					// Sort by size descending, pick largest available
+					familyMatches.sort((a, b) => (b.size || 0) - (a.size || 0));
+					return { ...familyMatches[0], available: true };
+				}
+
+				// Fall back to largest available model
+				if (allModels.length > 0) {
+					const sorted = [...allModels].sort((a, b) => (b.size || 0) - (a.size || 0));
+					return { ...sorted[0], available: true, fallback: true };
+				}
+
+				return { available: false };
+			}
+
+			// Build model dropdown options
+			function buildModelOptions(allModels, section, currentAssignment) {
+				// Group models by server
+				const byServer = {};
+				for (const model of allModels) {
+					if (!byServer[model.server_id]) {
+						byServer[model.server_id] = { name: model.server_name, models: [] };
+					}
+					byServer[model.server_id].models.push(model);
+				}
+
+				let html = '';
+				for (const [serverId, serverData] of Object.entries(byServer)) {
+					html += `<optgroup label="${serverData.name}">`;
+					for (const model of serverData.models) {
+						const sizeGB = model.size ? (model.size / 1e9).toFixed(1) + ' GB' : '?';
+						const isRecommended = model.name === section.recommended_model;
+						const isSelected = currentAssignment.name === model.name && currentAssignment.server_id === serverId;
+						const label = `${model.name} (${sizeGB})${isRecommended ? ' ★' : ''}`;
+						html += `<option value="${serverId}:${model.name}" ${isSelected ? 'selected' : ''}>${label}</option>`;
+					}
+					html += '</optgroup>';
+				}
+				return html;
+			}
+
+			// Update section configuration when dropdown changes
+			function updateSectionConfig(sectionId) {
+				const select = document.getElementById(`aaia-model-${sectionId}`);
+				const [serverId, modelName] = select.value.split(':');
+
+				// Find the model details
+				for (const server of aaiaConfig.servers) {
+					if (server.id === serverId) {
+						const model = server.models.find(m => m.name === modelName);
+						if (model) {
+							aaiaSectionConfigs[sectionId] = {
+								...model,
+								server_id: serverId,
+								server_name: server.name,
+								available: true
+							};
+							document.getElementById(`aaia-status-${sectionId}`).innerHTML =
+								`<span class="aaia-config-ok">Will run on ${server.name}</span>`;
+						}
+						break;
+					}
+				}
+
+				updateStartButton();
+			}
+
+			// Update start button state
+			function updateStartButton() {
+				const allValid = Object.values(aaiaSectionConfigs).every(c => c.available);
+				document.getElementById('aaiaStartBtn').disabled = !allValid;
+				// Enable revalidate button if models are available (will check for cached files on server)
+				document.getElementById('aaiaRevalidateBtn').disabled = !allValid;
+			}
+
+			// Load analysis data for a specific section
+			async function loadSectionData(sectionId) {
+				try {
+					const response = await fetch(`/api/ai/report/data/${sectionId}`);
+					if (!response.ok) {
+						throw new Error(`Failed to load data for ${sectionId}`);
+					}
+					const result = await response.json();
+					if (result.error) {
+						throw new Error(result.error);
+					}
+					return result.data;
+				} catch (error) {
+					console.error(`Error loading section data for ${sectionId}:`, error);
+					return null;
+				}
+			}
+
+			// Start AAIA analysis using 3-phase pipeline with SSE streaming
+			function startAAIAAnalysis() {
+				console.log('startAAIAAnalysis called');
+				if (aaiaAnalysisRunning) {
+					console.log('Analysis already running, returning');
+					return;
+				}
+
+				aaiaAnalysisRunning = true;
+				closeAAIAModal();
+				console.log('Showing progress overlay...');
+				showAAIAProgress();  // Use 3-phase progress display
+				console.log('Progress overlay shown');
+
+				if (!aaiaConfig || !aaiaConfig.sections) {
+					console.error('aaiaConfig is invalid:', aaiaConfig);
+					aaiaAnalysisRunning = false;
+					hideAAIAProgress();
+					alert('Configuration not loaded');
+					return;
+				}
+
+				// Get server from first section config
+				const firstConfig = Object.values(aaiaSectionConfigs)[0];
+				const serverId = firstConfig?.server_id || 'primary';
+
+				// Build SSE URL with query params
+				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}`;
+				console.log('Starting SSE connection to:', sseUrl);
+
+				// Create EventSource for SSE streaming
+				const eventSource = new EventSource(sseUrl);
+
+				eventSource.onmessage = function(event) {
+					try {
+						const data = JSON.parse(event.data);
+						console.log('SSE event:', data);
+
+						if (data.type === 'progress') {
+							// Update progress UI
+							updatePipelineProgress(data);
+						}
+						else if (data.type === 'model_loading') {
+							// Model is being loaded/switched
+							updateModelLoadingStatus(data.model, data.action);
+						}
+						else if (data.type === 'step_complete') {
+							// A step finished - update the section row with timing and token info
+							updateSectionComplete(data.phase, data.section, data.step_time, data.prompt_tokens, data.completion_tokens, data.total_tokens, data.tier0_result);
+						}
+						else if (data.type === 'complete') {
+							// Pipeline finished - close SSE and display results
+							eventSource.close();
+							console.log('Pipeline complete:', data);
+
+							// Mark all steps as complete before hiding progress
+							markAllStepsComplete();
+
+							// Transform results to AAIA format
+							const results = {};
+							for (const [sectionId, sectionData] of Object.entries(data.results || {})) {
+								const timing = sectionData.timing || {};
+								const totalSectionTime = (timing.phase1 || 0) + (timing.phase2 || 0) + (timing.phase3 || 0);
+
+								results[sectionId] = {
+									content: sectionData.content || '',
+									time: totalSectionTime.toFixed(1),
+									needs_human_review: sectionData.needs_human_review || false,
+									validation_confidence: sectionData.validation_confidence || 1.0,
+									validation_issues: sectionData.validation_issues || 0,
+									timing: timing
+								};
+							}
+
+							const aaiaData = {
+								results: results,
+								metadata: {
+									total_time: data.total_time_seconds?.toFixed(1) || '0',
+									timestamp: new Date().toISOString(),
+									pipeline_version: '3-phase',
+									any_needs_review: data.any_needs_review || false,
+									sections: Object.fromEntries(
+										AAIA_SECTIONS.map(id => [id, {
+											model: aaiaSectionConfigs[id]?.name || 'unknown',
+											server: aaiaSectionConfigs[id]?.server_name || 'unknown'
+										}])
+									)
+								}
+							};
+
+							aaiaAnalysisRunning = false;
+							hideAAIAProgress();
+							displayAAIAResults(aaiaData);
+
+							// Show human review banner if needed
+							if (data.any_needs_review) {
+								showHumanReviewBanner();
+							}
+						}
+						else if (data.type === 'error') {
+							// Pipeline error - close SSE and show error
+							eventSource.close();
+							console.error('Pipeline error:', data.error);
+							aaiaAnalysisRunning = false;
+							hideAAIAProgress();
+							alert('Pipeline analysis failed: ' + data.error);
+						}
+					} catch (parseError) {
+						console.error('Failed to parse SSE data:', parseError, event.data);
+					}
+				};
+
+				eventSource.onerror = function(error) {
+					console.error('SSE connection error:', error);
+					eventSource.close();
+					aaiaAnalysisRunning = false;
+					hideAAIAProgress();
+					alert('Connection to analysis server lost. Please try again.');
+				};
+
+				// Store eventSource so it can be cancelled if needed
+				window.currentAAIAEventSource = eventSource;
+			}
+
+			// Start revalidation analysis - skip Phase 1, reuse previous outputs
+			function startRevalidateAnalysis() {
+				console.log('startRevalidateAnalysis called');
+				if (aaiaAnalysisRunning) {
+					console.log('Analysis already running, returning');
+					return;
+				}
+
+				aaiaAnalysisRunning = true;
+				closeAAIAModal();
+				console.log('Showing progress overlay for revalidation...');
+				showAAIAProgressRevalidate();  // Use modified progress display (Phase 1 pre-completed)
+				console.log('Progress overlay shown');
+
+				// Get server from first section config
+				const firstConfig = Object.values(aaiaSectionConfigs)[0];
+				const serverId = firstConfig?.server_id || 'primary';
+
+				// Build SSE URL with skip_phase1=true
+				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}&skip_phase1=true`;
+				console.log('Starting SSE connection to:', sseUrl);
+
+				// Create EventSource for SSE streaming
+				const eventSource = new EventSource(sseUrl);
+
+				eventSource.onmessage = function(event) {
+					try {
+						const data = JSON.parse(event.data);
+						console.log('SSE event:', data);
+
+						if (data.type === 'progress') {
+							updatePipelineProgress(data);
+						}
+						else if (data.type === 'model_loading') {
+							updateModelLoadingStatus(data.model, data.action);
+						}
+						else if (data.type === 'step_complete') {
+							updateSectionComplete(data.phase, data.section, data.step_time, data.prompt_tokens, data.completion_tokens, data.total_tokens, data.tier0_result);
+						}
+						else if (data.type === 'phase1_cached') {
+							// Phase 1 was loaded from cache - mark all Phase 1 sections as complete
+							console.log('Phase 1 loaded from cache:', data.sections);
+							for (const sectionId of data.sections || []) {
+								const sectionEl = document.querySelector(`.aaia-phase-section-item[data-section="${sectionId}"][data-phase="phase1"]`);
+								if (sectionEl) {
+									sectionEl.classList.add('complete');
+									sectionEl.querySelector('.aaia-phase-section-icon').textContent = '✓';
+									sectionEl.querySelector('.aaia-phase-section-time').textContent = '(cached)';
+								}
+							}
+							// Mark Phase 1 header as complete
+							const phase1Header = document.getElementById('phase-header-phase1');
+							if (phase1Header) {
+								phase1Header.classList.add('complete');
+							}
+						}
+						else if (data.type === 'complete') {
+							eventSource.close();
+							console.log('Revalidation complete:', data);
+							markAllStepsComplete();
+
+							// Transform results to AAIA format
+							const results = {};
+							for (const [sectionId, sectionData] of Object.entries(data.results || {})) {
+								const timing = sectionData.timing || {};
+								const totalSectionTime = (timing.phase1 || 0) + (timing.phase2 || 0) + (timing.phase3 || 0);
+
+								results[sectionId] = {
+									content: sectionData.content || '',
+									time: totalSectionTime.toFixed(1),
+									needs_human_review: sectionData.needs_human_review || false,
+									validation_confidence: sectionData.validation_confidence || 1.0,
+									validation_issues: sectionData.validation_issues || 0,
+									timing: timing
+								};
+							}
+
+							const aaiaData = {
+								results: results,
+								metadata: {
+									total_time: data.total_time_seconds?.toFixed(1) || '0',
+									timestamp: new Date().toISOString(),
+									pipeline_version: '3-phase-revalidate',
+									any_needs_review: data.any_needs_review || false,
+									sections: Object.fromEntries(
+										AAIA_SECTIONS.map(id => [id, {
+											model: aaiaSectionConfigs[id]?.name || 'unknown',
+											server: aaiaSectionConfigs[id]?.server_name || 'unknown'
+										}])
+									)
+								}
+							};
+
+							aaiaAnalysisRunning = false;
+							hideAAIAProgress();
+							displayAAIAResults(aaiaData);
+
+							if (data.any_needs_review) {
+								showHumanReviewBanner();
+							}
+						}
+						else if (data.type === 'error') {
+							eventSource.close();
+							console.error('Pipeline error:', data.error);
+							aaiaAnalysisRunning = false;
+							hideAAIAProgress();
+							alert('Revalidation failed: ' + data.error);
+						}
+					} catch (parseError) {
+						console.error('Failed to parse SSE data:', parseError, event.data);
+					}
+				};
+
+				eventSource.onerror = function(error) {
+					console.error('SSE connection error:', error);
+					eventSource.close();
+					aaiaAnalysisRunning = false;
+					hideAAIAProgress();
+					alert('Connection to analysis server lost. Please try again.');
+				};
+
+				window.currentAAIAEventSource = eventSource;
+			}
+
+			// Show progress overlay for revalidation (Phase 1 pre-marked as complete)
+			function showAAIAProgressRevalidate() {
+				const sectionNames = {
+					'weak-habits': 'Password Patterns',
+					'company-intel': 'Company Intel',
+					'user-behavior': 'User Behavior',
+					'recommendations': 'Recommendations'
+				};
+
+				const phaseInfo = {
+					'phase1': { name: 'Phase 1: Analysis', desc: 'Using previous', icon: '✓' },
+					'phase2': { name: 'Phase 2: Validation', desc: 'Fact-checking', icon: '✓' },
+					'phase3': { name: 'Phase 3: Formatting', desc: 'Polishing', icon: '✨' }
+				};
+
+				const progressSectionsEl = document.getElementById('aaiaProgressSections');
+				progressSectionsEl.innerHTML = '';
+
+				// Total steps: 4 sections × 2 phases (skip Phase 1) = 8 steps
+				const totalSteps = AAIA_SECTIONS.length * 2;
+
+				// Create horizontal 3-column grid for phases
+				const phasesGrid = document.createElement('div');
+				phasesGrid.className = 'aaia-phases-grid';
+
+				for (const phase of ['phase1', 'phase2', 'phase3']) {
+					const phaseColumn = document.createElement('div');
+					phaseColumn.className = 'aaia-phase-column';
+					phaseColumn.id = `phase-column-${phase}`;
+
+					// Phase header - Phase 1 is pre-completed
+					const phaseHeader = document.createElement('div');
+					phaseHeader.className = 'aaia-phase-column-header' + (phase === 'phase1' ? ' complete' : '');
+					phaseHeader.id = `phase-header-${phase}`;
+					phaseHeader.innerHTML = `
+						<span class="aaia-phase-column-icon">${phaseInfo[phase].icon}</span>
+						<span class="aaia-phase-column-title">${phaseInfo[phase].name}</span>
+						<span class="aaia-phase-column-desc">${phaseInfo[phase].desc}</span>
+					`;
+					phaseColumn.appendChild(phaseHeader);
+
+					// Sections container
+					const sectionsContainer = document.createElement('div');
+					sectionsContainer.className = 'aaia-phase-sections';
+
+					for (const sectionId of AAIA_SECTIONS) {
+						const sectionEl = document.createElement('div');
+						// Phase 1 sections are pre-completed
+						const isComplete = phase === 'phase1';
+						sectionEl.className = 'aaia-phase-section-item' + (isComplete ? ' complete' : '');
+						sectionEl.dataset.section = sectionId;
+						sectionEl.dataset.phase = phase;
+						sectionEl.innerHTML = `
+							<span class="aaia-phase-section-icon">${isComplete ? '✓' : '○'}</span>
+							<span class="aaia-phase-section-name">${sectionNames[sectionId] || sectionId}</span>
+							<span class="aaia-phase-section-time">${isComplete ? '(cached)' : ''}</span>
+						`;
+						sectionsContainer.appendChild(sectionEl);
+					}
+
+					phaseColumn.appendChild(sectionsContainer);
+					phasesGrid.appendChild(phaseColumn);
+				}
+
+				progressSectionsEl.appendChild(phasesGrid);
+
+				document.getElementById('aaiaProgress').style.display = 'flex';
+				document.getElementById('aaiaProgressBar').style.width = '0%';
+				document.getElementById('aaiaProgressDetail').textContent = `Step 0 of ${totalSteps}`;
+				document.getElementById('aaiaProgressText').textContent = 'Starting revalidation...';
+				document.getElementById('aaiaProgressSubtext').textContent = 'Reusing Phase 1 outputs';
+				document.getElementById('aaiaElapsedTime').textContent = 'Elapsed: 0:00';
+				document.getElementById('aaiaTokenSummary').textContent = '';
+
+				document.getElementById('aaiaCompletionSummary').style.display = 'none';
+
+				aaiaTotalTokens = { prompt: 0, completion: 0, total: 0 };
+
+				aaiaStartTimestamp = Date.now();
+				if (aaiaElapsedTimer) clearInterval(aaiaElapsedTimer);
+				aaiaElapsedTimer = setInterval(updateElapsedTime, 1000);
+			}
+
+			// Update progress display from pipeline progress API
+			function updatePipelineProgress(progressData) {
+				const phaseNames = {
+					'phase1': 'Generating',
+					'phase2': 'Validating',
+					'phase3': 'Formatting',
+					'initializing': 'Starting'
+				};
+
+				const sectionNames = {
+					'weak-habits': 'Password Patterns',
+					'company-intel': 'Company Intel',
+					'user-behavior': 'User Behavior',
+					'recommendations': 'Recommendations'
+				};
+
+				const phaseDescriptions = {
+					'phase1': 'Initial analysis',
+					'phase2': 'Fact-checking against evidence',
+					'phase3': 'Polishing for presentation',
+					'initializing': 'Preparing pipeline...'
+				};
+
+				const phaseName = phaseNames[progressData.current_phase] || progressData.current_phase;
+				const sectionName = sectionNames[progressData.current_section] || progressData.current_section;
+				let phaseDesc = phaseDescriptions[progressData.current_phase] || '';
+
+				// Check for Tier-0 routing information in the action
+				const action = progressData.current_action || '';
+				if (progressData.current_phase === 'phase2') {
+					if (action.includes('(clean)') || action.includes('Skipping validation')) {
+						phaseDesc = 'Content passed pre-checks ✓';
+					} else if (action.includes('(fast)')) {
+						phaseDesc = 'Using fast model (llama3.1:70b)';
+					} else if (action.includes('(deep)')) {
+						phaseDesc = 'Using reasoning model (deepseek-r1)';
+					}
+				}
+
+				const progressText = document.getElementById('aaiaProgressText');
+				const progressSubtext = document.getElementById('aaiaProgressSubtext');
+
+				// Remove model loading classes when showing regular progress
+				progressText.classList.remove('loading-model', 'model-ready', 'complete');
+				progressSubtext.classList.remove('loading-model', 'model-ready');
+
+				// Add processing animation to subtext
+				progressSubtext.classList.add('processing');
+
+				progressText.textContent = `${phaseName}: ${sectionName}`;
+				progressSubtext.textContent = phaseDesc;
+				document.getElementById('aaiaProgressBar').style.width = `${progressData.percent_complete}%`;
+				document.getElementById('aaiaProgressDetail').textContent = `Step ${progressData.current_step} of ${progressData.total_steps}`;
+
+				// Update elapsed time from server
+				if (progressData.elapsed_seconds) {
+					const elapsed = Math.round(progressData.elapsed_seconds);
+					const minutes = Math.floor(elapsed / 60);
+					const seconds = elapsed % 60;
+					document.getElementById('aaiaElapsedTime').textContent = `Elapsed: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+				}
+
+				// Update section status indicators
+				updateSectionStatusFromPhase(progressData.current_section, progressData.current_phase, progressData.current_step);
+			}
+
+			// Update section status based on current phase (works with new horizontal layout)
+			function updateSectionStatusFromPhase(currentSection, currentPhase, currentStep) {
+				const phases = ['phase1', 'phase2', 'phase3'];
+				const currentPhaseIndex = phases.indexOf(currentPhase);
+				const currentSectionIndex = AAIA_SECTIONS.indexOf(currentSection);
+
+				// Update each phase column's sections
+				for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx++) {
+					const phase = phases[phaseIdx];
+
+					// Update phase column header
+					const phaseHeader = document.getElementById(`phase-header-${phase}`);
+					if (phaseHeader) {
+						phaseHeader.classList.remove('complete', 'active');
+						if (phaseIdx < currentPhaseIndex) {
+							phaseHeader.classList.add('complete');
+						} else if (phaseIdx === currentPhaseIndex) {
+							phaseHeader.classList.add('active');
+						}
+					}
+
+					for (let sectionIdx = 0; sectionIdx < AAIA_SECTIONS.length; sectionIdx++) {
+						const sectionId = AAIA_SECTIONS[sectionIdx];
+						// Select section element by both phase and section data attributes (new class)
+						const sectionEl = document.querySelector(`.aaia-phase-section-item[data-phase="${phase}"][data-section="${sectionId}"]`);
+						if (!sectionEl) continue;
+
+						const icon = sectionEl.querySelector('.aaia-phase-section-icon');
+
+						// Determine status based on phase and section order
+						if (phaseIdx < currentPhaseIndex) {
+							// This entire phase is complete
+							sectionEl.classList.remove('running', 'error');
+							sectionEl.classList.add('complete');
+							if (icon) icon.textContent = '✓';
+						} else if (phaseIdx === currentPhaseIndex) {
+							// This is the current phase
+							if (sectionIdx < currentSectionIndex) {
+								// This section in current phase is complete
+								sectionEl.classList.remove('running', 'error');
+								sectionEl.classList.add('complete');
+								if (icon) icon.textContent = '✓';
+							} else if (sectionIdx === currentSectionIndex) {
+								// This is the current section being processed
+								sectionEl.classList.remove('complete', 'error');
+								sectionEl.classList.add('running');
+								if (icon) icon.textContent = '◐';
+							} else {
+								// This section hasn't started yet in current phase
+								sectionEl.classList.remove('complete', 'running', 'error');
+								if (icon) icon.textContent = '○';
+							}
+						} else {
+							// This phase hasn't started yet
+							sectionEl.classList.remove('complete', 'running', 'error');
+							if (icon) icon.textContent = '○';
+						}
+					}
+				}
+			}
+
+			// Mark all steps as complete (called when pipeline finishes)
+			function markAllStepsComplete() {
+				const phases = ['phase1', 'phase2', 'phase3'];
+
+				// Mark all phase headers as complete
+				for (const phase of phases) {
+					const phaseHeader = document.getElementById(`phase-header-${phase}`);
+					if (phaseHeader) {
+						phaseHeader.classList.remove('active');
+						phaseHeader.classList.add('complete');
+					}
+				}
+
+				// Mark all section items as complete (new class)
+				for (const phase of phases) {
+					for (const sectionId of AAIA_SECTIONS) {
+						const sectionEl = document.querySelector(`.aaia-phase-section-item[data-phase="${phase}"][data-section="${sectionId}"]`);
+						if (sectionEl) {
+							sectionEl.classList.remove('running', 'error');
+							sectionEl.classList.add('complete');
+							const icon = sectionEl.querySelector('.aaia-phase-section-icon');
+							if (icon) {
+								icon.textContent = '✓';
+							}
+						}
+					}
+				}
+
+				// Update progress bar to 100%
+				const progressBar = document.getElementById('aaiaProgressBar');
+				if (progressBar) {
+					progressBar.style.width = '100%';
+				}
+
+				// Update step counter
+				const progressDetail = document.getElementById('aaiaProgressDetail');
+				if (progressDetail) {
+					const totalSteps = AAIA_SECTIONS.length * 3;
+					progressDetail.textContent = `Step ${totalSteps} of ${totalSteps}`;
+				}
+
+				// Stop the pulsing animation and show completion
+				const progressText = document.getElementById('aaiaProgressText');
+				const progressSubtext = document.getElementById('aaiaProgressSubtext');
+				if (progressText) {
+					progressText.classList.add('complete');
+				}
+				if (progressSubtext) {
+					progressSubtext.classList.remove('processing', 'loading-model');
+				}
+			}
+
+			// Update UI when model is being loaded
+			function updateModelLoadingStatus(model, action) {
+				const progressText = document.getElementById('aaiaProgressText');
+				const progressSubtext = document.getElementById('aaiaProgressSubtext');
+
+				// Remove any existing state classes
+				progressText.classList.remove('loading-model', 'model-ready', 'complete');
+				progressSubtext.classList.remove('loading-model', 'model-ready');
+
+				if (action.startsWith('Loading')) {
+					// Model is being loaded - show in amber
+					progressText.classList.add('loading-model');
+					progressSubtext.classList.add('loading-model');
+					progressText.textContent = 'Loading Model';
+					progressSubtext.textContent = `Switching to ${model}...`;
+				} else if (action.startsWith('Ready')) {
+					// Model loaded successfully - show in green briefly
+					progressText.classList.add('model-ready');
+					progressSubtext.classList.add('model-ready');
+					progressText.textContent = 'Model Ready';
+					progressSubtext.textContent = model;
+					// Reset after a moment (next progress update will override)
+					setTimeout(() => {
+						progressText.classList.remove('model-ready');
+						progressSubtext.classList.remove('model-ready');
+					}, 1500);
+				} else if (action.includes('already loaded')) {
+					// Model was already loaded - brief notification
+					console.log(`Model ${model} already loaded`);
+				}
+			}
+
+			// Update section row when a step completes with timing and token info
+			function updateSectionComplete(phase, section, stepTime, promptTokens, completionTokens, totalTokens, tier0Result) {
+				// Accumulate tokens into the total
+				aaiaTotalTokens.prompt += (promptTokens || 0);
+				aaiaTotalTokens.completion += (completionTokens || 0);
+				aaiaTotalTokens.total += (totalTokens || 0);
+
+				// Find the section element for this phase (new class for horizontal layout)
+				const sectionEl = document.querySelector(`.aaia-phase-section-item[data-phase="${phase}"][data-section="${section}"]`);
+				if (!sectionEl) return;
+
+				// Find or create the time/token info element
+				let timeEl = sectionEl.querySelector('.aaia-phase-section-time');
+				if (!timeEl) {
+					timeEl = document.createElement('span');
+					timeEl.className = 'aaia-phase-section-time';
+					sectionEl.appendChild(timeEl);
+				}
+
+				// Format the time
+				const timeStr = stepTime >= 60
+					? `${Math.floor(stepTime / 60)}m ${Math.round(stepTime % 60)}s`
+					: `${stepTime.toFixed(1)}s`;
+
+				// Format token info (only show if we have tokens)
+				let tokenStr = '';
+				if (totalTokens > 0) {
+					tokenStr = ` (${promptTokens.toLocaleString()}→${completionTokens.toLocaleString()})`;
+				}
+
+				// Add Tier-0 indicator for Phase 2
+				let tier0Indicator = '';
+				if (phase === 'phase2' && tier0Result) {
+					if (tier0Result === 'skipped') {
+						tier0Indicator = ' ⚡';  // Lightning bolt for skipped (fast)
+						sectionEl.classList.add('tier0-skipped');
+					} else if (tier0Result === 'fast') {
+						tier0Indicator = ' 🚀';  // Rocket for fast model
+						sectionEl.classList.add('tier0-fast');
+					} else if (tier0Result === 'deep') {
+						tier0Indicator = ' 🔍';  // Magnifying glass for deep analysis
+						sectionEl.classList.add('tier0-deep');
+					}
+				}
+
+				timeEl.textContent = `${timeStr}${tokenStr}${tier0Indicator}`;
+				timeEl.style.opacity = '0.7';
+				timeEl.style.fontSize = '0.85em';
+				timeEl.style.marginLeft = 'auto';
+
+				// Update the running token summary display
+				if (aaiaTotalTokens.total > 0) {
+					document.getElementById('aaiaTokenSummary').innerHTML =
+						`<span class="token-label">Tokens:</span> ` +
+						`<span class="token-prompt">${formatTokenCount(aaiaTotalTokens.prompt)} in</span> ` +
+						`<span class="token-arrow">→</span> ` +
+						`<span class="token-completion">${formatTokenCount(aaiaTotalTokens.completion)} out</span> ` +
+						`<span class="token-total">(${formatTokenCount(aaiaTotalTokens.total)} total)</span>`;
+				}
+			}
+
+			// Show banner when sections need human review
+			function showHumanReviewBanner() {
+				const resultsSection = document.getElementById('aaiaResultsSection');
+				if (!resultsSection) return;
+
+				// Check if banner already exists
+				if (document.getElementById('humanReviewBanner')) return;
+
+				const banner = document.createElement('div');
+				banner.id = 'humanReviewBanner';
+				banner.className = 'aaia-review-banner';
+				banner.innerHTML = `
+					<div class="aaia-review-banner-content">
+						<span class="aaia-review-icon">⚠️</span>
+						<span class="aaia-review-text">
+							<strong>Human Review Recommended</strong>
+							Some sections had validation issues or low confidence scores.
+							Please review flagged content carefully before use.
+						</span>
+						<button class="aaia-review-dismiss" onclick="this.parentElement.parentElement.remove()">Dismiss</button>
+					</div>
+				`;
+				resultsSection.insertBefore(banner, resultsSection.firstChild);
+			}
+
+			// Show AAIA progress overlay for 3-phase pipeline with horizontal layout
+			function showAAIAProgress() {
+				const sectionNames = {
+					'weak-habits': 'Password Patterns',
+					'company-intel': 'Company Intel',
+					'user-behavior': 'User Behavior',
+					'recommendations': 'Recommendations'
+				};
+
+				const phaseInfo = {
+					'phase1': { name: 'Phase 1: Analysis', desc: 'Initial analysis', icon: '📝' },
+					'phase2': { name: 'Phase 2: Validation', desc: 'Fact-checking', icon: '✓' },
+					'phase3': { name: 'Phase 3: Formatting', desc: 'Polishing', icon: '✨' }
+				};
+
+				// Build progress sections HTML showing 3-phase pipeline in horizontal grid
+				const progressSectionsEl = document.getElementById('aaiaProgressSections');
+				progressSectionsEl.innerHTML = '';
+
+				// Total steps: 4 sections × 3 phases = 12 steps
+				const totalSteps = AAIA_SECTIONS.length * 3;
+
+				// Create horizontal 3-column grid for phases
+				const phasesGrid = document.createElement('div');
+				phasesGrid.className = 'aaia-phases-grid';
+
+				for (const phase of ['phase1', 'phase2', 'phase3']) {
+					const phaseColumn = document.createElement('div');
+					phaseColumn.className = 'aaia-phase-column';
+					phaseColumn.id = `phase-column-${phase}`;
+
+					// Phase header
+					const phaseHeader = document.createElement('div');
+					phaseHeader.className = 'aaia-phase-column-header';
+					phaseHeader.id = `phase-header-${phase}`;
+					phaseHeader.innerHTML = `
+						<span class="aaia-phase-column-icon">${phaseInfo[phase].icon}</span>
+						<span class="aaia-phase-column-title">${phaseInfo[phase].name}</span>
+						<span class="aaia-phase-column-desc">${phaseInfo[phase].desc}</span>
+					`;
+					phaseColumn.appendChild(phaseHeader);
+
+					// Sections container
+					const sectionsContainer = document.createElement('div');
+					sectionsContainer.className = 'aaia-phase-sections';
+
+					for (const sectionId of AAIA_SECTIONS) {
+						const sectionEl = document.createElement('div');
+						sectionEl.className = 'aaia-phase-section-item';
+						sectionEl.dataset.section = sectionId;
+						sectionEl.dataset.phase = phase;
+						sectionEl.innerHTML = `
+							<span class="aaia-phase-section-icon">○</span>
+							<span class="aaia-phase-section-name">${sectionNames[sectionId] || sectionId}</span>
+							<span class="aaia-phase-section-time"></span>
+						`;
+						sectionsContainer.appendChild(sectionEl);
+					}
+
+					phaseColumn.appendChild(sectionsContainer);
+					phasesGrid.appendChild(phaseColumn);
+				}
+
+				progressSectionsEl.appendChild(phasesGrid);
+
+				document.getElementById('aaiaProgress').style.display = 'flex';
+				document.getElementById('aaiaProgressBar').style.width = '0%';
+				document.getElementById('aaiaProgressDetail').textContent = `Step 0 of ${totalSteps}`;
+				document.getElementById('aaiaProgressText').textContent = 'Starting 3-phase pipeline...';
+				document.getElementById('aaiaProgressSubtext').textContent = 'Optimized execution order';
+				document.getElementById('aaiaElapsedTime').textContent = 'Elapsed: 0:00';
+				document.getElementById('aaiaTokenSummary').textContent = '';
+
+				// Hide completion summary
+				document.getElementById('aaiaCompletionSummary').style.display = 'none';
+
+				// Reset token tracking
+				aaiaTotalTokens = { prompt: 0, completion: 0, total: 0 };
+
+				// Start elapsed time counter
+				aaiaStartTimestamp = Date.now();
+				if (aaiaElapsedTimer) clearInterval(aaiaElapsedTimer);
+				aaiaElapsedTimer = setInterval(updateElapsedTime, 1000);
+			}
+
+			// Legacy progress display - single-phase approach (working)
+			function showAAIAProgressLegacy() {
+				const sectionNames = {
+					'weak-habits': 'Password Pattern Analysis',
+					'company-intel': 'Company Intelligence',
+					'user-behavior': 'User Behavior Analysis',
+					'recommendations': 'Security Recommendations'
+				};
+
+				// Build sorted section list dynamically
+				const sortedSectionIds = [...AAIA_SECTIONS].sort((a, b) => {
+					const configA = aaiaSectionConfigs[a];
+					const configB = aaiaSectionConfigs[b];
+					const keyA = `${configA?.server_id || 'z'}:${configA?.name || 'z'}`;
+					const keyB = `${configB?.server_id || 'z'}:${configB?.name || 'z'}`;
+					return keyA.localeCompare(keyB);
+				});
+
+				// Build progress sections HTML in optimized order
+				const progressSectionsEl = document.getElementById('aaiaProgressSections');
+				progressSectionsEl.innerHTML = '';
+
+				let currentModelKey = null;
+				for (const sectionId of sortedSectionIds) {
+					const config = aaiaSectionConfigs[sectionId];
+					const modelKey = `${config?.server_id}:${config?.name}`;
+
+					// Add model group header when model changes
+					if (modelKey !== currentModelKey && config?.name) {
+						currentModelKey = modelKey;
+						const groupHeader = document.createElement('div');
+						groupHeader.className = 'aaia-progress-model-group';
+						groupHeader.innerHTML = `<span class="aaia-progress-group-model">${config.name}</span>`;
+						progressSectionsEl.appendChild(groupHeader);
+					}
+
+					const sectionEl = document.createElement('div');
+					sectionEl.className = 'aaia-section-status';
+					sectionEl.dataset.section = sectionId;
+					sectionEl.innerHTML = `
+						<span class="aaia-section-icon">&#9675;</span>
+						<span class="aaia-section-name">${sectionNames[sectionId] || sectionId}</span>
+						<span class="aaia-section-tokens"></span>
+						<span class="aaia-section-time"></span>
+					`;
+					progressSectionsEl.appendChild(sectionEl);
+				}
+
+				document.getElementById('aaiaProgress').style.display = 'flex';
+				document.getElementById('aaiaProgressBar').style.width = '0%';
+				document.getElementById('aaiaProgressDetail').textContent = `Step 1 of ${sortedSectionIds.length}`;
+				document.getElementById('aaiaProgressText').textContent = 'Initializing...';
+				document.getElementById('aaiaProgressSubtext').textContent = '';
+				document.getElementById('aaiaElapsedTime').textContent = 'Elapsed: 0:00';
+				document.getElementById('aaiaTokenSummary').textContent = '';
+
+				// Hide completion summary
+				document.getElementById('aaiaCompletionSummary').style.display = 'none';
+
+				// Reset token tracking
+				aaiaTotalTokens = { prompt: 0, completion: 0, total: 0 };
+
+				// Start elapsed time counter
+				aaiaStartTimestamp = Date.now();
+				if (aaiaElapsedTimer) clearInterval(aaiaElapsedTimer);
+				aaiaElapsedTimer = setInterval(updateElapsedTime, 1000);
+			}
+
+			// Legacy progress update function
+			function updateAAIAProgressLegacy(sectionId, status, completed, total, time, tokens) {
+				const sectionEl = document.querySelector(`.aaia-section-status[data-section="${sectionId}"]`);
+				if (sectionEl) {
+					sectionEl.classList.remove('complete', 'running', 'error');
+					sectionEl.classList.add(status);
+
+					const icon = sectionEl.querySelector('.aaia-section-icon');
+					if (status === 'running') {
+						icon.innerHTML = '&#9684;'; // Loading circle
+					} else if (status === 'complete') {
+						icon.innerHTML = '&#10003;'; // Checkmark
+					} else if (status === 'error') {
+						icon.innerHTML = '&#10007;'; // X mark
+					}
+
+					if (time) {
+						sectionEl.querySelector('.aaia-section-time').textContent = formatTime(time);
+					}
+
+					// Display token count for this section
+					if (tokens && tokens.total > 0) {
+						const tokensEl = sectionEl.querySelector('.aaia-section-tokens');
+						tokensEl.textContent = `${formatTokenCount(tokens.prompt)} → ${formatTokenCount(tokens.completion)}`;
+						tokensEl.title = `Prompt: ${formatTokenCount(tokens.prompt)} | Completion: ${formatTokenCount(tokens.completion)} | Total: ${formatTokenCount(tokens.total)}`;
+					}
+				}
+
+				const progress = (completed / total) * 100;
+				document.getElementById('aaiaProgressBar').style.width = `${progress}%`;
+				document.getElementById('aaiaProgressDetail').textContent = `Step ${completed + (status === 'running' ? 1 : 0)} of ${total}`;
+
+				// Update token summary
+				if (aaiaTotalTokens.total > 0) {
+					document.getElementById('aaiaTokenSummary').innerHTML =
+						`<span class="token-label">Tokens:</span> ` +
+						`<span class="token-prompt">${formatTokenCount(aaiaTotalTokens.prompt)} in</span> ` +
+						`<span class="token-arrow">→</span> ` +
+						`<span class="token-completion">${formatTokenCount(aaiaTotalTokens.completion)} out</span> ` +
+						`<span class="token-total">(${formatTokenCount(aaiaTotalTokens.total)} total)</span>`;
+				}
+
+				const sectionNames = {
+					'weak-habits': 'Password Pattern Analysis',
+					'company-intel': 'Company Intelligence',
+					'user-behavior': 'User Behavior Analysis',
+					'recommendations': 'Security Recommendations'
+				};
+
+				const subtextEl = document.getElementById('aaiaProgressSubtext');
+
+				if (status === 'running') {
+					document.getElementById('aaiaProgressText').textContent = `Analyzing: ${sectionNames[sectionId] || sectionId}`;
+					// Show model and server info
+					const config = aaiaSectionConfigs[sectionId];
+					if (config) {
+						subtextEl.textContent = `Using ${config.name} on ${config.server_name}`;
+					}
+				} else if (status === 'complete') {
+					subtextEl.textContent = `Completed in ${formatTime(time)}`;
+				} else if (status === 'error') {
+					subtextEl.textContent = 'Section failed - continuing with next...';
+				}
+
+				if (completed === total) {
+					document.getElementById('aaiaProgressText').textContent = 'Analysis Complete!';
+					subtextEl.textContent = 'Preparing results...';
+				}
+			}
+
+			// Update elapsed time display
+			function updateElapsedTime() {
+				if (!aaiaStartTimestamp) return;
+				const elapsed = Math.floor((Date.now() - aaiaStartTimestamp) / 1000);
+				const minutes = Math.floor(elapsed / 60);
+				const seconds = elapsed % 60;
+				document.getElementById('aaiaElapsedTime').textContent = `Elapsed: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+			}
+
+			// Hide AAIA progress overlay - shows completion summary first
+			function hideAAIAProgress() {
+				// Stop elapsed timer
+				if (aaiaElapsedTimer) {
+					clearInterval(aaiaElapsedTimer);
+					aaiaElapsedTimer = null;
+				}
+
+				// Calculate final elapsed time
+				const elapsed = aaiaStartTimestamp ? Math.floor((Date.now() - aaiaStartTimestamp) / 1000) : 0;
+				const minutes = Math.floor(elapsed / 60);
+				const seconds = elapsed % 60;
+				const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+				// Update completion summary
+				document.getElementById('aaiaCompletionTime').textContent = timeStr;
+				document.getElementById('aaiaCompletionTokens').textContent = formatTokenCount(aaiaTotalTokens.total);
+				document.getElementById('aaiaCompletionSections').textContent = `${AAIA_SECTIONS.length} completed`;
+
+				// Show completion summary
+				document.getElementById('aaiaCompletionSummary').style.display = 'block';
+				document.getElementById('aaiaProgressText').textContent = 'Analysis Complete!';
+				document.getElementById('aaiaProgressSubtext').textContent = '';
+
+				aaiaStartTimestamp = null;
+			}
+
+			// Actually close the progress overlay
+			function closeAAIAProgress() {
+				document.getElementById('aaiaProgress').style.display = 'none';
+				document.getElementById('aaiaCompletionSummary').style.display = 'none';
+			}
+
+			// Format token count with commas
+			function formatTokenCount(num) {
+				return num.toLocaleString();
+			}
+
+			// Format time in seconds to "Xm Ys" or "Xs" format
+			function formatTime(seconds) {
+				const secs = parseFloat(seconds);
+				if (isNaN(secs)) return seconds;
+				if (secs < 60) {
+					return `${secs.toFixed(1)}s`;
+				}
+				const mins = Math.floor(secs / 60);
+				const remainingSecs = Math.round(secs % 60);
+				return `${mins}m ${remainingSecs}s`;
+			}
+
+			// Update AAIA progress
+			function updateAAIAProgress(sectionId, status, completed, total, time, tokens) {
+				const sectionEl = document.querySelector(`.aaia-section-status[data-section="${sectionId}"]`);
+				if (sectionEl) {
+					sectionEl.classList.remove('complete', 'running', 'error');
+					sectionEl.classList.add(status);
+
+					const icon = sectionEl.querySelector('.aaia-section-icon');
+					if (status === 'running') {
+						icon.innerHTML = '&#9684;'; // Loading circle
+					} else if (status === 'complete') {
+						icon.innerHTML = '&#10003;'; // Checkmark
+					} else if (status === 'error') {
+						icon.innerHTML = '&#10007;'; // X mark
+					}
+
+					if (time) {
+						sectionEl.querySelector('.aaia-section-time').textContent = formatTime(time);
+					}
+
+					// Display token count for this section
+					if (tokens && tokens.total > 0) {
+						const tokensEl = sectionEl.querySelector('.aaia-section-tokens');
+						tokensEl.textContent = `${formatTokenCount(tokens.prompt)} → ${formatTokenCount(tokens.completion)}`;
+						tokensEl.title = `Prompt: ${formatTokenCount(tokens.prompt)} | Completion: ${formatTokenCount(tokens.completion)} | Total: ${formatTokenCount(tokens.total)}`;
+					}
+				}
+
+				const progress = (completed / total) * 100;
+				document.getElementById('aaiaProgressBar').style.width = `${progress}%`;
+				document.getElementById('aaiaProgressDetail').textContent = `Step ${completed + (status === 'running' ? 1 : 0)} of ${total}`;
+
+				// Update token summary
+				if (aaiaTotalTokens.total > 0) {
+					document.getElementById('aaiaTokenSummary').innerHTML =
+						`<span class="token-label">Tokens:</span> ` +
+						`<span class="token-prompt">${formatTokenCount(aaiaTotalTokens.prompt)} in</span> ` +
+						`<span class="token-arrow">→</span> ` +
+						`<span class="token-completion">${formatTokenCount(aaiaTotalTokens.completion)} out</span> ` +
+						`<span class="token-total">(${formatTokenCount(aaiaTotalTokens.total)} total)</span>`;
+				}
+
+				const sectionNames = {
+					'weak-habits': 'Password Pattern Analysis',
+					'company-intel': 'Company Intelligence',
+					'user-behavior': 'User Behavior Analysis',
+					'recommendations': 'Security Recommendations'
+				};
+
+				const subtextEl = document.getElementById('aaiaProgressSubtext');
+
+				if (status === 'running') {
+					document.getElementById('aaiaProgressText').textContent = `Analyzing: ${sectionNames[sectionId] || sectionId}`;
+					// Show model and server info
+					const config = aaiaSectionConfigs[sectionId];
+					if (config) {
+						subtextEl.textContent = `Using ${config.name} on ${config.server_name}`;
+					}
+				} else if (status === 'complete') {
+					subtextEl.textContent = `Completed in ${formatTime(time)}`;
+				} else if (status === 'error') {
+					subtextEl.textContent = 'Section failed - continuing with next...';
+				}
+
+				if (completed === total) {
+					document.getElementById('aaiaProgressText').textContent = 'Analysis Complete!';
+					subtextEl.textContent = 'Preparing results...';
+				}
+			}
+
+			// Display AAIA results
+			function displayAAIAResults(data, scrollToResults = true) {
+				const resultsSection = document.getElementById('aaiaResultsSection');
+				const metaDiv = document.getElementById('aaiaResultsMeta');
+
+				// Update metadata - handle both old (single model) and new (per-section) formats
+				if (data.metadata) {
+					const timestamp = new Date(data.metadata.timestamp).toLocaleString();
+
+					if (data.metadata.sections) {
+						// New per-section format - show summary
+						const uniqueModels = [...new Set(Object.values(data.metadata.sections).map(s => s.model))];
+						const uniqueServers = [...new Set(Object.values(data.metadata.sections).map(s => s.server))];
+						metaDiv.innerHTML = `
+							<span class="aaia-meta-item">Models: <strong>${uniqueModels.join(', ')}</strong></span>
+							<span class="aaia-meta-item">Servers: <strong>${uniqueServers.join(', ')}</strong></span>
+							<span class="aaia-meta-item">Generated: <strong>${timestamp}</strong></span>
+							<span class="aaia-meta-item">Total Time: <strong>${formatTime(data.metadata.total_time)}</strong></span>
+						`;
+					} else {
+						// Old single-model format
+						metaDiv.innerHTML = `
+							<span class="aaia-meta-item">Model: <strong>${data.metadata.model || 'Unknown'}</strong></span>
+							<span class="aaia-meta-item">Server: <strong>${data.metadata.server_name || 'Unknown'}</strong></span>
+							<span class="aaia-meta-item">Generated: <strong>${timestamp}</strong></span>
+							<span class="aaia-meta-item">Total Time: <strong>${formatTime(data.metadata.total_time)}</strong></span>
+						`;
+					}
+				}
+
+				// Populate content for each section
+				for (const [sectionId, sectionData] of Object.entries(data.results)) {
+					const contentId = AAIA_CONTENT_IDS[sectionId];
+					if (contentId) {
+						const contentDiv = document.getElementById(contentId);
+						if (contentDiv) {
+							// Build review warning if needed
+							let reviewWarning = '';
+							if (sectionData.needs_human_review) {
+								const confidence = sectionData.validation_confidence || 0;
+								const confidencePercent = Math.round(confidence * 100);
+								const issueCount = sectionData.validation_issues || 0;
+
+								let warningReason = 'Validation could not be completed';
+								if (confidence < 0.7 && confidence > 0) {
+									warningReason = `Low validation confidence (${confidencePercent}%)`;
+								} else if (issueCount > 0) {
+									warningReason = `${issueCount} validation issue${issueCount > 1 ? 's' : ''} found`;
+								}
+
+								reviewWarning = `
+									<div class="aaia-section-review-warning">
+										<span class="aaia-warning-icon">⚠️</span>
+										<span class="aaia-warning-text"><strong>Human Review Recommended:</strong> ${warningReason}</span>
+									</div>
+								`;
+							}
+
+							if (sectionData.error) {
+								contentDiv.innerHTML = reviewWarning + `<div class="aaia-error">${sectionData.content}</div>`;
+							} else {
+								// Render markdown content with optional review warning
+								contentDiv.innerHTML = reviewWarning + marked.parse(sectionData.content);
+							}
+						}
+					}
+				}
+
+				// Show the results section
+				resultsSection.style.display = 'block';
+
+				// Show the AI Analysis nav button
+				document.getElementById('navAIAnalysis').style.display = 'inline-block';
+
+				// Scroll to the results section (only when explicitly requested, e.g., after analysis completes)
+				if (scrollToResults) {
+					resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				}
+			}
+
+			// Toggle AAIA card expand/collapse
+			function toggleAAIACard(cardId) {
+				const card = document.getElementById(cardId);
+				if (card) {
+					card.classList.toggle('collapsed');
+					const toggle = card.querySelector('.aaia-card-toggle');
+					if (toggle) {
+						toggle.innerHTML = card.classList.contains('collapsed') ? '&#9654;' : '&#9660;';
+					}
+				}
+			}
+
+			// Close modal when clicking outside
+			document.addEventListener('click', function(e) {
+				const modal = document.getElementById('aaiaModal');
+				if (e.target === modal) {
+					closeAAIAModal();
+				}
+			});
+		</script>
+
+		<!-- Session Management JavaScript -->
+		<script>
+			// ==================== SESSION MANAGEMENT ====================
+
+			// Load current session info on page load
+			document.addEventListener('DOMContentLoaded', function() {
+				loadCurrentSession();
+			});
+
+			// Load and display current session info
+			async function loadCurrentSession() {
+				const indicatorEl = document.getElementById('sessionIndicator');
+
+				// Set a timeout in case the fetch hangs
+				const controller = new AbortController();
+				const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+				try {
+					const response = await fetch('/api/sessions/current', {
+						signal: controller.signal
+					});
+					clearTimeout(timeoutId);
+
+					if (response.ok) {
+						const data = await response.json();
+						displayCurrentSession(data.session, data.aaia_staleness);
+					} else if (response.status === 404) {
+						// No active session
+						indicatorEl.classList.add('no-session');
+					} else {
+						// Other error (401, 500, etc.)
+						console.error('Session API error:', response.status);
+						indicatorEl.classList.add('no-session');
+					}
+				} catch (error) {
+					clearTimeout(timeoutId);
+					if (error.name === 'AbortError') {
+						console.error('Session fetch timed out');
+					} else {
+						console.error('Error loading session:', error);
+					}
+					indicatorEl.classList.add('no-session');
+				}
+			}
+
+			// Display current session in header
+			function displayCurrentSession(session, staleness) {
+				const indicatorEl = document.getElementById('sessionIndicator');
+
+				// Show staleness warning if AAIA is stale
+				if (staleness && staleness.is_stale) {
+					indicatorEl.classList.add('session-stale');
+					indicatorEl.title = `Session: ${session.name}\n⚠️ AAIA may be stale: ${staleness.stale_reason}`;
+				} else {
+					indicatorEl.classList.remove('session-stale');
+					indicatorEl.title = `Session: ${session.name}\nClick to manage sessions`;
+				}
+			}
+
+			// Open session picker modal
+			async function openSessionPicker() {
+				document.getElementById('sessionPickerModal').style.display = 'flex';
+				await loadSessionList();
+			}
+
+			// Close session picker modal
+			function closeSessionPicker() {
+				document.getElementById('sessionPickerModal').style.display = 'none';
+			}
+
+			// Load list of all sessions
+			async function loadSessionList() {
+				const listEl = document.getElementById('sessionList');
+				const currentInfoEl = document.getElementById('sessionCurrentInfo');
+
+				try {
+					const response = await fetch('/api/sessions');
+					const data = await response.json();
+
+					// Check for legacy data
+					const legacyBtn = document.getElementById('migrateLegacyBtn');
+					try {
+						const legacyCheck = await fetch('/list_json_files');
+						if (legacyCheck.ok) {
+							const files = await legacyCheck.json();
+							// Show migrate button if there's data in legacy location and no sessions
+							if (files.length > 0 && data.sessions.length === 0) {
+								legacyBtn.style.display = 'inline-block';
+							}
+						}
+					} catch (e) {
+						// Ignore legacy check errors
+					}
+
+					// Display current session info
+					const current = data.sessions.find(s => s.session_id === data.current_session_id);
+					if (current) {
+						currentInfoEl.innerHTML = `
+							<div class="session-current-card">
+								<div class="session-current-title">
+									<span class="session-current-label">Current Session</span>
+									<span class="session-current-name">${escapeHtml(current.name)}</span>
+								</div>
+								<div class="session-current-meta">
+									<span>📊 ${current.total_accounts || 0} accounts</span>
+									<span>🔓 ${current.cracked_accounts || 0} cracked (${current.crack_rate || 0}%)</span>
+									<span>📅 ${formatDate(current.updated_at)}</span>
+									${current.aaia_generated ? '<span class="session-aaia-badge">✨ AAIA</span>' : ''}
+								</div>
+							</div>
+						`;
+					} else {
+						currentInfoEl.innerHTML = '<div class="session-no-current">No active session</div>';
+					}
+
+					// Display session list
+					if (data.sessions.length === 0) {
+						listEl.innerHTML = '<div class="session-empty">No sessions found. Create a new analysis to start a session.</div>';
+						return;
+					}
+
+					listEl.innerHTML = data.sessions.map(session => `
+						<div class="session-item ${session.session_id === data.current_session_id ? 'session-item-current' : ''}"
+							 data-session-id="${session.session_id}">
+							<div class="session-item-info">
+								<div class="session-item-name">${escapeHtml(session.name)}</div>
+								<div class="session-item-meta">
+									<span>${session.total_accounts || 0} accounts</span>
+									<span>${session.cracked_accounts || 0} cracked</span>
+									<span>${formatDate(session.created_at)}</span>
+									${session.aaia_generated ? '<span class="session-aaia-badge">✨</span>' : ''}
+								</div>
+							</div>
+							<div class="session-item-actions">
+								${session.session_id !== data.current_session_id ?
+									`<button class="session-action-btn session-switch-btn" onclick="switchSession('${session.session_id}')">Switch</button>` :
+									'<span class="session-current-badge">Current</span>'
+								}
+								<button class="session-action-btn session-delete-btn" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete session">🗑️</button>
+							</div>
+						</div>
+					`).join('');
+
+				} catch (error) {
+					console.error('Error loading sessions:', error);
+					listEl.innerHTML = '<div class="session-error">Error loading sessions</div>';
+				}
+			}
+
+			// Switch to a different session
+			async function switchSession(sessionId) {
+				try {
+					const response = await fetch(`/api/sessions/${sessionId}/switch`, {
+						method: 'POST'
+					});
+
+					if (response.ok) {
+						// Reload the page to load new session data
+						window.location.reload();
+					} else {
+						const data = await response.json();
+						alert('Failed to switch session: ' + (data.error || 'Unknown error'));
+					}
+				} catch (error) {
+					console.error('Error switching session:', error);
+					alert('Error switching session');
+				}
+			}
+
+			// Delete a session
+			async function deleteSession(sessionId, sessionName) {
+				if (!confirm(`Delete session "${sessionName}"?\n\nThis will permanently delete all analysis data for this session.`)) {
+					return;
+				}
+
+				try {
+					const response = await fetch(`/api/sessions/${sessionId}`, {
+						method: 'DELETE'
+					});
+
+					if (response.ok) {
+						await loadSessionList();
+						loadCurrentSession();
+					} else {
+						const data = await response.json();
+						alert('Failed to delete session: ' + (data.error || 'Unknown error'));
+					}
+				} catch (error) {
+					console.error('Error deleting session:', error);
+					alert('Error deleting session');
+				}
+			}
+
+			// Migrate legacy data to a new session
+			async function migrateLegacyData() {
+				const name = prompt('Enter a name for the imported session:', 'Imported Analysis');
+				if (!name) return;
+
+				try {
+					const response = await fetch('/api/sessions/migrate-legacy', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ name: name })
+					});
+
+					if (response.ok) {
+						window.location.reload();
+					} else {
+						const data = await response.json();
+						alert('Migration failed: ' + (data.error || 'Unknown error'));
+					}
+				} catch (error) {
+					console.error('Error migrating data:', error);
+					alert('Error migrating data');
+				}
+			}
+
+			// Close modal when clicking outside
+			document.addEventListener('click', function(e) {
+				const modal = document.getElementById('sessionPickerModal');
+				if (e.target === modal) {
+					closeSessionPicker();
+				}
+			});
+
+			// Helper: Format date
+			function formatDate(isoString) {
+				if (!isoString) return 'Unknown';
+				const date = new Date(isoString);
+				return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+			}
+
+			// Helper: Escape HTML
+			function escapeHtml(text) {
+				const div = document.createElement('div');
+				div.textContent = text || '';
+				return div.innerHTML;
+			}
+		</script>
+
+		<!-- Settings Reconfiguration JavaScript -->
+		<script>
+			// Open settings modal and load current settings
+			async function openSettingsModal() {
+				const modal = document.getElementById('settingsModal');
+				modal.style.display = 'flex';
+
+				// Load current settings from the API
+				try {
+					const response = await fetch('/api/settings/current');
+					if (response.ok) {
+						const settings = await response.json();
+						populateSettingsForm(settings);
+					}
+				} catch (error) {
+					console.error('Error loading current settings:', error);
+				}
+			}
+
+			// Close settings modal
+			function closeSettingsModal() {
+				document.getElementById('settingsModal').style.display = 'none';
+			}
+
+			// Populate the settings form with current values
+			function populateSettingsForm(settings) {
+				// Policy Compliance
+				if (settings.policy_min_pw_len) {
+					document.getElementById('settings_policy_min_pw_len').value = settings.policy_min_pw_len;
+				}
+				if (settings.policy_complexity_req) {
+					document.getElementById('settings_policy_complexity_req').value = settings.policy_complexity_req;
+				}
+				if (settings.policy_max_pw_age !== undefined) {
+					const maxAge = parseInt(settings.policy_max_pw_age);
+					const neverCheckbox = document.getElementById('settings_max_age_never');
+					const maxAgeInput = document.getElementById('settings_policy_max_pw_age');
+					if (maxAge === 0 || maxAge > 999) {
+						neverCheckbox.checked = true;
+						maxAgeInput.disabled = true;
+						maxAgeInput.value = 90;
+					} else {
+						neverCheckbox.checked = false;
+						maxAgeInput.disabled = false;
+						maxAgeInput.value = maxAge;
+					}
+				}
+
+				// Substring Analysis
+				if (settings.substring_min_len) {
+					document.getElementById('settings_substring_min_len').value = settings.substring_min_len;
+				}
+				if (settings.substring_max_len) {
+					document.getElementById('settings_substring_max_len').value = settings.substring_max_len;
+				}
+				if (settings.substring_freq_threshold) {
+					document.getElementById('settings_substring_freq_threshold').value = settings.substring_freq_threshold;
+				}
+				document.getElementById('settings_substring_disp_nest').checked =
+					settings.substring_disp_nest === 'true' || settings.substring_disp_nest === true;
+				document.getElementById('settings_substring_normalize').checked =
+					settings.substring_normalize === 'true' || settings.substring_normalize === true;
+
+				// Dictionary Analysis
+				if (settings.dictionary_min_len) {
+					document.getElementById('settings_dictionary_min_len').value = settings.dictionary_min_len;
+				}
+				document.getElementById('settings_dictionary_disp_nest').checked =
+					settings.dictionary_disp_nest === 'true' || settings.dictionary_disp_nest === true;
+
+				// Company Keywords
+				if (settings.company_keywords) {
+					document.getElementById('settings_company_keywords').value = settings.company_keywords;
+				}
+			}
+
+			// Toggle max age input
+			function toggleSettingsMaxAge(checkbox) {
+				const maxAgeInput = document.getElementById('settings_policy_max_pw_age');
+				maxAgeInput.disabled = checkbox.checked;
+				if (checkbox.checked) {
+					maxAgeInput.value = 90; // Default value when disabled
+				}
+			}
+
+			// Handle form submission
+			document.getElementById('settingsForm').addEventListener('submit', async function(e) {
+				e.preventDefault();
+
+				const btn = document.getElementById('regenerateBtn');
+				const originalText = btn.innerHTML;
+				btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Regenerating...';
+				btn.disabled = true;
+
+				// Collect form data
+				const formData = new FormData(this);
+				const settings = {};
+
+				// Policy settings
+				settings.policy_min_pw_len = formData.get('policy_min_pw_len');
+				settings.policy_complexity_req = formData.get('policy_complexity_req');
+				settings.policy_max_pw_age = document.getElementById('settings_max_age_never').checked
+					? '0'
+					: formData.get('policy_max_pw_age');
+
+				// Substring settings
+				settings.substring_min_len = formData.get('substring_min_len');
+				settings.substring_max_len = formData.get('substring_max_len');
+				settings.substring_freq_threshold = formData.get('substring_freq_threshold');
+				settings.substring_disp_nest = document.getElementById('settings_substring_disp_nest').checked ? 'true' : 'false';
+				settings.substring_normalize = document.getElementById('settings_substring_normalize').checked ? 'true' : 'false';
+
+				// Dictionary settings
+				settings.dictionary_min_len = formData.get('dictionary_min_len');
+				settings.dictionary_disp_nest = document.getElementById('settings_dictionary_disp_nest').checked ? 'true' : 'false';
+
+				// Company keywords
+				settings.company_keywords = formData.get('company_keywords');
+
+				try {
+					const response = await fetch('/api/settings/regenerate', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify(settings),
+						credentials: 'same-origin'
+					});
+
+					if (response.ok) {
+						const result = await response.json();
+						if (result.success) {
+							closeSettingsModal();
+							// Reload the page to show new results
+							window.location.reload();
+						} else {
+							alert('Failed to regenerate report: ' + (result.error || 'Unknown error'));
+						}
+					} else {
+						const errorData = await response.json();
+						alert('Failed to regenerate report: ' + (errorData.error || 'Server error'));
+					}
+				} catch (error) {
+					console.error('Error regenerating report:', error);
+					alert('Error regenerating report: ' + error.message);
+				} finally {
+					btn.innerHTML = originalText;
+					btn.disabled = false;
+				}
+			});
+
+			// Close modal when clicking outside
+			document.getElementById('settingsModal').addEventListener('click', function(e) {
+				if (e.target === this) {
+					closeSettingsModal();
+				}
+			});
+
+			// Close modal with Escape key
+			document.addEventListener('keydown', function(e) {
+				if (e.key === 'Escape' && document.getElementById('settingsModal').style.display === 'flex') {
+					closeSettingsModal();
+				}
+			});
+
+			// Add spin animation for loading indicator
+			const style = document.createElement('style');
+			style.textContent = `
+				@keyframes spin {
+					from { transform: rotate(0deg); }
+					to { transform: rotate(360deg); }
+				}
+			`;
+			document.head.appendChild(style);
 		</script>
 	</body>
 </html>

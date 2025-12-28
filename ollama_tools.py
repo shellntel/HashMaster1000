@@ -13,9 +13,11 @@ Features:
 
 import os
 import json
+import time
 import requests
-from typing import Optional, Dict, List, Any
-from dataclasses import dataclass
+from typing import Optional, Dict, List, Any, Callable, Tuple
+from dataclasses import dataclass, field
+import re
 
 from ollama_prompts import (
     SYSTEM_PROMPT,
@@ -32,6 +34,11 @@ from ollama_prompts import (
     RECOMMENDATIONS_PROMPT,
     FULL_REPORT_PROMPT,
     AI_REPORT_SECTIONS,
+    # Pipeline Prompts (Phase 2 & 3) - section-specific
+    get_validation_prompt,
+    get_formatting_prompt,
+    PHASE_CONFIG,
+    get_phase_config,
 )
 
 
@@ -51,6 +58,54 @@ class OllamaServer:
     host: str
     description: str = ""
     hardware: str = ""
+
+
+@dataclass
+class ValidationResult:
+    """Result from Phase 2 validation of AI-generated content."""
+    issues: List[Dict[str, str]]  # [{type, description, original_text, evidence_reference, severity}]
+    corrected_content: str
+    confidence: float  # 0.0 - 1.0
+    needs_human_review: bool
+    validation_stats: Dict[str, Any]  # {facts_checked, issues_found, corrections_made, overall_assessment}
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+@dataclass
+class PipelineResult:
+    """Result from the full 3-phase AI analysis pipeline."""
+    section_id: str
+    phase1_raw: Optional[str] = None
+    phase2_validated: Optional[ValidationResult] = None
+    phase3_final: Optional[str] = None
+    retry_count: int = 0
+    needs_human_review: bool = False
+    error: Optional[str] = None
+    timing: Dict[str, float] = None  # {phase1: seconds, phase2: seconds, phase3: seconds}
+
+    def __post_init__(self):
+        if self.timing is None:
+            self.timing = {}
+
+
+@dataclass
+class PipelineProgress:
+    """Tracks progress of the AI analysis pipeline."""
+    job_id: str
+    total_steps: int
+    current_step: int
+    current_phase: str  # "phase1", "phase2", "phase3"
+    current_section: str
+    current_action: str  # Human-readable description
+    phase_timing: Dict[str, float]  # Timing for completed phases
+    started_at: float
+    estimated_remaining: Optional[float] = None
+
+    def __post_init__(self):
+        if self.phase_timing is None:
+            self.phase_timing = {}
 
 
 # Multi-server configuration
@@ -148,11 +203,12 @@ class OllamaClient:
         except requests.RequestException:
             return False
 
-    def list_models(self) -> List[str]:
-        """Get list of available models from Ollama server."""
-        if self._available_models is not None:
-            return self._available_models
+    def list_models(self, include_details: bool = False) -> List:
+        """Get list of available models from Ollama server.
 
+        Args:
+            include_details: If True, return full model info dicts. If False, return just names.
+        """
         try:
             response = requests.get(
                 f"{self.config.host}/api/tags",
@@ -160,11 +216,244 @@ class OllamaClient:
             )
             if response.status_code == 200:
                 data = response.json()
-                self._available_models = [m["name"] for m in data.get("models", [])]
-                return self._available_models
+                models = data.get("models", [])
+                if include_details:
+                    # Return full model info with name and size
+                    return [{"name": m.get("name"), "size": m.get("size", 0)} for m in models]
+                else:
+                    # Return just names (for backwards compatibility)
+                    if self._available_models is None:
+                        self._available_models = [m["name"] for m in models]
+                    return self._available_models
         except requests.RequestException:
             pass
         return []
+
+    def get_running_models(self) -> Dict[str, Any]:
+        """Get currently running/loaded models from Ollama server.
+
+        Returns dict with:
+        - models: List of running model info (name, size, vram, context_length, expires_at)
+        - count: Number of running models
+        - total_vram: Total VRAM usage in bytes
+        - busy: True if any model is loaded (likely processing or ready)
+        """
+        result = {
+            "models": [],
+            "count": 0,
+            "total_vram": 0,
+            "busy": False
+        }
+
+        if not self.config.enabled:
+            return result
+
+        try:
+            response = requests.get(
+                f"{self.config.host}/api/ps",
+                timeout=5
+            )
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get("models", [])
+                result["models"] = [
+                    {
+                        "name": m.get("model", ""),
+                        "size": m.get("size", 0),
+                        "size_vram": m.get("size_vram", 0),
+                        "context_length": m.get("context_length", 0),
+                        "expires_at": m.get("expires_at", ""),
+                        "parameter_size": m.get("details", {}).get("parameter_size", ""),
+                        "quantization": m.get("details", {}).get("quantization_level", "")
+                    }
+                    for m in models
+                ]
+                result["count"] = len(models)
+                result["total_vram"] = sum(m.get("size_vram", 0) for m in models)
+                result["busy"] = len(models) > 0
+        except requests.RequestException:
+            pass
+
+        return result
+
+    def get_model_info(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """Get detailed information about a specific model.
+
+        Returns dict with model details including:
+        - modelfile, parameters, template, license, etc.
+        """
+        if not self.config.enabled:
+            return None
+
+        try:
+            response = requests.post(
+                f"{self.config.host}/api/show",
+                json={"model": model_name},
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+        except requests.RequestException:
+            pass
+
+        return None
+
+    def get_version(self) -> Optional[str]:
+        """Get Ollama server version."""
+        if not self.config.enabled:
+            return None
+
+        try:
+            response = requests.get(
+                f"{self.config.host}/api/version",
+                timeout=5
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("version", "unknown")
+        except requests.RequestException:
+            pass
+
+        return None
+
+    def ensure_model_loaded(
+        self,
+        model: str,
+        num_ctx: int = 16384,
+        timeout: Optional[int] = None,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> bool:
+        """
+        Ensure a model is loaded and ready for inference.
+
+        If the model is not currently loaded, triggers a load by sending a minimal
+        request and waits for it to complete.
+
+        Args:
+            model: Model name to load
+            num_ctx: Context window size
+            timeout: Maximum time to wait for model to load (seconds).
+                     Defaults to 180s (3 min) which is enough for even 671B models.
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            True if model is loaded and ready, False otherwise
+        """
+        if not self.config.enabled:
+            return False
+
+        # Use reasonable timeout for model loading (not the long generation timeout)
+        # 70B models load in ~20s, 671B in ~2-3 min
+        if timeout is None:
+            timeout = 180  # 3 minutes max for model loading
+
+        # Check if model is already loaded
+        running = self.get_running_models()
+        for m in running.get("models", []):
+            loaded_name = m.get("name", "")
+            # Check for exact match or base model match (e.g., "deepseek-r1:671b" matches "deepseek-r1:671b")
+            if loaded_name == model or loaded_name.startswith(model.split(":")[0] + ":"):
+                if progress_callback:
+                    progress_callback(f"Model {model} already loaded")
+                return True
+
+        if progress_callback:
+            progress_callback(f"Loading model {model}...")
+
+        # First, unload any currently loaded models to free memory
+        # This prevents crashes when switching between large models
+        running = self.get_running_models()
+        for m in running.get("models", []):
+            loaded_name = m.get("name", "")
+            if loaded_name and loaded_name != model:
+                print(f"[ensure_model_loaded] Unloading {loaded_name} before loading {model}")
+                if progress_callback:
+                    progress_callback(f"Unloading {loaded_name}...")
+                try:
+                    # Send keep_alive: 0 to immediately unload the model
+                    unload_payload = {
+                        "model": loaded_name,
+                        "keep_alive": 0
+                    }
+                    unload_resp = requests.post(
+                        f"{self.config.host}/api/generate",
+                        json=unload_payload,
+                        timeout=60
+                    )
+                    if unload_resp.status_code == 200:
+                        print(f"[ensure_model_loaded] Successfully unloaded {loaded_name}")
+                        # Give the server time to fully release resources
+                        time.sleep(3)
+                    else:
+                        print(f"[ensure_model_loaded] Warning: Could not unload {loaded_name}")
+                except Exception as e:
+                    print(f"[ensure_model_loaded] Warning: Error unloading {loaded_name}: {e}")
+                    # Continue anyway - the load might still work
+
+        # Trigger model load with a minimal request
+        # Use small context for warmup to reduce memory - actual requests will set their own context
+        # The 671B model with 16K context needs ~78GB KV cache alone, which can cause OOM
+        warmup_ctx = 2048  # Minimal context for warmup only
+
+        payload = {
+            "model": model,
+            "prompt": "hi",  # Minimal prompt
+            "stream": False,
+            "options": {
+                "num_ctx": warmup_ctx,
+                "num_predict": 1  # Generate just 1 token
+            },
+            "keep_alive": "10m"  # Keep model loaded for 10 minutes
+        }
+
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                print(f"[ensure_model_loaded] Sending warmup request for {model} (timeout={timeout}s, attempt {attempt + 1}/{max_retries + 1})")
+                response = requests.post(
+                    f"{self.config.host}/api/generate",
+                    json=payload,
+                    timeout=timeout
+                )
+
+                if response.status_code == 200:
+                    print(f"[ensure_model_loaded] Success: {model} loaded")
+                    if progress_callback:
+                        progress_callback(f"Model {model} loaded and ready")
+                    return True
+                else:
+                    try:
+                        error_msg = response.json().get("error", "Unknown error")
+                    except:
+                        error_msg = f"HTTP {response.status_code}"
+                    print(f"[ensure_model_loaded] Failed (attempt {attempt + 1}): {error_msg}")
+
+                    # If it's a "model runner stopped" error, retry after a delay
+                    if "model runner" in error_msg.lower() and attempt < max_retries:
+                        print(f"[ensure_model_loaded] Retrying in 5 seconds...")
+                        time.sleep(5)
+                        continue
+
+                    if progress_callback:
+                        progress_callback(f"Failed to load model: {error_msg}")
+                    return False
+
+            except requests.Timeout:
+                print(f"[ensure_model_loaded] Timeout after {timeout}s waiting for {model}")
+                if progress_callback:
+                    progress_callback(f"Timeout loading model {model}")
+                return False
+            except requests.RequestException as e:
+                print(f"[ensure_model_loaded] Request error (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries:
+                    print(f"[ensure_model_loaded] Retrying in 5 seconds...")
+                    time.sleep(5)
+                    continue
+                if progress_callback:
+                    progress_callback(f"Error loading model: {str(e)}")
+                return False
+
+        return False
 
     def generate(
         self,
@@ -172,8 +461,10 @@ class OllamaClient:
         system: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None
-    ) -> Optional[str]:
+        max_tokens: Optional[int] = None,
+        include_usage: bool = False,
+        num_ctx: int = 16384
+    ) -> Optional[str] | Dict[str, Any]:
         """
         Generate a response from the Ollama model.
 
@@ -183,9 +474,12 @@ class OllamaClient:
             model: Model to use (defaults to config model)
             temperature: Sampling temperature (0.0-1.0)
             max_tokens: Maximum tokens to generate
+            include_usage: If True, return dict with response and token usage
+            num_ctx: Context window size (default 16384 to avoid truncation)
 
         Returns:
-            Generated text or None if failed
+            Generated text or None if failed.
+            If include_usage=True, returns dict with 'response', 'prompt_tokens', 'completion_tokens', 'total_tokens'
         """
         if not self.config.enabled:
             return None
@@ -193,12 +487,23 @@ class OllamaClient:
         if not model:
             return None
 
+        # Adjust context size for very large models to avoid OOM
+        # The 671B model with 16K context needs ~78GB KV cache which can exceed available memory
+        actual_ctx = num_ctx
+        if "671b" in model.lower():
+            # Limit 671B models to 8K context to fit in memory
+            # 8K context = ~39GB KV cache instead of 78GB
+            actual_ctx = min(num_ctx, 8192)
+            if actual_ctx < num_ctx:
+                print(f"[generate] Reducing context from {num_ctx} to {actual_ctx} for {model} to avoid OOM")
+
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": temperature
+                "temperature": temperature,
+                "num_ctx": actual_ctx
             }
         }
 
@@ -217,6 +522,13 @@ class OllamaClient:
 
             if response.status_code == 200:
                 data = response.json()
+                if include_usage:
+                    return {
+                        "response": data.get("response", ""),
+                        "prompt_tokens": data.get("prompt_eval_count", 0),
+                        "completion_tokens": data.get("eval_count", 0),
+                        "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
+                    }
                 return data.get("response", "")
             else:
                 print(f"Ollama API error: {response.status_code} - {response.text}")
@@ -230,7 +542,8 @@ class OllamaClient:
         self,
         messages: List[Dict[str, str]],
         model: Optional[str] = None,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        num_ctx: int = 16384
     ) -> Optional[str]:
         """
         Send a chat conversation to the Ollama model.
@@ -239,6 +552,7 @@ class OllamaClient:
             messages: List of {"role": "user"|"assistant"|"system", "content": "..."}
             model: Model to use (defaults to config model)
             temperature: Sampling temperature
+            num_ctx: Context window size (default 16384)
 
         Returns:
             Generated response or None if failed
@@ -254,7 +568,8 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "options": {
-                "temperature": temperature
+                "temperature": temperature,
+                "num_ctx": num_ctx
             }
         }
 
@@ -506,6 +821,7 @@ class AIReportAnalyzer:
         cracked_passwords: str,
         account_passwords: str,
         password_reuse: str,
+        length_distribution: str,
         org_context: str,
         total_accounts: int,
         cracked_count: int,
@@ -522,6 +838,7 @@ class AIReportAnalyzer:
             cracked_passwords: All cracked passwords as formatted string
             account_passwords: Account:password pairs for context
             password_reuse: Password reuse details
+            length_distribution: Password length distribution stats
             org_context: Organizational context (domains, account types)
             total_accounts: Total number of accounts analyzed
             cracked_count: Number of passwords cracked
@@ -536,6 +853,7 @@ class AIReportAnalyzer:
             cracked_passwords=cracked_passwords,
             account_passwords=account_passwords,
             password_reuse=password_reuse,
+            length_distribution=length_distribution,
             org_context=org_context,
             total_accounts=total_accounts,
             cracked_count=cracked_count
@@ -597,6 +915,7 @@ class AIReportAnalyzer:
         cracked_passwords: str,
         account_passwords: str,
         password_reuse: str,
+        length_distribution: str,
         org_context: str,
         total_accounts: int,
         cracked_count: int,
@@ -613,6 +932,7 @@ class AIReportAnalyzer:
             cracked_passwords: All cracked passwords as formatted string
             account_passwords: Account:password pairs for context
             password_reuse: Password reuse details
+            length_distribution: Password length distribution stats
             org_context: Organizational context (domains, account types)
             total_accounts: Total number of accounts analyzed
             cracked_count: Number of passwords cracked
@@ -627,6 +947,7 @@ class AIReportAnalyzer:
             cracked_passwords=cracked_passwords,
             account_passwords=account_passwords,
             password_reuse=password_reuse,
+            length_distribution=length_distribution,
             org_context=org_context,
             total_accounts=total_accounts,
             cracked_count=cracked_count
@@ -683,6 +1004,7 @@ class AIReportAnalyzer:
         key_findings: List[str],
         current_policy: Dict[str, Any],
         worst_practices: List[str],
+        audit_stats: str = "",
         model: Optional[str] = None,
         temperature: Optional[float] = None
     ) -> Optional[str]:
@@ -693,6 +1015,7 @@ class AIReportAnalyzer:
             key_findings: Summary of key findings
             current_policy: Current password policy settings
             worst_practices: Worst password practices observed
+            audit_stats: Audit statistics summary
             model: Model to use
             temperature: Temperature setting
         """
@@ -705,6 +1028,7 @@ class AIReportAnalyzer:
         practices_text = "\n".join(f"- {p}" for p in worst_practices)
 
         prompt = RECOMMENDATIONS_PROMPT.format(
+            audit_stats=audit_stats,
             key_findings=findings_text,
             current_policy=policy_text,
             worst_practices=practices_text
@@ -797,6 +1121,7 @@ class AIReportAnalyzer:
                 cracked_passwords=data.get("cracked_passwords", ""),
                 account_passwords=data.get("account_passwords", ""),
                 password_reuse=data.get("password_reuse", ""),
+                length_distribution=data.get("length_distribution", ""),
                 org_context=data.get("org_context", ""),
                 total_accounts=data.get("total_accounts", 0),
                 cracked_count=data.get("cracked_count", 0),
@@ -816,6 +1141,7 @@ class AIReportAnalyzer:
                 cracked_passwords=data.get("cracked_passwords", ""),
                 account_passwords=data.get("account_passwords", ""),
                 password_reuse=data.get("password_reuse", ""),
+                length_distribution=data.get("length_distribution", ""),
                 org_context=data.get("org_context", ""),
                 total_accounts=data.get("total_accounts", 0),
                 cracked_count=data.get("cracked_count", 0),
@@ -833,6 +1159,7 @@ class AIReportAnalyzer:
                 key_findings=data.get("key_findings", []),
                 current_policy=data.get("current_policy", {}),
                 worst_practices=data.get("worst_practices", []),
+                audit_stats=data.get("audit_stats", ""),
                 model=model,
                 temperature=temperature
             ),
@@ -853,6 +1180,88 @@ class AIReportAnalyzer:
         method = section_methods.get(section_id)
         if method:
             return method()
+        return None
+
+    def generate_section_with_usage(
+        self,
+        section_id: str,
+        data: Dict[str, Any],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generate a section and return response with token usage info.
+
+        Returns dict with:
+        - response: The generated analysis text
+        - prompt_tokens: Number of tokens in the prompt
+        - completion_tokens: Number of tokens in the response
+        - total_tokens: Total tokens used
+        """
+        from ollama_prompts import (
+            SYSTEM_PROMPT, WEAK_HABITS_PROMPT, COMPANY_INTEL_PROMPT,
+            USER_BEHAVIOR_PROMPT, RECOMMENDATIONS_PROMPT
+        )
+
+        config = self.get_section_config(section_id)
+        if not config:
+            return None
+
+        model = model or config["recommended_model"]
+        temperature = temperature if temperature is not None else config["temperature"]
+
+        # Build the prompt based on section
+        prompt = None
+        if section_id == "weak-habits":
+            prompt = WEAK_HABITS_PROMPT.format(
+                cracked_passwords=data.get("cracked_passwords", ""),
+                account_passwords=data.get("account_passwords", ""),
+                password_reuse=data.get("password_reuse", ""),
+                length_distribution=data.get("length_distribution", ""),
+                org_context=data.get("org_context", ""),
+                total_accounts=data.get("total_accounts", 0),
+                cracked_count=data.get("cracked_count", 0)
+            )
+        elif section_id == "company-intel":
+            prompt = COMPANY_INTEL_PROMPT.format(
+                cracked_passwords=data.get("cracked_passwords", ""),
+                account_names=data.get("account_names", ""),
+                org_context=data.get("org_context", ""),
+                total_accounts=data.get("total_accounts", 0),
+                cracked_count=data.get("cracked_count", 0)
+            )
+        elif section_id == "user-behavior":
+            prompt = USER_BEHAVIOR_PROMPT.format(
+                cracked_passwords=data.get("cracked_passwords", ""),
+                account_passwords=data.get("account_passwords", ""),
+                password_reuse=data.get("password_reuse", ""),
+                length_distribution=data.get("length_distribution", ""),
+                org_context=data.get("org_context", ""),
+                total_accounts=data.get("total_accounts", 0),
+                cracked_count=data.get("cracked_count", 0)
+            )
+        elif section_id == "recommendations":
+            prompt = RECOMMENDATIONS_PROMPT.format(
+                audit_stats=data.get("audit_stats", ""),
+                key_findings=data.get("key_findings", []),
+                current_policy=data.get("current_policy", {}),
+                worst_practices=data.get("worst_practices", [])
+            )
+        else:
+            # Fallback to regular generation without usage info
+            result = self.generate_section(section_id, data, model, temperature)
+            if result:
+                return {"response": result, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            return None
+
+        if prompt:
+            return self.client.generate(
+                prompt=prompt,
+                model=model,
+                system=SYSTEM_PROMPT,
+                temperature=temperature,
+                include_usage=True
+            )
         return None
 
 
@@ -932,10 +1341,19 @@ class AIReportDataLoader:
     # New derive functions for raw password analysis (Weak Habits section)
     # -------------------------------------------------------------------------
 
+    # Sampling thresholds - if dataset exceeds these, switch to sampling mode
+    SAMPLING_THRESHOLD_PASSWORDS = 500  # Max unique passwords before sampling
+    SAMPLING_THRESHOLD_ACCOUNTS = 1000   # Max account pairs before sampling
+
     def _derive_all_cracked_passwords(self) -> str:
         """
         Get all cracked passwords as a formatted string for LLM analysis.
         Returns unique passwords with their frequency counts.
+
+        If dataset exceeds SAMPLING_THRESHOLD_PASSWORDS, uses intelligent sampling:
+        - All passwords with frequency > 1 (reused passwords)
+        - Top N most common passwords
+        - Random sample of unique passwords
         """
         account_data = self._load_json_file("account_data")
         if not account_data:
@@ -951,14 +1369,48 @@ class AIReportDataLoader:
         if not password_counts:
             return "No cracked passwords found"
 
+        total_unique = len(password_counts)
+        total_cracked = sum(password_counts.values())
+
         # Sort by frequency (most common first), then alphabetically
         sorted_passwords = sorted(
             password_counts.items(),
             key=lambda x: (-x[1], x[0])
         )
 
+        # Check if sampling is needed
+        sampling_used = False
+        sampling_note = ""
+
+        if total_unique > self.SAMPLING_THRESHOLD_PASSWORDS:
+            sampling_used = True
+            import random
+
+            # Strategy: Keep all reused passwords + sample of unique passwords
+            reused = [(pw, count) for pw, count in sorted_passwords if count > 1]
+            unique = [(pw, count) for pw, count in sorted_passwords if count == 1]
+
+            # Calculate how many unique passwords we can include
+            remaining_slots = self.SAMPLING_THRESHOLD_PASSWORDS - len(reused)
+
+            if remaining_slots > 0 and unique:
+                # Random sample from unique passwords
+                sampled_unique = random.sample(unique, min(remaining_slots, len(unique)))
+                sorted_passwords = reused + sampled_unique
+            else:
+                sorted_passwords = reused[:self.SAMPLING_THRESHOLD_PASSWORDS]
+
+            sampling_note = f"""⚠️ SAMPLING ACTIVE: Dataset contains {total_unique:,} unique passwords ({total_cracked:,} total cracked).
+Analysis includes: {len(reused)} reused passwords + {len(sorted_passwords) - len(reused)} sampled unique passwords = {len(sorted_passwords)} total.
+Statistics remain accurate; pattern analysis based on representative sample.
+
+"""
+
         # Format as list with counts for passwords used more than once
         lines = []
+        if sampling_note:
+            lines.append(sampling_note)
+
         for pw, count in sorted_passwords:
             if count > 1:
                 lines.append(f"{pw} (x{count})")
@@ -967,34 +1419,78 @@ class AIReportDataLoader:
 
         return "\n".join(lines)
 
-    def _derive_account_password_pairs(self, limit: int = 100) -> str:
+    def _derive_account_password_pairs(self) -> str:
         """
         Get account:password pairs to show username-password relationships.
-        Samples accounts to avoid overwhelming the prompt.
+
+        If dataset exceeds SAMPLING_THRESHOLD_ACCOUNTS, uses intelligent sampling:
+        - Accounts with reused passwords (important for security analysis)
+        - Random sample of remaining accounts
         """
         account_data = self._load_json_file("account_data")
         if not account_data:
             return "No account data available"
 
-        pairs = []
+        # First, identify password reuse
+        password_to_accounts: Dict[str, List[str]] = {}
+        all_pairs = []
+
         for username, data in account_data.items():
             pw = data.get("cracked_pw")
             if pw:
-                # Simplify username (remove domain if present)
                 simple_name = username.split("\\")[-1] if "\\" in username else username
-                pairs.append(f"{simple_name}: {pw}")
-                if len(pairs) >= limit:
-                    break
+                all_pairs.append((simple_name, pw))
+                if pw not in password_to_accounts:
+                    password_to_accounts[pw] = []
+                password_to_accounts[pw].append(simple_name)
 
-        if not pairs:
+        if not all_pairs:
             return "No cracked account-password pairs found"
 
-        return "\n".join(pairs)
+        total_pairs = len(all_pairs)
+        sampling_note = ""
+
+        if total_pairs > self.SAMPLING_THRESHOLD_ACCOUNTS:
+            import random
+
+            # Identify accounts with reused passwords (security priority)
+            reused_passwords = {pw for pw, accounts in password_to_accounts.items() if len(accounts) > 1}
+            reused_pairs = [(name, pw) for name, pw in all_pairs if pw in reused_passwords]
+            unique_pairs = [(name, pw) for name, pw in all_pairs if pw not in reused_passwords]
+
+            # Calculate remaining slots for unique pairs
+            remaining_slots = self.SAMPLING_THRESHOLD_ACCOUNTS - len(reused_pairs)
+
+            if remaining_slots > 0 and unique_pairs:
+                sampled_unique = random.sample(unique_pairs, min(remaining_slots, len(unique_pairs)))
+                all_pairs = reused_pairs + sampled_unique
+            else:
+                all_pairs = reused_pairs[:self.SAMPLING_THRESHOLD_ACCOUNTS]
+
+            sampling_note = f"""⚠️ SAMPLING ACTIVE: Dataset contains {total_pairs:,} account-password pairs.
+Analysis includes: {len(reused_pairs)} accounts with reused passwords + {len(all_pairs) - len(reused_pairs)} sampled unique accounts = {len(all_pairs)} total.
+Username-password relationship analysis based on representative sample.
+
+"""
+
+        lines = []
+        if sampling_note:
+            lines.append(sampling_note)
+
+        for name, pw in all_pairs:
+            lines.append(f"{name}: {pw}")
+
+        return "\n".join(lines)
 
     def _derive_all_account_names(self) -> str:
         """
         Get all account names for company intelligence analysis.
         Includes full usernames with domains to help identify company.
+
+        If dataset exceeds SAMPLING_THRESHOLD_ACCOUNTS, uses intelligent sampling:
+        - Preserves domain distribution proportionally
+        - Prioritizes accounts with cracked passwords
+        - Adds clear warning note to output
         """
         account_data = self._load_json_file("account_data")
         if not account_data:
@@ -1004,7 +1500,13 @@ class AIReportDataLoader:
         domains: Dict[str, List[str]] = {}
         no_domain: List[str] = []
 
-        for username in account_data.keys():
+        # Also track which accounts have cracked passwords (higher priority for sampling)
+        cracked_accounts = set()
+
+        for username, data in account_data.items():
+            if data.get("cracked_pw"):
+                cracked_accounts.add(username)
+
             if "\\" in username:
                 domain, name = username.split("\\", 1)
                 if domain not in domains:
@@ -1013,7 +1515,81 @@ class AIReportDataLoader:
             else:
                 no_domain.append(username)
 
+        total_accounts = len(account_data)
         lines = []
+        sampling_note = ""
+
+        # Check if sampling is needed
+        if total_accounts > self.SAMPLING_THRESHOLD_ACCOUNTS:
+            import random
+            random.seed(42)  # Reproducible sampling
+
+            sampling_note = f"""⚠️ SAMPLING ACTIVE: Dataset contains {total_accounts:,} accounts, showing representative sample of {self.SAMPLING_THRESHOLD_ACCOUNTS:,}.
+Sample preserves domain distribution and prioritizes accounts with compromised passwords.
+Patterns and naming conventions shown are representative of the full dataset.
+
+"""
+            # Calculate proportional samples per domain
+            sampled_domains: Dict[str, List[str]] = {}
+            sampled_no_domain: List[str] = []
+
+            # Calculate domain proportions
+            domain_sizes = {d: len(accts) for d, accts in domains.items()}
+            no_domain_size = len(no_domain)
+
+            # Allocate slots proportionally
+            remaining_slots = self.SAMPLING_THRESHOLD_ACCOUNTS
+
+            for domain, accounts in sorted(domains.items(), key=lambda x: -len(x[1])):
+                # Proportional allocation
+                proportion = len(accounts) / total_accounts
+                slots_for_domain = max(1, int(proportion * self.SAMPLING_THRESHOLD_ACCOUNTS))
+                slots_for_domain = min(slots_for_domain, remaining_slots, len(accounts))
+
+                if slots_for_domain > 0:
+                    # Prioritize accounts with cracked passwords
+                    domain_cracked = [a for a in accounts if f"{domain}\\{a}" in cracked_accounts]
+                    domain_uncracked = [a for a in accounts if f"{domain}\\{a}" not in cracked_accounts]
+
+                    sampled = []
+                    # Take cracked accounts first
+                    if domain_cracked:
+                        sampled.extend(domain_cracked[:slots_for_domain])
+
+                    # Fill remaining with random uncracked
+                    if len(sampled) < slots_for_domain and domain_uncracked:
+                        remaining = slots_for_domain - len(sampled)
+                        random.shuffle(domain_uncracked)
+                        sampled.extend(domain_uncracked[:remaining])
+
+                    sampled_domains[domain] = sorted(sampled)
+                    remaining_slots -= len(sampled)
+
+                if remaining_slots <= 0:
+                    break
+
+            # Handle no-domain accounts with remaining slots
+            if remaining_slots > 0 and no_domain:
+                slots_for_no_domain = min(remaining_slots, len(no_domain))
+                # Prioritize cracked accounts
+                nd_cracked = [a for a in no_domain if a in cracked_accounts]
+                nd_uncracked = [a for a in no_domain if a not in cracked_accounts]
+
+                sampled = []
+                if nd_cracked:
+                    sampled.extend(nd_cracked[:slots_for_no_domain])
+                if len(sampled) < slots_for_no_domain and nd_uncracked:
+                    remaining = slots_for_no_domain - len(sampled)
+                    random.shuffle(nd_uncracked)
+                    sampled.extend(nd_uncracked[:remaining])
+
+                sampled_no_domain = sorted(sampled)
+
+            domains = sampled_domains
+            no_domain = sampled_no_domain
+
+        if sampling_note:
+            lines.append(sampling_note)
 
         # Output by domain
         for domain in sorted(domains.keys()):
@@ -1136,6 +1712,90 @@ class AIReportDataLoader:
 
         return "\n".join(lines) if lines else "No organizational context detected"
 
+    def _derive_audit_stats_summary(self) -> str:
+        """
+        Generate a comprehensive audit statistics summary for recommendations.
+        Includes cracking stats, password length info, and policy violations.
+        """
+        lines = []
+
+        # Get cracking stats
+        stats = self._parse_stats_table()
+        if stats:
+            lines.append("Cracking Results:")
+            lines.append(f"- Total accounts analyzed: {stats.get('Total Accounts Analyzed', 'N/A')}")
+            lines.append(f"- Cracked accounts: {stats.get('Cracked Accounts', 'N/A')} ({stats.get('Percent of Accounts Cracked', 'N/A')})")
+            lines.append(f"- Uncracked accounts: {stats.get('Uncracked Accounts', 'N/A')}")
+            lines.append(f"- Unique NTLM hashes: {stats.get('Unique NTLM Hashes Analyzed', 'N/A')}")
+            lines.append(f"- Average password length: {stats.get('Average Password Length', 'N/A')} characters")
+            lines.append(f"- Shortest password: {stats.get('Shortest Cracked Password', 'N/A')} chars")
+            lines.append(f"- Longest password: {stats.get('Longest Cracked Password', 'N/A')} chars")
+            lines.append("")
+
+        # LM hash info
+        lm_hashes = self._load_json_file("pw_lm_hashes")
+        if lm_hashes and len(lm_hashes) > 0:
+            lines.append(f"Legacy Security Issues:")
+            lines.append(f"- Accounts with legacy LM hashes: {len(lm_hashes)}")
+            lines.append("")
+
+        # Blank password details with enabled/disabled breakdown
+        blank = self._load_json_file("pw_fails_blank")
+        if blank and len(blank) > 0:
+            enabled_count = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Enabled")
+            disabled_count = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Disabled")
+            lines.append(f"Blank Password Accounts: {len(blank)} total")
+            lines.append(f"- Enabled (active risk): {enabled_count}")
+            lines.append(f"- Disabled (mitigated): {disabled_count}")
+            lines.append("")
+
+        # Password reuse summary
+        reuse = self._load_json_file("pw_reuse_table")
+        if reuse and isinstance(reuse, list):
+            high_reuse = [r for r in reuse if isinstance(r, list) and len(r) > 1 and r[1] > 5]
+            moderate_reuse = [r for r in reuse if isinstance(r, list) and len(r) > 1 and 2 < r[1] <= 5]
+            if high_reuse or moderate_reuse:
+                lines.append(f"Password Reuse:")
+                if high_reuse:
+                    lines.append(f"- Passwords shared by >5 accounts: {len(high_reuse)}")
+                if moderate_reuse:
+                    lines.append(f"- Passwords shared by 3-5 accounts: {len(moderate_reuse)}")
+                lines.append("")
+
+        # Password length distribution summary
+        length_dist = self._load_json_file("pw_length_distribution")
+        if length_dist and isinstance(length_dist, dict):
+            total_cracked = sum(int(v) for v in length_dist.values())
+            short_passwords = sum(int(length_dist.get(str(i), 0)) for i in range(0, 8))
+            if total_cracked > 0 and short_passwords > 0:
+                pct_short = (short_passwords / total_cracked) * 100
+                lines.append(f"Password Length Analysis:")
+                lines.append(f"- Passwords under 8 characters: {short_passwords} ({pct_short:.1f}%)")
+                lines.append("")
+
+        return "\n".join(lines) if lines else "No audit statistics available"
+
+    def _derive_password_length_distribution(self) -> str:
+        """
+        Get password length distribution as formatted string.
+        Shows count of passwords at each length.
+        """
+        length_dist = self._load_json_file("pw_length_distribution")
+        if not length_dist or not isinstance(length_dist, dict):
+            return "No password length data available"
+
+        lines = ["Password Length Distribution:"]
+        total = sum(int(v) for v in length_dist.values())
+
+        # Sort by length (numeric)
+        for length in sorted(length_dist.keys(), key=lambda x: int(x)):
+            count = int(length_dist[length])
+            if count > 0:
+                pct = (count / total * 100) if total > 0 else 0
+                lines.append(f"  {length} chars: {count} ({pct:.1f}%)")
+
+        return "\n".join(lines)
+
     def _derive_total_account_count(self) -> int:
         """Get total number of accounts."""
         account_data = self._load_json_file("account_data")
@@ -1205,10 +1865,21 @@ class AIReportDataLoader:
         except (ValueError, TypeError):
             pass
 
-        # Check blank passwords
+        # Check blank passwords - include enabled/disabled breakdown
         blank = self._load_json_file("pw_fails_blank")
         if blank and len(blank) > 0:
-            findings.append(f"CRITICAL: {len(blank)} accounts have blank passwords")
+            # Count enabled vs disabled accounts
+            enabled_count = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Enabled")
+            disabled_count = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Disabled")
+
+            if enabled_count > 0:
+                findings.append(f"CRITICAL: {enabled_count} ENABLED accounts have blank passwords (immediate risk)")
+            if disabled_count > 0:
+                # Lower priority if all are disabled
+                if enabled_count == 0:
+                    findings.append(f"INFO: {disabled_count} disabled accounts have blank passwords (lower risk - already disabled)")
+                else:
+                    findings.append(f"LOW: {disabled_count} additional disabled accounts have blank passwords")
 
         # Check LM hashes
         lm_hashes = self._load_json_file("pw_lm_hashes")
@@ -1460,6 +2131,10 @@ class AIReportDataLoader:
                     result[var_name] = self._derive_cracked_account_count()
                 elif func_name == "raw_data_summary":
                     result[var_name] = self._derive_raw_data_summary()
+                elif func_name == "audit_stats_summary":
+                    result[var_name] = self._derive_audit_stats_summary()
+                elif func_name == "password_length_distribution":
+                    result[var_name] = self._derive_password_length_distribution()
 
             elif source.startswith("session:"):
                 key = source.replace("session:", "")
@@ -1811,19 +2486,20 @@ def get_available_library_models() -> List[Dict[str, Any]]:
     return POPULAR_OLLAMA_MODELS
 
 
-def pull_model(model_name: str, host: Optional[str] = None) -> Dict[str, Any]:
+def pull_model(model_name: str, host: Optional[str] = None, server_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Pull (download) a model from Ollama library.
 
     Args:
         model_name: Name of the model to pull (e.g., "llama3.1:70b")
         host: Ollama server URL (uses env var if not provided)
+        server_id: Server ID to use (overrides host if provided)
 
     Returns:
         Dictionary with pull status and any error message
     """
-    config = get_ollama_config()
-    if host:
+    config = get_ollama_config(server_id)
+    if host and not server_id:
         config.host = host
         config.enabled = True
 
@@ -1860,19 +2536,20 @@ def pull_model(model_name: str, host: Optional[str] = None) -> Dict[str, Any]:
     return result
 
 
-def delete_model(model_name: str, host: Optional[str] = None) -> Dict[str, Any]:
+def delete_model(model_name: str, host: Optional[str] = None, server_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Delete a model from the Ollama server.
 
     Args:
         model_name: Name of the model to delete
         host: Ollama server URL (uses env var if not provided)
+        server_id: Server ID to use (overrides host if provided)
 
     Returns:
         Dictionary with deletion status
     """
-    config = get_ollama_config()
-    if host:
+    config = get_ollama_config(server_id)
+    if host and not server_id:
         config.host = host
         config.enabled = True
 
@@ -1936,3 +2613,919 @@ def get_model_info(model_name: str, host: Optional[str] = None) -> Dict[str, Any
 
     except requests.RequestException as e:
         return {"error": str(e)}
+
+
+# =============================================================================
+# Tier-0 Deterministic Prechecks (Fast validation gate)
+# =============================================================================
+
+@dataclass
+class Tier0Result:
+    """Result of Tier-0 deterministic prechecks."""
+    flags_fired: List[Tuple[str, str]] = field(default_factory=list)  # (rule_id, matched_text)
+    requires_llm_validation: bool = False
+    suggested_model: str = "llama3.1:70b"  # Default to faster model
+    extracted_claims: List[dict] = field(default_factory=list)  # For claim extraction
+    skip_reason: str = ""
+
+
+class Tier0Validator:
+    """
+    Fast deterministic prechecks before expensive LLM validation.
+
+    Rules:
+    - If no flags fire → skip Phase 2 entirely OR use fast model
+    - If flags fire → route to appropriate model based on complexity
+    """
+
+    # Patterns that indicate problems requiring validation
+    PROBLEM_PATTERNS = {
+        # Masked passwords (should never appear in audit)
+        "MASKED_PASSWORD": re.compile(r'[*•]{3,}|password[:\s]+\*+', re.IGNORECASE),
+
+        # Risk Prioritization Framework (should be removed from user-behavior)
+        "UNWANTED_SECTION": re.compile(r'Risk\s+Prioritization\s+Framework', re.IGNORECASE),
+
+        # Specific numeric claims that need verification
+        "SPECIFIC_PERCENTAGE": re.compile(r'\b(\d{1,2}(?:\.\d+)?%)\b'),
+        "SPECIFIC_COUNT": re.compile(r'\b(\d+)\s+(accounts?|users?|passwords?)\b', re.IGNORECASE),
+
+        # Cloud/third-party references in AD-only context
+        "CLOUD_TERM": re.compile(r'\b(Azure\s+AD|Entra\s+ID|Okta|Auth0|cloud[-\s]based)\b', re.IGNORECASE),
+
+        # Outdated guidance
+        "FORCED_ROTATION": re.compile(r'(rotate|change|reset)\s+(all\s+)?passwords?\s+(every|quarterly|monthly|annually)', re.IGNORECASE),
+
+        # Invented policy language
+        "POLICY_LANGUAGE": re.compile(r'(policy\s+requires?|must\s+comply|compliance\s+mandate)', re.IGNORECASE),
+    }
+
+    # Section-specific rules
+    SECTION_RULES = {
+        "weak-habits": ["MASKED_PASSWORD", "SPECIFIC_PERCENTAGE", "SPECIFIC_COUNT"],
+        "company-intel": ["MASKED_PASSWORD", "SPECIFIC_PERCENTAGE"],
+        "user-behavior": ["MASKED_PASSWORD", "UNWANTED_SECTION", "SPECIFIC_PERCENTAGE", "SPECIFIC_COUNT"],
+        "recommendations": ["CLOUD_TERM", "FORCED_ROTATION", "POLICY_LANGUAGE"],
+    }
+
+    # Thresholds for routing decisions
+    CLAIM_THRESHOLD = 5  # If more than N claims, use heavy model
+
+    def run_prechecks(self, content: str, section_id: str) -> Tier0Result:
+        """
+        Run fast deterministic checks on Phase 1 content.
+
+        Returns:
+            Tier0Result with routing decision and any extracted claims
+        """
+        result = Tier0Result()
+
+        rules_to_check = self.SECTION_RULES.get(section_id, list(self.PROBLEM_PATTERNS.keys()))
+
+        for rule_id in rules_to_check:
+            pattern = self.PROBLEM_PATTERNS.get(rule_id)
+            if pattern:
+                matches = pattern.findall(content)
+                if matches:
+                    for match in matches[:3]:  # Limit to first 3 matches per rule
+                        match_text = match if isinstance(match, str) else match[0] if match else ""
+                        result.flags_fired.append((rule_id, match_text))
+
+        # Determine routing based on flags
+        if not result.flags_fired:
+            # Clean content - skip LLM validation entirely
+            result.requires_llm_validation = False
+            result.skip_reason = "No Tier-0 flags fired - content appears clean"
+            result.suggested_model = None
+        elif self._is_simple_fix(result.flags_fired, section_id):
+            # Simple issues - use fast model
+            result.requires_llm_validation = True
+            result.suggested_model = "llama3.1:70b"
+        else:
+            # Complex issues - use reasoning model
+            result.requires_llm_validation = True
+            result.suggested_model = "deepseek-r1:671b"
+
+        # For user-behavior, extract claims for focused validation
+        if section_id == "user-behavior" and result.requires_llm_validation:
+            result.extracted_claims = self._extract_claims(content)
+            # If many claims, definitely need heavy model
+            if len(result.extracted_claims) > self.CLAIM_THRESHOLD:
+                result.suggested_model = "deepseek-r1:671b"
+
+        return result
+
+    def _is_simple_fix(self, flags: List[Tuple[str, str]], section_id: str) -> bool:
+        """Determine if flagged issues are simple (fast model) or complex (reasoning model)."""
+        simple_rules = {"MASKED_PASSWORD", "UNWANTED_SECTION"}
+        complex_rules = {"CLOUD_TERM", "FORCED_ROTATION", "POLICY_LANGUAGE"}
+
+        flag_types = {f[0] for f in flags}
+
+        # If any complex flags, need reasoning model
+        if flag_types & complex_rules:
+            return False
+
+        # If only simple flags, fast model is fine
+        if flag_types <= simple_rules:
+            return True
+
+        # Mixed - check count of numeric claims
+        numeric_flags = sum(1 for f in flags if f[0] in {"SPECIFIC_PERCENTAGE", "SPECIFIC_COUNT"})
+        return numeric_flags <= 3  # Few numeric claims = simple
+
+    def _extract_claims(self, content: str) -> List[dict]:
+        """
+        Extract verifiable claims from user-behavior content.
+
+        This creates a focused list for validation instead of validating full prose.
+        """
+        claims = []
+
+        # Extract numeric claims
+        pct_pattern = re.compile(r'([^.]*?\b\d{1,3}(?:\.\d+)?%[^.]*\.)', re.IGNORECASE)
+        for match in pct_pattern.findall(content):
+            claims.append({"type": "percentage", "text": match.strip()})
+
+        count_pattern = re.compile(r'([^.]*?\b\d+\s+(?:accounts?|users?|passwords?)[^.]*\.)', re.IGNORECASE)
+        for match in count_pattern.findall(content):
+            if match.strip() not in [c["text"] for c in claims]:  # Avoid duplicates
+                claims.append({"type": "count", "text": match.strip()})
+
+        # Extract behavioral assertions
+        behavior_pattern = re.compile(r'([^.]*?(?:users?\s+(?:tend|often|typically|commonly)|most\s+users?|many\s+users?)[^.]*\.)', re.IGNORECASE)
+        for match in behavior_pattern.findall(content):
+            claims.append({"type": "behavioral", "text": match.strip()})
+
+        return claims[:15]  # Limit to top 15 claims
+
+
+# =============================================================================
+# Evidence Pack Builder (for Phase 2 Validation)
+# =============================================================================
+
+class EvidencePackBuilder:
+    """
+    Assembles authoritative evidence packs for AI validation.
+
+    The evidence pack contains the "source of truth" data that the validator
+    uses to fact-check AI-generated content.
+    """
+
+    def __init__(self, data_dir: str = "data"):
+        self.data_dir = data_dir
+        self._cache: Dict[str, Any] = {}
+
+    def _load_json_file(self, filename: str) -> Any:
+        """Load a JSON file from the data directory."""
+        if filename in self._cache:
+            return self._cache[filename]
+
+        filepath = os.path.join(self.data_dir, f"{filename}.json")
+        try:
+            with open(filepath, "r") as f:
+                data = json.load(f)
+                self._cache[filename] = data
+                return data
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Error loading {filepath}: {e}")
+            return None
+
+    def build_evidence_pack(self, section_id: str) -> str:
+        """
+        Build a structured evidence pack for validation.
+
+        Args:
+            section_id: The section being validated (determines which evidence to include)
+
+        Returns:
+            Formatted string containing all authoritative data for validation
+        """
+        phase_config = get_phase_config(section_id)
+        evidence_sources = phase_config.get("evidence_sources", [])
+
+        pack_sections = []
+
+        # Always include core statistics
+        stats = self._get_core_statistics()
+        if stats:
+            pack_sections.append(f"### Core Audit Statistics\n{stats}")
+
+        # Section-specific evidence (skip empty files)
+        for source in evidence_sources:
+            data = self._load_json_file(source)
+            if data:
+                formatted = self._format_evidence(source, data)
+                if formatted:  # Skip if _format_evidence returned empty string
+                    pack_sections.append(f"### {source.replace('_', ' ').title()}\n{formatted}")
+
+        # Account status information (critical for mitigated-issue checking)
+        status_info = self._get_account_status_summary()
+        if status_info:
+            pack_sections.append(f"### Account Status Summary\n{status_info}")
+
+        # For weak-habits section, include password whitelist for hallucination checking
+        if section_id == "weak-habits":
+            whitelist = self._get_password_whitelist()
+            if whitelist:
+                pack_sections.append(f"### PASSWORD WHITELIST (for validation)\n{whitelist}")
+
+        return "\n\n".join(pack_sections) if pack_sections else "No evidence data available"
+
+    def _get_core_statistics(self) -> str:
+        """Get authoritative cracking statistics."""
+        stats = self._load_json_file("cracking_stats_table")
+        if not stats:
+            return ""
+
+        lines = []
+        for item in stats:
+            if isinstance(item, dict):
+                key = item.get("key", "").strip().rstrip(": ")
+                value = item.get("value")
+                if key and value is not None:
+                    lines.append(f"- {key}: {value}")
+
+        return "\n".join(lines) if lines else ""
+
+    def _get_account_status_summary(self) -> str:
+        """Get summary of enabled/disabled accounts from various sources."""
+        lines = []
+
+        # From pw_fails_blank.json - blank password accounts with status
+        blank = self._load_json_file("pw_fails_blank")
+        if blank and isinstance(blank, list):
+            enabled = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Enabled")
+            disabled = sum(1 for acc in blank if isinstance(acc, dict) and acc.get("status") == "Disabled")
+            total = len(blank)
+            lines.append(f"Blank password accounts: {total} total ({enabled} enabled, {disabled} disabled)")
+
+        # LM hash accounts
+        lm_hashes = self._load_json_file("pw_lm_hashes")
+        if lm_hashes and isinstance(lm_hashes, list):
+            lines.append(f"Accounts with legacy LM hashes: {len(lm_hashes)}")
+
+        # Password reuse summary
+        reuse = self._load_json_file("pw_reuse_table")
+        if reuse and isinstance(reuse, list):
+            high_reuse = sum(1 for item in reuse if isinstance(item, list) and len(item) >= 2 and item[1] > 5)
+            med_reuse = sum(1 for item in reuse if isinstance(item, list) and len(item) >= 2 and 3 <= item[1] <= 5)
+            lines.append(f"Password reuse: {high_reuse} passwords shared by >5 accounts, {med_reuse} shared by 3-5 accounts")
+
+        return "\n".join(lines) if lines else ""
+
+    def _get_password_whitelist(self) -> str:
+        """
+        Build a definitive list of all valid passwords from the evidence.
+        This helps validators identify hallucinated passwords.
+        """
+        passwords = set()
+
+        # From pw_top_passwords.json (dict: password -> count)
+        top_passwords = self._load_json_file("pw_top_passwords")
+        if top_passwords and isinstance(top_passwords, dict):
+            passwords.update(top_passwords.keys())
+
+        # From pw_bad_practices.json (list of dicts with 'password' key)
+        bad_practices = self._load_json_file("pw_bad_practices")
+        if bad_practices and isinstance(bad_practices, list):
+            for item in bad_practices:
+                if isinstance(item, dict) and item.get("password"):
+                    passwords.add(item["password"])
+
+        # From pw_reuse_table.json (list of [password, count] pairs)
+        reuse_table = self._load_json_file("pw_reuse_table")
+        if reuse_table and isinstance(reuse_table, list):
+            for item in reuse_table:
+                if isinstance(item, list) and len(item) >= 1 and item[0]:
+                    passwords.add(item[0])
+
+        # Remove blank/empty entries
+        passwords.discard("")
+        passwords.discard("{blank}")
+
+        if not passwords:
+            return ""
+
+        # Sort for consistency and format as a simple list
+        sorted_passwords = sorted(passwords, key=str.lower)
+        return "Valid passwords (ONLY use these as examples):\n" + ", ".join(f"`{p}`" for p in sorted_passwords)
+
+    def _format_evidence(self, source: str, data: Any) -> str:
+        """Format evidence data for the prompt using compact, token-efficient formatting."""
+        # Skip empty data entirely
+        if not data:
+            return ""
+
+        if isinstance(data, list):
+            if len(data) == 0:
+                return ""
+            # Use compact JSON (no indentation) for lists
+            if len(data) > 20:
+                # Truncate large lists with summary - show top 20 only
+                return f"[{len(data)} items, showing top 20]: " + json.dumps(data[:20], separators=(',', ':'))
+            return json.dumps(data, separators=(',', ':'))
+        elif isinstance(data, dict):
+            if len(data) == 0:
+                return ""
+            # Use compact JSON for dicts
+            if len(data) > 20:
+                # Truncate large dicts - show top 20 entries
+                truncated = dict(list(data.items())[:20])
+                return f"[{len(data)} items, showing top 20]: " + json.dumps(truncated, separators=(',', ':'))
+            return json.dumps(data, separators=(',', ':'))
+        return str(data)
+
+
+# =============================================================================
+# AI Pipeline Runner
+# =============================================================================
+
+class AIPipelineRunner:
+    """
+    Runs the 3-phase AI analysis pipeline.
+
+    Phase 1: Initial Analysis (section-specific model)
+    Phase 2: Validation (with Tier-0 gating for efficiency)
+    Phase 3: Formatting (llama3.1:70b for polishing)
+    """
+
+    def __init__(self, client: 'OllamaClient' = None, data_dir: str = "data", debug_dir: str = None):
+        self.client = client
+        self.data_dir = data_dir
+        self.evidence_builder = EvidencePackBuilder(data_dir)
+        self.data_loader = AIReportDataLoader(data_dir)
+        self.tier0_validator = Tier0Validator()
+        self.debug_mode = os.getenv("AI_PIPELINE_DEBUG", "false").lower() == "true"
+        # Use provided debug_dir (session-specific) or fall back to global data/ai_analysis
+        self.debug_dir = debug_dir if debug_dir else os.path.join(data_dir, "ai_analysis")
+
+    def run_pipeline(
+        self,
+        section_id: str,
+        phase1_generator: callable,
+        progress_callback: callable = None,
+        max_retries: int = 2
+    ) -> PipelineResult:
+        """
+        Run the full 3-phase pipeline for a section.
+
+        Args:
+            section_id: Section to process
+            phase1_generator: Function that generates Phase 1 content
+            progress_callback: Optional callback for progress updates (phase, section, action)
+            max_retries: Max Phase 1 retries if validation fails
+
+        Returns:
+            PipelineResult with all phase outputs
+        """
+        import time
+
+        config = get_phase_config(section_id)
+
+        result = PipelineResult(
+            section_id=section_id,
+            timing={}
+        )
+
+        feedback = None
+
+        for attempt in range(max_retries + 1):
+            # Phase 1: Initial Analysis
+            if progress_callback:
+                action = f"Generating {section_id}" + (f" (retry {attempt})" if attempt > 0 else "")
+                progress_callback("phase1", section_id, action)
+
+            start = time.time()
+
+            try:
+                # Call the provided generator function
+                phase1_result = phase1_generator(feedback=feedback)
+                result.phase1_raw = phase1_result
+                result.timing["phase1"] = time.time() - start
+            except Exception as e:
+                result.error = f"Phase 1 failed: {str(e)}"
+                return result
+
+            if not phase1_result:
+                result.error = "Phase 1 failed to generate content"
+                return result
+
+            # Save Phase 1 output (debug mode)
+            if self.debug_mode:
+                self._save_debug_output(section_id, "phase1_raw", phase1_result, attempt)
+
+            # Phase 2: Validation (with Tier-0 gating)
+            phase2_config = config.get("phase2", {})
+            if phase2_config.get("enabled", True):
+                # Run Tier-0 prechecks first (fast, deterministic)
+                tier0_start = time.time()
+                tier0_result = self.tier0_validator.run_prechecks(phase1_result, section_id)
+                tier0_time = time.time() - tier0_start
+
+                if self.debug_mode:
+                    self._save_debug_output(section_id, "tier0_precheck", {
+                        "flags_fired": tier0_result.flags_fired,
+                        "requires_llm": tier0_result.requires_llm_validation,
+                        "suggested_model": tier0_result.suggested_model,
+                        "skip_reason": tier0_result.skip_reason,
+                        "extracted_claims_count": len(tier0_result.extracted_claims),
+                        "precheck_time_ms": int(tier0_time * 1000)
+                    }, attempt)
+
+                if not tier0_result.requires_llm_validation:
+                    # Clean content - skip LLM validation entirely
+                    if progress_callback:
+                        progress_callback("phase2", section_id, f"Skipping validation (clean)")
+
+                    result.phase2_validated = ValidationResult(
+                        issues=[],
+                        corrected_content=phase1_result,
+                        confidence=0.95,
+                        needs_human_review=False,
+                        validation_stats={
+                            "tier0_skipped": True,
+                            "skip_reason": tier0_result.skip_reason,
+                            "precheck_time_ms": int(tier0_time * 1000)
+                        }
+                    )
+                    result.timing["phase2"] = tier0_time
+                else:
+                    # Tier-0 flagged issues - run LLM validation
+                    if progress_callback:
+                        model_label = "fast" if tier0_result.suggested_model == "llama3.1:70b" else "deep"
+                        progress_callback("phase2", section_id, f"Validating {section_id} ({model_label})")
+
+                    start = time.time()
+
+                    # Use Tier-0's model suggestion, or fall back to config
+                    validation_model = tier0_result.suggested_model or phase2_config.get("model", "deepseek-r1:671b")
+
+                    # For user-behavior with extracted claims, use focused validation
+                    if section_id == "user-behavior" and tier0_result.extracted_claims:
+                        validation = self._run_claim_validation(
+                            section_id=section_id,
+                            phase1_content=phase1_result,
+                            claims=tier0_result.extracted_claims,
+                            model=validation_model,
+                            temperature=phase2_config.get("temperature", 0.2)
+                        )
+                    else:
+                        validation = self._run_validation_phase(
+                            section_id=section_id,
+                            phase1_content=phase1_result,
+                            model=validation_model,
+                            temperature=phase2_config.get("temperature", 0.2)
+                        )
+
+                    # Add Tier-0 context to validation stats
+                    validation.validation_stats["tier0_flags"] = tier0_result.flags_fired
+                    validation.validation_stats["tier0_model_suggestion"] = tier0_result.suggested_model
+                    validation.validation_stats["actual_model_used"] = validation_model
+
+                    result.phase2_validated = validation
+                    result.timing["phase2"] = time.time() - start + tier0_time
+
+                    if self.debug_mode:
+                        self._save_debug_output(section_id, "phase2_validated", validation, attempt)
+
+                    # Check if retry needed
+                    critical_issues = [i for i in validation.issues if i.get("severity") == "critical"]
+                    if critical_issues and attempt < max_retries:
+                        # Build feedback for retry
+                        feedback = self._build_retry_feedback(validation.issues)
+                        result.retry_count = attempt + 1
+                        continue
+
+                    # Check if human review needed
+                    if validation.needs_human_review or validation.confidence < 0.7:
+                        result.needs_human_review = True
+            else:
+                # Skip validation, use Phase 1 output directly
+                result.phase2_validated = ValidationResult(
+                    issues=[],
+                    corrected_content=phase1_result,
+                    confidence=1.0,
+                    needs_human_review=False,
+                    validation_stats={"skipped": True}
+                )
+
+            # Phase 3: Formatting (if enabled)
+            phase3_config = config.get("phase3", {})
+            if phase3_config.get("enabled", True):
+                if progress_callback:
+                    progress_callback("phase3", section_id, f"Formatting {section_id}")
+
+                start = time.time()
+                content_to_format = result.phase2_validated.corrected_content
+                result.phase3_final = self._run_formatting_phase(
+                    validated_content=content_to_format,
+                    section_id=section_id,
+                    model=phase3_config.get("model", "llama3.1:70b"),
+                    temperature=phase3_config.get("temperature", 0.15)
+                )
+                result.timing["phase3"] = time.time() - start
+
+                if self.debug_mode:
+                    self._save_debug_output(section_id, "phase3_final", result.phase3_final, attempt)
+            else:
+                # Skip formatting, use validated content
+                result.phase3_final = result.phase2_validated.corrected_content
+
+            break  # Success, exit retry loop
+
+        return result
+
+    def _run_validation_phase(
+        self,
+        section_id: str,
+        phase1_content: str,
+        model: str = "deepseek-r1:671b",
+        temperature: float = 0.2
+    ) -> ValidationResult:
+        """
+        Phase 2: Validate content against evidence.
+
+        Returns ValidationResult with issues, corrected content, and confidence.
+        """
+        # Build evidence pack
+        evidence_pack = self.evidence_builder.build_evidence_pack(section_id)
+
+        # Get section-specific validation prompt
+        validation_prompt_template = get_validation_prompt(section_id)
+        prompt = validation_prompt_template.format(
+            evidence_pack=evidence_pack,
+            content_to_validate=phase1_content
+        )
+
+        # Call model with token tracking
+        result_data = self.client.generate(
+            prompt=prompt,
+            model=model,
+            system="You are a precise fact-checking assistant. Return only valid JSON.",
+            temperature=temperature,
+            include_usage=True
+        )
+
+        # Extract response and token counts
+        if isinstance(result_data, dict):
+            response = result_data.get("response", "")
+            prompt_tokens = result_data.get("prompt_tokens", 0)
+            completion_tokens = result_data.get("completion_tokens", 0)
+            total_tokens = result_data.get("total_tokens", 0)
+        else:
+            response = result_data
+            prompt_tokens = completion_tokens = total_tokens = 0
+
+        if not response:
+            return ValidationResult(
+                issues=[{"type": "error", "description": "Validation API call failed", "severity": "critical"}],
+                corrected_content=phase1_content,
+                confidence=0.3,
+                needs_human_review=True,
+                validation_stats={"error": "API call failed"},
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+
+        # Parse JSON response
+        try:
+            # Strip thinking tags from deepseek-r1 models
+            json_str = response
+            if "<think>" in json_str and "</think>" in json_str:
+                # Remove thinking section - find the last </think> and take content after
+                think_end = json_str.rfind("</think>")
+                if think_end != -1:
+                    json_str = json_str[think_end + 8:].strip()
+
+            # Find JSON in response (handle markdown code blocks)
+            if "```json" in json_str:
+                start = json_str.find("```json") + 7
+                end = json_str.find("```", start)
+                if end > start:
+                    json_str = json_str[start:end].strip()
+            elif "```" in json_str:
+                start = json_str.find("```") + 3
+                end = json_str.find("```", start)
+                if end > start:
+                    json_str = json_str[start:end].strip()
+            else:
+                # Find raw JSON object - look for outermost braces
+                start = json_str.find("{")
+                end = json_str.rfind("}") + 1
+                if start != -1 and end > start:
+                    json_str = json_str[start:end]
+
+            # Clean up common JSON issues from LLM output
+            # Remove trailing commas before closing braces/brackets
+            import re
+            json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+
+            result = json.loads(json_str)
+
+            # Handle case where model returns a list instead of dict
+            if isinstance(result, list):
+                # Model returned array - treat as list of issues, use original content
+                return ValidationResult(
+                    issues=result if all(isinstance(i, dict) for i in result) else [],
+                    corrected_content=phase1_content,
+                    confidence=0.6,
+                    needs_human_review=True,
+                    validation_stats={"note": "Model returned list format instead of expected object"},
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens
+                )
+
+            # Handle find/replace format (new optimized output)
+            issues = result.get("issues", [])
+            corrected_content = result.get("corrected_content")
+
+            # If no corrected_content provided, apply find/replace patches
+            if corrected_content is None and issues:
+                corrected_content = phase1_content
+                for issue in issues:
+                    find_text = issue.get("find") or issue.get("source_quote") or issue.get("original")
+                    replace_text = issue.get("replace") or issue.get("correction", "")
+                    if find_text and find_text in corrected_content:
+                        if replace_text == "remove" or replace_text == "":
+                            corrected_content = corrected_content.replace(find_text, "")
+                        else:
+                            corrected_content = corrected_content.replace(find_text, replace_text)
+            elif corrected_content is None:
+                corrected_content = phase1_content
+
+            return ValidationResult(
+                issues=issues,
+                corrected_content=corrected_content,
+                confidence=result.get("confidence", 0.5),
+                needs_human_review=result.get("needs_human_review", False),
+                validation_stats=result.get("validation_summary", {}),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+        except json.JSONDecodeError as e:
+            # Fallback: return original content with low confidence
+            return ValidationResult(
+                issues=[{"type": "parse_error", "description": f"Failed to parse validation response: {str(e)}", "severity": "medium"}],
+                corrected_content=phase1_content,
+                confidence=0.4,
+                needs_human_review=True,
+                validation_stats={"error": "JSON parse failed", "raw_response_length": len(response)},
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+
+    def _run_claim_validation(
+        self,
+        section_id: str,
+        phase1_content: str,
+        claims: List[dict],
+        model: str = "llama3.1:70b",
+        temperature: float = 0.2
+    ) -> ValidationResult:
+        """
+        Focused validation for extracted claims (used for user-behavior).
+
+        Instead of validating full prose, validates a list of specific claims.
+        This dramatically reduces prompt size and model reasoning load.
+        """
+        # Build compact evidence pack
+        evidence_pack = self.evidence_builder.build_evidence_pack(section_id)
+
+        # Format claims as a simple numbered list
+        claims_text = "\n".join([
+            f"{i+1}. [{c['type'].upper()}] {c['text']}"
+            for i, c in enumerate(claims)
+        ])
+
+        # Compact validation prompt for claims
+        prompt = f"""Validate these specific claims from a security audit against the evidence.
+
+## EVIDENCE
+{evidence_pack}
+
+## CLAIMS TO VALIDATE
+{claims_text}
+
+## RULES
+- For each claim, check if the numbers/percentages match evidence (allow ~20% variance)
+- Mark behavioral claims as OK if they're reasonable interpretations
+- Do NOT validate prose style, only factual accuracy
+
+## OUTPUT (JSON only)
+{{"issues":[{{"claim_num":1,"find":"text to fix","replace":"corrected text"}}],"confidence":0.9}}
+
+If all claims are accurate: {{"issues":[],"confidence":0.95}}"""
+
+        result_data = self.client.generate(
+            prompt=prompt,
+            model=model,
+            system="You are a fact-checker. Return only JSON.",
+            temperature=temperature,
+            include_usage=True
+        )
+
+        # Extract response and token counts
+        if isinstance(result_data, dict):
+            response = result_data.get("response", "")
+            prompt_tokens = result_data.get("prompt_tokens", 0)
+            completion_tokens = result_data.get("completion_tokens", 0)
+            total_tokens = result_data.get("total_tokens", 0)
+        else:
+            response = result_data
+            prompt_tokens = completion_tokens = total_tokens = 0
+
+        if not response:
+            return ValidationResult(
+                issues=[],
+                corrected_content=phase1_content,
+                confidence=0.7,
+                needs_human_review=False,
+                validation_stats={"claim_validation": True, "error": "API call failed"},
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+
+        # Parse response
+        try:
+            json_str = response
+            # Strip thinking tags
+            if "<think>" in json_str and "</think>" in json_str:
+                think_end = json_str.rfind("</think>")
+                if think_end != -1:
+                    json_str = json_str[think_end + 8:].strip()
+
+            # Extract JSON (handle both object and array formats)
+            if "```json" in json_str:
+                start = json_str.find("```json") + 7
+                end = json_str.find("```", start)
+                if end > start:
+                    json_str = json_str[start:end].strip()
+            else:
+                # Find first { or [ (whichever comes first)
+                obj_start = json_str.find("{")
+                arr_start = json_str.find("[")
+                if arr_start != -1 and (obj_start == -1 or arr_start < obj_start):
+                    # Array format
+                    start = arr_start
+                    end = json_str.rfind("]") + 1
+                else:
+                    # Object format
+                    start = obj_start
+                    end = json_str.rfind("}") + 1
+                if start != -1 and end > start:
+                    json_str = json_str[start:end]
+
+            result = json.loads(json_str)
+            # Handle both {"issues": [...]} and direct [...] array formats
+            if isinstance(result, list):
+                issues = result
+                confidence = 0.85  # Default when LLM returns array directly
+            else:
+                issues = result.get("issues", [])
+                confidence = result.get("confidence", 0.85)
+
+            # Apply fixes to original content
+            corrected_content = phase1_content
+            for issue in issues:
+                find_text = issue.get("find")
+                replace_text = issue.get("replace", "")
+                if find_text and find_text in corrected_content:
+                    corrected_content = corrected_content.replace(find_text, replace_text)
+
+            return ValidationResult(
+                issues=issues,
+                corrected_content=corrected_content,
+                confidence=confidence,
+                needs_human_review=False,
+                validation_stats={
+                    "claim_validation": True,
+                    "claims_checked": len(claims),
+                    "issues_found": len(issues)
+                },
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+
+        except json.JSONDecodeError:
+            return ValidationResult(
+                issues=[],
+                corrected_content=phase1_content,
+                confidence=0.7,
+                needs_human_review=False,
+                validation_stats={"claim_validation": True, "parse_error": True},
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens
+            )
+
+    def _run_formatting_phase(
+        self,
+        validated_content: str,
+        section_id: str = "",
+        model: str = "llama3.1:70b",
+        temperature: float = 0.15
+    ) -> Dict[str, Any]:
+        """
+        Phase 3: Format content for executive presentation.
+
+        Returns dict with formatted content and token usage:
+        {
+            "content": str,
+            "prompt_tokens": int,
+            "completion_tokens": int,
+            "total_tokens": int
+        }
+        """
+        # Get section-specific formatting prompt
+        formatting_prompt_template = get_formatting_prompt(section_id)
+        prompt = formatting_prompt_template.format(
+            validated_content=validated_content
+        )
+
+        result_data = self.client.generate(
+            prompt=prompt,
+            model=model,
+            system="You are a professional editor. Return only the formatted content.",
+            temperature=temperature,
+            include_usage=True
+        )
+
+        # Extract response and token counts
+        if isinstance(result_data, dict):
+            response = result_data.get("response", "")
+            prompt_tokens = result_data.get("prompt_tokens", 0)
+            completion_tokens = result_data.get("completion_tokens", 0)
+            total_tokens = result_data.get("total_tokens", 0)
+        else:
+            response = result_data
+            prompt_tokens = completion_tokens = total_tokens = 0
+
+        return {
+            "content": response if response else validated_content,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
+
+    def _build_retry_feedback(self, issues: List[Dict]) -> str:
+        """Build feedback string from validation issues for retry."""
+        lines = ["The previous output had the following issues that must be corrected:"]
+        for i, issue in enumerate(issues[:5], 1):  # Limit to top 5 issues
+            issue_type = issue.get("type", "issue")
+            description = issue.get("description", "")
+            lines.append(f"{i}. [{issue_type.upper()}]: {description}")
+            if issue.get("evidence_reference"):
+                lines.append(f"   Evidence shows: {issue['evidence_reference']}")
+
+        lines.append("\nPlease regenerate the analysis correcting these issues. Do not include any invented facts.")
+        return "\n".join(lines)
+
+    def _save_debug_output(self, section_id: str, phase: str, content: Any, attempt: int = 0):
+        """Save debug output to data/ai_analysis/ folder."""
+        os.makedirs(self.debug_dir, exist_ok=True)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        attempt_suffix = f"_attempt{attempt}" if attempt > 0 else ""
+        filename = f"{section_id}_{phase}{attempt_suffix}_{timestamp}"
+
+        if isinstance(content, ValidationResult):
+            filepath = os.path.join(self.debug_dir, f"{filename}.json")
+            with open(filepath, "w") as f:
+                json.dump({
+                    "issues": content.issues,
+                    "corrected_content": content.corrected_content,
+                    "confidence": content.confidence,
+                    "needs_human_review": content.needs_human_review,
+                    "validation_stats": content.validation_stats
+                }, f, indent=2)
+        else:
+            filepath = os.path.join(self.debug_dir, f"{filename}.md")
+            with open(filepath, "w") as f:
+                f.write(content if isinstance(content, str) else str(content))
+
+
+# Global pipeline progress storage (for polling)
+_pipeline_progress: Dict[str, PipelineProgress] = {}
+
+
+def get_pipeline_progress(job_id: str) -> Optional[PipelineProgress]:
+    """Get the progress for a pipeline job."""
+    return _pipeline_progress.get(job_id)
+
+
+def set_pipeline_progress(progress: PipelineProgress):
+    """Update the progress for a pipeline job."""
+    _pipeline_progress[progress.job_id] = progress
+
+
+def clear_pipeline_progress(job_id: str):
+    """Clear the progress for a completed pipeline job."""
+    if job_id in _pipeline_progress:
+        del _pipeline_progress[job_id]

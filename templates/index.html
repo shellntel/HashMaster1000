@@ -22,8 +22,11 @@
 				<span class="brand-tagline">Password & Hash Analyzer</span>
 			</div>
 			<div class="header-actions">
-				<button type="button" class="header-btn helpButton">Help</button>
-				<button id="logoutButton" class="header-btn logout">Logout</button>
+				{% if advanced_options_enabled %}
+				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
+				{% endif %}
+				<button type="button" class="header-btn help helpButton"><span class="btn-icon">?</span>Help</button>
+				<button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
 			</div>
 		</header>
 
@@ -59,7 +62,7 @@
 				<div class="wizard-container">
 				<form
 					id="analysisForm"
-					action="{% if initial_step == 3 and pwdump_validation and potfile_validation %}{{ url_for('process_validated') }}{% else %}{{ url_for('validate_files_endpoint') }}{% endif %}"
+					action="{% if initial_step == 3 and input_method == 'add_json' and add_validation %}{{ url_for('process_add_validated') }}{% elif initial_step == 3 and pwdump_validation and potfile_validation %}{{ url_for('process_validated') }}{% else %}{{ url_for('validate_files_endpoint') }}{% endif %}"
 					method="POST"
 					enctype="multipart/form-data"
 				>
@@ -72,26 +75,57 @@
 								Both files must pass validation to continue.
 							</p>
 
-							<!-- Toggle: Upload vs Local -->
+							<!-- Toggle: Upload vs Local vs Restore -->
 							<div class="toggle-container">
 								<div class="toggle-option active" data-method="upload">
 									Upload Files
 								</div>
 								<div class="toggle-option" data-method="local">
-									Load from Server Path
+									Server Path
 								</div>
+								<div class="toggle-option" data-method="restore">
+									Restore Session
+								</div>
+							</div>
+
+							<!-- Session Identification (for upload and local) -->
+							<div class="session-name-section" id="sessionNameSection">
+								<div class="session-name-row">
+									<label for="company_name">Company Name:</label>
+									<input
+										type="text"
+										id="company_name"
+										name="company_name"
+										placeholder="e.g., ACME Corporation"
+										maxlength="100"
+										list="company_suggestions"
+										autocomplete="off"
+									/>
+									<datalist id="company_suggestions"></datalist>
+								</div>
+								<div class="session-name-row" style="margin-top: 8px;">
+									<label for="project_description">Project Description:</label>
+									<input
+										type="text"
+										id="project_description"
+										name="project_description"
+										placeholder="e.g., Q4 2024 Annual Pentest"
+										maxlength="100"
+									/>
+								</div>
+								<p class="session-name-hint">Company name groups sessions for trend analysis. Project description identifies this specific assessment.</p>
 							</div>
 
 							<!-- Upload Files Section -->
 							<div class="file-section" id="uploadSection">
-								<h3>Pwdump / NTDS File</h3>
+								<h3>Pwdump / NTDS / ADD JSON File</h3>
 								<div class="file-input-row">
 									<label for="pwdump_file">Select File:</label>
 									<input
 										type="file"
 										id="pwdump_file"
 										name="pwdump_file"
-										accept=".pwdump,.ntds,.txt"
+										accept=".pwdump,.ntds,.txt,.json"
 									/>
 									<button type="button" class="validate-btn" id="pwdump_validate_btn" onclick="validateSingleFile('pwdump', 'pwdump_file')">
 										Validate
@@ -104,6 +138,15 @@
 								</div>
 
 								<h3 style="margin-top: 12px;">Hashcat Potfile</h3>
+								{% if master_potfile_enabled %}
+								<div class="master-potfile-banner">
+									<span class="master-potfile-icon">&#128218;</span>
+									<div class="master-potfile-info">
+										<strong>Master Potfile Active</strong>
+										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ master_potfile_count }} entries){% endif %}.</span>
+									</div>
+								</div>
+								{% endif %}
 								<div class="file-input-row">
 									<label for="potfile">Select File:</label>
 									<input
@@ -125,15 +168,15 @@
 
 							<!-- Local Files Section -->
 							<div class="file-section hidden" id="localSection">
-								<h3>Pwdump / NTDS File</h3>
+								<h3>Pwdump / NTDS / ADD JSON File</h3>
 								<div class="file-input-row">
 									<label for="pwdump_path">File Path:</label>
 									<input
 										type="text"
 										id="pwdump_path"
 										name="pwdump_path"
-										placeholder="/path/to/file.ntds"
-										value="testData/example_dcsync.txt"
+										placeholder="/path/to/file.ntds or /path/to/domain.json"
+										value="{{ default_pwdump_path or default_add_json_path or 'testData/example_dcsync.txt' }}"
 									/>
 									<button type="button" class="browse-btn" onclick="openFileBrowser('pwdump_path')">Browse</button>
 									<button type="button" class="validate-btn" id="local_pwdump_validate_btn" onclick="validateLocalFile('pwdump', 'pwdump_path')">
@@ -147,6 +190,15 @@
 								</div>
 
 								<h3 style="margin-top: 12px;">Hashcat Potfile</h3>
+								{% if master_potfile_enabled %}
+								<div class="master-potfile-banner">
+									<span class="master-potfile-icon">&#128218;</span>
+									<div class="master-potfile-info">
+										<strong>Master Potfile Active</strong>
+										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ master_potfile_count }} entries){% endif %}.</span>
+									</div>
+								</div>
+								{% endif %}
 								<div class="file-input-row">
 									<label for="potfile_path">File Path:</label>
 									<input
@@ -154,7 +206,7 @@
 										id="potfile_path"
 										name="potfile_path"
 										placeholder="/path/to/file.potfile"
-										value="testData/example.potfile"
+										value="{{ default_potfile_path or 'testData/example.potfile' }}"
 									/>
 									<button type="button" class="browse-btn" onclick="openFileBrowser('potfile_path')">Browse</button>
 									<button type="button" class="validate-btn" id="local_potfile_validate_btn" onclick="validateLocalFile('potfile', 'potfile_path')">
@@ -168,7 +220,27 @@
 								</div>
 							</div>
 
+							<!-- Restore Session Section -->
+							<div class="file-section hidden" id="restoreSection">
+								<div class="session-restore-container">
+									<div class="session-restore-header">
+										<h3>Select a Previous Session</h3>
+										<button type="button" class="btn btn-secondary btn-small" onclick="refreshSessionList()">
+											Refresh
+										</button>
+									</div>
+									<div id="sessionListContainer" class="session-list-container">
+										<div class="session-loading">Loading sessions...</div>
+									</div>
+									<div id="noSessionsMessage" class="no-sessions-message" style="display: none;">
+										<p>No previous sessions found.</p>
+										<p class="hint">Upload files or use server paths to create your first analysis session.</p>
+									</div>
+								</div>
+							</div>
+
 							<input type="hidden" name="input_method" id="input_method" value="upload" />
+							<input type="hidden" name="restore_session_id" id="restore_session_id" value="" />
 
 							<div class="step-navigation">
 								<div></div>
@@ -247,18 +319,34 @@
 								</div>
 
 								<div class="option-group">
-									<h3>Policy Compliance</h3>
+									<h3>Policy Compliance{% if add_validation and add_validation.domain_policy %} <span style="font-size: 0.8em; color: var(--accent-color);">(from {{ add_validation.domain_policy.domain_name }})</span>{% endif %}</h3>
 									<div class="option-row">
 										<label>Min Password Length</label>
-										<input type="number" name="policy_min_pw_len" min="6" max="30" value="12" />
-									</div>
-									<div class="option-row">
-										<label>Max Password Age (days)</label>
-										<input type="number" name="policy_max_pw_age" min="30" max="1095" value="90" />
+										<input type="number" name="policy_min_pw_len" id="policy_min_pw_len" min="6" max="30" value="{% if add_validation and add_validation.domain_policy and add_validation.domain_policy.min_password_length > 0 %}{{ add_validation.domain_policy.min_password_length }}{% else %}12{% endif %}" />
 									</div>
 									<div class="option-row">
 										<label>Complexity Required</label>
 										<input type="number" name="policy_complexity_req" min="0" max="5" value="3" />
+									</div>
+									<div class="option-row">
+										<label>Max Password Age (days)</label>
+										{% set current_max_age = add_validation.domain_policy.max_password_age|default(90)|int if add_validation and add_validation.domain_policy else 90 %}
+										<input type="hidden" name="policy_max_pw_age" id="policy_max_pw_age_hidden" value="{% if current_max_age == 0 or current_max_age > 999 %}0{% else %}{{ current_max_age }}{% endif %}" />
+										<div style="display: flex; flex-direction: column; gap: 4px;">
+											<input type="number" id="policy_max_pw_age_input"
+												min="1" max="999"
+												value="{% if current_max_age == 0 or current_max_age > 999 %}90{% else %}{{ current_max_age }}{% endif %}"
+												placeholder="1-999"
+												style="width: 80px;"
+												{% if current_max_age == 0 or current_max_age > 999 %}disabled{% endif %}
+												onchange="updateMaxAgeHidden()" />
+											<label style="display: flex; align-items: center; gap: 4px; margin: 0; font-weight: normal; cursor: pointer; font-size: 0.85em;">
+												<input type="checkbox" id="policy_max_pw_age_never"
+													{% if current_max_age == 0 or current_max_age > 999 %}checked{% endif %}
+													onchange="toggleMaxAgeInput(this)" />
+												Never Expires
+											</label>
+										</div>
 									</div>
 								</div>
 
@@ -297,7 +385,7 @@
 							</div>
 
 							<div class="step-navigation">
-								<a href="{{ url_for('validation_review') }}" class="btn btn-secondary">
+								<a href="{% if input_method == 'add_json' %}{{ url_for('validation_review_add') }}{% else %}{{ url_for('validation_review') }}{% endif %}" class="btn btn-secondary">
 									Back
 								</a>
 								<button type="submit" class="btn btn-primary">
@@ -372,6 +460,30 @@
 		</div>
 
 		<script>
+			// Toggle max password age input when "Never" checkbox is changed
+			function toggleMaxAgeInput(checkbox) {
+				const input = document.getElementById('policy_max_pw_age_input');
+				const hidden = document.getElementById('policy_max_pw_age_hidden');
+				if (checkbox.checked) {
+					input.disabled = true;
+					hidden.value = '0';
+				} else {
+					input.disabled = false;
+					hidden.value = input.value || '90';
+					input.focus();
+				}
+			}
+
+			// Update hidden field when number input changes
+			function updateMaxAgeHidden() {
+				const input = document.getElementById('policy_max_pw_age_input');
+				const hidden = document.getElementById('policy_max_pw_age_hidden');
+				const checkbox = document.getElementById('policy_max_pw_age_never');
+				if (!checkbox.checked) {
+					hidden.value = input.value || '90';
+				}
+			}
+
 			// State tracking
 			const validationState = {
 				pwdump: { validated: false, valid: false, data: null },
@@ -408,11 +520,16 @@
 				}
 			}
 
-			// Navigate to validation review page (Step 2)
+			// Navigate to validation review page (Step 2) or restore session
 			function goToValidation() {
-				// Submit the form to validate and redirect to validation_review
 				const form = document.getElementById('analysisForm');
 				const inputMethod = document.getElementById('input_method').value;
+
+				// Handle restore method differently - switch session and go to report
+				if (inputMethod === 'restore' && restoreState.selectedSessionId) {
+					restoreSession(restoreState.selectedSessionId);
+					return;
+				}
 
 				// Use appropriate endpoint based on input method
 				if (inputMethod === 'local') {
@@ -442,13 +559,26 @@
 				}
 			}
 
+			// Restore session state
+			const restoreState = {
+				selectedSessionId: null,
+				sessions: []
+			};
+
 			// Update continue button state
 			function updateContinueButton() {
 				const btn = document.getElementById('toStep2Btn');
 				const inputMethod = document.getElementById('input_method').value;
 
-				// Both upload and local methods require validation now
-				btn.disabled = !(validationState.pwdump.valid && validationState.potfile.valid);
+				if (inputMethod === 'restore') {
+					// Restore method requires a session to be selected
+					btn.disabled = !restoreState.selectedSessionId;
+					btn.textContent = restoreState.selectedSessionId ? 'Restore Session' : 'Select a Session';
+				} else {
+					// Both upload and local methods require validation
+					btn.disabled = !(validationState.pwdump.valid && validationState.potfile.valid);
+					btn.textContent = 'Continue to Validation';
+				}
 			}
 
 			// Update file status indicator
@@ -502,27 +632,43 @@
 						return;
 					}
 
-					// Store validation data
+					// Store validation data - handle ADD JSON differently
+					const isAddJson = data.file_type === 'add_json';
 					validationState[fileType] = {
 						validated: true,
 						valid: data.valid_lines > 0,
-						data: data
+						data: data,
+						isAddJson: isAddJson
 					};
 
-					// Determine icon type based on results
-					const hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
-					let statusMessage = `${data.valid_lines} valid`;
+					// Determine icon type and status message based on results
+					let statusMessage;
+					let hasWarnings;
 
-					if (hasWarnings) {
-						// Yellow warning icon
-						statusIcon.className = 'validation-status-icon warning';
-						statusIcon.innerHTML = '!';
+					if (isAddJson) {
+						// ADD JSON format - show domain and user count
+						const domainName = data.domain_name || 'Unknown';
+						statusMessage = `${data.valid_lines} users (${domainName})`;
+						hasWarnings = data.error_lines > 0;
+						if (data.tier0_count > 0 || data.elevated_count > 0) {
+							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;
+						}
+					} else {
+						// Standard pwdump format
+						hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
+						statusMessage = `${data.valid_lines} valid`;
 						if (data.error_lines > 0) {
 							statusMessage += `, ${data.error_lines} errors`;
 						}
 						if (data.warning_lines > 0) {
 							statusMessage += `, ${data.warning_lines} warnings`;
 						}
+					}
+
+					if (hasWarnings) {
+						// Yellow warning icon
+						statusIcon.className = 'validation-status-icon warning';
+						statusIcon.innerHTML = '!';
 						statusIcon.title = statusMessage + ' - details in Step 2';
 					} else {
 						// Green success checkmark
@@ -591,27 +737,43 @@
 						return;
 					}
 
-					// Store validation data
+					// Store validation data - handle ADD JSON differently
+					const isAddJson = data.file_type === 'add_json';
 					validationState[fileType] = {
 						validated: true,
 						valid: data.valid_lines > 0,
-						data: data
+						data: data,
+						isAddJson: isAddJson
 					};
 
-					// Determine icon type based on results
-					const hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
-					let statusMessage = `${data.valid_lines} valid`;
+					// Determine icon type and status message based on results
+					let statusMessage;
+					let hasWarnings;
 
-					if (hasWarnings) {
-						// Yellow warning icon
-						statusIcon.className = 'validation-status-icon warning';
-						statusIcon.innerHTML = '!';
+					if (isAddJson) {
+						// ADD JSON format - show domain and user count
+						const domainName = data.domain_name || 'Unknown';
+						statusMessage = `${data.valid_lines} users (${domainName})`;
+						hasWarnings = data.error_lines > 0;
+						if (data.tier0_count > 0 || data.elevated_count > 0) {
+							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;
+						}
+					} else {
+						// Standard pwdump format
+						hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
+						statusMessage = `${data.valid_lines} valid`;
 						if (data.error_lines > 0) {
 							statusMessage += `, ${data.error_lines} errors`;
 						}
 						if (data.warning_lines > 0) {
 							statusMessage += `, ${data.warning_lines} warnings`;
 						}
+					}
+
+					if (hasWarnings) {
+						// Yellow warning icon
+						statusIcon.className = 'validation-status-icon warning';
+						statusIcon.innerHTML = '!';
 						statusIcon.title = statusMessage + ' - details in Step 2';
 					} else {
 						// Green success checkmark
@@ -636,7 +798,7 @@
 				}
 			}
 
-			// Toggle between upload and local methods
+			// Toggle between upload, local, and restore methods
 			document.querySelectorAll('.toggle-option').forEach(option => {
 				option.addEventListener('click', function() {
 					// Update toggle UI
@@ -649,10 +811,28 @@
 					// Show/hide sections
 					document.getElementById('uploadSection').classList.toggle('hidden', method !== 'upload');
 					document.getElementById('localSection').classList.toggle('hidden', method !== 'local');
+					document.getElementById('restoreSection').classList.toggle('hidden', method !== 'restore');
+					// Session name only shows for upload and local methods
+					document.getElementById('sessionNameSection').classList.toggle('hidden', method === 'restore');
 
 					// Update form action
 					const form = document.getElementById('analysisForm');
-					form.action = method === 'upload' ? '/validate' : '/local_files';
+					if (method === 'restore') {
+						form.action = '#';
+					} else {
+						form.action = method === 'upload' ? '/validate' : '/validate_local';
+					}
+
+					// Load sessions when restore is selected
+					if (method === 'restore') {
+						loadSessionList();
+					}
+
+					// Clear restore session selection when switching away
+					if (method !== 'restore') {
+						restoreState.selectedSessionId = null;
+						document.getElementById('restore_session_id').value = '';
+					}
 
 					// Update continue button
 					updateContinueButton();
@@ -663,7 +843,25 @@
 			document.getElementById('pwdump_path').addEventListener('input', updateContinueButton);
 			document.getElementById('potfile_path').addEventListener('input', updateContinueButton);
 
-			// Help modal
+			// Help modal - configure marked to generate heading IDs
+			marked.use({
+				renderer: {
+					heading({ tokens, depth }) {
+						// Parse the tokens to get rendered HTML content
+						const text = this.parser.parseInline(tokens);
+						// Generate slug from raw text (strip HTML for the ID)
+						const rawText = tokens.map(t => t.raw || t.text || '').join('');
+						const slug = rawText.toLowerCase()
+							.replace(/\*\*/g, '')     // Remove bold markers
+							.replace(/[^\w\s-]/g, '') // Remove special chars except hyphens
+							.replace(/\s+/g, '-')     // Replace spaces with hyphens
+							.replace(/-+/g, '-')      // Collapse multiple hyphens
+							.trim();
+						return `<h${depth} id="${slug}">${text}</h${depth}>\n`;
+					}
+				}
+			});
+
 			document.querySelectorAll('.helpButton').forEach(button => {
 				button.addEventListener('click', function() {
 					fetch('/readme')
@@ -682,6 +880,21 @@
 			document.getElementById('helpModal').addEventListener('click', (e) => {
 				if (e.target.id === 'helpModal') {
 					document.getElementById('helpModal').style.display = 'none';
+				}
+			});
+
+			// Handle anchor link clicks within help modal - scroll within modal instead of page
+			document.getElementById('helpText').addEventListener('click', (e) => {
+				const link = e.target.closest('a');
+				if (link && link.getAttribute('href')?.startsWith('#')) {
+					e.preventDefault();
+					const targetId = link.getAttribute('href').substring(1);
+					const targetElement = document.getElementById(targetId);
+					if (targetElement) {
+						const modalContent = document.querySelector('#helpModal .content');
+						const targetOffset = targetElement.offsetTop - modalContent.offsetTop;
+						modalContent.scrollTo({ top: targetOffset - 20, behavior: 'smooth' });
+					}
 				}
 			});
 
@@ -742,6 +955,34 @@
 						error_lines: potfileData.error_lines
 					}
 				};
+			})();
+			{% endif %}
+
+			{% if initial_step == 3 and input_method == 'add_json' and add_validation %}
+			(function() {
+				const addData = {{ add_validation | tojson | safe }};
+				const filename = addData.filepath.split('/').pop();
+				const domainName = addData.domain_policy ? addData.domain_policy.domain_name : 'Unknown';
+
+				// Update pwdump summary card with ADD JSON info
+				document.getElementById('pwdumpSummaryName').textContent = filename;
+				document.getElementById('pwdumpSummaryStats').innerHTML =
+					`<span class="good">${addData.valid_users} users</span> (${addData.tier0_count} tier0, ${addData.elevated_count} elevated)`;
+				document.getElementById('pwdumpSummaryCard').classList.add('valid');
+				document.querySelector('#pwdumpSummaryCard h4').textContent = 'ADD JSON: ' + domainName;
+
+				// Update potfile summary card with potfile info from session
+				{% if potfile_validation %}
+				const potData = {{ potfile_validation | tojson | safe }};
+				const potFilename = potData.filepath.split('/').pop();
+				document.getElementById('potfileSummaryName').textContent = potFilename;
+				document.getElementById('potfileSummaryStats').innerHTML =
+					`<span class="good">${potData.ntlm_count || potData.valid_lines} NTLM hashes</span>`;
+				document.getElementById('potfileSummaryCard').classList.add('valid');
+				{% endif %}
+
+				// Set input method so form submits to correct endpoint
+				document.getElementById('input_method').value = 'add_json';
 			})();
 			{% endif %}
 
@@ -957,6 +1198,152 @@
 					closeKeywordsModal();
 				}
 			});
+
+			// ============================================
+			// Session Restore Functions
+			// ============================================
+
+			async function loadSessionList() {
+				const container = document.getElementById('sessionListContainer');
+				const noSessionsMsg = document.getElementById('noSessionsMessage');
+
+				container.innerHTML = '<div class="session-loading">Loading sessions...</div>';
+				container.style.display = 'block';
+				noSessionsMsg.style.display = 'none';
+
+				try {
+					const response = await fetch('/api/sessions');
+					const data = await response.json();
+
+					if (data.error) {
+						container.innerHTML = `<div class="session-error">Error: ${data.error}</div>`;
+						return;
+					}
+
+					restoreState.sessions = data.sessions || [];
+
+					if (restoreState.sessions.length === 0) {
+						container.style.display = 'none';
+						noSessionsMsg.style.display = 'block';
+						return;
+					}
+
+					renderSessionList(restoreState.sessions);
+
+				} catch (error) {
+					console.error('Error loading sessions:', error);
+					container.innerHTML = `<div class="session-error">Failed to load sessions: ${error.message}</div>`;
+				}
+			}
+
+			function renderSessionList(sessions) {
+				const container = document.getElementById('sessionListContainer');
+
+				let html = '<div class="session-restore-list">';
+				for (const session of sessions) {
+					const isSelected = restoreState.selectedSessionId === session.session_id;
+					const selectedClass = isSelected ? 'selected' : '';
+					const createdDate = new Date(session.created_at).toLocaleDateString();
+					const updatedDate = new Date(session.updated_at).toLocaleDateString();
+					const crackRate = session.crack_rate ? `${session.crack_rate.toFixed(1)}%` : '-';
+					const aaiaIcon = session.aaia_generated ? '<span class="session-aaia-icon" title="AAIA Generated">✨</span>' : '';
+
+					html += `
+						<div class="session-restore-card ${selectedClass}" data-session-id="${session.session_id}"
+							 onclick="selectSessionToRestore('${session.session_id}')">
+							<div class="session-restore-info">
+								<div class="session-restore-name">
+									${escapeHtml(session.name)} ${aaiaIcon}
+								</div>
+								<div class="session-restore-meta">
+									<span title="Total accounts">${session.total_accounts || 0} accounts</span>
+									<span title="Crack rate">${crackRate} cracked</span>
+									<span title="Last updated">Updated: ${updatedDate}</span>
+								</div>
+							</div>
+							<div class="session-restore-check">
+								${isSelected ? '✓' : ''}
+							</div>
+						</div>
+					`;
+				}
+				html += '</div>';
+				container.innerHTML = html;
+			}
+
+			function selectSessionToRestore(sessionId) {
+				// Toggle selection
+				if (restoreState.selectedSessionId === sessionId) {
+					restoreState.selectedSessionId = null;
+				} else {
+					restoreState.selectedSessionId = sessionId;
+				}
+
+				document.getElementById('restore_session_id').value = restoreState.selectedSessionId || '';
+
+				// Re-render to update visual selection
+				renderSessionList(restoreState.sessions);
+				updateContinueButton();
+			}
+
+			async function restoreSession(sessionId) {
+				const btn = document.getElementById('toStep2Btn');
+				btn.disabled = true;
+				btn.textContent = 'Restoring...';
+
+				try {
+					const response = await fetch(`/api/sessions/${sessionId}/switch`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' }
+					});
+
+					const data = await response.json();
+
+					if (data.error) {
+						alert('Failed to restore session: ' + data.error);
+						btn.disabled = false;
+						btn.textContent = 'Restore Session';
+						return;
+					}
+
+					// Session restored successfully - redirect to report page
+					window.location.href = '/report';
+
+				} catch (error) {
+					console.error('Error restoring session:', error);
+					alert('Failed to restore session: ' + error.message);
+					btn.disabled = false;
+					btn.textContent = 'Restore Session';
+				}
+			}
+
+			function refreshSessionList() {
+				loadSessionList();
+			}
+
+			// Company name autocomplete
+			async function loadCompanySuggestions() {
+				try {
+					const response = await fetch('/api/sessions/companies');
+					if (!response.ok) return;
+
+					const data = await response.json();
+					const datalist = document.getElementById('company_suggestions');
+					if (!datalist) return;
+
+					datalist.innerHTML = '';
+					(data.companies || []).forEach(company => {
+						const option = document.createElement('option');
+						option.value = company;
+						datalist.appendChild(option);
+					});
+				} catch (error) {
+					console.error('Error loading company suggestions:', error);
+				}
+			}
+
+			// Load company suggestions when page loads
+			loadCompanySuggestions();
 		</script>
 	</body>
 </html>

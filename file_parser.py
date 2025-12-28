@@ -14,13 +14,38 @@ import re
 import binascii
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List
+import json
 
 from hash_types import identify_hash_type, get_most_likely_type, is_ntlm_hash, HashType
 
 
 # Constants
 HASH_PATTERN = re.compile(r'^[a-fA-F0-9]{32}$')
+
+# Privileged AD Groups and RIDs for security analysis
+PRIVILEGED_GROUPS = {
+    "Domain Admins",
+    "Enterprise Admins",
+    "Schema Admins",
+    "Administrators",
+    "Backup Operators",
+    "Account Operators",
+    "Server Operators",
+}
+
+# Tier 0 groups (highest privilege)
+TIER0_GROUPS = {
+    "Domain Admins",
+    "Enterprise Admins",
+    "Schema Admins",
+}
+
+# Well-known privileged RIDs
+PRIVILEGED_RIDS = {
+    500,   # Built-in Administrator
+    502,   # krbtgt (Kerberos service account)
+}
 STATUS_PATTERN = re.compile(r'\s*\(status=(\w+)\)\s*$')
 EMPTY_LM_HASH = "aad3b435b51404eeaad3b435b51404ee"
 BLANK_NTLM_HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
@@ -519,7 +544,127 @@ def validate_potfile(filepath: str) -> PotfileValidationResult:
     )
 
 
-def decode_hex_password(password: str) -> str:
+def merge_potfile_entries(
+    master_path: str,
+    new_entries: list[PotfileEntry],
+    create_if_missing: bool = True
+) -> tuple[int, int, int]:
+    """
+    Merge new NTLM potfile entries into a master potfile.
+
+    Only valid, included NTLM hashes are merged. Duplicate hashes (already in master)
+    are skipped to avoid overwriting existing entries.
+
+    Args:
+        master_path: Path to the master potfile
+        new_entries: List of PotfileEntry objects to merge
+        create_if_missing: Create master file if it doesn't exist
+
+    Returns:
+        Tuple of (entries_added, entries_skipped_duplicate, total_in_master)
+    """
+    import os
+    import fcntl
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Filter to only valid, included NTLM entries
+    ntlm_entries = [
+        e for e in new_entries
+        if e.is_valid and e.included and e.is_ntlm and e.ntlm_hash
+    ]
+
+    if not ntlm_entries and not os.path.exists(master_path):
+        # Nothing to merge and no master exists yet
+        return (0, 0, 0)
+
+    # Ensure directory exists
+    master_dir = os.path.dirname(master_path)
+    if master_dir and not os.path.exists(master_dir):
+        os.makedirs(master_dir, exist_ok=True)
+
+    # Read existing hashes from master (if it exists)
+    existing_hashes: set[str] = set()
+    if os.path.exists(master_path):
+        try:
+            with open(master_path, 'r', encoding='utf-8', errors='replace') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if ':' in line:
+                        hash_part = line.split(':', 1)[0].upper()
+                        existing_hashes.add(hash_part)
+        except Exception as e:
+            logger.error(f"Error reading master potfile: {e}")
+            # Continue anyway - we'll try to append
+
+    entries_added = 0
+    entries_skipped = 0
+
+    # Append new entries to master file with file locking
+    if ntlm_entries:
+        try:
+            with open(master_path, 'a', encoding='utf-8') as f:
+                # Use file locking to prevent race conditions
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    for entry in ntlm_entries:
+                        hash_upper = entry.ntlm_hash.upper()
+                        if hash_upper not in existing_hashes:
+                            # Write in standard potfile format: hash:password
+                            password = entry.password or ""
+                            f.write(f"{entry.ntlm_hash}:{password}\n")
+                            existing_hashes.add(hash_upper)
+                            entries_added += 1
+                        else:
+                            entries_skipped += 1
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            logger.error(f"Error writing to master potfile: {e}")
+            raise
+
+    total_in_master = len(existing_hashes)
+
+    logger.info(
+        f"Master potfile merge: {entries_added} added, "
+        f"{entries_skipped} skipped (duplicate), {total_in_master} total"
+    )
+
+    return (entries_added, entries_skipped, total_in_master)
+
+
+def get_potfile_entry_count(potfile_path: str) -> int:
+    """
+    Get the number of valid entries in a potfile.
+
+    Args:
+        potfile_path: Path to the potfile
+
+    Returns:
+        Number of valid hash:password entries, or 0 if file doesn't exist
+    """
+    import os
+
+    if not os.path.exists(potfile_path):
+        return 0
+
+    count = 0
+    try:
+        with open(potfile_path, 'r', encoding='utf-8', errors='replace') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and ':' in line:
+                    count += 1
+    except Exception:
+        return 0
+
+    return count
+
+
+def decode_hex_password(password: Optional[str]) -> Optional[str]:
     """
     Decode $HEX[] encoded passwords from hashcat.
 
@@ -527,8 +672,10 @@ def decode_hex_password(password: str) -> str:
         password: The password string, possibly $HEX[] encoded
 
     Returns:
-        Decoded password string
+        Decoded password string, or None if input is None
     """
+    if password is None:
+        return None
     if password.startswith("$HEX[") and password.endswith("]"):
         hex_string = password[5:-1]
         try:
@@ -861,3 +1008,914 @@ def get_potfile_summary(result: PotfileValidationResult) -> dict:
         "has_non_ntlm_warning": result.has_non_ntlm_hashes,
         "warning_message": get_potfile_hash_type_message(result)
     }
+
+
+# =============================================================================
+# ADD (Active Directory Dumper) JSON Format Support
+# =============================================================================
+
+class ADDErrorCode:
+    """Error codes for ADD JSON file validation."""
+    INVALID_JSON = "INVALID_JSON"
+    MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
+    INVALID_FIELD_TYPE = "INVALID_FIELD_TYPE"
+    INVALID_HASH_FORMAT = "INVALID_HASH_FORMAT"
+    EMPTY_USERS = "EMPTY_USERS"
+
+
+def is_add_json_file(filepath: str) -> bool:
+    """
+    Detect if a file is ADD JSON format by checking for characteristic fields.
+
+    ADD JSON files have:
+    - Valid JSON structure
+    - "Users" array field
+    - Domain policy fields like "Name", "PullDate", "MinPasswordLength"
+
+    Args:
+        filepath: Path to file to check
+
+    Returns:
+        True if file appears to be ADD JSON format, False otherwise
+    """
+    # First check file extension as a quick filter
+    if not filepath.lower().endswith('.json'):
+        return False
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            # Read first 4KB to detect format without loading entire file
+            content = f.read(4096)
+
+        # Try to parse as JSON
+        # For detection, we need to load enough to see the structure
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Check for characteristic ADD JSON fields
+        # Must have "Users" array - this is the defining characteristic
+        if not isinstance(data.get("Users"), list):
+            return False
+
+        # Should also have at least some domain policy fields
+        add_indicators = ["Name", "PullDate", "MinPasswordLength", "MaxPwdAge",
+                         "PwdHistoryLength", "LockoutThreshold"]
+        matches = sum(1 for field in add_indicators if field in data)
+
+        # If we have Users array and at least 2 domain policy fields, it's ADD JSON
+        return matches >= 2
+
+    except (json.JSONDecodeError, IOError, OSError):
+        return False
+
+
+@dataclass
+class DomainPolicy:
+    """Domain password policy from ADD JSON."""
+    domain_name: str
+    pull_date: str
+    min_password_length: int
+    max_password_age: int  # days
+    pwd_history_length: int
+    pwd_properties: int
+    lockout_duration: int  # minutes
+    lockout_observation_window: int  # minutes
+    lockout_threshold: int
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dict."""
+        return {
+            "domain_name": self.domain_name,
+            "pull_date": self.pull_date,
+            "min_password_length": self.min_password_length,
+            "max_password_age": self.max_password_age,
+            "pwd_history_length": self.pwd_history_length,
+            "pwd_properties": self.pwd_properties,
+            "lockout_duration": self.lockout_duration,
+            "lockout_observation_window": self.lockout_observation_window,
+            "lockout_threshold": self.lockout_threshold,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'DomainPolicy':
+        """Reconstruct from dict."""
+        return cls(
+            domain_name=data["domain_name"],
+            pull_date=data["pull_date"],
+            min_password_length=data["min_password_length"],
+            max_password_age=data["max_password_age"],
+            pwd_history_length=data["pwd_history_length"],
+            pwd_properties=data["pwd_properties"],
+            lockout_duration=data["lockout_duration"],
+            lockout_observation_window=data["lockout_observation_window"],
+            lockout_threshold=data["lockout_threshold"],
+        )
+
+
+@dataclass
+class ADDAccountEntry:
+    """Extended account data from ADD JSON format."""
+    # Identity
+    sam_account_name: str
+    logon_name: str  # domain\user format
+    object_sid: str
+    rid: int
+
+    # NTLM hashes
+    ntlm_hash: Optional[str]
+    lm_hash: Optional[str]
+    historical_hashes: List[str]  # Previous NTLM hashes
+
+    # Group membership
+    member_of: List[str]
+    primary_group_id: int
+
+    # Account status
+    user_account_control: List[str]  # Flags like "NORMAL_ACCOUNT", "ACCOUNT_DISABLED"
+    is_disabled: bool
+    pwd_last_set: Optional[str]
+
+    # Privilege detection (computed)
+    is_privileged: bool = False
+    privilege_level: str = "standard"  # "standard", "elevated", "tier0"
+    privilege_groups: List[str] = field(default_factory=list)
+
+    # Descriptive fields
+    display_name: str = ""
+    description: str = ""
+    cn: str = ""
+
+    # Validation
+    is_valid: bool = True
+    errors: List[ValidationError] = field(default_factory=list)
+    included: bool = True
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dict."""
+        return {
+            "sam_account_name": self.sam_account_name,
+            "logon_name": self.logon_name,
+            "object_sid": self.object_sid,
+            "rid": self.rid,
+            "ntlm_hash": self.ntlm_hash,
+            "lm_hash": self.lm_hash,
+            "historical_hashes": self.historical_hashes,
+            "member_of": self.member_of,
+            "primary_group_id": self.primary_group_id,
+            "user_account_control": self.user_account_control,
+            "is_disabled": self.is_disabled,
+            "pwd_last_set": self.pwd_last_set,
+            "is_privileged": self.is_privileged,
+            "privilege_level": self.privilege_level,
+            "privilege_groups": self.privilege_groups,
+            "display_name": self.display_name,
+            "description": self.description,
+            "cn": self.cn,
+            "is_valid": self.is_valid,
+            "included": self.included,
+            "errors": [
+                {
+                    "severity": e.severity.value,
+                    "code": e.code,
+                    "message": e.message,
+                    "field_index": e.field_index
+                }
+                for e in self.errors
+            ]
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'ADDAccountEntry':
+        """Reconstruct from dict."""
+        errors = [
+            ValidationError(
+                severity=ErrorSeverity(e["severity"]),
+                code=e["code"],
+                message=e["message"],
+                field_index=e.get("field_index")
+            )
+            for e in data.get("errors", [])
+        ]
+        return cls(
+            sam_account_name=data["sam_account_name"],
+            logon_name=data["logon_name"],
+            object_sid=data["object_sid"],
+            rid=data["rid"],
+            ntlm_hash=data.get("ntlm_hash"),
+            lm_hash=data.get("lm_hash"),
+            historical_hashes=data.get("historical_hashes", []),
+            member_of=data.get("member_of", []),
+            primary_group_id=data.get("primary_group_id", 0),
+            user_account_control=data.get("user_account_control", []),
+            is_disabled=data.get("is_disabled", False),
+            pwd_last_set=data.get("pwd_last_set"),
+            is_privileged=data.get("is_privileged", False),
+            privilege_level=data.get("privilege_level", "standard"),
+            privilege_groups=data.get("privilege_groups", []),
+            display_name=data.get("display_name", ""),
+            description=data.get("description", ""),
+            cn=data.get("cn", ""),
+            is_valid=data.get("is_valid", True),
+            included=data.get("included", True),
+            errors=errors
+        )
+
+
+@dataclass
+class ADDValidationResult:
+    """Complete validation results for ADD JSON file."""
+    filepath: str
+    domain_policy: Optional[DomainPolicy]
+    total_users: int
+    valid_users: int
+    error_users: int
+
+    # Privilege analysis
+    privileged_count: int
+    tier0_count: int  # Domain Admins, Enterprise Admins, etc.
+    elevated_count: int  # Other privileged groups
+
+    entries: List[ADDAccountEntry]
+    errors: List[ValidationError] = field(default_factory=list)
+
+    # Historical hash stats
+    users_with_history: int = 0
+    total_historical_hashes: int = 0
+
+    # Domain stats
+    unique_domains: List[str] = field(default_factory=list)
+
+    # Raw user data for advanced analysis (Kerberoast, etc.)
+    raw_users: List[Dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def domain_count(self) -> int:
+        """Get count of unique domains."""
+        return len(self.unique_domains) if self.unique_domains else 1
+
+    @property
+    def processable_entries(self) -> List[ADDAccountEntry]:
+        """Get entries that are valid and included."""
+        return [e for e in self.entries if e.included and e.is_valid]
+
+    @property
+    def has_errors(self) -> bool:
+        """Check if there are any validation errors."""
+        return len(self.errors) > 0 or self.error_users > 0
+
+
+def extract_rid_from_sid(object_sid: str) -> Optional[int]:
+    """
+    Extract RID from ObjectSid string.
+
+    Args:
+        object_sid: SID like "S-1-5-21-3339965682-2664943134-2984951395-500"
+
+    Returns:
+        RID integer (e.g., 500) or None if invalid
+    """
+    if not object_sid or not object_sid.startswith("S-1-5-21-"):
+        return None
+    parts = object_sid.split("-")
+    if len(parts) >= 8:
+        try:
+            return int(parts[-1])
+        except ValueError:
+            return None
+    return None
+
+
+def detect_privilege_level(
+    member_of: List[str],
+    rid: Optional[int],
+    user_account_control: List[str] = None
+) -> Tuple[str, List[str]]:
+    """
+    Detect privilege level based on group membership and RID.
+
+    Args:
+        member_of: List of group names the user is a member of
+        rid: User's RID (e.g., 500 for Administrator)
+        user_account_control: UAC flags (optional, for future use)
+
+    Returns:
+        Tuple of (privilege_level, list of matching privileged groups)
+        privilege_level: "tier0", "elevated", or "standard"
+    """
+    matching_groups = [g for g in member_of if g in PRIVILEGED_GROUPS]
+
+    # Tier 0: Domain Admins, Enterprise Admins, Schema Admins, or RID 500/502
+    if any(g in TIER0_GROUPS for g in matching_groups) or (rid and rid in PRIVILEGED_RIDS):
+        return ("tier0", matching_groups)
+
+    # Elevated: Other privileged groups
+    if matching_groups:
+        return ("elevated", matching_groups)
+
+    return ("standard", [])
+
+
+def parse_add_ntlm_hash(hash_field: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Parse NTLMHash field from ADD JSON.
+
+    The format can vary:
+    - Single NTLM hash: "31d6cfe0d16ae931b73c59d7e0c089c0"
+    - LM:NTLM format: "aad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0"
+    - NTLM:LM format (some tools): "31d6cfe0d16ae931b73c59d7e0c089c0:aad3b435b51404ee"
+
+    The function detects the format by checking for the empty LM hash marker.
+
+    Args:
+        hash_field: The NTLMHash field value
+
+    Returns:
+        Tuple of (lm_hash, ntlm_hash)
+    """
+    if not hash_field:
+        return (None, None)
+
+    if ":" in hash_field:
+        parts = hash_field.split(":")
+        if len(parts) >= 2:
+            hash1 = parts[0].strip() if parts[0] else None
+            hash2 = parts[1].strip() if parts[1] else None
+
+            # Validate both are proper 32-char hex hashes
+            hash1_valid = hash1 and is_valid_hash(hash1)
+            hash2_valid = hash2 and is_valid_hash(hash2)
+
+            if hash1_valid and hash2_valid:
+                # Both are valid hashes - determine which is LM and which is NTLM
+                # The empty LM hash is a strong indicator of position
+                if hash1 == EMPTY_LM_HASH:
+                    # Format is LM:NTLM (hash1 is the empty LM)
+                    return (hash1, hash2)
+                elif hash2 == EMPTY_LM_HASH:
+                    # Format is NTLM:LM (hash2 is the empty LM)
+                    return (hash2, hash1)
+                else:
+                    # Neither is the empty LM hash - assume LM:NTLM order
+                    # (standard pwdump format)
+                    return (hash1, hash2)
+            elif hash1_valid and not hash2_valid:
+                # Only first hash is valid - treat as NTLM
+                return (None, hash1)
+            elif hash2_valid and not hash1_valid:
+                # Only second hash is valid - treat as NTLM
+                return (None, hash2)
+
+    # Single hash - assume NTLM
+    if is_valid_hash(hash_field):
+        return (None, hash_field)
+
+    return (None, None)
+
+
+def parse_add_json(filepath: str) -> ADDValidationResult:
+    """
+    Parse ADD JSON format and return structured results.
+
+    Args:
+        filepath: Path to ADD JSON file
+
+    Returns:
+        ADDValidationResult with domain policy and all user entries
+    """
+    entries: List[ADDAccountEntry] = []
+    errors: List[ValidationError] = []
+    domain_policy: Optional[DomainPolicy] = None
+    users_with_history = 0
+    total_historical_hashes = 0
+    privileged_count = 0
+    tier0_count = 0
+    elevated_count = 0
+    domains_seen: set = set()
+
+    # Load and parse JSON
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        errors.append(ValidationError(
+            severity=ErrorSeverity.FATAL,
+            code=ADDErrorCode.INVALID_JSON,
+            message=f"Invalid JSON: {str(e)}"
+        ))
+        return ADDValidationResult(
+            filepath=filepath,
+            domain_policy=None,
+            total_users=0,
+            valid_users=0,
+            error_users=0,
+            privileged_count=0,
+            tier0_count=0,
+            elevated_count=0,
+            entries=[],
+            errors=errors
+        )
+    except Exception as e:
+        errors.append(ValidationError(
+            severity=ErrorSeverity.FATAL,
+            code=ADDErrorCode.INVALID_JSON,
+            message=f"Error reading file: {str(e)}"
+        ))
+        return ADDValidationResult(
+            filepath=filepath,
+            domain_policy=None,
+            total_users=0,
+            valid_users=0,
+            error_users=0,
+            privileged_count=0,
+            tier0_count=0,
+            elevated_count=0,
+            entries=[],
+            errors=errors
+        )
+
+    # Extract domain policy
+    try:
+        # Parse MaxPwdAge - AD uses ~10675199 days to represent "never expires"
+        # This corresponds to the FILETIME value when set to 0 (never expire)
+        raw_max_pwd_age = data.get("MaxPwdAge", 0)
+        try:
+            if isinstance(raw_max_pwd_age, (int, float)):
+                max_pwd_age = int(raw_max_pwd_age)
+            else:
+                # Handle string with possible decimal (e.g., "10675199.116730064")
+                max_pwd_age = int(float(str(raw_max_pwd_age)))
+        except (ValueError, TypeError):
+            max_pwd_age = 0  # Default to "never expires" if parsing fails
+
+        # If max_pwd_age exceeds 999 (AD's max configurable value), treat as "never expires" (0)
+        if max_pwd_age > 999:
+            max_pwd_age = 0
+
+        domain_policy = DomainPolicy(
+            domain_name=data.get("Name", "Unknown"),
+            pull_date=data.get("PullDate", "Unknown"),
+            min_password_length=int(data.get("MinPasswordLength", 0)),
+            max_password_age=max_pwd_age,
+            pwd_history_length=int(data.get("PwdHistoryLength", 0)),
+            pwd_properties=int(data.get("PwdProperties", 0)),
+            lockout_duration=int(data.get("LockoutDuration", 0)),
+            lockout_observation_window=int(data.get("LockoutObservationWindow", 0)),
+            lockout_threshold=int(data.get("LockoutThreshold", 0)),
+        )
+    except (KeyError, ValueError, TypeError) as e:
+        errors.append(ValidationError(
+            severity=ErrorSeverity.WARNING,
+            code=ADDErrorCode.MISSING_REQUIRED_FIELD,
+            message=f"Could not parse domain policy: {str(e)}"
+        ))
+
+    # Extract users
+    users = data.get("Users", [])
+    if not users:
+        errors.append(ValidationError(
+            severity=ErrorSeverity.FATAL,
+            code=ADDErrorCode.EMPTY_USERS,
+            message="No users found in ADD JSON file"
+        ))
+        return ADDValidationResult(
+            filepath=filepath,
+            domain_policy=domain_policy,
+            total_users=0,
+            valid_users=0,
+            error_users=0,
+            privileged_count=0,
+            tier0_count=0,
+            elevated_count=0,
+            entries=[],
+            errors=errors
+        )
+
+    valid_users = 0
+    error_users = 0
+
+    for user in users:
+        entry_errors: List[ValidationError] = []
+        is_valid = True
+
+        # Parse required fields
+        sam_account_name = user.get("SamAccountName", "")
+        if not sam_account_name:
+            entry_errors.append(ValidationError(
+                severity=ErrorSeverity.FATAL,
+                code=ADDErrorCode.MISSING_REQUIRED_FIELD,
+                message="Missing SamAccountName"
+            ))
+            is_valid = False
+
+        # Parse SID and extract RID
+        object_sid = user.get("ObjectSid", "")
+        rid = extract_rid_from_sid(object_sid)
+        if rid is None and object_sid:
+            # Try to get from explicit RID field if available
+            rid = user.get("RID")
+
+        # Parse hash field
+        lm_hash, ntlm_hash = parse_add_ntlm_hash(user.get("NTLMHash", ""))
+
+        # Also check for separate LMHash field (some ADD exports have this)
+        explicit_lm_hash = user.get("LMHash", "")
+        if explicit_lm_hash and is_valid_hash(explicit_lm_hash):
+            # Use explicit LMHash field if present and valid
+            lm_hash = explicit_lm_hash
+
+        if not ntlm_hash:
+            entry_errors.append(ValidationError(
+                severity=ErrorSeverity.WARNING,
+                code=ADDErrorCode.INVALID_HASH_FORMAT,
+                message="No valid NTLM hash found"
+            ))
+
+        # Parse historical hashes
+        historical_hashes = []
+        for hist_hash in user.get("HistoricalNTHashes", []):
+            if hist_hash and is_valid_hash(hist_hash):
+                historical_hashes.append(hist_hash)
+        if historical_hashes:
+            users_with_history += 1
+            total_historical_hashes += len(historical_hashes)
+
+        # Parse group membership
+        member_of = user.get("MemberOf", [])
+        if isinstance(member_of, str):
+            member_of = [member_of] if member_of else []
+
+        # Parse UAC flags
+        user_account_control = user.get("UserAccountControl", [])
+        if isinstance(user_account_control, str):
+            user_account_control = [user_account_control] if user_account_control else []
+        is_disabled = "ACCOUNT_DISABLED" in user_account_control
+
+        # Detect privilege level
+        privilege_level, privilege_groups = detect_privilege_level(member_of, rid, user_account_control)
+        is_privileged = privilege_level != "standard"
+
+        if is_privileged:
+            privileged_count += 1
+            if privilege_level == "tier0":
+                tier0_count += 1
+            else:
+                elevated_count += 1
+
+        # Extract domain from LogonName (format: DOMAIN\user)
+        logon_name = user.get("LogonName", sam_account_name)
+        if "\\" in logon_name:
+            domain_part = logon_name.split("\\")[0].upper()
+            if domain_part:
+                domains_seen.add(domain_part)
+
+        # Create entry
+        entry = ADDAccountEntry(
+            sam_account_name=sam_account_name,
+            logon_name=logon_name,
+            object_sid=object_sid,
+            rid=rid if rid else 0,
+            ntlm_hash=ntlm_hash,
+            lm_hash=lm_hash,
+            historical_hashes=historical_hashes,
+            member_of=member_of,
+            primary_group_id=user.get("PrimaryGroupId", 0),
+            user_account_control=user_account_control,
+            is_disabled=is_disabled,
+            pwd_last_set=user.get("PwdLastSet"),
+            is_privileged=is_privileged,
+            privilege_level=privilege_level,
+            privilege_groups=privilege_groups,
+            display_name=user.get("DisplayName", ""),
+            description=user.get("Description", ""),
+            cn=user.get("CN", ""),
+            is_valid=is_valid,
+            errors=entry_errors,
+            included=True
+        )
+        entries.append(entry)
+
+        if is_valid:
+            valid_users += 1
+        else:
+            error_users += 1
+
+    return ADDValidationResult(
+        filepath=filepath,
+        domain_policy=domain_policy,
+        total_users=len(entries),
+        valid_users=valid_users,
+        error_users=error_users,
+        privileged_count=privileged_count,
+        tier0_count=tier0_count,
+        elevated_count=elevated_count,
+        entries=entries,
+        errors=errors,
+        users_with_history=users_with_history,
+        total_historical_hashes=total_historical_hashes,
+        unique_domains=sorted(list(domains_seen)),
+        raw_users=users  # Preserve raw user dicts for Kerberoast analysis
+    )
+
+
+def add_to_account_data(
+    add_result: ADDValidationResult,
+    potfile_result: Optional[PotfileValidationResult],
+    ignore_disabled: bool = False,
+    ignore_computer_accounts: bool = False
+) -> Tuple[dict, dict]:
+    """
+    Convert ADD data to account_data format compatible with existing analysis.
+
+    Args:
+        add_result: Validated ADD JSON results
+        potfile_result: Validated potfile results (optional)
+        ignore_disabled: If True, skip disabled accounts
+        ignore_computer_accounts: If True, skip computer accounts
+
+    Returns:
+        Tuple of (account_data, privileged_findings)
+        - account_data: Standard format for HashMaster1000 analysis
+        - privileged_findings: Enhanced data for privileged account report
+    """
+    # Build hash->password lookup from potfile
+    cracked_hashes: dict[str, str] = {BLANK_NTLM_HASH: ""}
+    if potfile_result:
+        for entry in potfile_result.entries:
+            if entry.included and entry.is_valid and entry.ntlm_hash:
+                cracked_hashes[entry.ntlm_hash] = entry.password or ""
+
+    account_data: dict = {}
+    privileged_findings = {
+        "tier0": [],
+        "elevated": [],
+        "summary": {
+            "total_privileged": 0,
+            "tier0_count": 0,
+            "elevated_count": 0,
+            "cracked_privileged": 0,
+            "cracked_tier0": 0,
+        }
+    }
+
+    for entry in add_result.entries:
+        if not entry.included or not entry.is_valid:
+            continue
+
+        # Skip computer accounts if requested
+        if ignore_computer_accounts and is_computer_account(entry.sam_account_name):
+            continue
+
+        # Skip disabled accounts if requested
+        if ignore_disabled and entry.is_disabled:
+            continue
+
+        # Check if current hash is cracked
+        cracked_pw = None
+        if entry.ntlm_hash and entry.ntlm_hash in cracked_hashes:
+            cracked_value = cracked_hashes[entry.ntlm_hash]
+            if cracked_value is not None:
+                cracked_pw = decode_hex_password(cracked_value)
+
+        # Build standard account_data entry
+        account_entry = {
+            "lm_hash": entry.lm_hash,
+            "ntlm_hash": entry.ntlm_hash,
+            "cracked_pw": cracked_pw,
+            "locked": None,
+            "disabled": entry.is_disabled,
+            "last_pw_change": entry.pwd_last_set,
+            "rid": entry.rid,
+            # Extended fields from ADD
+            "is_privileged": entry.is_privileged,
+            "privilege_level": entry.privilege_level,
+            "privilege_groups": entry.privilege_groups,
+            "member_of": entry.member_of,
+            "historical_hashes": entry.historical_hashes,
+        }
+
+        account_data[entry.sam_account_name] = account_entry
+
+        # Track privileged account findings
+        if entry.is_privileged:
+            privileged_findings["summary"]["total_privileged"] += 1
+            priv_entry = {
+                "username": entry.sam_account_name,
+                "rid": entry.rid,
+                "groups": entry.privilege_groups,
+                "cracked": cracked_pw is not None,
+                "password": cracked_pw if cracked_pw else None,
+                "disabled": entry.is_disabled,
+            }
+
+            if entry.privilege_level == "tier0":
+                privileged_findings["tier0"].append(priv_entry)
+                privileged_findings["summary"]["tier0_count"] += 1
+                if cracked_pw is not None:
+                    privileged_findings["summary"]["cracked_tier0"] += 1
+                    privileged_findings["summary"]["cracked_privileged"] += 1
+            else:
+                privileged_findings["elevated"].append(priv_entry)
+                privileged_findings["summary"]["elevated_count"] += 1
+                if cracked_pw is not None:
+                    privileged_findings["summary"]["cracked_privileged"] += 1
+
+    return account_data, privileged_findings
+
+
+def analyze_historical_hashes(
+    add_result: ADDValidationResult,
+    cracked_hashes: dict[str, str]
+) -> dict:
+    """
+    Analyze historical hashes for password reuse.
+
+    Args:
+        add_result: Validated ADD JSON results
+        cracked_hashes: Dict mapping NTLM hashes to cracked passwords
+
+    Returns:
+        Dictionary with historical hash analysis results
+    """
+    results = {
+        "users_analyzed": 0,
+        "users_with_history": 0,
+        "historical_passwords_cracked": 0,
+        "password_reuse_violations": [],
+        "history_compliance_failures": [],
+    }
+
+    for entry in add_result.entries:
+        if not entry.included or not entry.is_valid:
+            continue
+
+        results["users_analyzed"] += 1
+
+        if not entry.historical_hashes:
+            continue
+
+        results["users_with_history"] += 1
+
+        # Check current password
+        current_cracked = entry.ntlm_hash and entry.ntlm_hash in cracked_hashes
+        current_password = cracked_hashes.get(entry.ntlm_hash) if current_cracked else None
+
+        # Check historical hashes
+        historical_cracked = []
+        for hist_hash in entry.historical_hashes:
+            if hist_hash in cracked_hashes:
+                historical_cracked.append(cracked_hashes[hist_hash])
+                results["historical_passwords_cracked"] += 1
+
+        # Check for password reuse (current password was used before)
+        if current_password and current_password in historical_cracked:
+            results["password_reuse_violations"].append({
+                "username": entry.sam_account_name,
+                "current_password": current_password,
+                "previous_passwords": historical_cracked,
+                "violation_type": "current_reused_from_history"
+            })
+
+        # Check for history compliance failures (same password used multiple times in history)
+        password_counts = {}
+        for pw in historical_cracked:
+            password_counts[pw] = password_counts.get(pw, 0) + 1
+        for pw, count in password_counts.items():
+            if count > 1:
+                results["history_compliance_failures"].append({
+                    "username": entry.sam_account_name,
+                    "reused_password": pw,
+                    "reuse_count": count
+                })
+
+    return results
+
+
+def detect_privilege_password_sharing(
+    add_result: ADDValidationResult,
+    cracked_hashes: dict[str, str]
+) -> List[dict]:
+    """
+    Detect when privileged accounts share passwords with standard accounts.
+
+    Args:
+        add_result: Validated ADD JSON results
+        cracked_hashes: Dict mapping NTLM hashes to cracked passwords
+
+    Returns:
+        List of password sharing findings
+    """
+    findings = []
+
+    # Build hash->accounts mapping
+    hash_to_accounts: dict[str, List[ADDAccountEntry]] = {}
+    for entry in add_result.entries:
+        if not entry.included or not entry.is_valid or not entry.ntlm_hash:
+            continue
+        if entry.ntlm_hash not in hash_to_accounts:
+            hash_to_accounts[entry.ntlm_hash] = []
+        hash_to_accounts[entry.ntlm_hash].append(entry)
+
+    # Find hashes shared between privileged and standard accounts
+    for ntlm_hash, accounts in hash_to_accounts.items():
+        if len(accounts) < 2:
+            continue
+
+        privileged = [a for a in accounts if a.is_privileged]
+        standard = [a for a in accounts if not a.is_privileged]
+
+        if privileged and standard:
+            for priv_account in privileged:
+                finding = {
+                    "finding_type": "privilege_to_standard_sharing",
+                    "severity": "critical",
+                    "privileged_account": priv_account.sam_account_name,
+                    "privilege_level": priv_account.privilege_level,
+                    "privilege_groups": priv_account.privilege_groups,
+                    "standard_accounts": [a.sam_account_name for a in standard],
+                    "shared_hash": ntlm_hash,
+                    "password_cracked": ntlm_hash in cracked_hashes,
+                    "password": cracked_hashes.get(ntlm_hash) if ntlm_hash in cracked_hashes else None,
+                }
+                findings.append(finding)
+
+    return findings
+
+
+def add_result_to_dict(result: ADDValidationResult) -> dict:
+    """
+    Convert ADDValidationResult to JSON-serializable dict for session storage.
+
+    Args:
+        result: The ADDValidationResult to serialize
+
+    Returns:
+        Dictionary suitable for JSON serialization
+    """
+    return {
+        "filepath": result.filepath,
+        "domain_policy": result.domain_policy.to_dict() if result.domain_policy else None,
+        "total_users": result.total_users,
+        "valid_users": result.valid_users,
+        "error_users": result.error_users,
+        "privileged_count": result.privileged_count,
+        "tier0_count": result.tier0_count,
+        "elevated_count": result.elevated_count,
+        "users_with_history": result.users_with_history,
+        "total_historical_hashes": result.total_historical_hashes,
+        "unique_domains": result.unique_domains,
+        "entries": [e.to_dict() for e in result.entries],
+        "errors": [
+            {
+                "severity": e.severity.value,
+                "code": e.code,
+                "message": e.message,
+                "field_index": e.field_index
+            }
+            for e in result.errors
+        ],
+        "raw_users": result.raw_users  # Preserve for Kerberoast analysis
+    }
+
+
+def dict_to_add_result(data: dict) -> ADDValidationResult:
+    """
+    Reconstruct ADDValidationResult from session dict.
+
+    Args:
+        data: The dictionary from session storage
+
+    Returns:
+        Reconstructed ADDValidationResult object
+    """
+    domain_policy = None
+    if data.get("domain_policy"):
+        domain_policy = DomainPolicy.from_dict(data["domain_policy"])
+
+    entries = [ADDAccountEntry.from_dict(e) for e in data.get("entries", [])]
+
+    errors = [
+        ValidationError(
+            severity=ErrorSeverity(e["severity"]),
+            code=e["code"],
+            message=e["message"],
+            field_index=e.get("field_index")
+        )
+        for e in data.get("errors", [])
+    ]
+
+    return ADDValidationResult(
+        filepath=data["filepath"],
+        domain_policy=domain_policy,
+        total_users=data["total_users"],
+        valid_users=data["valid_users"],
+        error_users=data["error_users"],
+        privileged_count=data["privileged_count"],
+        tier0_count=data["tier0_count"],
+        elevated_count=data.get("elevated_count", data["privileged_count"] - data["tier0_count"]),
+        entries=entries,
+        errors=errors,
+        users_with_history=data.get("users_with_history", 0),
+        total_historical_hashes=data.get("total_historical_hashes", 0),
+        unique_domains=data.get("unique_domains", []),
+        raw_users=data.get("raw_users", [])  # Restore for Kerberoast analysis
+    )

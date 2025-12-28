@@ -87,7 +87,7 @@ def lm_count(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> int:
     count = sum(
         1
         for account in account_data.values()
-        if account["lm_hash"] != "aad3b435b51404eeaad3b435b51404ee"
+        if account.get("lm_hash") and account["lm_hash"] != "aad3b435b51404eeaad3b435b51404ee"
     )
     return count
 
@@ -126,6 +126,44 @@ def check_pw_reuse(pwdump_file: str) -> List[Tuple[str, int, List[str]]]:
     return reuse_report
 
 
+def check_pw_reuse_from_account_data(
+    account_data: Dict[str, Dict[str, Union[str, int, None]]]
+) -> List[Tuple[str, int, List[str]]]:
+    """
+    Check for password reuse using account_data dictionary format.
+
+    This function is used for ADD JSON analysis where we have account_data
+    instead of a pwdump file.
+
+    Args:
+        account_data: Dictionary mapping account names to their data including ntlm_hash
+
+    Returns:
+        List of tuples: (ntlm_hash, count, [account_names])
+        Only includes hashes shared by 2+ accounts, sorted by count descending.
+    """
+    ntlm_hashes: Dict[str, List[str]] = defaultdict(list)
+
+    # Blank NTLM hash should be excluded from reuse analysis
+    blank_ntlm_hash = "31d6cfe0d16ae931b73c59d7e0c089c0"
+
+    for account_name, data in account_data.items():
+        ntlm_hash = data.get("ntlm_hash", "")
+        # Skip empty hashes and blank password hash
+        if ntlm_hash and ntlm_hash != blank_ntlm_hash:
+            ntlm_hashes[ntlm_hash].append(account_name)
+
+    # Only include hashes used by more than one account
+    reuse_report = [
+        (hash_val, len(accounts), sorted(accounts))
+        for hash_val, accounts in ntlm_hashes.items()
+        if len(accounts) > 1
+    ]
+    reuse_report.sort(key=lambda x: x[1], reverse=True)
+
+    return reuse_report
+
+
 # List accounts with blank passwords (only if the ignore blanks option wasn't checked)
 def check_blank(
     accounts_info: Dict[str, Dict[str, Union[str, int, None]]],
@@ -138,8 +176,14 @@ def check_blank(
     blank_ntlm_hash = "31d6cfe0d16ae931b73c59d7e0c089c0"
 
     # Identify blank accounts based on NTLM hash or placeholder value
+    # Returns list of dicts with account name and status
     all_blank_accounts = [
-        account_name
+        {
+            "account": account_name,
+            "status": "Disabled" if account_data.get("disabled") is True
+                     else "Enabled" if account_data.get("disabled") is False
+                     else "Unknown"
+        }
         for account_name, account_data in accounts_info.items()
         if account_data.get("ntlm_hash") == blank_ntlm_hash
         or account_data.get("cracked_pw") in ("", "{Blank Password}")
@@ -148,6 +192,72 @@ def check_blank(
     blank_accounts_for_reporting = [] if ignore_blank_passwords else all_blank_accounts
 
     return all_blank_accounts, blank_accounts_for_reporting
+
+
+def check_max_age(
+    accounts_info: Dict[str, Dict[str, Union[str, int, None]]],
+    max_age_days: int = 90,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Identifies accounts with passwords older than the maximum age policy.
+
+    Uses the 'last_pw_change' field from account_data (populated from ADD JSON's PwdLastSet).
+
+    Args:
+        accounts_info: Dictionary of account data
+        max_age_days: Maximum password age in days (from domain policy or user setting).
+                      If 0, passwords never expire and no accounts will be flagged.
+
+    Returns:
+        Dictionary of {account_name: {"pw_changed": date_string, "pw_age": days_old}}
+    """
+    from datetime import datetime, date
+
+    failing_accounts: Dict[str, Dict[str, Any]] = {}
+
+    # If max_age_days is 0, passwords never expire - return empty result
+    if max_age_days == 0:
+        return failing_accounts
+
+    today = date.today()
+
+    for account_name, account_data in accounts_info.items():
+        last_pw_change = account_data.get("last_pw_change")
+
+        # Skip if no password change date available
+        if not last_pw_change or last_pw_change == "0" or last_pw_change == "":
+            continue
+
+        # Try to parse the date (expected format: MM/DD/YYYY from ADD JSON)
+        try:
+            # Handle various date formats
+            pw_change_date = None
+            if isinstance(last_pw_change, str):
+                # Try MM/DD/YYYY format first (ADD JSON format)
+                for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%d/%m/%Y"]:
+                    try:
+                        pw_change_date = datetime.strptime(last_pw_change, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+
+            if pw_change_date is None:
+                continue
+
+            # Calculate password age in days
+            pw_age = (today - pw_change_date).days
+
+            # Check if password exceeds max age
+            if pw_age > max_age_days:
+                failing_accounts[account_name] = {
+                    "pw_changed": last_pw_change,
+                    "pw_age": pw_age,
+                }
+        except (ValueError, TypeError):
+            # Skip accounts with unparseable dates
+            continue
+
+    return failing_accounts
 
 
 # List accounts failing password complexity
@@ -187,6 +297,7 @@ def crack_stats(
     min_len: int = 14,
     complexity: int = 3,
     ignore_blank_passwords: bool = False,
+    max_pw_age: int = 90,
 ) -> Dict[str, Any]:
     """
     Calculate password cracking statistics.
@@ -195,6 +306,7 @@ def crack_stats(
     :param min_len: Minimum password length for compliance.
     :param complexity: Minimum number of complexity categories for compliance.
     :param ignore_blank_passwords: Whether to exclude blank passwords from analysis.
+    :param max_pw_age: Maximum password age in days for compliance (requires last_pw_change in account_data).
     :return: A dictionary containing various password cracking statistics and reports.
     """
     print(
@@ -333,14 +445,7 @@ def crack_stats(
         }
 
     # Report accounts that fail max age requirement
-    pw_fails_max_age = {
-        "Required Source Data Not Provided": {"pw_changed": "12/23/2024", "pw_age": 93},
-        "Need Dates for Password Last Changed": {
-            "pw_changed": "12/24/2024",
-            "pw_age": 92,
-        },
-        "Feature Coming Soon": {"pw_changed": "12/25/2025", "pw_age": 91},
-    }
+    pw_fails_max_age = check_max_age(account_data, max_pw_age)
 
     # Cracked passwords by account donut chart
     pw_account_pie = {"Cracked": cracked_accounts, "Uncracked": uncracked_accounts}
@@ -403,7 +508,7 @@ def crack_stats(
 
 
 def substring_analysis(
-    passwords: List[str],
+    entries: List[Dict[str, str]],
     min_length: int = 4,
     max_length: int = 8,
     frequency_threshold: int = 2,
@@ -411,104 +516,94 @@ def substring_analysis(
     suppress_nested: bool = True,
 ) -> List[Dict[str, Any]]:
     """
-    Analyze substrings within a range of lengths across passwords and find common patterns,
-    with an option to suppress nested substrings in longer substrings.
+    Account-based substring analysis that returns Chart.js-compatible output.
+
+    This function counts UNIQUE ACCOUNTS impacted by each substring, not unique
+    password strings. This ensures accurate counting when multiple accounts share
+    the same password.
 
     Parameters:
-    - passwords (list of str): List of cracked passwords.
+    - entries (list of dict): List of dicts with keys:
+        - "account": unique account identifier (username/email/etc.)
+        - "password": cracked plaintext password
     - min_length (int): Minimum length for substrings to analyze.
     - max_length (int): Maximum length for substrings to analyze.
-    - frequency_threshold (int): Minimum number of unique passwords containing the substring.
-    - normalize (bool): Whether to convert passwords to lowercase for case-insensitive analysis.
-    - suppress_nested (bool): Whether to suppress shorter substrings that appear in the same
-                              passwords as longer substrings that contain them.
+    - frequency_threshold (int): Minimum number of UNIQUE accounts containing the substring.
+    - normalize (bool): If True, performs substring detection on lowercase passwords.
+    - suppress_nested (bool): If True, suppresses substrings that are fully explained by
+                              longer substrings affecting the same set of accounts.
 
     Returns:
-    - list of dict: A list of substrings with `substring`, `count` (unique passwords),
-                    and `passwords` (dict of password -> occurrence count).
+    - list of dict: A list of substrings with `substring` and `count` (unique accounts).
     """
-    # Track which passwords contain each substring
-    # Key: substring, Value: dict of {password: count_in_that_password}
-    substring_passwords: Dict[str, Dict[str, int]] = {}
+    if min_length < 1:
+        raise ValueError("min_length must be >= 1")
+    if max_length < min_length:
+        raise ValueError("max_length must be >= min_length")
+    if frequency_threshold < 1:
+        raise ValueError("frequency_threshold must be >= 1")
 
-    for password in passwords:
-        # Normalize for matching if requested, but store original password
+    # Key: substring
+    # Value: set of account_ids that contain that substring
+    substring_accounts: Dict[str, Set[str]] = {}
+
+    for row in entries:
+        if "account" not in row or "password" not in row:
+            raise KeyError('Each entry must include keys "account" and "password"')
+
+        account_id = row["account"]
+        password = row["password"]
+
         match_password = password.lower() if normalize else password
 
-        # Track substrings found in this password to count unique passwords
-        found_in_this_password: Dict[str, int] = {}
+        # Count each substring only once per account/password
+        seen_in_this_password: Set[str] = set()
 
-        # Generate substrings using a sliding window
         for length in range(min_length, max_length + 1):
+            if length > len(match_password):
+                continue
             for i in range(len(match_password) - length + 1):
-                substring = match_password[i : i + length]
-                found_in_this_password[substring] = found_in_this_password.get(substring, 0) + 1
+                seen_in_this_password.add(match_password[i : i + length])
 
-        # Add this password to each substring's password dict
-        for substring, count_in_pw in found_in_this_password.items():
-            if substring not in substring_passwords:
-                substring_passwords[substring] = {}
-            # Store the original password (not normalized) with its count
-            substring_passwords[substring][password] = count_in_pw
+        for substring in seen_in_this_password:
+            if substring not in substring_accounts:
+                substring_accounts[substring] = set()
+            substring_accounts[substring].add(account_id)
 
-    # Filter substrings by frequency threshold (number of unique passwords)
-    filtered_substrings = {
-        substring: pw_dict
-        for substring, pw_dict in substring_passwords.items()
-        if len(pw_dict) >= frequency_threshold
+    # Filter by UNIQUE account count threshold
+    filtered: Dict[str, Set[str]] = {
+        substring: acct_set
+        for substring, acct_set in substring_accounts.items()
+        if len(acct_set) >= frequency_threshold
     }
 
-    # Option to suppress nested substrings
-    if suppress_nested:
-        non_nested_results: Dict[str, Dict[str, int]] = {}
+    if not filtered:
+        return []
 
-        # Sort substrings by length (longest first) and by password count (highest first)
+    if suppress_nested:
+        non_nested: Dict[str, Set[str]] = {}
+
+        # Sort: longer substrings first, then higher account counts
         sorted_substrings = sorted(
-            filtered_substrings.items(),
-            key=lambda item: (-len(item[0]), -len(item[1]))
+            filtered.items(),
+            key=lambda item: (-len(item[0]), -len(item[1])),
         )
 
-        for substr, pw_dict in sorted_substrings:
-            # Check if this substring should be suppressed
-            # A substring is suppressed if:
-            # 1. It's contained within a longer substring already in results
-            # 2. AND all passwords containing this substring also contain the longer one
+        for substr, acct_set in sorted_substrings:
             should_suppress = False
 
-            for longer_substr, longer_pw_dict in non_nested_results.items():
+            for longer_substr, longer_acct_set in non_nested.items():
                 if substr in longer_substr and substr != longer_substr:
-                    # Check if all passwords with shorter substring also have the longer one
-                    shorter_passwords = set(pw_dict.keys())
-                    longer_passwords = set(longer_pw_dict.keys())
-
-                    # If shorter substring appears in same or subset of passwords as longer,
-                    # suppress it (the longer one already captures this pattern)
-                    if shorter_passwords <= longer_passwords:
+                    if acct_set <= longer_acct_set:
                         should_suppress = True
                         break
 
             if not should_suppress:
-                non_nested_results[substr] = pw_dict
+                non_nested[substr] = acct_set
 
-        # Return results with password examples
-        return [
-            {
-                "substring": substr,
-                "count": len(pw_dict),
-                "passwords": pw_dict
-            }
-            for substr, pw_dict in non_nested_results.items()
-        ]
+        return [{"substring": s, "count": len(a)} for s, a in non_nested.items()]
 
-    # Return all substrings with password examples
-    return [
-        {
-            "substring": substr,
-            "count": len(pw_dict),
-            "passwords": pw_dict
-        }
-        for substr, pw_dict in filtered_substrings.items()
-    ]
+    return [{"substring": s, "count": len(a)} for s, a in filtered.items()]
 
 
 def dictionary_analysis(

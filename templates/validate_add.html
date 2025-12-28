@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADD JSON Validation Results - Hash Master 1000</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- High-tech font for logo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Modern Header -->
+    <header class="app-header">
+        <div class="brand">
+            <h1 class="brand-name">Hash Master 1000</h1>
+            <span class="brand-tagline">Password & Hash Analyzer</span>
+        </div>
+        <div class="header-actions">
+            {% if advanced_options_enabled %}
+            <a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
+            {% endif %}
+            <button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('index') }}'"><span class="btn-icon">↩</span>Start Over</button>
+            <button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Main Layout with Sidebar -->
+        <div class="main-layout">
+            <!-- Step Indicator Sidebar -->
+            <div class="step-sidebar">
+                <div class="step-indicator">
+                    <div class="step completed" data-step="1">
+                        <div class="step-circle">1</div>
+                        <div class="step-label">Load Files</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step active" data-step="2">
+                        <div class="step-circle">2</div>
+                        <div class="step-label">Validate</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step upcoming" data-step="3">
+                        <div class="step-circle">3</div>
+                        <div class="step-label">Configure</div>
+                        <div class="step-connector"></div>
+                    </div>
+                    <div class="step upcoming" data-step="4">
+                        <div class="step-circle">4</div>
+                        <div class="step-label">Report</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Container -->
+            <div class="wizard-container">
+                <div class="step-content active" data-step="2">
+                    <div class="step-panel compact-panel">
+                        <h2>Step 2: Review ADD JSON Validation</h2>
+
+                        <div class="validation-container compact">
+                            <!-- Domain Policy - Compact Inline -->
+                            {% if add_data.domain_policy %}
+                            <div class="policy-bar">
+                                <span class="policy-tag"><strong>{{ add_data.domain_policy.domain_name }}</strong></span>
+                                <span class="policy-tag">Pull: {{ add_data.domain_policy.pull_date }}</span>
+                                <span class="policy-tag">Min Length: {{ add_data.domain_policy.min_password_length }}</span>
+                                <span class="policy-tag">Max Age: {% if add_data.domain_policy.max_password_age == 0 or add_data.domain_policy.max_password_age > 999 %}Never{% else %}{{ add_data.domain_policy.max_password_age }}d{% endif %}</span>
+                                <span class="policy-tag">History: {{ add_data.domain_policy.pwd_history_length }}</span>
+                                <span class="policy-tag">Lockout: {{ add_data.domain_policy.lockout_threshold }}</span>
+                            </div>
+                            {% endif %}
+
+                            <!-- All Stats in Compact Grid -->
+                            <div class="stats-grid">
+                                <!-- Row 1: Users & Domains -->
+                                <div class="stat-card">
+                                    <div class="stat-value success">{{ add_data.total_users }}</div>
+                                    <div class="stat-label">Total Users</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value success">{{ add_data.valid_users }}</div>
+                                    <div class="stat-label">Valid</div>
+                                </div>
+                                {% if add_data.error_users > 0 %}
+                                <div class="stat-card">
+                                    <div class="stat-value error">{{ add_data.error_users }}</div>
+                                    <div class="stat-label">Errors</div>
+                                </div>
+                                {% endif %}
+                                <div class="stat-card">
+                                    <div class="stat-value info">{{ domain_count|default(1) }}</div>
+                                    <div class="stat-label">Domains</div>
+                                </div>
+
+                                <!-- Row 2: Privilege Levels -->
+                                <div class="stat-card tier0" title="Domain Admins, Enterprise Admins, Schema Admins, RID 500">
+                                    <div class="stat-value {% if add_data.tier0_count > 0 %}warning{% endif %}">{{ add_data.tier0_count }}</div>
+                                    <div class="stat-label">Tier 0</div>
+                                </div>
+                                <div class="stat-card elevated" title="Administrators, Backup Operators, Account Operators">
+                                    <div class="stat-value">{{ add_data.elevated_count }}</div>
+                                    <div class="stat-label">Elevated</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value">{{ add_data.total_users - add_data.privileged_count }}</div>
+                                    <div class="stat-label">Standard</div>
+                                </div>
+
+                                <!-- Row 3: Historical & Potfile -->
+                                {% if add_data.users_with_history > 0 %}
+                                <div class="stat-card">
+                                    <div class="stat-value info">{{ add_data.users_with_history }}</div>
+                                    <div class="stat-label">History Users</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value info">{{ add_data.total_historical_hashes }}</div>
+                                    <div class="stat-label">Hist. Hashes</div>
+                                </div>
+                                {% endif %}
+
+                                {% if potfile %}
+                                <div class="stat-card">
+                                    <div class="stat-value success">{{ potfile.ntlm_count }}</div>
+                                    <div class="stat-label">Potfile NTLM</div>
+                                </div>
+                                {% if potfile.non_ntlm_count > 0 %}
+                                <div class="stat-card">
+                                    <div class="stat-value warning">{{ potfile.non_ntlm_count }}</div>
+                                    <div class="stat-label">Non-NTLM</div>
+                                </div>
+                                {% endif %}
+                                {% endif %}
+                            </div>
+
+                            <!-- Master Potfile Merge Results -->
+                            {% if master_potfile_enabled and master_potfile_merge %}
+                            <div class="master-potfile-merge-summary compact">
+                                <div class="merge-header">
+                                    <span class="merge-icon">&#128218;</span>
+                                    <h3>Master Potfile Merge Results</h3>
+                                </div>
+                                <div class="merge-stats">
+                                    <div class="merge-stat added">
+                                        <span class="merge-stat-value">{{ master_potfile_merge.added }}</span>
+                                        <span class="merge-stat-label">New entries added</span>
+                                    </div>
+                                    <div class="merge-stat skipped">
+                                        <span class="merge-stat-value">{{ master_potfile_merge.skipped }}</span>
+                                        <span class="merge-stat-label">Already in master</span>
+                                    </div>
+                                    <div class="merge-stat total">
+                                        <span class="merge-stat-value">{{ master_potfile_merge.total }}</span>
+                                        <span class="merge-stat-label">Master potfile total</span>
+                                    </div>
+                                </div>
+                                {% if master_potfile_merge.added > 0 %}
+                                <p class="merge-note">Your cracked hashes have been merged into the master potfile.</p>
+                                {% else %}
+                                <p class="merge-note">No new hashes to add. Using existing master potfile for matching.</p>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            {% if not potfile %}
+                            <div class="warning-banner compact">
+                                <strong>Potfile Required</strong> - Please go back and provide a valid potfile.
+                            </div>
+                            {% endif %}
+
+                            <!-- Errors Section -->
+                            {% if add_data.errors %}
+                            <div class="warning-banner compact">
+                                <strong>Validation Issues:</strong>
+                                {% for error in add_data.errors %}
+                                <span class="error-badge {{ error.severity }}">{{ error.severity | upper }}</span> {{ error.message }}{% if not loop.last %}; {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Navigation -->
+                        <div class="step-navigation compact">
+                            <a href="{{ url_for('clear_and_restart') }}" class="btn btn-secondary">Start Over</a>
+                            <a href="{{ url_for('index', step=3, input_method='add_json') }}" class="btn btn-primary">Continue to Configuration</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logout handler -->
+    <script>
+        document.getElementById('logoutButton').addEventListener('click', function() {
+            window.location.href = '/logout';
+        });
+    </script>
+
+    <style>
+        .compact-panel {
+            padding: 16px !important;
+        }
+        .compact-panel h2 {
+            margin-bottom: 12px;
+            font-size: 1.3em;
+        }
+        .validation-container.compact {
+            margin-bottom: 12px;
+        }
+        .policy-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--surface-color, #2a2a2a);
+            border: 1px solid var(--border-color, #444);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+        .policy-tag {
+            font-size: 0.85em;
+            color: var(--text-secondary, #aaa);
+            padding: 2px 8px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+        }
+        .policy-tag strong {
+            color: var(--accent-color, #00d4ff);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 8px;
+        }
+        .stat-card {
+            background: var(--surface-color, #2a2a2a);
+            border: 1px solid var(--border-color, #444);
+            border-radius: 6px;
+            padding: 10px 8px;
+            text-align: center;
+        }
+        .stat-card.tier0 {
+            border-color: #ff6b6b;
+        }
+        .stat-card.elevated {
+            border-color: #feca57;
+        }
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            line-height: 1.2;
+        }
+        .stat-value.success { color: #4ade80; }
+        .stat-value.warning { color: #ff6b6b; }
+        .stat-value.error { color: #f87171; }
+        .stat-value.info { color: #60a5fa; }
+        .stat-label {
+            font-size: 0.75em;
+            color: var(--text-secondary, #888);
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+        .warning-banner.compact {
+            padding: 10px 12px;
+            margin-top: 12px;
+            font-size: 0.9em;
+        }
+        .step-navigation.compact {
+            margin-top: 16px;
+            padding-top: 12px;
+        }
+    </style>
+</body>
+</html>

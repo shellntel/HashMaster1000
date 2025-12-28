@@ -169,16 +169,23 @@ def main(args):
     # Convert the returned stats_report to an array to ensure chart.js orders properly
     stats_table = cracking_stats_array(stats_report["cracking_stats"])
 
-    # Create a list of all cracked passwords from the job (including duplicates)
+    # Create a list of all cracked passwords from the job (for dictionary analysis)
     cracked_passwords = [
         account["cracked_pw"]
         for account in account_data.values()
         if account.get("cracked_pw")
     ]
 
+    # Create list of account/password entries (for substring analysis)
+    account_password_entries = [
+        {"account": username, "password": account["cracked_pw"]}
+        for username, account in account_data.items()
+        if account.get("cracked_pw")
+    ]
+
     # Call the substring_analysis function to return Top Substrings for the report
     substrings = password_analysis_tools.substring_analysis(
-        cracked_passwords,
+        account_password_entries,
         args.substring_min_len,
         args.substring_max_len,
         args.substring_freq_threshold,

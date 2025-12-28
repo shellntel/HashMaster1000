@@ -1,15 +1,50 @@
-*.log
-*.pyc
-*.pem
+# Environment and secrets
 .env
-.vscode
-.vscode/
-users.json
+*.pem
+cert.pem
+key.pem
+
+# Python
+.venv/
 __pycache__/
-data/
-uploads/
+*.py[cod]
+*$py.class
+*.so
+
+# Flask session
 flask_session/
-venv/
-scripts/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+*.egg-info/
+dist/
+build/
+
+# Uploads and user data
+uploads/
+data/sessions/
+
+# Generated data files (session outputs, AI analysis, etc)
+data/ai_analysis/
+data/current_session.json
+data/aaia_results.json
+
+# Test outputs
 test_outputs/
-FEATURE_ROADMAP.md
+benchmark_results/
+
+# Temporary files
+*.tmp
+*.log
+
+# Domain output file (generated)
+hm_domainoutput.json

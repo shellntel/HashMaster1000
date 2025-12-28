@@ -5,3 +5,5 @@ bcrypt
 english-words
 python-dotenv
 cryptography
+nltk
+requests
