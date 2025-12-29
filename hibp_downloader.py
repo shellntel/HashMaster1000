@@ -382,8 +382,8 @@ def estimate_download() -> Dict:
     return {
         "total_prefixes": TOTAL_PREFIXES,
         "estimated_hashes": "~850 million",
-        "estimated_size_gb": "~16-18",
-        "estimated_time_minutes": "30-60 (depends on connection and parallelism)",
+        "estimated_size_gb": "~70-80",
+        "estimated_time_minutes": "60-120 (depends on connection and parallelism)",
         "api_url": HIBP_API_URL,
         "rate_limit": "None (Pwned Passwords API has no rate limit)",
         "attribution": {
