@@ -9,7 +9,7 @@ https://github.com/HaveIBeenPwned/PwnedPasswordsDownloader
 
 The HIBP API uses a k-anonymity model with 1,048,576 hash prefixes (00000-FFFFF).
 Each prefix returns ~800 hash suffixes with their breach counts.
-Total database size is approximately 16GB for NTLM hashes.
+Total database size is approximately 70-80GB for NTLM hashes.
 
 API Documentation: https://haveibeenpwned.com/API/v3#PwnedPasswords
 Note: There is NO rate limit on the Pwned Passwords API.
@@ -17,6 +17,7 @@ Note: There is NO rate limit on the Pwned Passwords API.
 
 import logging
 import os
+import shutil
 import time
 import json
 import threading
@@ -130,54 +131,6 @@ def cancel_download() -> bool:
         return True
 
 
-def _fetch_prefix(prefix: str, retries: int = 3) -> tuple[str, list[str], Optional[str]]:
-    """
-    Fetch all hash suffixes for a given prefix.
-
-    Args:
-        prefix: 5-character hex prefix (e.g., "00000")
-        retries: Number of retry attempts
-
-    Returns:
-        Tuple of (prefix, list of "HASH:COUNT" lines, error_message or None)
-    """
-    for attempt in range(retries):
-        try:
-            response = requests.get(
-                f"{HIBP_API_URL}/{prefix}",
-                params={"mode": "ntlm"},
-                headers={
-                    "User-Agent": "HashMaster1000-HIBPDownloader",
-                    "Add-Padding": "true"
-                },
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                # Parse response - each line is "SUFFIX:COUNT"
-                lines = []
-                for line in response.text.splitlines():
-                    line = line.strip()
-                    if line and ":" in line:
-                        # Reconstruct full hash: PREFIX + SUFFIX
-                        parts = line.split(":", 1)
-                        if len(parts) == 2:
-                            full_hash = prefix.upper() + parts[0].upper()
-                            lines.append(f"{full_hash}:{parts[1]}")
-                return prefix, lines, None
-            else:
-                error = f"HTTP {response.status_code}"
-
-        except requests.RequestException as e:
-            error = str(e)
-
-        # Wait before retry
-        if attempt < retries - 1:
-            time.sleep(1 * (attempt + 1))
-
-    return prefix, [], error
-
-
 def start_download(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     output_filename: str = DEFAULT_OUTPUT_FILENAME,
@@ -224,6 +177,60 @@ def start_download(
     return True
 
 
+def _fetch_and_save_prefix(prefix: str, temp_dir: str, retries: int = 3) -> tuple[str, int, Optional[str]]:
+    """
+    Fetch all hash suffixes for a given prefix and save directly to disk.
+
+    Args:
+        prefix: 5-character hex prefix (e.g., "00000")
+        temp_dir: Directory to save the prefix file
+        retries: Number of retry attempts
+
+    Returns:
+        Tuple of (prefix, hash_count, error_message or None)
+    """
+    for attempt in range(retries):
+        try:
+            response = requests.get(
+                f"{HIBP_API_URL}/{prefix}",
+                params={"mode": "ntlm"},
+                headers={
+                    "User-Agent": "HashMaster1000-HIBPDownloader",
+                    "Add-Padding": "true"
+                },
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                # Write directly to disk - one file per prefix
+                prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+                hash_count = 0
+
+                with open(prefix_file, "w", encoding="utf-8") as f:
+                    for line in response.text.splitlines():
+                        line = line.strip()
+                        if line and ":" in line:
+                            # Reconstruct full hash: PREFIX + SUFFIX
+                            parts = line.split(":", 1)
+                            if len(parts) == 2:
+                                full_hash = prefix.upper() + parts[0].upper()
+                                f.write(f"{full_hash}:{parts[1]}\n")
+                                hash_count += 1
+
+                return prefix, hash_count, None
+            else:
+                error = f"HTTP {response.status_code}"
+
+        except requests.RequestException as e:
+            error = str(e)
+
+        # Wait before retry
+        if attempt < retries - 1:
+            time.sleep(1 * (attempt + 1))
+
+    return prefix, 0, error
+
+
 def _run_download(
     output_dir: str,
     output_filename: str,
@@ -232,18 +239,25 @@ def _run_download(
     download_state: HIBPDownloadState
 ):
     """
-    Run the actual download process.
+    Run the actual download process using disk-based storage.
 
-    This downloads all 1,048,576 hash prefixes and combines them into a single sorted file.
+    This downloads all 1,048,576 hash prefixes to individual files, then
+    concatenates them in order (which produces a sorted file since prefixes
+    are sequential hex values 00000-FFFFF).
+
+    Memory usage is minimal - only one prefix's data is in memory at a time.
     """
     global _active_download
 
+    # Create temp directory for prefix files
+    temp_dir = os.path.join(output_dir, ".hibp_download_temp")
+
     try:
-        # Ensure output directory exists
+        # Ensure directories exist
         os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
 
         output_path = os.path.join(output_dir, output_filename)
-        temp_path = output_path + ".downloading"
 
         with _download_lock:
             download_state.status = "downloading"
@@ -252,18 +266,19 @@ def _run_download(
         # Generate all prefixes (00000 to FFFFF)
         prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
 
-        # Track results
-        all_hashes = []
+        # Track progress
         completed = 0
         failed = 0
+        total_hashes = 0
 
         logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads")
+        logger.info(f"Temp directory: {temp_dir}")
 
-        # Download in parallel
+        # Download in parallel, writing each prefix to its own file
         with ThreadPoolExecutor(max_workers=parallelism) as executor:
             # Submit all tasks
             future_to_prefix = {
-                executor.submit(_fetch_prefix, prefix): prefix
+                executor.submit(_fetch_and_save_prefix, prefix, temp_dir): prefix
                 for prefix in prefixes
             }
 
@@ -275,11 +290,13 @@ def _run_download(
                         download_state.status = "cancelled"
                         download_state.completed_at = datetime.now()
                         logger.info("HIBP download cancelled by user")
+                        # Clean up temp directory
+                        shutil.rmtree(temp_dir, ignore_errors=True)
                         return
 
                 prefix = future_to_prefix[future]
                 try:
-                    _, lines, error = future.result()
+                    _, hash_count, error = future.result()
 
                     if error:
                         failed += 1
@@ -287,19 +304,19 @@ def _run_download(
                             download_state.failed_prefixes = failed
                             download_state.last_error = f"Prefix {prefix}: {error}"
                     else:
-                        all_hashes.extend(lines)
+                        total_hashes += hash_count
 
                     completed += 1
 
                     # Update progress
                     with _download_lock:
                         download_state.completed_prefixes = completed
-                        download_state.total_hashes = len(all_hashes)
+                        download_state.total_hashes = total_hashes
 
-                    # Log progress periodically (every 1000 for first few, then every 10000)
+                    # Log progress periodically
                     if completed == 1 or completed % 1000 == 0:
                         pct = (completed / TOTAL_PREFIXES) * 100
-                        logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {len(all_hashes):,} hashes")
+                        logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {total_hashes:,} hashes")
 
                     if progress_callback:
                         progress_callback(download_state)
@@ -315,27 +332,43 @@ def _run_download(
             if download_state.cancel_requested:
                 download_state.status = "cancelled"
                 download_state.completed_at = datetime.now()
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return
 
-        # Sort and write to file
+        # Merge all prefix files into final output
+        # Since prefixes are 00000-FFFFF in hex order, concatenating in order gives sorted output
         with _download_lock:
             download_state.status = "merging"
 
-        logger.info(f"Sorting {len(all_hashes):,} hashes...")
+        logger.info(f"Merging {TOTAL_PREFIXES:,} prefix files into {output_path}...")
 
-        # Sort by hash (first part before colon)
-        all_hashes.sort(key=lambda x: x.split(":")[0])
+        temp_output = output_path + ".downloading"
+        merged_hashes = 0
 
-        logger.info(f"Writing to {output_path}...")
+        with open(temp_output, "w", encoding="utf-8") as outfile:
+            for i in range(TOTAL_PREFIXES):
+                prefix = f"{i:05X}"
+                prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
 
-        with open(temp_path, "w", encoding="utf-8") as f:
-            for line in all_hashes:
-                f.write(line + "\n")
+                if os.path.exists(prefix_file):
+                    with open(prefix_file, "r", encoding="utf-8") as infile:
+                        for line in infile:
+                            outfile.write(line)
+                            merged_hashes += 1
+
+                # Log merge progress periodically
+                if (i + 1) % 10000 == 0:
+                    pct = ((i + 1) / TOTAL_PREFIXES) * 100
+                    logger.info(f"Merge progress: {i + 1:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%)")
 
         # Rename temp file to final
         if os.path.exists(output_path):
             os.remove(output_path)
-        os.rename(temp_path, output_path)
+        os.rename(temp_output, output_path)
+
+        # Clean up temp directory
+        logger.info("Cleaning up temporary files...")
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
         # Get final file size
         file_size = os.path.getsize(output_path)
@@ -345,10 +378,10 @@ def _run_download(
             download_state.status = "complete"
             download_state.completed_at = datetime.now()
             download_state.output_size_bytes = file_size
-            download_state.total_hashes = len(all_hashes)
+            download_state.total_hashes = merged_hashes
 
         logger.info(
-            f"HIBP download complete: {len(all_hashes):,} hashes, "
+            f"HIBP download complete: {merged_hashes:,} hashes, "
             f"{file_size / (1024**3):.2f} GB, "
             f"{download_state.elapsed_seconds:.1f}s"
         )
@@ -363,11 +396,12 @@ def _run_download(
             download_state.error_message = str(e)
             download_state.completed_at = datetime.now()
 
-        # Clean up temp file
-        temp_path = os.path.join(output_dir, output_filename + ".downloading")
-        if os.path.exists(temp_path):
+        # Clean up temp files
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_output = os.path.join(output_dir, output_filename + ".downloading")
+        if os.path.exists(temp_output):
             try:
-                os.remove(temp_path)
+                os.remove(temp_output)
             except Exception:
                 pass
 

@@ -60,11 +60,11 @@
                         </div>
                         <div>
                             <strong>Estimated File Size:</strong><br>
-                            <span style="color: #a1a1aa;">~16-18 GB</span>
+                            <span style="color: #a1a1aa;">~70-80 GB</span>
                         </div>
                         <div>
                             <strong>Estimated Time:</strong><br>
-                            <span style="color: #a1a1aa;">30-60 minutes</span>
+                            <span style="color: #a1a1aa;">60-120 minutes</span>
                         </div>
                     </div>
                     <p style="margin-top: 16px; font-size: 0.85em; color: #71717a;">
@@ -91,11 +91,13 @@
                     </div>
                     <div style="margin-top: 16px;">
                         <label style="display: block; margin-bottom: 4px; font-weight: 600;">Parallelism (concurrent downloads)</label>
-                        <input type="range" id="parallelism" min="1" max="100" value="20" style="width: 100%;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #71717a;">
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <input type="range" id="parallelismSlider" min="1" max="500" value="100" style="flex: 1;">
+                            <input type="number" id="parallelism" min="1" max="500" value="100" style="width: 80px; padding: 8px; border: 1px solid #3f3f46; border-radius: 6px; background: #27272a; color: #fff; text-align: center;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #71717a; margin-top: 4px;">
                             <span>1 (slow)</span>
-                            <span id="parallelismValue">20</span>
-                            <span>100 (fast)</span>
+                            <span>500 (fastest)</span>
                         </div>
                     </div>
                     <div style="margin-top: 24px; display: flex; gap: 12px;">
@@ -173,9 +175,20 @@
     <script>
         let pollInterval = null;
 
-        // Update parallelism display
-        document.getElementById('parallelism').addEventListener('input', function() {
-            document.getElementById('parallelismValue').textContent = this.value;
+        // Sync parallelism slider and input
+        const parallelismSlider = document.getElementById('parallelismSlider');
+        const parallelismInput = document.getElementById('parallelism');
+
+        parallelismSlider.addEventListener('input', function() {
+            parallelismInput.value = this.value;
+        });
+
+        parallelismInput.addEventListener('input', function() {
+            // Clamp value to valid range
+            let value = parseInt(this.value) || 1;
+            value = Math.max(1, Math.min(500, value));
+            this.value = value;
+            parallelismSlider.value = value;
         });
 
         // Format numbers with commas

@@ -28,7 +28,7 @@ HIBP_NTLM_SUFFIX_LENGTH = 27  # NTLM suffixes are 27 chars (32 - 5)
 # Parallelism settings - HIBP has no rate limit, so we can be aggressive
 # See: https://haveibeenpwned.com/API/v3#PwnedPasswords
 DEFAULT_DELAY_BETWEEN_REQUESTS = 0.0  # No delay needed - HIBP has no rate limit
-MAX_WORKERS = 50  # Parallel threads for checking (aggressive but reasonable)
+MAX_WORKERS = 200  # Parallel threads for checking (aggressive - HIBP has no rate limit)
 
 # Local database state (binary search mode - no memory loading required)
 _local_db_path: Optional[str] = None
