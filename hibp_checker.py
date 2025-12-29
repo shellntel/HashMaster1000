@@ -25,9 +25,10 @@ HIBP_API_URL = "https://api.pwnedpasswords.com/range"
 HIBP_PREFIX_LENGTH = 5
 HIBP_NTLM_SUFFIX_LENGTH = 27  # NTLM suffixes are 27 chars (32 - 5)
 
-# Rate limiting (even though HIBP has no rate limit, be respectful)
-DEFAULT_DELAY_BETWEEN_REQUESTS = 0.05  # 50ms between requests
-MAX_WORKERS = 5  # Parallel threads for checking
+# Parallelism settings - HIBP has no rate limit, so we can be aggressive
+# See: https://haveibeenpwned.com/API/v3#PwnedPasswords
+DEFAULT_DELAY_BETWEEN_REQUESTS = 0.0  # No delay needed - HIBP has no rate limit
+MAX_WORKERS = 50  # Parallel threads for checking (aggressive but reasonable)
 
 # Local database state (binary search mode - no memory loading required)
 _local_db_path: Optional[str] = None
@@ -694,7 +695,8 @@ def check_hashes_hibp(
 
     logger.info(f"Optimized to {len(prefix_to_hashes)} unique prefixes (API calls)")
 
-    checked_count = 0
+    checked_prefixes = 0
+    total_prefixes = len(prefix_to_hashes)
     hash_results: dict[str, HIBPResult] = {}
 
     def check_prefix(prefix: str, hashes: list[str]) -> list[HIBPResult]:
@@ -783,10 +785,10 @@ def check_hashes_hibp(
                 prefix_results = future.result()
                 for result in prefix_results:
                     hash_results[result.ntlm_hash] = result
-                checked_count += len(prefix_results)
+                checked_prefixes += 1
 
                 if progress_callback:
-                    progress_callback(checked_count, total_unique)
+                    progress_callback(checked_prefixes, total_prefixes)
 
             except Exception as e:
                 logger.error(f"Error processing prefix {prefix}: {e}")
