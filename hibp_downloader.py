@@ -15,6 +15,7 @@ API Documentation: https://haveibeenpwned.com/API/v3#PwnedPasswords
 Note: There is NO rate limit on the Pwned Passwords API.
 """
 
+import asyncio
 import logging
 import os
 import shutil
@@ -24,8 +25,14 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Callable, Dict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
+
+# Try to import aiohttp, fall back to requests if not available
+try:
+    import aiohttp
+    ASYNC_AVAILABLE = True
+except ImportError:
+    import requests
+    ASYNC_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +41,7 @@ HIBP_API_URL = "https://api.pwnedpasswords.com/range"
 TOTAL_PREFIXES = 1048576  # 16^5 = 00000 to FFFFF
 
 # Default download settings
-DEFAULT_PARALLELISM = 100  # Concurrent download threads (HIBP has no rate limit)
+DEFAULT_PARALLELISM = 100  # Concurrent download connections (HIBP has no rate limit)
 DEFAULT_OUTPUT_DIR = "data"
 DEFAULT_OUTPUT_FILENAME = "pwnedpasswords-ntlm.txt"
 
@@ -146,7 +153,7 @@ def start_download(
     Args:
         output_dir: Directory to save the database file
         output_filename: Name of the output file
-        parallelism: Number of concurrent download threads (default 20)
+        parallelism: Number of concurrent connections (default 100)
         progress_callback: Optional callback called on progress updates
 
     Returns:
@@ -168,7 +175,7 @@ def start_download(
 
     # Start download in background thread, passing the state object directly
     thread = threading.Thread(
-        target=_run_download,
+        target=_run_download_wrapper,
         args=(output_dir, output_filename, parallelism, progress_callback, download_state),
         daemon=True
     )
@@ -177,61 +184,85 @@ def start_download(
     return True
 
 
-def _fetch_and_save_prefix(prefix: str, temp_dir: str, retries: int = 3) -> tuple[str, int, Optional[str]]:
-    """
-    Fetch all hash suffixes for a given prefix and save directly to disk.
-
-    Args:
-        prefix: 5-character hex prefix (e.g., "00000")
-        temp_dir: Directory to save the prefix file
-        retries: Number of retry attempts
-
-    Returns:
-        Tuple of (prefix, hash_count, error_message or None)
-    """
-    for attempt in range(retries):
+def _run_download_wrapper(
+    output_dir: str,
+    output_filename: str,
+    parallelism: int,
+    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    download_state: HIBPDownloadState
+):
+    """Wrapper to run async download in a new event loop."""
+    if ASYNC_AVAILABLE:
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            response = requests.get(
-                f"{HIBP_API_URL}/{prefix}",
-                params={"mode": "ntlm"},
-                headers={
-                    "User-Agent": "HashMaster1000-HIBPDownloader",
-                    "Add-Padding": "true"
-                },
-                timeout=30
+            loop.run_until_complete(
+                _run_download_async(output_dir, output_filename, parallelism, progress_callback, download_state)
             )
-
-            if response.status_code == 200:
-                # Write directly to disk - one file per prefix
-                prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
-                hash_count = 0
-
-                with open(prefix_file, "w", encoding="utf-8") as f:
-                    for line in response.text.splitlines():
-                        line = line.strip()
-                        if line and ":" in line:
-                            # Reconstruct full hash: PREFIX + SUFFIX
-                            parts = line.split(":", 1)
-                            if len(parts) == 2:
-                                full_hash = prefix.upper() + parts[0].upper()
-                                f.write(f"{full_hash}:{parts[1]}\n")
-                                hash_count += 1
-
-                return prefix, hash_count, None
-            else:
-                error = f"HTTP {response.status_code}"
-
-        except requests.RequestException as e:
-            error = str(e)
-
-        # Wait before retry
-        if attempt < retries - 1:
-            time.sleep(1 * (attempt + 1))
-
-    return prefix, 0, error
+        finally:
+            loop.close()
+    else:
+        # Fallback to synchronous version
+        _run_download_sync(output_dir, output_filename, parallelism, progress_callback, download_state)
 
 
-def _run_download(
+async def _fetch_prefix_async(
+    session: "aiohttp.ClientSession",
+    prefix: str,
+    temp_dir: str,
+    semaphore: asyncio.Semaphore,
+    retries: int = 3
+) -> tuple[str, int, Optional[str]]:
+    """
+    Async fetch of hash suffixes for a prefix.
+    """
+    async with semaphore:
+        for attempt in range(retries):
+            try:
+                async with session.get(
+                    f"{HIBP_API_URL}/{prefix}",
+                    params={"mode": "ntlm"},
+                    headers={
+                        "User-Agent": "HashMaster1000-HIBPDownloader",
+                        "Add-Padding": "true"
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        text = await response.text()
+
+                        # Write directly to disk
+                        prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+                        hash_count = 0
+
+                        with open(prefix_file, "w", encoding="utf-8") as f:
+                            for line in text.splitlines():
+                                line = line.strip()
+                                if line and ":" in line:
+                                    parts = line.split(":", 1)
+                                    if len(parts) == 2:
+                                        full_hash = prefix.upper() + parts[0].upper()
+                                        f.write(f"{full_hash}:{parts[1]}\n")
+                                        hash_count += 1
+
+                        return prefix, hash_count, None
+                    else:
+                        error = f"HTTP {response.status}"
+
+            except asyncio.TimeoutError:
+                error = "Timeout"
+            except Exception as e:
+                error = str(e)
+
+            # Wait before retry
+            if attempt < retries - 1:
+                await asyncio.sleep(1 * (attempt + 1))
+
+        return prefix, 0, error
+
+
+async def _run_download_async(
     output_dir: str,
     output_filename: str,
     parallelism: int,
@@ -239,21 +270,13 @@ def _run_download(
     download_state: HIBPDownloadState
 ):
     """
-    Run the actual download process using disk-based storage.
-
-    This downloads all 1,048,576 hash prefixes to individual files, then
-    concatenates them in order (which produces a sorted file since prefixes
-    are sequential hex values 00000-FFFFF).
-
-    Memory usage is minimal - only one prefix's data is in memory at a time.
+    Run the download using async I/O for maximum throughput.
     """
     global _active_download
 
-    # Create temp directory for prefix files
     temp_dir = os.path.join(output_dir, ".hibp_download_temp")
 
     try:
-        # Ensure directories exist
         os.makedirs(output_dir, exist_ok=True)
         os.makedirs(temp_dir, exist_ok=True)
 
@@ -263,34 +286,256 @@ def _run_download(
             download_state.status = "downloading"
             download_state.output_path = output_path
 
-        # Generate all prefixes (00000 to FFFFF)
+        # Generate all prefixes
         prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
 
-        # Track progress
+        logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} concurrent connections (async)")
+        logger.info(f"Temp directory: {temp_dir}")
+
+        # Use semaphore to limit concurrent connections
+        semaphore = asyncio.Semaphore(parallelism)
+
+        # Create connector with high connection limit
+        connector = aiohttp.TCPConnector(
+            limit=parallelism,
+            limit_per_host=parallelism,
+            ttl_dns_cache=300,
+            enable_cleanup_closed=True
+        )
+
         completed = 0
         failed = 0
         total_hashes = 0
 
-        logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads")
-        logger.info(f"Temp directory: {temp_dir}")
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Process in batches to avoid overwhelming memory with tasks
+            batch_size = parallelism * 10  # Process 10x parallelism at a time
 
-        # Download in parallel, writing each prefix to its own file
-        with ThreadPoolExecutor(max_workers=parallelism) as executor:
-            # Submit all tasks
-            future_to_prefix = {
-                executor.submit(_fetch_and_save_prefix, prefix, temp_dir): prefix
-                for prefix in prefixes
-            }
-
-            # Process completed tasks
-            for future in as_completed(future_to_prefix):
+            for batch_start in range(0, TOTAL_PREFIXES, batch_size):
                 # Check for cancellation
                 with _download_lock:
                     if download_state.cancel_requested:
                         download_state.status = "cancelled"
                         download_state.completed_at = datetime.now()
                         logger.info("HIBP download cancelled by user")
-                        # Clean up temp directory
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        return
+
+                batch_end = min(batch_start + batch_size, TOTAL_PREFIXES)
+                batch_prefixes = prefixes[batch_start:batch_end]
+
+                # Create tasks for this batch
+                tasks = [
+                    _fetch_prefix_async(session, prefix, temp_dir, semaphore)
+                    for prefix in batch_prefixes
+                ]
+
+                # Wait for batch to complete
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for result in results:
+                    if isinstance(result, Exception):
+                        failed += 1
+                        with _download_lock:
+                            download_state.failed_prefixes = failed
+                            download_state.last_error = str(result)
+                    else:
+                        prefix, hash_count, error = result
+                        if error:
+                            failed += 1
+                            with _download_lock:
+                                download_state.failed_prefixes = failed
+                                download_state.last_error = f"Prefix {prefix}: {error}"
+                        else:
+                            total_hashes += hash_count
+
+                    completed += 1
+
+                # Update progress after each batch
+                with _download_lock:
+                    download_state.completed_prefixes = completed
+                    download_state.total_hashes = total_hashes
+
+                # Log progress
+                pct = (completed / TOTAL_PREFIXES) * 100
+                if completed == batch_size or completed % 10000 < batch_size:
+                    logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {total_hashes:,} hashes")
+
+                if progress_callback:
+                    progress_callback(download_state)
+
+        # Check for cancellation before merging
+        with _download_lock:
+            if download_state.cancel_requested:
+                download_state.status = "cancelled"
+                download_state.completed_at = datetime.now()
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return
+
+        # Merge files
+        await _merge_files_async(output_dir, output_filename, temp_dir, download_state, progress_callback)
+
+    except Exception as e:
+        logger.error(f"HIBP download failed: {e}")
+        with _download_lock:
+            download_state.status = "error"
+            download_state.error_message = str(e)
+            download_state.completed_at = datetime.now()
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_output = os.path.join(output_dir, output_filename + ".downloading")
+        if os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except Exception:
+                pass
+
+
+async def _merge_files_async(
+    output_dir: str,
+    output_filename: str,
+    temp_dir: str,
+    download_state: HIBPDownloadState,
+    progress_callback: Optional[Callable[[HIBPDownloadState], None]]
+):
+    """Merge all prefix files into final output."""
+    with _download_lock:
+        download_state.status = "merging"
+
+    output_path = os.path.join(output_dir, output_filename)
+    temp_output = output_path + ".downloading"
+
+    logger.info(f"Merging {TOTAL_PREFIXES:,} prefix files into {output_path}...")
+
+    merged_hashes = 0
+
+    with open(temp_output, "w", encoding="utf-8") as outfile:
+        for i in range(TOTAL_PREFIXES):
+            prefix = f"{i:05X}"
+            prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+
+            if os.path.exists(prefix_file):
+                with open(prefix_file, "r", encoding="utf-8") as infile:
+                    for line in infile:
+                        outfile.write(line)
+                        merged_hashes += 1
+
+            if (i + 1) % 10000 == 0:
+                pct = ((i + 1) / TOTAL_PREFIXES) * 100
+                logger.info(f"Merge progress: {i + 1:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%)")
+
+    if os.path.exists(output_path):
+        os.remove(output_path)
+    os.rename(temp_output, output_path)
+
+    logger.info("Cleaning up temporary files...")
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+    file_size = os.path.getsize(output_path)
+
+    with _download_lock:
+        download_state.status = "complete"
+        download_state.completed_at = datetime.now()
+        download_state.output_size_bytes = file_size
+        download_state.total_hashes = merged_hashes
+
+    logger.info(
+        f"HIBP download complete: {merged_hashes:,} hashes, "
+        f"{file_size / (1024**3):.2f} GB, "
+        f"{download_state.elapsed_seconds:.1f}s"
+    )
+
+    if progress_callback:
+        progress_callback(download_state)
+
+
+def _run_download_sync(
+    output_dir: str,
+    output_filename: str,
+    parallelism: int,
+    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    download_state: HIBPDownloadState
+):
+    """
+    Fallback synchronous download using requests + ThreadPoolExecutor.
+    Used when aiohttp is not available.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    global _active_download
+
+    temp_dir = os.path.join(output_dir, ".hibp_download_temp")
+
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        output_path = os.path.join(output_dir, output_filename)
+
+        with _download_lock:
+            download_state.status = "downloading"
+            download_state.output_path = output_path
+
+        prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
+
+        completed = 0
+        failed = 0
+        total_hashes = 0
+
+        logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads (sync fallback)")
+        logger.info(f"Temp directory: {temp_dir}")
+
+        def fetch_prefix_sync(prefix: str) -> tuple[str, int, Optional[str]]:
+            for attempt in range(3):
+                try:
+                    response = requests.get(
+                        f"{HIBP_API_URL}/{prefix}",
+                        params={"mode": "ntlm"},
+                        headers={
+                            "User-Agent": "HashMaster1000-HIBPDownloader",
+                            "Add-Padding": "true"
+                        },
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+                        hash_count = 0
+
+                        with open(prefix_file, "w", encoding="utf-8") as f:
+                            for line in response.text.splitlines():
+                                line = line.strip()
+                                if line and ":" in line:
+                                    parts = line.split(":", 1)
+                                    if len(parts) == 2:
+                                        full_hash = prefix.upper() + parts[0].upper()
+                                        f.write(f"{full_hash}:{parts[1]}\n")
+                                        hash_count += 1
+
+                        return prefix, hash_count, None
+                    else:
+                        error = f"HTTP {response.status_code}"
+
+                except Exception as e:
+                    error = str(e)
+
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
+
+            return prefix, 0, error
+
+        with ThreadPoolExecutor(max_workers=parallelism) as executor:
+            future_to_prefix = {
+                executor.submit(fetch_prefix_sync, prefix): prefix
+                for prefix in prefixes
+            }
+
+            for future in as_completed(future_to_prefix):
+                with _download_lock:
+                    if download_state.cancel_requested:
+                        download_state.status = "cancelled"
+                        download_state.completed_at = datetime.now()
+                        logger.info("HIBP download cancelled by user")
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         return
 
@@ -308,12 +553,10 @@ def _run_download(
 
                     completed += 1
 
-                    # Update progress
                     with _download_lock:
                         download_state.completed_prefixes = completed
                         download_state.total_hashes = total_hashes
 
-                    # Log progress periodically
                     if completed == 1 or completed % 1000 == 0:
                         pct = (completed / TOTAL_PREFIXES) * 100
                         logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {total_hashes:,} hashes")
@@ -327,7 +570,6 @@ def _run_download(
                         download_state.failed_prefixes = failed
                         download_state.last_error = f"Prefix {prefix}: {str(e)}"
 
-        # Check for cancellation before merging
         with _download_lock:
             if download_state.cancel_requested:
                 download_state.status = "cancelled"
@@ -335,8 +577,7 @@ def _run_download(
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return
 
-        # Merge all prefix files into final output
-        # Since prefixes are 00000-FFFFF in hex order, concatenating in order gives sorted output
+        # Merge files
         with _download_lock:
             download_state.status = "merging"
 
@@ -356,24 +597,19 @@ def _run_download(
                             outfile.write(line)
                             merged_hashes += 1
 
-                # Log merge progress periodically
                 if (i + 1) % 10000 == 0:
                     pct = ((i + 1) / TOTAL_PREFIXES) * 100
                     logger.info(f"Merge progress: {i + 1:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%)")
 
-        # Rename temp file to final
         if os.path.exists(output_path):
             os.remove(output_path)
         os.rename(temp_output, output_path)
 
-        # Clean up temp directory
         logger.info("Cleaning up temporary files...")
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-        # Get final file size
         file_size = os.path.getsize(output_path)
 
-        # Update final state
         with _download_lock:
             download_state.status = "complete"
             download_state.completed_at = datetime.now()
@@ -396,7 +632,6 @@ def _run_download(
             download_state.error_message = str(e)
             download_state.completed_at = datetime.now()
 
-        # Clean up temp files
         shutil.rmtree(temp_dir, ignore_errors=True)
         temp_output = os.path.join(output_dir, output_filename + ".downloading")
         if os.path.exists(temp_output):
@@ -420,6 +655,7 @@ def estimate_download() -> Dict:
         "estimated_time_minutes": "60-120 (depends on connection and parallelism)",
         "api_url": HIBP_API_URL,
         "rate_limit": "None (Pwned Passwords API has no rate limit)",
+        "async_available": ASYNC_AVAILABLE,
         "attribution": {
             "name": "Have I Been Pwned - Pwned Passwords",
             "website": "https://haveibeenpwned.com/Passwords",

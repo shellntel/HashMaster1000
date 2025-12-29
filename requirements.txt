@@ -7,3 +7,4 @@ python-dotenv
 cryptography
 nltk
 requests
+aiohttp
