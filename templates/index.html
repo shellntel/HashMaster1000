@@ -557,6 +557,57 @@
 				potfile: { validated: false, valid: false, data: null }
 			};
 
+			// Reset validation state when file input changes
+			function resetValidationState(fileType, isLocalMethod = false) {
+				// Reset the validation state
+				validationState[fileType] = { validated: false, valid: false, data: null };
+
+				// Get the appropriate UI elements based on input method
+				const prefix = isLocalMethod ? 'local_' : '';
+				const statusIcon = document.getElementById(prefix + fileType + '_status_icon');
+				const validateBtn = document.getElementById(prefix + fileType + '_validate_btn');
+				const statusDiv = document.getElementById(isLocalMethod ? `local_${fileType}_status` : `${fileType}_status`);
+
+				// Show the validate button again, hide the status icon
+				if (validateBtn) validateBtn.style.display = 'inline-flex';
+				if (statusIcon) statusIcon.style.display = 'none';
+
+				// Reset the status text
+				if (statusDiv) {
+					statusDiv.className = 'file-status pending';
+					statusDiv.innerHTML = '<span class="file-status-icon">○</span><span>Not validated</span>';
+				}
+
+				// Update the continue button state
+				updateContinueButton();
+			}
+
+			// Set up file input change listeners to reset validation when file changes
+			function setupFileChangeListeners() {
+				// Upload method - file inputs
+				const pwdumpFileInput = document.getElementById('pwdump_file');
+				const potfileInput = document.getElementById('potfile');
+				if (pwdumpFileInput) {
+					pwdumpFileInput.addEventListener('change', () => resetValidationState('pwdump', false));
+				}
+				if (potfileInput) {
+					potfileInput.addEventListener('change', () => resetValidationState('potfile', false));
+				}
+
+				// Local method - path inputs
+				const pwdumpPathInput = document.getElementById('pwdump_path');
+				const potfilePathInput = document.getElementById('potfile_path');
+				if (pwdumpPathInput) {
+					pwdumpPathInput.addEventListener('input', () => resetValidationState('pwdump', true));
+				}
+				if (potfilePathInput) {
+					potfilePathInput.addEventListener('input', () => resetValidationState('potfile', true));
+				}
+			}
+
+			// Initialize file change listeners
+			setupFileChangeListeners();
+
 			// Step navigation
 			function goToStep(stepNumber) {
 				// Hide all step contents
