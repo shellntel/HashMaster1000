@@ -51,22 +51,22 @@
 				<!-- Step Indicator Sidebar -->
 				<div class="step-sidebar">
 					<div class="step-indicator">
-						<div class="step active" data-step="1">
+						<div class="step{% if not initial_step or initial_step == 1 %} active{% elif initial_step > 1 %} completed{% endif %}" data-step="1">
 							<div class="step-circle">1</div>
 							<div class="step-label">Load Files</div>
 							<div class="step-connector"></div>
 						</div>
-						<div class="step upcoming" data-step="2">
+						<div class="step{% if initial_step == 2 %} active{% elif initial_step > 2 %} completed{% else %} upcoming{% endif %}" data-step="2">
 							<div class="step-circle">2</div>
 							<div class="step-label">Validate</div>
 							<div class="step-connector"></div>
 						</div>
-						<div class="step upcoming" data-step="3">
+						<div class="step{% if initial_step == 3 %} active{% elif initial_step > 3 %} completed{% else %} upcoming{% endif %}" data-step="3">
 							<div class="step-circle">3</div>
 							<div class="step-label">Configure</div>
 							<div class="step-connector"></div>
 						</div>
-						<div class="step upcoming" data-step="4">
+						<div class="step{% if initial_step == 4 %} active{% else %} upcoming{% endif %}" data-step="4">
 							<div class="step-circle">4</div>
 							<div class="step-label">Report</div>
 						</div>
@@ -83,7 +83,7 @@
 					onsubmit="showProcessing('Generating Report...', 'Analyzing passwords and computing statistics')"
 				>
 					<!-- Step 1: Load Files -->
-					<div class="step-content active" data-step="1">
+					<div class="step-content{% if not initial_step or initial_step == 1 %} active{% endif %}" data-step="1">
 						<div class="step-panel">
 							<h2>Step 1: Load Source Files</h2>
 							<p class="step-description">
@@ -271,7 +271,7 @@
 					<!-- This step is handled by the validation_review page -->
 
 					<!-- Step 3: Configure Analysis -->
-					<div class="step-content" data-step="3">
+					<div class="step-content{% if initial_step == 3 %} active{% endif %}" data-step="3">
 						<div class="step-panel">
 							<h2>Step 3: Configure Analysis</h2>
 							<p class="step-description">
@@ -1059,6 +1059,69 @@
 			// Navigate to the specified initial step (default 1, or 3 if coming from validation review)
 			{% if initial_step and initial_step > 1 %}
 			goToStep({{ initial_step }});
+			{% endif %}
+
+			// Auto-populate Company Name & Terms with domain names and company name
+			{% if initial_step == 3 %}
+			(function() {
+				const autoKeywords = [];
+
+				// Helper function to strip TLD and extract meaningful name
+				function stripTLD(domain) {
+					if (!domain || domain === '(no domain)') return null;
+					const stripped = domain
+						.replace(/\.(com|local|corp|internal|lan|net|org|int|edu|gov|mil|ad|domain)$/i, '')
+						.trim();
+					return (stripped && stripped.length >= 3) ? stripped : null;
+				}
+
+				// Extract domain names from pwdump (strip TLD like .com, .local, .corp, etc.)
+				{% if pwdump_validation and pwdump_validation.domain_info and pwdump_validation.domain_info.domains %}
+				const domains = {{ pwdump_validation.domain_info.domains | tojson | safe }};
+				for (const domain of Object.keys(domains)) {
+					const stripped = stripTLD(domain);
+					if (stripped && !autoKeywords.includes(stripped)) {
+						autoKeywords.push(stripped);
+					}
+				}
+				{% endif %}
+
+				// Extract domain name from ADD JSON domain_policy
+				{% if add_validation and add_validation.domain_policy and add_validation.domain_policy.domain_name %}
+				const addDomain = {{ add_validation.domain_policy.domain_name | tojson | safe }};
+				const strippedAdd = stripTLD(addDomain);
+				if (strippedAdd && !autoKeywords.includes(strippedAdd)) {
+					autoKeywords.push(strippedAdd);
+				}
+				{% endif %}
+
+				// Add company name from session options (at the beginning)
+				{% if analysis_options and analysis_options.company_name %}
+				const companyName = {{ analysis_options.company_name | tojson | safe }};
+				if (companyName && companyName.length >= 3 && !autoKeywords.includes(companyName)) {
+					autoKeywords.unshift(companyName);
+				}
+				{% endif %}
+
+				// Populate the keywords if we found any
+				if (autoKeywords.length > 0) {
+					const hiddenInput = document.getElementById('customKeywordsHidden');
+					const countSpan = document.getElementById('keywordCount');
+
+					hiddenInput.value = autoKeywords.join('\n');
+					countSpan.textContent = `(${autoKeywords.length} term${autoKeywords.length > 1 ? 's' : ''})`;
+
+					// Update preview
+					const preview = document.getElementById('keywordPreview');
+					if (preview) {
+						if (autoKeywords.length <= 3) {
+							preview.textContent = autoKeywords.join(', ');
+						} else {
+							preview.textContent = autoKeywords.slice(0, 3).join(', ') + '...';
+						}
+					}
+				}
+			})();
 			{% endif %}
 
 			// ============================================

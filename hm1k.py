@@ -367,10 +367,12 @@ def index() -> str:
     pwdump_validation = None
     potfile_validation = None
     add_validation = None
+    analysis_options = None
     if initial_step == 3:
         pwdump_validation = session.get("pwdump_validation")
         potfile_validation = session.get("potfile_validation")
         add_validation = session.get("add_validation")
+        analysis_options = session.get("analysis_options")
 
     # Get master potfile entry count if enabled
     master_potfile_count = 0
@@ -384,6 +386,7 @@ def index() -> str:
         pwdump_validation=pwdump_validation,
         potfile_validation=potfile_validation,
         add_validation=add_validation,
+        analysis_options=analysis_options,
         default_pwdump_path=DEFAULT_PWDUMP_PATH,
         default_potfile_path=DEFAULT_POTFILE_PATH,
         default_add_json_path=DEFAULT_ADD_JSON_PATH,
