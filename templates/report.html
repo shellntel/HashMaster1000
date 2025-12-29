@@ -26,1170 +26,9 @@
 		<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 		<!-- Markdown rendering for AI Analysis -->
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-		<!-- Privileged Accounts Styles -->
-		<style>
-			.report-nav-btn-critical {
-				border: 2px solid #dc3545 !important;
-				color: #ff6b6b !important;
-			}
-			.report-nav-btn-critical:hover {
-				border-color: #ff4444 !important;
-				background: rgba(220, 53, 69, 0.15) !important;
-			}
-			.privileged-accounts-section {
-				margin-top: 30px;
-			}
-			.domain-policy-summary {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				padding: 16px;
-				margin-bottom: 20px;
-			}
-			.policy-summary-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-				gap: 12px;
-			}
-			.policy-item {
-				display: flex;
-				justify-content: space-between;
-				padding: 8px;
-				background: rgba(0,0,0,0.2);
-				border-radius: 4px;
-			}
-			.policy-label { color: var(--text-secondary, #aaa); }
-			.policy-value { font-weight: bold; color: var(--text-primary, #fff); }
-			.privilege-stats-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-				gap: 16px;
-				margin-bottom: 24px;
-			}
-			.privilege-stat-card {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 8px;
-				padding: 16px;
-				text-align: center;
-			}
-			.privilege-stat-card.tier0 { border-left: 4px solid #ff4444; }
-			.privilege-stat-card.elevated { border-left: 4px solid #feca57; }
-			.privilege-stat-card.total { border-left: 4px solid #00d4ff; }
-			.privilege-stat-card .stat-value {
-				font-size: 2rem;
-				font-weight: bold;
-				color: var(--accent-color, #00d4ff);
-			}
-			.privilege-stat-card.tier0 .stat-value { color: #ff4444; }
-			.privilege-stat-card.elevated .stat-value { color: #feca57; }
-			.privilege-stat-card .stat-label { color: var(--text-secondary, #aaa); }
-			/* Password History Analysis - unique colors for each card */
-			.privilege-stat-card.history-users { border-left: 4px solid #00d4ff; }
-			.privilege-stat-card.history-users .stat-value { color: #00d4ff; }
-			.privilege-stat-card.history-cracked { border-left: 4px solid #feca57; }
-			.privilege-stat-card.history-cracked .stat-value { color: #feca57; }
-			.privilege-stat-card.history-patterns { border-left: 4px solid #ff6b6b; }
-			.privilege-stat-card.history-patterns .stat-value { color: #ff6b6b; }
-			.privilege-stat-card.history-reuse { border-left: 4px solid #9b59b6; }
-			.privilege-stat-card.history-reuse .stat-value { color: #9b59b6; }
-			.privilege-stat-card.history-consecutive { border-left: 4px solid #e74c3c; }
-			.privilege-stat-card.history-consecutive .stat-value { color: #e74c3c; }
-			.privilege-stat-card .stat-detail { font-size: 0.9rem; color: #888; }
-			.section-header-critical { color: var(--text-color, #e4e4e7); }
-			.warning-text { color: var(--text-secondary, #aaa); margin-bottom: 16px; font-size: 0.9rem; }
-			.cracked-row { background: rgba(255, 68, 68, 0.15) !important; }
-			.warning-row { background: rgba(254, 202, 87, 0.15) !important; }
-			.cracked-yes { color: #ff4444; font-weight: bold; }
-			.cracked-no { color: #54a0ff; }
-			.status-enabled {
-				display: inline-block;
-				padding: 2px 8px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				background: rgba(29, 209, 161, 0.15);
-				color: #1dd1a1;
-			}
-			.status-disabled {
-				display: inline-block;
-				padding: 2px 8px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				background: rgba(136, 136, 136, 0.2);
-				color: #999;
-			}
-			.privilege-badge {
-				display: inline-block;
-				padding: 2px 8px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				font-weight: 500;
-			}
-			.privilege-badge.tier0 { background: rgba(255, 68, 68, 0.15); color: #ff6b6b; }
-			.privilege-badge.elevated { background: rgba(254, 202, 87, 0.15); color: #feca57; }
-			#crackedPrivilegedTable .groups-cell { font-size: 0.85rem; color: var(--text-secondary, #aaa); }
-			/* Print/light mode overrides for privileged account styles */
-			@media print {
-				.privilege-badge.tier0 { background: #ffe0e0; color: #b00; }
-				.privilege-badge.elevated { background: #fff3cd; color: #856404; }
-				.status-enabled { background: #d4edda; color: #155724; }
-				.status-disabled { background: #e9ecef; color: #495057; }
-				#crackedPrivilegedTable .groups-cell { color: #666; }
-			}
-			body.print-mode .privilege-badge.tier0 { background: #ffe0e0; color: #b00; }
-			body.print-mode .privilege-badge.elevated { background: #fff3cd; color: #856404; }
-			body.print-mode .status-enabled { background: #d4edda; color: #155724; }
-			body.print-mode .status-disabled { background: #e9ecef; color: #495057; }
-			body.print-mode #crackedPrivilegedTable .groups-cell { color: #666; }
-			/* Password sharing summary */
-			.sharing-summary {
-				display: flex;
-				gap: 16px;
-				margin-bottom: 16px;
-				flex-wrap: wrap;
-			}
-			.sharing-stat {
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				padding: 8px 16px;
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 6px;
-				min-width: 100px;
-			}
-			.sharing-stat-value {
-				font-size: 1.3rem;
-				font-weight: bold;
-			}
-			.sharing-stat-value.critical { color: #ff6b6b; }
-			.sharing-stat-value.high { color: #feca57; }
-			.sharing-stat-label { font-size: 0.8rem; color: var(--text-secondary, #aaa); }
-			#passwordSharingTable .shared-accounts { font-size: 0.9rem; color: var(--text-secondary, #aaa); }
-			#passwordSharingTable .sharing-password {
-				font-family: monospace;
-				font-size: 0.85rem;
-			}
-			/* Column widths for password sharing table */
-			#passwordSharingTable th:nth-child(1),
-			#passwordSharingTable td:nth-child(1) { width: 18%; }
-			#passwordSharingTable th:nth-child(2),
-			#passwordSharingTable td:nth-child(2) { width: 8%; min-width: 70px; text-align: center; }
-			#passwordSharingTable th:nth-child(3),
-			#passwordSharingTable td:nth-child(3) { width: 54%; }
-			#passwordSharingTable th:nth-child(4),
-			#passwordSharingTable td:nth-child(4) { width: 20%; }
-			body.print-mode .sharing-stat { background: #f8f9fa; }
-			body.print-mode .sharing-stat-value.critical { color: #dc3545; }
-			body.print-mode .sharing-stat-value.high { color: #856404; }
-			body.print-mode #passwordSharingTable .shared-accounts { color: #666; }
-			.historical-stats {
-				display: flex;
-				gap: 24px;
-				margin-bottom: 20px;
-			}
-			.hist-stat {
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-			}
-			.hist-stat-value {
-				font-size: 1.5rem;
-				font-weight: bold;
-				color: var(--accent-color, #00d4ff);
-			}
-			.hist-stat-label { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
-			.password-sharing-section { margin-bottom: 24px; }
-			.cracked-privileged-section { margin-bottom: 24px; }
-			.cracked-privileged-section .table-actions {
-				margin-bottom: 12px;
-			}
-			/* Section dividers for privileged account subsections */
-			.privileged-subsection {
-				padding-top: 20px;
-				margin-top: 20px;
-				border-top: 1px solid var(--border-color, #444);
-			}
-			/* Domain filter row styles (minimal indicator below action bar) */
-			.domain-filter-row {
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				gap: 10px;
-				padding: 8px 16px;
-				background: rgba(99, 102, 241, 0.08);
-				border-bottom: 1px solid rgba(99, 102, 241, 0.2);
-				font-size: 15px;
-			}
-			.domain-filter-row .domain-filter-label {
-				color: #9ca3af;
-			}
-			.domain-filter-row .domain-filter-value {
-				font-weight: 600;
-				color: #a5b4fc;
-				font-size: 16px;
-			}
-			.domain-filter-row .domain-filter-hint {
-				color: #6b7280;
-				font-size: 13px;
-			}
-			body.print-mode .domain-filter-row {
-				background: #f0f0ff;
-				border-bottom-color: #c5cae9;
-			}
-			body.print-mode .domain-filter-row .domain-filter-value {
-				color: #3949ab;
-			}
-			body.print-mode .domain-filter-row .domain-filter-label,
-			body.print-mode .domain-filter-row .domain-filter-hint {
-				color: #666;
-			}
-			.privileged-subsection:first-child {
-				padding-top: 0;
-				margin-top: 0;
-				border-top: none;
-			}
-			body.print-mode .privileged-subsection {
-				border-top-color: #ddd;
-			}
-			/* Password blurring for cracked privileged table */
-			#crackedPrivilegedTable .priv-password-cell {
-				font-family: monospace;
-			}
-			#crackedPrivilegedTable.blurred .priv-password-blurred {
-				filter: blur(4px);
-				user-select: none;
-			}
-			#crackedPrivilegedTable:not(.blurred) .priv-password-blurred {
-				filter: none;
-			}
-			/* Password blurring for password sharing table */
-			#passwordSharingTable.blurred .sharing-password-blurred {
-				filter: blur(4px);
-				user-select: none;
-			}
-			#passwordSharingTable:not(.blurred) .sharing-password-blurred {
-				filter: none;
-			}
-
-			/* HIBP Section Styles */
-			.hibp-section { margin-top: 30px; }
-			.hibp-db-status {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				padding: 16px 20px;
-				margin-bottom: 16px;
-				display: flex;
-				align-items: center;
-				gap: 12px;
-			}
-			.hibp-db-status.loaded {
-				border-color: rgba(76, 175, 80, 0.5);
-				background: rgba(76, 175, 80, 0.08);
-			}
-			.hibp-db-status.not-loaded {
-				border-color: rgba(255, 193, 7, 0.5);
-				background: rgba(255, 193, 7, 0.08);
-			}
-			.hibp-db-status-icon {
-				font-size: 1.5rem;
-			}
-			.hibp-db-status-content {
-				flex: 1;
-			}
-			.hibp-db-status-title {
-				font-weight: 600;
-				margin-bottom: 2px;
-			}
-			.hibp-db-status.loaded .hibp-db-status-title {
-				color: #4CAF50;
-			}
-			.hibp-db-status.not-loaded .hibp-db-status-title {
-				color: #FFC107;
-			}
-			.hibp-db-status-detail {
-				font-size: 0.85rem;
-				color: var(--text-secondary, #aaa);
-			}
-			.hibp-status-panel {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				padding: 24px;
-				text-align: center;
-			}
-			.hibp-intro { margin-bottom: 20px; }
-			.hibp-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
-			.hibp-intro a { color: var(--accent-color, #00d4ff); }
-			.hibp-privacy-note {
-				background: rgba(0, 212, 255, 0.1);
-				border: 1px solid rgba(0, 212, 255, 0.3);
-				border-radius: 6px;
-				padding: 12px 16px;
-				font-size: 0.9rem;
-				text-align: left;
-				color: var(--text-primary, #fff);
-				margin-bottom: 16px;
-			}
-			.hibp-local-info {
-				background: rgba(76, 175, 80, 0.1);
-				border: 1px solid rgba(76, 175, 80, 0.3);
-				border-radius: 6px;
-				padding: 12px 16px;
-				font-size: 0.9rem;
-				text-align: left;
-				color: var(--text-primary, #fff);
-				margin-bottom: 16px;
-			}
-			.hibp-method-selector {
-				margin: 16px 0;
-				text-align: left;
-			}
-			.hibp-method-selector h4 {
-				margin-bottom: 12px;
-				color: var(--text-primary, #fff);
-			}
-			.hibp-method-options {
-				display: flex;
-				flex-direction: column;
-				gap: 8px;
-			}
-			.hibp-method-option {
-				display: flex;
-				align-items: flex-start;
-				gap: 12px;
-				padding: 12px 16px;
-				background: var(--bg-secondary, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				cursor: pointer;
-				transition: border-color 0.2s, background 0.2s;
-			}
-			.hibp-method-option:hover {
-				border-color: var(--accent-color, #00d4ff);
-			}
-			.hibp-method-option input[type="radio"] {
-				margin-top: 4px;
-			}
-			.hibp-method-option input[type="radio"]:checked + .hibp-method-info {
-				color: var(--accent-color, #00d4ff);
-			}
-			.hibp-method-info {
-				display: flex;
-				flex-direction: column;
-				gap: 4px;
-			}
-			.hibp-method-name {
-				font-weight: 600;
-				color: var(--text-primary, #fff);
-			}
-			.hibp-method-desc {
-				font-size: 0.85rem;
-				color: var(--text-secondary, #aaa);
-			}
-			.hibp-method-badge {
-				font-size: 0.75rem;
-				padding: 2px 8px;
-				border-radius: 4px;
-				display: inline-block;
-				width: fit-content;
-			}
-			.hibp-method-badge.recommended {
-				background: rgba(76, 175, 80, 0.2);
-				color: #4caf50;
-				border: 1px solid rgba(76, 175, 80, 0.5);
-			}
-			.hibp-data-source {
-				display: flex;
-				align-items: center;
-				gap: 8px;
-				padding: 8px 12px;
-				background: var(--bg-secondary, #2a2a2a);
-				border-radius: 6px;
-				margin-bottom: 16px;
-				font-size: 0.9rem;
-			}
-			.hibp-data-source-icon {
-				font-size: 1.1rem;
-			}
-			.hibp-data-source-label {
-				color: var(--text-secondary, #aaa);
-			}
-			.hibp-data-source-value {
-				color: var(--text-primary, #fff);
-				font-weight: 500;
-			}
-			.hibp-rerun-section {
-				margin-top: 16px;
-				text-align: center;
-			}
-			.hibp-rerun-btn {
-				background: transparent;
-				border: 1px solid var(--border-color, #444);
-				color: var(--text-secondary, #aaa);
-				padding: 8px 16px;
-				border-radius: 6px;
-				cursor: pointer;
-				font-size: 0.9rem;
-				transition: border-color 0.2s, color 0.2s;
-			}
-			.hibp-rerun-btn:hover {
-				border-color: var(--accent-color, #00d4ff);
-				color: var(--text-primary, #fff);
-			}
-			.hibp-start-btn {
-				background: linear-gradient(135deg, #00d4ff, #0099cc);
-				color: white;
-				border: none;
-				padding: 14px 28px;
-				font-size: 1.1rem;
-				border-radius: 8px;
-				cursor: pointer;
-				display: inline-flex;
-				align-items: center;
-				gap: 10px;
-				transition: transform 0.2s, box-shadow 0.2s;
-			}
-			.hibp-start-btn:hover {
-				transform: translateY(-2px);
-				box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
-			}
-			.hibp-icon { font-size: 1.3rem; }
-			.hibp-progress {
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				gap: 16px;
-			}
-			.hibp-spinner {
-				width: 48px;
-				height: 48px;
-				border: 4px solid var(--border-color, #444);
-				border-top-color: var(--accent-color, #00d4ff);
-				border-radius: 50%;
-				animation: hibp-spin 1s linear infinite;
-			}
-			@keyframes hibp-spin {
-				to { transform: rotate(360deg); }
-			}
-			.hibp-progress-detail { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
-			.hibp-results-panel { margin-top: 20px; }
-			.hibp-summary-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-				gap: 16px;
-				margin-bottom: 24px;
-			}
-			.hibp-stat-card {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 8px;
-				padding: 16px;
-				text-align: center;
-			}
-			.hibp-stat-card.found { border-left: 4px solid #ff4444; }
-			.hibp-stat-card.safe { border-left: 4px solid #1dd1a1; }
-			.hibp-stat-card.total { border-left: 4px solid #00d4ff; }
-			.hibp-stat-card .stat-value {
-				font-size: 2rem;
-				font-weight: bold;
-			}
-			.hibp-stat-card.found .stat-value { color: #ff4444; }
-			.hibp-stat-card.safe .stat-value { color: #1dd1a1; }
-			.hibp-stat-card.total .stat-value { color: #00d4ff; }
-			.hibp-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.9rem; }
-			.hibp-stat-card .stat-detail { font-size: 0.85rem; color: #888; }
-			.hibp-table-section { margin-top: 24px; }
-			.hibp-table-section h3 { margin-bottom: 8px; }
-			/* HIBP table column alignment - use !important to override DataTables defaults */
-			#hibpAllBreachedTable td:nth-child(2),
-			#hibpAllBreachedTable th:nth-child(2),
-			#hibpAllBreachedTable td:nth-child(3),
-			#hibpAllBreachedTable th:nth-child(3),
-			#hibpAllBreachedTable td:nth-child(4),
-			#hibpAllBreachedTable th:nth-child(4) { text-align: center !important; }
-			/* DataTables center class fallback */
-			table.dataTable td.dt-center,
-			table.dataTable th.dt-center { text-align: center !important; }
-			.hibp-password-unknown { color: #888; font-style: italic; }
-			.hibp-password-blurred { filter: blur(4px); user-select: none; }
-			.hibp-tables-unblurred .hibp-password-blurred { filter: none; }
-			.hibp-table-section .status-enabled { color: #28a745; }
-			.hibp-table-section .status-disabled { color: #6c757d; }
-
-			/* HIBP Modal Styles */
-			.hibp-modal {
-				position: fixed;
-				top: 0;
-				left: 0;
-				width: 100%;
-				height: 100%;
-				background: rgba(0, 0, 0, 0.8);
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				z-index: 10000;
-			}
-			.hibp-modal-content {
-				background: var(--card-bg, #1e1e1e);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 12px;
-				max-width: 600px;
-				width: 90%;
-				max-height: 90vh;
-				overflow-y: auto;
-			}
-			.hibp-modal-header {
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				padding: 16px 20px;
-				border-bottom: 1px solid var(--border-color, #444);
-			}
-			.hibp-modal-header h2 { margin: 0; font-size: 1.3rem; }
-			.hibp-modal-close {
-				background: none;
-				border: none;
-				color: var(--text-secondary, #aaa);
-				font-size: 1.5rem;
-				cursor: pointer;
-			}
-			.hibp-modal-close:hover { color: var(--text-primary, #fff); }
-			.hibp-modal-body { padding: 20px; }
-			.hibp-consent-warning {
-				background: rgba(255, 200, 50, 0.15);
-				border: 1px solid rgba(255, 200, 50, 0.4);
-				border-radius: 8px;
-				padding: 16px;
-				margin-bottom: 20px;
-				text-align: center;
-			}
-			.hibp-warning-icon { font-size: 2.5rem; margin-bottom: 8px; }
-			.hibp-consent-warning h3 { color: #feca57; margin: 8px 0; }
-			.hibp-consent-warning p { color: var(--text-secondary, #aaa); margin: 0; }
-			.hibp-consent-details { margin-bottom: 20px; }
-			.hibp-consent-details h4 {
-				color: var(--text-primary, #fff);
-				margin: 16px 0 8px 0;
-				font-size: 1rem;
-			}
-			.hibp-consent-details ul {
-				margin: 0;
-				padding-left: 20px;
-				color: var(--text-secondary, #aaa);
-			}
-			.hibp-consent-details li { margin: 6px 0; }
-			.hibp-consent-details p { color: var(--text-secondary, #aaa); margin: 8px 0; }
-			.hibp-consent-details a { color: var(--accent-color, #00d4ff); }
-			.hibp-consent-checkbox {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 6px;
-				padding: 12px 16px;
-			}
-			.hibp-consent-checkbox label {
-				display: flex;
-				align-items: flex-start;
-				gap: 10px;
-				cursor: pointer;
-				color: var(--text-primary, #fff);
-			}
-			.hibp-consent-checkbox input { margin-top: 3px; }
-			.hibp-modal-footer {
-				display: flex;
-				justify-content: flex-end;
-				gap: 12px;
-				padding: 16px 20px;
-				border-top: 1px solid var(--border-color, #444);
-			}
-			.hibp-btn-secondary {
-				background: var(--surface-color, #2a2a2a);
-				color: var(--text-primary, #fff);
-				border: 1px solid var(--border-color, #444);
-				padding: 10px 20px;
-				border-radius: 6px;
-				cursor: pointer;
-			}
-			.hibp-btn-secondary:hover { background: var(--border-color, #444); }
-			.hibp-btn-primary {
-				background: linear-gradient(135deg, #00d4ff, #0099cc);
-				color: white;
-				border: none;
-				padding: 10px 20px;
-				border-radius: 6px;
-				cursor: pointer;
-			}
-			.hibp-btn-primary:disabled {
-				background: #555;
-				cursor: not-allowed;
-				opacity: 0.6;
-			}
-			.hibp-btn-primary:not(:disabled):hover {
-				box-shadow: 0 2px 8px rgba(0, 212, 255, 0.4);
-			}
-
-			/* Kerberoast Section Styles */
-			.kerberoast-section { margin-top: 30px; }
-			.kerberoast-intro { margin-bottom: 20px; }
-			.kerberoast-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
-			.kerberoast-info-note {
-				background: rgba(255, 152, 0, 0.1);
-				border: 1px solid rgba(255, 152, 0, 0.3);
-				border-radius: 6px;
-				padding: 12px 16px;
-				font-size: 0.9rem;
-				text-align: left;
-				color: var(--text-primary, #fff);
-				margin-bottom: 16px;
-			}
-			.kerberoast-summary-grid {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 12px;
-				margin-bottom: 24px;
-			}
-			.kerberoast-stat-card {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 6px;
-				padding: 10px 16px;
-				text-align: center;
-				flex: 1 1 auto;
-				min-width: 90px;
-			}
-			.kerberoast-stat-card.critical { border-left: 4px solid #dc3545; }
-			.kerberoast-stat-card.high { border-left: 4px solid #ff6b35; }
-			.kerberoast-stat-card.medium { border-left: 4px solid #ffc107; }
-			.kerberoast-stat-card.low { border-left: 4px solid #28a745; }
-			.kerberoast-stat-card.total { border-left: 4px solid #00d4ff; }
-			.kerberoast-stat-card .stat-value {
-				font-size: 1.5rem;
-				font-weight: bold;
-				line-height: 1.2;
-			}
-			.kerberoast-stat-card.critical .stat-value { color: #dc3545; }
-			.kerberoast-stat-card.high .stat-value { color: #ff6b35; }
-			.kerberoast-stat-card.medium .stat-value { color: #ffc107; }
-			.kerberoast-stat-card.low .stat-value { color: #28a745; }
-			.kerberoast-stat-card.total .stat-value { color: #00d4ff; }
-			.kerberoast-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
-			.kerberoast-charts-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-				gap: 24px;
-				margin-bottom: 24px;
-			}
-			.kerberoast-chart-container {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 8px;
-				padding: 16px;
-			}
-			.kerberoast-chart-container h4 {
-				margin-bottom: 12px;
-				color: var(--text-primary, #fff);
-			}
-			.kerberoast-table-section { margin-top: 24px; }
-			.kerberoast-table-section h3 { margin-bottom: 8px; }
-			.kerberoast-risk-badge {
-				display: inline-block;
-				padding: 4px 10px;
-				border-radius: 4px;
-				font-size: 0.8rem;
-				font-weight: 600;
-				text-transform: uppercase;
-			}
-			.kerberoast-risk-badge.critical { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
-			.kerberoast-risk-badge.high { background: rgba(255, 107, 53, 0.2); color: #ff6b35; }
-			.kerberoast-risk-badge.medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
-			.kerberoast-risk-badge.low { background: rgba(40, 167, 69, 0.2); color: #28a745; }
-			.kerberoast-risk-reasons {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 4px;
-				max-width: 350px;
-			}
-			.kerberoast-reason-tag {
-				display: inline-block;
-				padding: 2px 6px;
-				border-radius: 3px;
-				font-size: 0.7rem;
-				background: rgba(100, 100, 100, 0.3);
-				color: var(--text-secondary, #aaa);
-			}
-			.kerberoast-reason-tag.positive { background: rgba(220, 53, 69, 0.15); color: #ff6b6b; }
-			.kerberoast-reason-tag.negative { background: rgba(40, 167, 69, 0.15); color: #5fba7d; }
-			.kerberoast-not-available {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				padding: 24px;
-				text-align: center;
-			}
-			.kerberoast-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
-			.kerberoast-spn-list {
-				max-height: 80px;
-				overflow-y: auto;
-				font-size: 0.85rem;
-			}
-			.kerberoast-spn-item {
-				padding: 2px 0;
-				color: var(--text-secondary, #aaa);
-				font-family: monospace;
-				word-break: break-all;
-			}
-			/* Kerberoast table styling */
-			#kerberoastTable { table-layout: fixed; width: 100%; }
-			#kerberoastTable th,
-			#kerberoastTable td {
-				vertical-align: middle !important;
-				padding: 10px 8px !important;
-			}
-			/* Column widths via colgroup/CSS */
-			#kerberoastTable th:nth-child(1), #kerberoastTable td:nth-child(1) { width: 14%; }
-			#kerberoastTable th:nth-child(2), #kerberoastTable td:nth-child(2) { width: 7%; text-align: center; }
-			#kerberoastTable th:nth-child(3), #kerberoastTable td:nth-child(3) { width: 9%; text-align: center; }
-			#kerberoastTable th:nth-child(4), #kerberoastTable td:nth-child(4) { width: 28%; }
-			#kerberoastTable th:nth-child(5), #kerberoastTable td:nth-child(5) { width: 32%; }
-			#kerberoastTable th:nth-child(6), #kerberoastTable td:nth-child(6) { width: 10%; text-align: center; }
-			/* Status column styling */
-			#kerberoastTable .status-enabled,
-			#kerberoastTable .status-disabled {
-				display: inline-block;
-				font-weight: 500;
-			}
-			#kerberoastTable .status-enabled { color: #28a745; }
-			#kerberoastTable .status-disabled { color: #6c757d; }
-			/* Info category for special accounts with 0 score */
-			.kerberoast-risk-badge.info { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
-			.kerberoast-stat-card.secure { border-left: 4px solid #17a2b8; }
-			.kerberoast-stat-card.secure .stat-value { color: #17a2b8; }
-			/* Print mode overrides for Kerberoast */
-			body.print-mode .kerberoast-stat-card { background: #f8f9fa; }
-			body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
-
-			/* AS-REP Roasting Section Styles */
-			.asrep-section { margin-top: 30px; }
-			.asrep-intro { margin-bottom: 20px; }
-			.asrep-intro p { color: var(--text-secondary, #aaa); margin-bottom: 12px; }
-			.asrep-info-note {
-				background: rgba(156, 39, 176, 0.1);
-				border: 1px solid rgba(156, 39, 176, 0.3);
-				border-radius: 6px;
-				padding: 12px 16px;
-				font-size: 0.9rem;
-				text-align: left;
-				color: var(--text-primary, #fff);
-				margin-bottom: 16px;
-			}
-			.asrep-summary-grid {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 12px;
-				margin-bottom: 24px;
-			}
-			.asrep-stat-card {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 6px;
-				padding: 10px 16px;
-				text-align: center;
-				flex: 1 1 auto;
-				min-width: 90px;
-			}
-			.asrep-stat-card.critical { border-left: 4px solid #dc3545; }
-			.asrep-stat-card.high { border-left: 4px solid #ff6b35; }
-			.asrep-stat-card.medium { border-left: 4px solid #ffc107; }
-			.asrep-stat-card.low { border-left: 4px solid #28a745; }
-			.asrep-stat-card.total { border-left: 4px solid #9c27b0; }
-			.asrep-stat-card.enabled { border-left: 4px solid #28a745; }
-			.asrep-stat-card.disabled { border-left: 4px solid #6c757d; }
-			.asrep-stat-card .stat-value {
-				font-size: 1.5rem;
-				font-weight: bold;
-				line-height: 1.2;
-			}
-			.asrep-stat-card.critical .stat-value { color: #dc3545; }
-			.asrep-stat-card.high .stat-value { color: #ff6b35; }
-			.asrep-stat-card.medium .stat-value { color: #ffc107; }
-			.asrep-stat-card.low .stat-value { color: #28a745; }
-			.asrep-stat-card.total .stat-value { color: #9c27b0; }
-			.asrep-stat-card.enabled .stat-value { color: #28a745; }
-			.asrep-stat-card.disabled .stat-value { color: #6c757d; }
-			.asrep-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
-			.asrep-charts-grid {
-				display: grid;
-				grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-				gap: 24px;
-				margin-bottom: 24px;
-			}
-			.asrep-chart-container {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 8px;
-				padding: 16px;
-			}
-			.asrep-chart-container h4 {
-				margin-bottom: 12px;
-				color: var(--text-primary, #fff);
-			}
-			.asrep-table-section { margin-top: 24px; }
-			.asrep-table-section h3 { margin-bottom: 8px; }
-			.asrep-risk-badge {
-				display: inline-block;
-				padding: 4px 10px;
-				border-radius: 4px;
-				font-size: 0.8rem;
-				font-weight: 600;
-				text-transform: uppercase;
-			}
-			.asrep-risk-badge.critical { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
-			.asrep-risk-badge.high { background: rgba(255, 107, 53, 0.2); color: #ff6b35; }
-			.asrep-risk-badge.medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
-			.asrep-risk-badge.low { background: rgba(40, 167, 69, 0.2); color: #28a745; }
-			.asrep-risk-badge.info { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
-			.asrep-risk-reasons {
-				display: flex;
-				flex-wrap: wrap;
-				gap: 4px;
-				max-width: 300px;
-			}
-			.asrep-reason-tag {
-				display: inline-block;
-				padding: 2px 6px;
-				border-radius: 3px;
-				font-size: 0.7rem;
-				background: rgba(100, 100, 100, 0.3);
-				color: var(--text-secondary, #aaa);
-			}
-			.asrep-reason-tag.positive { background: rgba(220, 53, 69, 0.15); color: #ff6b6b; }
-			.asrep-reason-tag.negative { background: rgba(40, 167, 69, 0.15); color: #5fba7d; }
-			.asrep-not-available {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				border-radius: 8px;
-				padding: 24px;
-				text-align: center;
-			}
-			.asrep-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
-
-			/* No issues found panel */
-			.asrep-no-issues {
-				background: linear-gradient(135deg, rgba(40, 167, 69, 0.1) 0%, rgba(40, 167, 69, 0.05) 100%);
-				border: 1px solid rgba(40, 167, 69, 0.3);
-				border-radius: 8px;
-				padding: 32px;
-				text-align: center;
-			}
-			.asrep-success-icon {
-				width: 64px;
-				height: 64px;
-				margin: 0 auto 16px;
-				background: rgba(40, 167, 69, 0.2);
-				border-radius: 50%;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				font-size: 32px;
-				color: #28a745;
-			}
-			.asrep-no-issues h3 {
-				color: #28a745;
-				margin: 0 0 12px 0;
-				font-size: 1.25rem;
-			}
-			.asrep-no-issues > p {
-				color: var(--text-secondary, #aaa);
-				margin: 0 0 20px 0;
-			}
-			.asrep-what-checked {
-				background: var(--surface-color, #2a2a2a);
-				border-radius: 6px;
-				padding: 16px 24px;
-				text-align: left;
-				max-width: 600px;
-				margin: 0 auto 16px;
-			}
-			.asrep-what-checked h4 {
-				margin: 0 0 8px 0;
-				color: var(--text-primary, #fff);
-				font-size: 0.9rem;
-			}
-			.asrep-what-checked ul {
-				margin: 0;
-				padding-left: 20px;
-				color: var(--text-secondary, #aaa);
-				font-size: 0.85rem;
-			}
-			.asrep-what-checked li { margin-bottom: 4px; }
-			.asrep-what-checked code {
-				background: rgba(156, 39, 176, 0.2);
-				padding: 1px 5px;
-				border-radius: 3px;
-				font-size: 0.8rem;
-				color: #ce93d8;
-			}
-			.asrep-recommendation {
-				color: var(--text-secondary, #aaa);
-				font-size: 0.85rem;
-				font-style: italic;
-			}
-			.asrep-class-badge {
-				display: inline-block;
-				padding: 3px 8px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				font-weight: 500;
-			}
-			.asrep-class-badge.privileged { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
-			.asrep-class-badge.service { background: rgba(255, 152, 0, 0.2); color: #ff9800; }
-			.asrep-class-badge.user { background: rgba(33, 150, 243, 0.2); color: #2196f3; }
-			.asrep-class-badge.disabled { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
-			/* AS-REP table styling */
-			#asrepTable { table-layout: fixed; width: 100%; }
-			#asrepTable th, #asrepTable td {
-				vertical-align: middle !important;
-				padding: 10px 8px !important;
-			}
-			#asrepTable th:nth-child(1), #asrepTable td:nth-child(1) { width: 16%; }
-			#asrepTable th:nth-child(2), #asrepTable td:nth-child(2) { width: 8%; text-align: center; }
-			#asrepTable th:nth-child(3), #asrepTable td:nth-child(3) { width: 10%; text-align: center; }
-			#asrepTable th:nth-child(4), #asrepTable td:nth-child(4) { width: 10%; text-align: center; }
-			#asrepTable th:nth-child(5), #asrepTable td:nth-child(5) { width: 10%; text-align: center; }
-			#asrepTable th:nth-child(6), #asrepTable td:nth-child(6) { width: 10%; text-align: center; }
-			#asrepTable th:nth-child(7), #asrepTable td:nth-child(7) { width: 28%; }
-			#asrepTable th:nth-child(8), #asrepTable td:nth-child(8) { width: 8%; text-align: center; }
-			#asrepTable .status-enabled, #asrepTable .status-disabled { display: inline-block; font-weight: 500; }
-			#asrepTable .status-enabled { color: #28a745; }
-			#asrepTable .status-disabled { color: #6c757d; }
-			#asrepTable .exposure-indicator {
-				display: inline-block;
-				width: 10px;
-				height: 10px;
-				border-radius: 50%;
-				margin-right: 4px;
-			}
-			#asrepTable .exposure-indicator.cracked { background: #dc3545; }
-			#asrepTable .exposure-indicator.hibp { background: #ff6b35; }
-			/* Print mode overrides for AS-REP */
-			body.print-mode .asrep-stat-card { background: #f8f9fa; }
-			body.print-mode .asrep-chart-container { background: #f8f9fa; }
-
-			/* Print mode overrides */
-			body.print-mode .hibp-status-panel { background: #f8f9fa; border-color: #ddd; }
-			body.print-mode .hibp-privacy-note { background: #e3f2fd; border-color: #2196f3; }
-			body.print-mode .hibp-stat-card { background: #f8f9fa; }
-			body.print-mode .hibp-stat-card.found .stat-value { color: #dc3545; }
-			body.print-mode .hibp-stat-card.safe .stat-value { color: #28a745; }
-			@media print {
-				.hibp-start-btn, .hibp-modal { display: none !important; }
-			}
-
-			/* Password History Pattern Analysis Styles */
-			.password-history-section .section-description {
-				color: var(--text-secondary, #aaa);
-				margin-bottom: 20px;
-			}
-			.pattern-badge {
-				display: inline-block;
-				padding: 2px 6px;
-				margin: 1px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				background: rgba(128, 128, 128, 0.15);
-				color: #888;
-				white-space: nowrap;
-			}
-			.pattern-badge.hibp {
-				background: rgba(255, 87, 51, 0.15);
-				color: #ff5733;
-			}
-			/* Pattern-specific badge colors matching chart */
-			.pattern-badge.consecutive, .pattern-badge.reversion {
-				background: rgba(255, 68, 68, 0.15);
-				color: #ff6b6b;
-			}
-			.pattern-badge.baseword {
-				background: rgba(255, 159, 67, 0.15);
-				color: #ff9f43;
-			}
-			.pattern-badge.number {
-				background: rgba(29, 209, 161, 0.15);
-				color: #1dd1a1;
-			}
-			.pattern-badge.year {
-				background: rgba(0, 212, 255, 0.15);
-				color: #00d4ff;
-			}
-			.pattern-badge.season {
-				background: rgba(84, 160, 255, 0.15);
-				color: #54a0ff;
-			}
-			.pattern-badge.specialchar {
-				background: rgba(156, 89, 182, 0.15);
-				color: #9b59b6;
-			}
-			.pattern-badge.minimal {
-				background: rgba(236, 72, 153, 0.15);
-				color: #ec4899;
-			}
-			.pattern-badge.leet {
-				background: rgba(46, 204, 113, 0.15);
-				color: #2ecc71;
-			}
-			/* Highlight for cracked passwords in reuse groups - match hash styling */
-			.reuse-highlight {
-				background: rgba(255, 68, 68, 0.15) !important;
-				border-radius: 3px;
-			}
-			.reuse-highlight .history-pw-visible {
-				color: #ff6b6b !important;
-			}
-			.reuse-highlight .history-pw-blurred {
-				color: transparent !important;
-				text-shadow: 0 0 6px rgba(255, 107, 107, 0.8) !important;
-			}
-			/* Orange highlight for passwords with non-reuse pattern issues */
-			.pattern-highlight {
-				background: rgba(254, 202, 87, 0.15) !important;
-				border-radius: 3px;
-			}
-			.pattern-highlight .history-pw-visible {
-				color: #feca57 !important;
-			}
-			.pattern-highlight .history-pw-blurred {
-				color: transparent !important;
-				text-shadow: 0 0 6px rgba(254, 202, 87, 0.8) !important;
-			}
-			.predictability-score {
-				display: inline-block;
-				padding: 2px 8px;
-				border-radius: 4px;
-				font-weight: bold;
-				font-size: 0.85rem;
-			}
-			.predictability-score.critical {
-				background: rgba(255, 68, 68, 0.15);
-				color: #ff4444;
-			}
-			.predictability-score.high {
-				background: rgba(254, 202, 87, 0.15);
-				color: #feca57;
-			}
-			.predictability-score.medium {
-				background: rgba(29, 209, 161, 0.15);
-				color: #1dd1a1;
-			}
-			.password-evolution {
-				font-family: monospace;
-				font-size: 0.85rem;
-				color: var(--text-primary, #fff);
-			}
-			.pw-arrow {
-				color: var(--text-secondary, #888);
-				margin: 0 2px;
-			}
-			/* Password blur styling */
-			.history-pw-cell {
-				font-family: monospace;
-			}
-			.history-pw-visible {
-				color: var(--text-primary, #fff);
-			}
-			.history-pw-blurred {
-				color: transparent;
-				text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
-				user-select: none;
-			}
-			/* Uncracked password placeholder styling */
-			.history-pw-uncracked {
-				font-family: monospace;
-				font-size: 0.8rem;
-				color: #888;
-				background: rgba(128, 128, 128, 0.15);
-				padding: 1px 4px;
-				border-radius: 3px;
-				cursor: help;
-			}
-			.history-pw-uncracked.duplicate {
-				color: #ff6b6b;
-				background: rgba(255, 68, 68, 0.15);
-			}
-			/* Blur toggle button */
-			.blur-toggle-btn {
-				background: var(--surface-color, #2a2a2a);
-				border: 1px solid var(--border-color, #444);
-				color: var(--text-secondary, #aaa);
-				padding: 6px 12px;
-				border-radius: 4px;
-				cursor: pointer;
-				font-size: 0.85rem;
-				transition: all 0.2s ease;
-			}
-			.blur-toggle-btn:hover {
-				background: var(--surface-hover, #333);
-				border-color: var(--accent-color, #00d4ff);
-				color: var(--text-primary, #fff);
-			}
-			.blur-toggle-btn.showing {
-				background: rgba(0, 212, 255, 0.15);
-				border-color: var(--accent-color, #00d4ff);
-				color: var(--accent-color, #00d4ff);
-			}
-			.blur-icon {
-				margin-right: 4px;
-			}
-			.hibp-exposed {
-				color: #ff4444;
-				font-weight: bold;
-			}
-			.hibp-clean {
-				color: #1dd1a1;
-			}
-			/* Hash Reuse Badge Styles (used in table) */
-			.hash-reuse-badge {
-				display: inline-block;
-				padding: 2px 6px;
-				border-radius: 4px;
-				font-size: 0.75rem;
-				white-space: nowrap;
-			}
-			.hash-reuse-badge.warning {
-				background: rgba(254, 202, 87, 0.15);
-				color: #feca57;
-			}
-			.hash-reuse-badge.critical {
-				background: rgba(255, 68, 68, 0.15);
-				color: #ff4444;
-			}
-			.hash-reuse-badge.none {
-				background: rgba(29, 209, 161, 0.1);
-				color: #1dd1a1;
-			}
-			/* Print mode for password history */
-			body.print-mode .pattern-badge { background: #f5f5f5; color: #666; }
-			body.print-mode .pattern-badge.hibp { background: #ffebee; color: #c62828; }
-			body.print-mode .pattern-badge.consecutive, body.print-mode .pattern-badge.reversion { background: #ffebee; color: #c62828; }
-			body.print-mode .pattern-badge.baseword { background: #fff3e0; color: #e65100; }
-			body.print-mode .pattern-badge.number { background: #e0f2f1; color: #00695c; }
-			body.print-mode .pattern-badge.year { background: #e0f7fa; color: #006064; }
-			body.print-mode .pattern-badge.season { background: #e3f2fd; color: #1565c0; }
-			body.print-mode .pattern-badge.specialchar { background: #f3e5f5; color: #7b1fa2; }
-			body.print-mode .pattern-badge.minimal { background: #fce7f3; color: #be185d; }
-			body.print-mode .pattern-badge.leet { background: #e8f5e9; color: #2e7d32; }
-			body.print-mode .reuse-highlight { background: #ffebee !important; }
-			body.print-mode .reuse-highlight .history-pw-blurred,
-			body.print-mode .reuse-highlight .history-pw-visible { color: #c62828 !important; }
-			body.print-mode .pattern-highlight { background: #fff3cd !important; }
-			body.print-mode .pattern-highlight .history-pw-blurred,
-			body.print-mode .pattern-highlight .history-pw-visible { color: #856404 !important; }
-			body.print-mode .predictability-score.critical { background: #ffe0e0; color: #b00; }
-			body.print-mode .predictability-score.high { background: #fff3cd; color: #856404; }
-			body.print-mode .predictability-score.medium { background: #d4edda; color: #155724; }
-			body.print-mode .hash-reuse-badge.warning { background: #fff3cd; color: #856404; }
-			body.print-mode .hash-reuse-badge.critical { background: #ffe0e0; color: #b00; }
-			body.print-mode .hibp-exposed { color: #dc3545; }
-			body.print-mode .hibp-clean { color: #28a745; }
-			body.print-mode .history-pw-blurred { color: #333; text-shadow: none; }
-			body.print-mode .history-pw-uncracked { background: #eee; color: #666; }
-			body.print-mode .history-pw-uncracked.duplicate { background: #ffe0e0; color: #b00; }
-			body.print-mode .history-pw-visible { color: #333; }
-			body.print-mode .blur-toggle-btn { display: none; }
-		</style>
 	</head>
+	<!-- NOTE: All CSS has been consolidated into static/css/style.css -->
+	<!-- DO NOT add inline <style> blocks here - use style.css instead -->
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
 	<body id="reportPage" class="dark-theme">
 		<!-- App Header -->
@@ -2831,19 +1670,97 @@
 				}
 			}
 
-			// Check for existing HIBP results on page load
+			// Check for existing HIBP results on page load (uses summary endpoint for speed)
 			async function checkExistingHIBPResults() {
 				try {
-					const response = await fetch('/hibp_results.json');
+					// First, fetch just the summary (fast - no individual results)
+					const response = await fetch('/api/hibp/summary');
 					if (response.ok) {
-						const data = await response.json();
-						if (data && data.total_checked > 0) {
-							displayHIBPResults(data);
+						const summary = await response.json();
+						if (summary && summary.total_checked > 0) {
+							// Show summary immediately
+							displayHIBPSummary(summary);
 							document.getElementById('hibpNotRun').style.display = 'none';
 						}
 					}
 				} catch (e) {
 					// No existing results, that's fine
+				}
+			}
+
+			// Display HIBP summary (fast initial load without full results)
+			function displayHIBPSummary(summary) {
+				document.getElementById('hibpRunning').style.display = 'none';
+				document.getElementById('hibpResults').style.display = 'block';
+
+				// Data source indicator
+				const dataSourceEl = document.getElementById('hibpDataSource');
+				const sourceIcon = summary.data_source === 'local' ? '💾' : '🌐';
+				const sourceInfo = summary.data_source_info || (summary.data_source === 'local' ? 'Local Database' : 'HIBP API');
+				dataSourceEl.innerHTML = `
+					<span class="hibp-data-source-icon">${sourceIcon}</span>
+					<span class="hibp-data-source-label">Data Source:</span>
+					<span class="hibp-data-source-value">${escapeHtml(sourceInfo)}</span>
+				`;
+
+				// Show re-run option if both methods are available
+				const rerunSection = document.getElementById('hibpRerunSection');
+				if (hibpStatus && hibpStatus.check_methods && hibpStatus.check_methods.length > 1) {
+					rerunSection.style.display = 'block';
+				} else {
+					rerunSection.style.display = 'none';
+				}
+
+				// Summary grid
+				const safeCount = summary.total_checked - summary.total_found;
+				document.getElementById('hibpSummaryGrid').innerHTML = `
+					<div class="hibp-stat-card found">
+						<div class="stat-value">${summary.total_found}</div>
+						<div class="stat-label">Found in Breaches</div>
+						<div class="stat-detail">${summary.found_percentage}% of accounts</div>
+					</div>
+					<div class="hibp-stat-card safe">
+						<div class="stat-value">${safeCount}</div>
+						<div class="stat-label">Not Found</div>
+						<div class="stat-detail">Unique passwords</div>
+					</div>
+					<div class="hibp-stat-card total">
+						<div class="stat-value">${summary.total_checked}</div>
+						<div class="stat-label">Total Checked</div>
+						<div class="stat-detail">${summary.check_duration_seconds}s</div>
+					</div>
+				`;
+
+				// Show loading placeholder for tables until user expands
+				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+				if (allBreachedBody && summary.result_count > 0) {
+					allBreachedBody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 20px;">
+						<button class="btn-secondary" onclick="loadFullHIBPResults()">Load ${summary.result_count.toLocaleString()} Account Details</button>
+					</td></tr>`;
+				}
+			}
+
+			// Load full HIBP results when user requests them
+			let hibpFullResultsLoaded = false;
+			async function loadFullHIBPResults() {
+				if (hibpFullResultsLoaded) return;
+
+				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+				if (allBreachedBody) {
+					allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Loading account details...</td></tr>';
+				}
+
+				try {
+					const response = await fetch('/hibp_results.json');
+					if (response.ok) {
+						const data = await response.json();
+						hibpFullResultsLoaded = true;
+						displayHIBPResults(data);
+					}
+				} catch (e) {
+					if (allBreachedBody) {
+						allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Error loading results</td></tr>';
+					}
 				}
 			}
 
@@ -5433,6 +4350,7 @@
 			// --- Global Variables --- \\
 			let topPasswordsChartInstance; // Global variable to store the chart instance
 			let topSubstringsChartInstance;
+			let topDictionaryWordsChartInstance;
 			let substringRawData; // Store raw substring data for click interactions
 
 			// Function to update the data of an existing bar chart
@@ -6997,10 +5915,11 @@
 				}
 			}
 
-			// Load password history pattern analysis data
+			// Load password history pattern analysis data (uses summary endpoint for speed)
 			async function loadPasswordHistoryData() {
 				try {
-					const response = await fetch('password_history_patterns.json');
+					// First, fetch just the summary (fast - no user list)
+					const response = await fetch('/api/password_history/summary');
 					if (!response.ok) return; // Data not available
 
 					const data = await response.json();
@@ -7085,124 +6004,147 @@
 						});
 					}
 
-					// Populate the predictable users table
-					if (data.top_predictable_users && data.top_predictable_users.length > 0) {
+					// Show button to load full user details if there are predictable users
+					if (data.predictable_users_count > 0) {
 						const tbody = document.querySelector('#predictableUsersTable tbody');
-						tbody.innerHTML = data.top_predictable_users.map(user => {
-							// Format patterns - include HIBP exposure as a badge
-							const badges = [];
-
-							// Add detected pattern badges (including hash reuse patterns)
-							// Pattern config with labels and CSS classes matching chart colors
-							const patternStyles = {
-								'consecutive_hash_reuse': { label: 'Consecutive', cssClass: 'consecutive' },
-								'password_reversion': { label: 'Reversion', cssClass: 'reversion' },
-								'base_word_persistence': { label: 'BaseWord', cssClass: 'baseword' },
-								'incrementing_number': { label: 'Number++', cssClass: 'number' },
-								'year_increment': { label: 'Year++', cssClass: 'year' },
-								'season_rotation': { label: 'Season', cssClass: 'season' },
-								'special_char_rotation': { label: 'SpecialChar', cssClass: 'specialchar' },
-								'minimal_changes': { label: 'Minimal', cssClass: 'minimal' },
-								'leet_progression': { label: 'Leet', cssClass: 'leet' }
-							};
-
-							user.patterns.forEach(p => {
-								const style = patternStyles[p.type] || { label: p.type, cssClass: '' };
-								badges.push(`<span class="pattern-badge ${style.cssClass}">${style.label}</span>`);
-							});
-
-							const patternBadges = badges.join(' ');
-
-							// Build set of passwords involved in non-reuse patterns (for orange highlighting)
-							const patternPasswords = new Set();
-							user.patterns.forEach(p => {
-								// Skip reuse patterns - those get red highlighting via is_duplicate
-								if (p.type !== 'consecutive_hash_reuse' && p.type !== 'password_reversion') {
-									(p.passwords_involved || []).forEach(pw => patternPasswords.add(pw));
-								}
-							});
-
-							// Format password evolution using full_history (shows uncracked as placeholders)
-							// full_history contains: {position, password, hash_short, is_duplicate, reuse_count}
-							// is_duplicate now marks ALL entries in a reuse group (not just after first)
-							const history = user.full_history || [];
-							const hashLabels = {};  // hash_short -> label (e.g., "hash1")
-							let hashCounter = 1;
-
-							const passwordEvolutionRows = history.map((entry, idx) => {
-								let displayText;
-								const isInReuseGroup = entry.is_duplicate;  // Now marks ALL in group
-
-								if (entry.password) {
-									// Cracked password - show with blur
-									const pw = entry.password;
-									// Determine highlight class: red for reuse, orange for other patterns, none for plain cracked
-									// Reuse takes priority over pattern highlighting
-									let wrapperClass = '';
-									if (isInReuseGroup) {
-										wrapperClass = 'reuse-highlight';
-									} else if (patternPasswords.has(pw)) {
-										wrapperClass = 'pattern-highlight';
-									}
-									if (pw.length <= 4) {
-										displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-blurred">${escapeHtml(pw)}</span></span>`;
-									} else {
-										const start = pw.slice(0, 2);
-										const middle = pw.slice(2, -2);
-										const end = pw.slice(-2);
-										displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span></span>`;
-									}
-								} else {
-									// Uncracked - use simple "hash1", "hash2" labels
-									// Reuse label if we've seen this hash before
-									if (!hashLabels[entry.hash_short]) {
-										hashLabels[entry.hash_short] = `hash${hashCounter}`;
-										hashCounter++;
-									}
-									const label = hashLabels[entry.hash_short];
-									const cssClass = isInReuseGroup ? 'history-pw-uncracked duplicate' : 'history-pw-uncracked';
-									displayText = `<span class="${cssClass}" title="Uncracked hash">${label}</span>`;
-								}
-
-								// Add arrow except for first entry
-								const arrow = idx > 0 ? '<span class="pw-arrow">→</span> ' : '';
-								return arrow + displayText;
-							});
-
-							const passwordEvolution = passwordEvolutionRows.join('');
-
-							// Format predictability score as percentage
-							const scorePercent = Math.round(user.predictability_score * 100);
-							const scoreClass = scorePercent >= 70 ? 'critical' : scorePercent >= 40 ? 'high' : 'medium';
-
-							return `
-								<tr class="${scorePercent >= 70 ? 'cracked-row' : scorePercent >= 40 ? 'warning-row' : ''}">
-									<td>${escapeHtml(user.username)}</td>
-									<td><span class="predictability-score ${scoreClass}">${scorePercent}%</span></td>
-									<td>${patternBadges || '-'}</td>
-									<td class="password-evolution">${passwordEvolution || '-'}</td>
-								</tr>
-							`;
-						}).join('');
-
-						// Initialize DataTable (4 columns: Username, Score, Patterns, Evolution)
-						const historyTable = $('#predictableUsersTable').DataTable({
-							pageLength: 10,
-							order: [[1, 'desc']],
-							columnDefs: [{ orderable: false, targets: [2, 3] }]
-						});
-
-						// Reapply blur state after page change/search/redraw
-						historyTable.on('draw', function() {
-							if (historyPasswordsVisible) {
-								applyHistoryPasswordVisibility(true);
-							}
-						});
+						tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">
+							<button class="btn-secondary" onclick="loadFullPasswordHistoryData()">Load ${data.predictable_users_count.toLocaleString()} User Details</button>
+						</td></tr>`;
 					}
-
-				} catch (error) {
-					console.log('Password history patterns not available:', error);
+				} catch (e) {
+					// Data not available, that's fine
 				}
+			}
+
+			// Load full password history data when user requests it
+			let passwordHistoryFullLoaded = false;
+			async function loadFullPasswordHistoryData() {
+				if (passwordHistoryFullLoaded) return;
+
+				const tbody = document.querySelector('#predictableUsersTable tbody');
+				if (tbody) {
+					tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Loading user details...</td></tr>';
+				}
+
+				try {
+					const response = await fetch('password_history_patterns.json');
+					if (!response.ok) return;
+
+					const data = await response.json();
+					passwordHistoryFullLoaded = true;
+
+					// Populate the predictable users table
+					populatePredictableUsersTable(data);
+				} catch (e) {
+					if (tbody) {
+						tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Error loading user details</td></tr>';
+					}
+				}
+			}
+
+			// Populate the predictable users table with full data
+			function populatePredictableUsersTable(data) {
+				if (!data.top_predictable_users || data.top_predictable_users.length === 0) return;
+				const tbody = document.querySelector('#predictableUsersTable tbody');
+				tbody.innerHTML = data.top_predictable_users.map(user => {
+					// Format patterns - include HIBP exposure as a badge
+					const badges = [];
+
+					// Add detected pattern badges (including hash reuse patterns)
+					const patternStyles = {
+						'consecutive_hash_reuse': { label: 'Consecutive', cssClass: 'consecutive' },
+						'password_reversion': { label: 'Reversion', cssClass: 'reversion' },
+						'base_word_persistence': { label: 'BaseWord', cssClass: 'baseword' },
+						'incrementing_number': { label: 'Number++', cssClass: 'number' },
+						'year_increment': { label: 'Year++', cssClass: 'year' },
+						'season_rotation': { label: 'Season', cssClass: 'season' },
+						'special_char_rotation': { label: 'SpecialChar', cssClass: 'specialchar' },
+						'minimal_changes': { label: 'Minimal', cssClass: 'minimal' },
+						'leet_progression': { label: 'Leet', cssClass: 'leet' }
+					};
+
+					user.patterns.forEach(p => {
+						const style = patternStyles[p.type] || { label: p.type, cssClass: '' };
+						badges.push(`<span class="pattern-badge ${style.cssClass}">${style.label}</span>`);
+					});
+
+					const patternBadges = badges.join(' ');
+
+					// Build set of passwords involved in non-reuse patterns (for orange highlighting)
+					const patternPasswords = new Set();
+					user.patterns.forEach(p => {
+						if (p.type !== 'consecutive_hash_reuse' && p.type !== 'password_reversion') {
+							(p.passwords_involved || []).forEach(pw => patternPasswords.add(pw));
+						}
+					});
+
+					// Format password evolution using full_history
+					const history = user.full_history || [];
+					const hashLabels = {};
+					let hashCounter = 1;
+
+					const passwordEvolutionRows = history.map((entry, idx) => {
+						let displayText;
+						const isInReuseGroup = entry.is_duplicate;
+
+						if (entry.password) {
+							const pw = entry.password;
+							let wrapperClass = '';
+							if (isInReuseGroup) {
+								wrapperClass = 'reuse-highlight';
+							} else if (patternPasswords.has(pw)) {
+								wrapperClass = 'pattern-highlight';
+							}
+							if (pw.length <= 4) {
+								displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-blurred">${escapeHtml(pw)}</span></span>`;
+							} else {
+								const start = pw.slice(0, 2);
+								const middle = pw.slice(2, -2);
+								const end = pw.slice(-2);
+								displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span></span>`;
+							}
+						} else {
+							if (!hashLabels[entry.hash_short]) {
+								hashLabels[entry.hash_short] = `hash${hashCounter}`;
+								hashCounter++;
+							}
+							const label = hashLabels[entry.hash_short];
+							const cssClass = isInReuseGroup ? 'history-pw-uncracked duplicate' : 'history-pw-uncracked';
+							displayText = `<span class="${cssClass}" title="Uncracked hash">${label}</span>`;
+						}
+
+						const arrow = idx > 0 ? '<span class="pw-arrow">→</span> ' : '';
+						return arrow + displayText;
+					});
+
+					const passwordEvolution = passwordEvolutionRows.join('');
+					const scorePercent = Math.round(user.predictability_score * 100);
+					const scoreClass = scorePercent >= 70 ? 'critical' : scorePercent >= 40 ? 'high' : 'medium';
+
+					return `
+						<tr class="${scorePercent >= 70 ? 'cracked-row' : scorePercent >= 40 ? 'warning-row' : ''}">
+							<td>${escapeHtml(user.username)}</td>
+							<td><span class="predictability-score ${scoreClass}">${scorePercent}%</span></td>
+							<td>${patternBadges || '-'}</td>
+							<td class="password-evolution">${passwordEvolution || '-'}</td>
+						</tr>
+					`;
+				}).join('');
+
+				// Initialize DataTable
+				const historyTable = $('#predictableUsersTable').DataTable({
+					pageLength: 5,
+					lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
+					order: [[1, 'desc']],
+					columnDefs: [{ orderable: false, targets: [2, 3] }]
+				});
+
+				// Reapply blur state after page change/search/redraw
+				historyTable.on('draw', function() {
+					if (historyPasswordsVisible) {
+						applyHistoryPasswordVisibility(true);
+					}
+				});
 			}
 
 			// Download password history CSV

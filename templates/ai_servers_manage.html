@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K Ollama Server Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
+    <!-- DO NOT add inline <style> blocks here - use style.css instead -->
+</head>
+<body class="ai-servers-body">
+    <h1>Ollama Server Management</h1>
+    <p class="ai-servers-subtitle">Manage connectivity and models across all configured Ollama servers</p>
+
+    <div class="ai-servers-nav">
+        <a href="/hiddenpages">&larr; Hidden Pages</a>
+        <a href="/api/ai/report/test">Report Testing</a>
+        <a href="/api/ai/benchmark">Benchmark Suite</a>
+        <a href="/report">Back to Report</a>
+    </div>
+
+    <h2>Configured Servers</h2>
+    <div class="ai-servers-grid">
+        {% for server in servers %}
+        <div class="ai-server-card {{ 'ok' if server.reachable else 'error' }}" id="server-{{ server.id }}">
+            <div class="ai-server-header">
+                <div class="ai-server-status">
+                    <span class="ai-status-dot"></span>
+                    <strong>{{ server.name }}</strong>
+                </div>
+                <button class="secondary small" onclick="refreshServer('{{ server.id }}')">&#8635; Refresh</button>
+            </div>
+            <div class="ai-server-info">
+                <div class="ai-server-host">{{ server.host }}</div>
+                <div class="ai-server-desc">{{ server.description or '' }}</div>
+                {% if server.hardware %}
+                <div class="ai-server-hardware">{{ server.hardware }}</div>
+                {% endif %}
+                {% if server.error %}
+                <div class="ai-server-error">{{ server.error }}</div>
+                {% endif %}
+            </div>
+            <div class="ai-server-models">
+                <div class="ai-models-header">
+                    <strong>{{ server.available_models|length }} Models Installed</strong>
+                    <button class="secondary small" onclick="toggleModels('{{ server.id }}')" id="toggle-{{ server.id }}">Show</button>
+                </div>
+                <div class="ai-models-list" id="models-{{ server.id }}" style="display: none;">
+                    {% if server.available_models %}
+                        {% for model in server.sorted_models %}
+                        <div class="ai-model-item">
+                            <span class="ai-model-name">{{ model }}</span>
+                            <button class="danger small" onclick="deleteModel('{{ server.id }}', '{{ model }}')">Delete</button>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <span class="ai-no-models">No models installed</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="ai-server-actions">
+                <input type="text" id="pull-input-{{ server.id }}" placeholder="Model name (e.g., llama3.1:70b)" class="ai-pull-input">
+                <button onclick="pullModel('{{ server.id }}')">Pull Model</button>
+            </div>
+            <div class="ai-server-status-msg" id="status-{{ server.id }}"></div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="ai-servers-section">
+        <h2>Model Library</h2>
+        <p class="ai-library-hint">Click a size to pull that model variant. You'll be prompted to select which server to install it on.</p>
+        <div class="ai-library-grid">
+            {% for model in library_models %}
+            <div class="ai-library-model">
+                <div class="ai-model-header">
+                    <strong>{{ model.name }}</strong>
+                    {% for rec in model.recommended_for or [] %}
+                    <span class="ai-rec-tag">{{ rec }}</span>
+                    {% endfor %}
+                </div>
+                <div class="ai-model-desc">{{ model.description or '' }}</div>
+                <div class="ai-model-sizes">
+                    {% if model.sizes %}
+                        {% for size in model.sizes %}
+                        <button class="ai-size-btn" onclick="showPullDialog('{{ model.name }}:{{ size }}')">{{ size }}</button>
+                        {% endfor %}
+                    {% else %}
+                        <button class="ai-size-btn" onclick="showPullDialog('{{ model.name }}')">{{ model.name }}</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Pull Dialog -->
+    <div class="ai-dialog-overlay" id="pullDialog">
+        <div class="ai-dialog">
+            <h3>Pull Model</h3>
+            <p>Model: <strong id="dialogModelName"></strong></p>
+            <label class="ai-dialog-label">Select target server:</label>
+            <select id="dialogServerSelect" class="ai-server-select"></select>
+            <div class="ai-dialog-actions">
+                <button class="secondary" onclick="closePullDialog()">Cancel</button>
+                <button onclick="confirmPull()">Pull Model</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global operation lock - prevents concurrent pull/delete operations
+        let operationInProgress = false;
+        let operationServerId = null;
+
+        function setOperationLock(serverId) {
+            operationInProgress = true;
+            operationServerId = serverId;
+            // Disable all pull buttons and inputs
+            document.querySelectorAll('.ai-server-actions button').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.ai-pull-input').forEach(input => input.disabled = true);
+            document.querySelectorAll('.ai-model-item button').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.ai-size-btn').forEach(btn => btn.disabled = true);
+        }
+
+        function clearOperationLock() {
+            operationInProgress = false;
+            operationServerId = null;
+            // Re-enable all buttons and inputs
+            document.querySelectorAll('.ai-server-actions button').forEach(btn => btn.disabled = false);
+            document.querySelectorAll('.ai-pull-input').forEach(input => input.disabled = false);
+            document.querySelectorAll('.ai-model-item button').forEach(btn => btn.disabled = false);
+            document.querySelectorAll('.ai-size-btn').forEach(btn => btn.disabled = false);
+        }
+
+        // Toggle models list visibility
+        function toggleModels(serverId) {
+            const list = document.getElementById('models-' + serverId);
+            const btn = document.getElementById('toggle-' + serverId);
+            if (list.style.display === 'none') {
+                list.style.display = 'block';
+                btn.textContent = 'Hide';
+            } else {
+                list.style.display = 'none';
+                btn.textContent = 'Show';
+            }
+        }
+
+        // Refresh server status
+        async function refreshServer(serverId) {
+            const card = document.getElementById('server-' + serverId);
+            const statusMsg = document.getElementById('status-' + serverId);
+            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.textContent = 'Refreshing...';
+
+            try {
+                const resp = await fetch('/api/ai/servers/' + serverId + '/status');
+                const data = await resp.json();
+
+                // Update status indicator
+                card.className = 'ai-server-card ' + (data.reachable ? 'ok' : 'error');
+
+                // Update models list
+                const modelsList = document.getElementById('models-' + serverId);
+                if (data.available_models && data.available_models.length > 0) {
+                    modelsList.innerHTML = data.available_models.map(model =>
+                        '<div class="ai-model-item">' +
+                        '<span class="ai-model-name">' + model + '</span>' +
+                        '<button class="danger small" onclick="deleteModel(\'' + serverId + '\', \'' + model + '\')">Delete</button>' +
+                        '</div>'
+                    ).join('');
+                    card.querySelector('.ai-models-header strong').textContent = data.available_models.length + ' Models Installed';
+                } else {
+                    modelsList.innerHTML = '<span class="ai-no-models">No models installed</span>';
+                    card.querySelector('.ai-models-header strong').textContent = '0 Models Installed';
+                }
+
+                statusMsg.className = 'ai-server-status-msg success';
+                statusMsg.textContent = 'Refreshed successfully';
+                setTimeout(() => { statusMsg.textContent = ''; }, 3000);
+            } catch (e) {
+                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.textContent = 'Error: ' + e.message;
+            }
+        }
+
+        // Pull model to specific server
+        async function pullModel(serverId) {
+            if (operationInProgress) {
+                alert('Another operation is in progress. Please wait for it to complete.');
+                return;
+            }
+
+            const input = document.getElementById('pull-input-' + serverId);
+            const modelName = input.value.trim();
+            if (!modelName) {
+                alert('Please enter a model name');
+                return;
+            }
+
+            setOperationLock(serverId);
+            const statusMsg = document.getElementById('status-' + serverId);
+            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.textContent = 'Pulling ' + modelName + '... This may take several minutes.';
+
+            try {
+                const resp = await fetch('/api/ai/pull', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ model: modelName, server_id: serverId })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    statusMsg.className = 'ai-server-status-msg success';
+                    statusMsg.textContent = 'Successfully pulled ' + modelName;
+                    input.value = '';
+                    await refreshServer(serverId);
+                } else {
+                    statusMsg.className = 'ai-server-status-msg error';
+                    statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
+                }
+            } catch (e) {
+                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.textContent = 'Error: ' + e.message;
+            } finally {
+                clearOperationLock();
+            }
+        }
+
+        // Delete model from server
+        async function deleteModel(serverId, modelName) {
+            if (operationInProgress) {
+                alert('Another operation is in progress. Please wait for it to complete.');
+                return;
+            }
+
+            if (!confirm('Delete ' + modelName + ' from this server?')) return;
+
+            setOperationLock(serverId);
+            const statusMsg = document.getElementById('status-' + serverId);
+            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.textContent = 'Deleting ' + modelName + '...';
+
+            try {
+                const resp = await fetch('/api/ai/delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ model: modelName, server_id: serverId })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    statusMsg.className = 'ai-server-status-msg success';
+                    statusMsg.textContent = 'Deleted ' + modelName;
+                    await refreshServer(serverId);
+                } else {
+                    statusMsg.className = 'ai-server-status-msg error';
+                    statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
+                }
+            } catch (e) {
+                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.textContent = 'Error: ' + e.message;
+            } finally {
+                clearOperationLock();
+            }
+        }
+
+        // Pull dialog for library models
+        let pendingPullModel = null;
+
+        function showPullDialog(modelName) {
+            if (operationInProgress) {
+                alert('Another operation is in progress. Please wait for it to complete.');
+                return;
+            }
+
+            pendingPullModel = modelName;
+            document.getElementById('dialogModelName').textContent = modelName;
+
+            // Populate server select with reachable servers
+            const select = document.getElementById('dialogServerSelect');
+            select.innerHTML = '';
+            document.querySelectorAll('.ai-server-card.ok').forEach(card => {
+                const serverId = card.id.replace('server-', '');
+                const serverName = card.querySelector('.ai-server-status strong').textContent;
+                select.innerHTML += '<option value="' + serverId + '">' + serverName + '</option>';
+            });
+
+            if (select.options.length === 0) {
+                alert('No reachable servers available');
+                return;
+            }
+
+            document.getElementById('pullDialog').style.display = 'block';
+        }
+
+        function closePullDialog() {
+            document.getElementById('pullDialog').style.display = 'none';
+            pendingPullModel = null;
+        }
+
+        async function confirmPull() {
+            const serverId = document.getElementById('dialogServerSelect').value;
+            const modelName = pendingPullModel;  // Save before closing dialog
+            closePullDialog();
+
+            // Use the pull function
+            document.getElementById('pull-input-' + serverId).value = modelName;
+            await pullModel(serverId);
+        }
+
+        // Close dialog on overlay click
+        document.getElementById('pullDialog').addEventListener('click', function(e) {
+            if (e.target === this) closePullDialog();
+        });
+    </script>
+</body>
+</html>

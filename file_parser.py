@@ -777,6 +777,69 @@ def build_account_data(
     return account_data
 
 
+def build_account_data_with_cache(
+    pwdump_result: ValidationResult,
+    cracked_hashes: dict[str, str],
+    ignore_disabled: bool = False,
+    ignore_computer_accounts: bool = False
+) -> dict[str, dict[str, Optional[str | int | bool]]]:
+    """
+    Build account_data dictionary using a pre-built cracked_hashes lookup.
+
+    This is an optimized version of build_account_data() that accepts the
+    cracked_hashes dictionary directly from the potfile cache, avoiding
+    the need to iterate through 620K+ PotfileEntry objects.
+
+    Args:
+        pwdump_result: Validated pwdump file results
+        cracked_hashes: Pre-built hash->password lookup dict from cache
+        ignore_disabled: If True, skip accounts with status=Disabled
+        ignore_computer_accounts: If True, skip accounts ending with $
+
+    Returns:
+        Dictionary mapping account names to account data
+    """
+    # Ensure blank password hash is included
+    if BLANK_NTLM_HASH not in cracked_hashes:
+        cracked_hashes = {BLANK_NTLM_HASH: "", **cracked_hashes}
+
+    account_data: dict[str, dict[str, Optional[str | int | bool]]] = {}
+
+    for line in pwdump_result.lines:
+        if not (line.included and line.is_valid):
+            continue
+
+        if not line.username:
+            continue
+
+        # Skip computer accounts if requested
+        if ignore_computer_accounts and is_computer_account(line.username):
+            continue
+
+        # Skip disabled accounts if requested (only if status info is available)
+        if ignore_disabled and line.status == "Disabled":
+            continue
+
+        account_entry: dict[str, Optional[str | int | bool]] = {
+            "lm_hash": line.lm_hash,
+            "ntlm_hash": line.ntlm_hash,
+            "cracked_pw": None,
+            "locked": None,
+            "disabled": line.status == "Disabled" if line.status else None,
+            "last_pw_change": None,
+            "rid": line.rid,
+        }
+
+        # Check if NTLM hash is cracked
+        if line.ntlm_hash and line.ntlm_hash in cracked_hashes:
+            cracked_value = cracked_hashes[line.ntlm_hash]
+            account_entry["cracked_pw"] = decode_hex_password(cracked_value)
+
+        account_data[line.username] = account_entry
+
+    return account_data
+
+
 # Serialization helpers for Flask session storage
 
 def validation_result_to_dict(result: ValidationResult) -> dict:

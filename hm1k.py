@@ -44,7 +44,7 @@ from domain_utils import filter_accounts_by_domain, detect_cross_domain_password
 # Import password history analysis module
 import password_history
 # Import potfile cache for efficient master potfile operations
-from potfile_cache import get_master_cache, build_cracked_hashes_fast
+from potfile_cache import get_master_cache, build_cracked_hashes_fast, get_cracked_hashes_direct
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
@@ -693,15 +693,64 @@ def local_files() -> FlaskResponse:
 # Master Potfile Helper Functions
 # ============================================================================
 
-def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationResult") -> tuple:
+def extract_hashes_from_pwdump(pwdump_result: "file_parser.ValidationResult") -> set[str]:
+    """
+    Extract unique NTLM hashes from a validated pwdump result.
+
+    Args:
+        pwdump_result: Validated pwdump file results
+
+    Returns:
+        Set of lowercase NTLM hashes
+    """
+    hashes = set()
+    for line in pwdump_result.lines:
+        if line.included and line.is_valid and line.ntlm_hash:
+            hashes.add(line.ntlm_hash.lower())
+    return hashes
+
+
+def extract_hashes_from_add(add_result: "file_parser.ADDValidationResult") -> set[str]:
+    """
+    Extract unique NTLM hashes from a validated ADD result.
+
+    Args:
+        add_result: Validated ADD file results
+
+    Returns:
+        Set of lowercase NTLM hashes
+    """
+    hashes = set()
+    for entry in add_result.entries:
+        if entry.included and entry.is_valid:
+            # Current hash
+            if entry.nt_hash:
+                hashes.add(entry.nt_hash.lower())
+            # Historical hashes
+            for hist in entry.nt_history:
+                if hist:
+                    hashes.add(hist.lower())
+    return hashes
+
+
+def handle_master_potfile_merge(
+    potfile_result: "file_parser.PotfileValidationResult",
+    pwdump_hashes: set[str] = None
+) -> tuple:
     """
     Handle master potfile merge logic when MASTER_POTFILE_ENABLED is true.
 
     Uses cached potfile for efficient merge and validation operations.
     With 620K+ hashes, this avoids reading the file twice per operation.
 
+    When pwdump_hashes is provided, the returned potfile result is filtered
+    to only include hashes that match the pwdump accounts. This dramatically
+    reduces session storage (620K entries -> only matching entries).
+
     Args:
         potfile_result: The validated potfile result from user's upload
+        pwdump_hashes: Optional set of NTLM hashes from pwdump (lowercase).
+                      If provided, filters result to only matching hashes.
 
     Returns:
         Tuple of (final_potfile_result, merge_stats_dict)
@@ -727,12 +776,25 @@ def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationRe
             "user_ntlm_count": potfile_result.ntlm_count,
         }
 
-        # Create PotfileValidationResult from cache (avoids full file re-parse)
-        master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
-        logging.info(
-            f"Master potfile merge complete: {added} added, {skipped} skipped, "
-            f"{master_result.ntlm_count} total NTLM hashes in master"
-        )
+        # Create PotfileValidationResult - use filtered version if pwdump_hashes provided
+        if pwdump_hashes:
+            # Session-optimized: only include hashes that match pwdump accounts
+            master_result = cache.to_filtered_validation_result(
+                MASTER_POTFILE_PATH,
+                pwdump_hashes,
+                additional_entries=potfile_result.entries  # Include user's potfile entries
+            )
+            logging.info(
+                f"Master potfile merge complete: {added} added, {skipped} skipped, "
+                f"{total} total in master, {master_result.ntlm_count} matching session hashes"
+            )
+        else:
+            # Full result (legacy behavior)
+            master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
+            logging.info(
+                f"Master potfile merge complete: {added} added, {skipped} skipped, "
+                f"{master_result.ntlm_count} total NTLM hashes in master"
+            )
         return (master_result, merge_stats)
 
     except Exception as e:
@@ -748,11 +810,15 @@ def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationRe
         return (potfile_result, merge_stats)
 
 
-def load_master_potfile_only() -> tuple:
+def load_master_potfile_only(pwdump_hashes: set[str] = None) -> tuple:
     """
     Load master potfile when user skips providing their own potfile.
 
     Uses cached potfile for fast loading of 620K+ hash files.
+
+    Args:
+        pwdump_hashes: Optional set of NTLM hashes from pwdump (lowercase).
+                      If provided, filters result to only matching hashes.
 
     Returns:
         Tuple of (potfile_result, merge_stats_dict)
@@ -763,13 +829,23 @@ def load_master_potfile_only() -> tuple:
     try:
         # Use cache for fast loading
         cache = get_master_cache()
-        master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
+
+        if pwdump_hashes:
+            # Session-optimized: only include hashes that match pwdump accounts
+            master_result = cache.to_filtered_validation_result(
+                MASTER_POTFILE_PATH,
+                pwdump_hashes
+            )
+        else:
+            master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
+
         merge_stats = {
             "added": 0,
             "skipped": 0,
-            "total": master_result.ntlm_count,
+            "total": cache.get_stats()["ntlm_count"] if cache.get_stats() else 0,
             "user_ntlm_count": 0,
             "master_only": True,
+            "session_hashes": master_result.ntlm_count,
         }
         return (master_result, merge_stats)
     except Exception as e:
@@ -835,8 +911,11 @@ def validate_files_endpoint() -> Response:
             add_result = file_parser.parse_add_json(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
 
-            # Handle master potfile merge if enabled
-            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+            # Extract hashes for session-optimized potfile filtering
+            add_hashes = extract_hashes_from_add(add_result)
+
+            # Handle master potfile merge if enabled (with session filtering)
+            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
 
             # Store ADD validation results in session
             session["add_validation"] = file_parser.add_result_to_dict(add_result)
@@ -871,8 +950,11 @@ def validate_files_endpoint() -> Response:
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
 
-            # Handle master potfile merge if enabled
-            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+            # Extract hashes for session-optimized potfile filtering
+            pwdump_hashes = extract_hashes_from_pwdump(pwdump_result)
+
+            # Handle master potfile merge if enabled (with session filtering)
+            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
 
             # Store validation results in session
             session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
@@ -977,9 +1059,12 @@ def validate_local_files() -> Response:
             add_result = file_parser.parse_add_json(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
 
-            # Handle master potfile merge if enabled
+            # Extract hashes for session-optimized potfile filtering
+            add_hashes = extract_hashes_from_add(add_result)
+
+            # Handle master potfile merge if enabled (with session filtering)
             if MASTER_POTFILE_ENABLED:
-                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
                 session["master_potfile_merge"] = merge_stats
             else:
                 final_potfile_result = potfile_result
@@ -1015,9 +1100,12 @@ def validate_local_files() -> Response:
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
 
-            # Handle master potfile merge if enabled
+            # Extract hashes for session-optimized potfile filtering
+            pwdump_hashes = extract_hashes_from_pwdump(pwdump_result)
+
+            # Handle master potfile merge if enabled (with session filtering)
             if MASTER_POTFILE_ENABLED:
-                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result)
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
                 session["master_potfile_merge"] = merge_stats
             else:
                 final_potfile_result = potfile_result
@@ -1315,17 +1403,32 @@ def process_validated() -> Response:
         return cast(FlaskResponse, redirect(url_for("index")))
 
     try:
-        # Reconstruct validation results from session
+        # Reconstruct pwdump validation result from session
         pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
-        potfile_result = file_parser.dict_to_potfile_result(potfile_data)
 
-        # Build account data using only included lines
-        account_data = file_parser.build_account_data(
-            pwdump_result,
-            potfile_result,
-            ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
-            ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
-        )
+        # Optimization: If using master potfile, use cached dict directly
+        # This avoids creating 620K+ PotfileEntry objects
+        cracked_hashes = None
+        if MASTER_POTFILE_ENABLED:
+            cracked_hashes = get_cracked_hashes_direct(MASTER_POTFILE_PATH)
+
+        if cracked_hashes is not None:
+            # Use optimized path - direct cache access
+            account_data = file_parser.build_account_data_with_cache(
+                pwdump_result,
+                cracked_hashes,
+                ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
+                ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+            )
+        else:
+            # Fall back to standard path for non-master potfiles
+            potfile_result = file_parser.dict_to_potfile_result(potfile_data)
+            account_data = file_parser.build_account_data(
+                pwdump_result,
+                potfile_result,
+                ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
+                ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+            )
 
         # Apply domain filter if specified
         domain_filter = options.get("domain_filter", "all")
@@ -1425,7 +1528,13 @@ def process_validated() -> Response:
         pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
 
         # Build cracked_hashes lookup from potfile (uses cache for master potfile)
-        cracked_hashes = build_cracked_hashes_fast(potfile_result)
+        # Note: cracked_hashes may already be set from the optimized path above
+        if cracked_hashes is None:
+            # Need to build from potfile_result (non-master potfile case)
+            cracked_hashes = build_cracked_hashes_fast(potfile_result)
+        # Ensure blank hash is included for history analysis
+        if file_parser.BLANK_NTLM_HASH not in cracked_hashes:
+            cracked_hashes = {file_parser.BLANK_NTLM_HASH: "", **cracked_hashes}
 
         # Run password history pattern analysis (for pwdump with _history entries)
         pwdump_lines_data = [
@@ -1561,247 +1670,11 @@ def hidden_pages_index():
     ollama_enabled = config.enabled if config else False
     servers_status = test_all_servers() if ollama_enabled else {"servers": []}
 
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>HM1K - Hidden Pages Index</title>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body {
-                font-family: system-ui, -apple-system, sans-serif;
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                color: #e4e4e7;
-                min-height: 100vh;
-                padding: 40px 20px;
-            }
-            .container {
-                max-width: 900px;
-                margin: 0 auto;
-            }
-            h1 {
-                font-size: 2rem;
-                margin-bottom: 8px;
-                background: linear-gradient(90deg, #6366f1, #8b5cf6);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-            }
-            .subtitle {
-                color: #71717a;
-                margin-bottom: 32px;
-                font-size: 0.95rem;
-            }
-            .warning-banner {
-                background: rgba(245, 158, 11, 0.1);
-                border: 1px solid rgba(245, 158, 11, 0.3);
-                border-radius: 8px;
-                padding: 12px 16px;
-                margin-bottom: 24px;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }
-            .warning-banner .icon { font-size: 1.2rem; }
-            .warning-banner .text { color: #fbbf24; font-size: 0.9rem; }
-            .section {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-                padding: 24px;
-                margin-bottom: 24px;
-            }
-            .section h2 {
-                font-size: 1.1rem;
-                color: #a1a1aa;
-                margin-bottom: 16px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .section h2 .icon { font-size: 1.2rem; }
-            .page-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 16px;
-            }
-            .page-card {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 16px;
-                text-decoration: none;
-                color: inherit;
-                transition: all 0.2s ease;
-            }
-            .page-card:hover {
-                background: rgba(99, 102, 241, 0.1);
-                border-color: rgba(99, 102, 241, 0.3);
-                transform: translateY(-2px);
-            }
-            .page-card h3 {
-                font-size: 1rem;
-                color: #e4e4e7;
-                margin-bottom: 6px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            .page-card p {
-                font-size: 0.85rem;
-                color: #71717a;
-                line-height: 1.4;
-            }
-            .page-card .url {
-                font-size: 0.75rem;
-                color: #6366f1;
-                font-family: monospace;
-                margin-top: 8px;
-                display: block;
-            }
-            .status-section {
-                margin-top: 32px;
-                padding-top: 24px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            .status-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                gap: 12px;
-            }
-            .status-card {
-                background: rgba(255, 255, 255, 0.03);
-                border-radius: 8px;
-                padding: 12px 16px;
-            }
-            .status-card .label {
-                font-size: 0.75rem;
-                color: #71717a;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-            }
-            .status-card .value {
-                font-size: 1rem;
-                color: #e4e4e7;
-                margin-top: 4px;
-            }
-            .status-online { color: #4ade80; }
-            .status-offline { color: #f87171; }
-            .back-link {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                color: #6366f1;
-                text-decoration: none;
-                font-size: 0.9rem;
-                margin-bottom: 24px;
-            }
-            .back-link:hover { text-decoration: underline; }
-            .badge {
-                font-size: 0.65rem;
-                padding: 2px 6px;
-                border-radius: 4px;
-                text-transform: uppercase;
-                font-weight: 600;
-            }
-            .badge-dev { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-            .badge-test { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-            .badge-api { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <a href="/report" class="back-link">&larr; Back to Report</a>
-
-            <h1>Hidden Pages Index</h1>
-            <p class="subtitle">Development tools, test pages, and API endpoints not linked from the main UI.</p>
-
-            <div class="warning-banner">
-                <span class="icon">&#9888;</span>
-                <span class="text">These pages are for development and testing purposes. Some features may be experimental or incomplete.</span>
-            </div>
-
-            <div class="section">
-                <h2><span class="icon">&#129302;</span> AI Test & Development Pages</h2>
-                <div class="page-grid">
-                    <a href="/api/ai/servers/manage" class="page-card">
-                        <h3>Ollama Servers <span class="badge badge-test">Manage</span></h3>
-                        <p>Multi-server connectivity testing and model management - view, pull, and delete models across all configured Ollama servers.</p>
-                        <span class="url">/api/ai/servers/manage</span>
-                    </a>
-                    <a href="/api/ai/report/test" class="page-card">
-                        <h3>AI Report Test Lab <span class="badge badge-dev">Dev</span></h3>
-                        <p>Testing environment for AI report sections with prompt preview and output comparison.</p>
-                        <span class="url">/api/ai/report/test</span>
-                    </a>
-                    <a href="/api/ai/benchmark" class="page-card">
-                        <h3>AI Benchmark Suite <span class="badge badge-test">Test</span></h3>
-                        <p>Comprehensive model benchmarking - quick tests, production prompts, and full matrix runs.</p>
-                        <span class="url">/api/ai/benchmark</span>
-                    </a>
-                </div>
-            </div>
-
-            <div class="section">
-                <h2><span class="icon">&#128279;</span> Useful API Endpoints</h2>
-                <div class="page-grid">
-                    <a href="/api/ai/status" class="page-card">
-                        <h3>AI Status <span class="badge badge-api">API</span></h3>
-                        <p>Check Ollama connection status, available models, and server configuration.</p>
-                        <span class="url">/api/ai/status</span>
-                    </a>
-                    <a href="/api/ai/servers" class="page-card">
-                        <h3>AI Servers <span class="badge badge-api">API</span></h3>
-                        <p>List all configured Ollama servers with their status and available models.</p>
-                        <span class="url">/api/ai/servers</span>
-                    </a>
-                    <a href="/api/ai/report/sections" class="page-card">
-                        <h3>Report Sections <span class="badge badge-api">API</span></h3>
-                        <p>View all AI report section configurations including prompts, models, and temperatures.</p>
-                        <span class="url">/api/ai/report/sections</span>
-                    </a>
-                    <a href="/api/ai/report/data" class="page-card">
-                        <h3>Report Data Summary <span class="badge badge-api">API</span></h3>
-                        <p>Summary of available analysis data for AI report generation.</p>
-                        <span class="url">/api/ai/report/data</span>
-                    </a>
-                    <a href="/api/ai/report/outputs" class="page-card">
-                        <h3>Saved Test Outputs <span class="badge badge-api">API</span></h3>
-                        <p>List of saved AI test outputs from the test lab for comparison and review.</p>
-                        <span class="url">/api/ai/report/outputs</span>
-                    </a>
-                    <a href="/api/ai/aaia/config" class="page-card">
-                        <h3>AAIA Configuration <span class="badge badge-api">API</span></h3>
-                        <p>Advanced AI Analysis configuration with server status and model assignments.</p>
-                        <span class="url">/api/ai/aaia/config</span>
-                    </a>
-                </div>
-            </div>
-
-            <div class="status-section">
-                <h2 style="font-size: 1rem; color: #71717a; margin-bottom: 16px;">
-                    <span>&#128994;</span> Current System Status
-                </h2>
-                <div class="status-grid">
-                    <div class="status-card">
-                        <div class="label">Ollama Integration</div>
-                        <div class="value """ + ('class="status-online">Enabled' if ollama_enabled else 'class="status-offline">Disabled') + """</div>
-                    </div>
-                    """ + ''.join([f'''
-                    <div class="status-card">
-                        <div class="label">{s.get("name", s.get("id", "Server"))}</div>
-                        <div class="value {'status-online' if s.get('reachable') else 'status-offline'}">
-                            {'Online - ' + str(len(s.get('available_models', []))) + ' models' if s.get('reachable') else 'Offline'}
-                        </div>
-                    </div>
-                    ''' for s in servers_status.get("servers", [])]) + """
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
+    return render_template(
+        'hidden_index.html',
+        ollama_enabled=ollama_enabled,
+        servers=servers_status.get("servers", [])
+    )
 
 
 # Helper function to load session data with fallback to legacy paths
@@ -2002,6 +1875,28 @@ def password_history_patterns() -> Response:
     if data is None:
         return jsonify({"error": "No data available"}), 404
     return jsonify(data)
+
+
+@app.route("/api/password_history/summary")
+@login_required
+def password_history_summary() -> Response:
+    """Get password history summary without full user list for fast initial page load."""
+    data = _load_session_json("password_history_patterns.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+
+    # Return summary without the large top_predictable_users array
+    summary = {
+        "total_users_analyzed": data.get("total_users_analyzed", 0),
+        "users_with_history": data.get("users_with_history", 0),
+        "users_with_cracked_history": data.get("users_with_cracked_history", 0),
+        "users_with_patterns": data.get("users_with_patterns", 0),
+        "pattern_counts": data.get("pattern_counts", {}),
+        "users_with_hash_reuse": data.get("users_with_hash_reuse", 0),
+        "users_with_consecutive_duplicates": data.get("users_with_consecutive_duplicates", 0),
+        "predictable_users_count": len(data.get("top_predictable_users", []))
+    }
+    return jsonify(summary)
 
 
 # Endpoint for Privileged Accounts (ADD JSON)
@@ -2294,6 +2189,28 @@ def hibp_results() -> Response:
     if data is None:
         return jsonify({"error": "No HIBP results available. Run a check first."}), 404
     return jsonify(data)
+
+
+@app.route("/api/hibp/summary")
+@login_required
+def hibp_summary() -> Response:
+    """Get HIBP summary data only (without full results array) for fast initial page load."""
+    data = _load_session_json("hibp_results.json")
+    if data is None:
+        return jsonify({"error": "No HIBP results available."}), 404
+
+    # Return only summary fields, not the large results array
+    summary = {
+        "total_checked": data.get("total_checked", 0),
+        "total_found": data.get("total_found", 0),
+        "found_percentage": data.get("found_percentage", 0),
+        "check_duration_seconds": data.get("check_duration_seconds", 0),
+        "data_source": data.get("data_source", "unknown"),
+        "data_source_info": data.get("data_source_info", ""),
+        "has_results": bool(data.get("results")),
+        "result_count": len(data.get("results", []))
+    }
+    return jsonify(summary)
 
 
 def run_automatic_hibp_check(account_data: dict, session_dir: str) -> Optional[dict]:
@@ -4555,14 +4472,29 @@ def regenerate_with_settings() -> Response:
             if pwdump_data and potfile_data:
                 # Rebuild account data with new domain filter
                 pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
-                potfile_result = file_parser.dict_to_potfile_result(potfile_data)
 
-                account_data_for_analysis = file_parser.build_account_data(
-                    pwdump_result,
-                    potfile_result,
-                    ignore_disabled=new_ignore_disabled == "true",
-                    ignore_computer_accounts=new_ignore_computer == "true",
-                )
+                # Optimization: If using master potfile, use cached dict directly
+                cracked_hashes = None
+                if MASTER_POTFILE_ENABLED:
+                    cracked_hashes = get_cracked_hashes_direct(MASTER_POTFILE_PATH)
+
+                if cracked_hashes is not None:
+                    # Use optimized path - direct cache access
+                    account_data_for_analysis = file_parser.build_account_data_with_cache(
+                        pwdump_result,
+                        cracked_hashes,
+                        ignore_disabled=new_ignore_disabled == "true",
+                        ignore_computer_accounts=new_ignore_computer == "true",
+                    )
+                else:
+                    # Fall back to standard path
+                    potfile_result = file_parser.dict_to_potfile_result(potfile_data)
+                    account_data_for_analysis = file_parser.build_account_data(
+                        pwdump_result,
+                        potfile_result,
+                        ignore_disabled=new_ignore_disabled == "true",
+                        ignore_computer_accounts=new_ignore_computer == "true",
+                    )
 
                 # Apply new domain filter
                 if new_domain_filter and new_domain_filter.lower() != "all":
@@ -5100,7 +5032,7 @@ def ai_report_section_prompt(section_id):
 @login_required
 def ai_report_test_page():
     """AI Report Analysis test page for experimenting with report sections."""
-    from ollama_tools import test_ollama_connection, test_all_servers, get_ai_report_sections, get_ai_data_loader
+    from ollama_tools import test_all_servers, get_ai_report_sections, get_ai_data_loader
 
     # Get all server statuses
     servers_status = test_all_servers()
@@ -5112,688 +5044,27 @@ def ai_report_test_page():
     loader = get_ai_data_loader(session_dir)
     data_summary = loader.get_data_summary()
 
-    # Build model options HTML from all servers (combine unique models)
+    # Build model list from all servers (combine unique models)
     all_models = set()
     reachable_servers = [s for s in servers_status.get("servers", []) if s.get("reachable")]
     for server in reachable_servers:
         all_models.update(server.get("available_models", []))
     all_models = sorted(all_models)
 
-    model_options = ""
-    for model in all_models:
-        model_options += f'<option value="{model}">{model}</option>'
+    # Sort sections by order
+    sections_sorted = sorted(sections.items(), key=lambda x: x[1].get("order", 99))
 
-    # Build server options HTML
-    server_options = ""
-    for server in servers_status.get("servers", []):
-        status_indicator = "✓" if server.get("reachable") else "✗"
-        server_options += f'<option value="{server["id"]}" {"" if server.get("reachable") else "disabled"}>{status_indicator} {server["name"]}</option>'
+    # Build recommended models dict for JS
+    recommended_models = {sid: cfg["recommended_model"] for sid, cfg in sections.items()}
 
-    # Build server status cards
-    server_cards_html = ""
-    for server in servers_status.get("servers", []):
-        status_class = "ok" if server.get("reachable") else "error"
-        model_count = len(server.get("available_models", []))
-        hardware_info = f" | {server['hardware']}" if server.get("hardware") else ""
-        error_info = f" | Error: {server['error']}" if server.get("error") else ""
-        server_cards_html += f'''
-        <div class="server-card {status_class}" data-server-id="{server['id']}">
-            <div class="server-header">
-                <span class="server-status-dot"></span>
-                <strong>{server['name']}</strong>
-            </div>
-            <div class="server-details">
-                <div class="server-host">{server['host']}</div>
-                <div class="server-info">{server['description']}{hardware_info}</div>
-                <div class="server-models">{model_count} models available{error_info}</div>
-            </div>
-            <button onclick="refreshServerStatus('{server['id']}')" class="secondary refresh-btn">↻</button>
-        </div>
-        '''
-
-    # Build sections HTML with data source info
-    sections_html = ""
-    for section_id, config in sorted(sections.items(), key=lambda x: x[1].get("order", 99)):
-        data_sources = config.get("data_sources", {})
-        sources_list = ", ".join(data_sources.keys())
-        sections_html += f'''
-        <div class="report-section" id="section-{section_id}">
-            <div class="section-header">
-                <div class="section-info">
-                    <h3>{config["title"]}</h3>
-                    <p class="section-desc">{config["description"]}</p>
-                    <p class="section-sources">Data: {sources_list}</p>
-                </div>
-                <div class="section-controls">
-                    <select id="server-{section_id}" class="server-select">
-                        {server_options}
-                    </select>
-                    <select id="model-{section_id}" class="model-select">
-                        {model_options}
-                    </select>
-                    <input type="range" id="temp-{section_id}" min="0" max="1" step="0.1" value="{config["temperature"]}" class="temp-slider">
-                    <span id="temp-value-{section_id}" class="temp-value">{config["temperature"]}</span>
-                    <button onclick="analyzeSection('{section_id}')" class="analyze-btn">Analyze</button>
-                    <button onclick="clearSection('{section_id}')" class="secondary clear-btn">Clear</button>
-                </div>
-            </div>
-            <div class="section-data-preview" id="data-preview-{section_id}">
-                <button onclick="toggleDataPreview('{section_id}')" class="secondary toggle-data-btn">Show Data</button>
-                <button onclick="togglePromptPreview('{section_id}')" class="secondary toggle-prompt-btn">Show Prompt</button>
-                <div class="data-preview-content" id="data-content-{section_id}" style="display:none;">
-                    <pre>Loading...</pre>
-                </div>
-                <div class="prompt-preview-content" id="prompt-content-{section_id}" style="display:none;">
-                    <pre>Loading...</pre>
-                </div>
-            </div>
-            <div class="section-content" id="content-{section_id}">
-                <span class="placeholder">Click "Analyze" to generate this section</span>
-            </div>
-        </div>
-        '''
-
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>HM1K AI Report Analysis</title>
-        <style>
-            body { font-family: system-ui, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
-            h1 { color: #00d4ff; margin-bottom: 5px; }
-            h2 { color: #00d4ff; margin-top: 0; }
-            h3 { color: #00d4ff; margin: 0; }
-            .subtitle { color: #888; margin-bottom: 20px; }
-            .status { padding: 15px; border-radius: 8px; margin-bottom: 15px; }
-            .status.ok { background: #1e3a1e; border: 1px solid #4caf50; }
-            .status.error { background: #3a1e1e; border: 1px solid #f44336; }
-            .status.warning { background: #3a3a1e; border: 1px solid #ff9800; }
-            .nav-links { margin-bottom: 20px; }
-            .nav-links a { color: #00d4ff; margin-right: 20px; }
-            .report-section { background: #16213e; border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
-            .section-header { padding: 15px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
-            .section-info { flex: 1; min-width: 250px; }
-            .section-desc { color: #888; font-size: 0.9em; margin: 5px 0 0 0; }
-            .section-sources { color: #666; font-size: 0.8em; margin: 3px 0 0 0; }
-            .section-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-            .section-content { padding: 20px; min-height: 100px; }
-            .section-content .placeholder { color: #666; font-style: italic; }
-            .section-content .analysis { white-space: pre-wrap; line-height: 1.6; }
-            .section-data-preview { padding: 10px 20px; background: #0f0f1a; border-bottom: 1px solid #333; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
-            .section-data-preview .toggle-data-btn, .section-data-preview .toggle-prompt-btn { font-size: 0.85em; padding: 4px 10px; }
-            .data-preview-content, .prompt-preview-content { margin-top: 10px; width: 100%; }
-            .data-preview-content pre, .prompt-preview-content pre { margin: 0; white-space: pre-wrap; font-size: 0.8em; color: #888; max-height: 400px; overflow-y: auto; background: #0a0a15; padding: 10px; border-radius: 4px; }
-            .prompt-preview-content pre { color: #a8d8a8; }
-            .prompt-preview-content .system-prompt { color: #d8a8d8; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed #444; }
-            .prompt-preview-content .prompt-label { color: #00d4ff; font-weight: bold; margin-bottom: 5px; display: block; }
-            button { background: #00d4ff; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-            button:hover { background: #00b8e6; }
-            button:disabled { background: #555; cursor: not-allowed; }
-            button.secondary { background: #555; color: #fff; }
-            button.secondary:hover { background: #666; }
-            button.danger { background: #f44336; color: #fff; }
-            button.success { background: #4caf50; color: #fff; }
-            select { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
-            .model-select { min-width: 180px; }
-            .temp-slider { width: 80px; }
-            .temp-value { color: #00d4ff; font-weight: bold; min-width: 30px; }
-            .loading { color: #00d4ff; }
-            .timer { display: inline-block; color: #ff9800; font-weight: bold; font-family: monospace; font-size: 1.1em; }
-            .response-time { color: #4caf50; font-weight: bold; }
-            .response-time-info { margin-top: 10px; padding: 8px 12px; background: #1e3a1e; border: 1px solid #4caf50; border-radius: 4px; color: #4caf50; font-size: 0.9em; }
-            .error { color: #f44336; }
-            .data-section { background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-            .data-mode-toggle { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
-            .data-mode-toggle label { color: #888; }
-            .data-stats { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 15px; }
-            .data-stat { background: #0f0f1a; padding: 10px 15px; border-radius: 6px; }
-            .data-stat .label { color: #888; font-size: 0.85em; }
-            .data-stat .value { color: #00d4ff; font-size: 1.2em; font-weight: bold; }
-            .files-list { display: flex; flex-wrap: wrap; gap: 8px; }
-            .file-tag { background: #1e3a1e; color: #4caf50; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; }
-            .file-tag.missing { background: #3a1e1e; color: #f44336; }
-            textarea { width: 100%; background: #0f0f1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 10px; font-family: monospace; box-sizing: border-box; resize: vertical; }
-            .data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
-            .data-field label { display: block; color: #888; margin-bottom: 5px; font-size: 0.9em; }
-            .hidden { display: none !important; }
-            .save-notice { margin-top: 10px; padding: 8px 12px; background: #1e3a1e; border: 1px solid #4caf50; border-radius: 4px; color: #4caf50; font-size: 0.85em; }
-            .offtopic-warning { margin-bottom: 15px; padding: 12px 15px; background: #3a2a1e; border: 1px solid #ff9800; border-radius: 4px; color: #ff9800; font-size: 0.9em; }
-            .outputs-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-            .outputs-section h3 { color: #00d4ff; margin: 0 0 15px 0; }
-            .outputs-list { max-height: 300px; overflow-y: auto; }
-            .output-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #0f0f1a; border-radius: 4px; margin-bottom: 8px; }
-            .output-item:hover { background: #1a1a2e; }
-            .output-filename { color: #00d4ff; font-family: monospace; font-size: 0.85em; cursor: pointer; }
-            .output-meta { color: #666; font-size: 0.8em; }
-            .output-actions button { padding: 4px 8px; font-size: 0.8em; margin-left: 8px; }
-            /* Server status styles */
-            .servers-section { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-            .servers-section h3 { color: #00d4ff; margin: 0 0 15px 0; }
-            .servers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
-            .server-card { background: #0f0f1a; border-radius: 8px; padding: 15px; position: relative; border: 2px solid #333; }
-            .server-card.ok { border-color: #4caf50; }
-            .server-card.error { border-color: #f44336; opacity: 0.7; }
-            .server-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-            .server-status-dot { width: 12px; height: 12px; border-radius: 50%; }
-            .server-card.ok .server-status-dot { background: #4caf50; box-shadow: 0 0 8px #4caf50; }
-            .server-card.error .server-status-dot { background: #f44336; }
-            .server-details { font-size: 0.85em; }
-            .server-host { color: #00d4ff; font-family: monospace; }
-            .server-info { color: #888; margin: 5px 0; }
-            .server-models { color: #666; }
-            .server-card .refresh-btn { position: absolute; top: 10px; right: 10px; padding: 4px 8px; font-size: 0.8em; }
-            .server-select { min-width: 140px; }
-        </style>
-    </head>
-    <body>
-        <h1>AI Report Analysis</h1>
-        <p class="subtitle">Test and refine AI-generated report sections</p>
-
-        <div class="nav-links">
-            <a href="/api/ai/servers/manage">&larr; Manage Ollama Servers</a>
-            <a href="/report">View Main Report</a>
-        </div>
-
-        <div class="servers-section">
-            <h3>Ollama Servers</h3>
-            <div class="servers-grid" id="servers-grid">
-                """ + server_cards_html + """
-            </div>
-        </div>
-
-        <div class="status """ + ("ok" if data_summary["has_data"] else "warning") + """" id="data-status">
-            <strong>Analysis Data:</strong>
-            """ + (f"Loaded - {data_summary['stats'].get('total_accounts', 0)} accounts, {data_summary['stats'].get('cracked_accounts', 0)} cracked ({data_summary['stats'].get('crack_percent', '0%')})" if data_summary["has_data"] else "No analysis data found. Run a password analysis first, or use sample data below.") + """
-            <div class="files-list" style="margin-top: 10px;">
-                """ + "".join([f'<span class="file-tag">{f}</span>' for f in data_summary.get("files_found", [])]) + """
-                """ + "".join([f'<span class="file-tag missing">{f} (missing)</span>' for f in data_summary.get("files_missing", [])]) + """
-            </div>
-        </div>
-
-        <div class="data-section">
-            <div class="data-mode-toggle">
-                <label><input type="radio" name="data-mode" value="auto" """ + ("checked" if data_summary["has_data"] else "") + """ onchange="setDataMode('auto')"> Use Analysis Data</label>
-                <label><input type="radio" name="data-mode" value="manual" """ + ("" if data_summary["has_data"] else "checked") + """ onchange="setDataMode('manual')"> Use Sample/Custom Data</label>
-                <button onclick="loadRealData()" class="secondary" style="margin-left: auto;">Reload Analysis Data</button>
-            </div>
-
-            <div id="manual-data-section" class=\"""" + ("hidden" if data_summary["has_data"] else "") + """\">
-                <h3 style="color: #888; margin-bottom: 15px;">Sample Data (editable)</h3>
-                <div class="data-grid">
-                    <div class="data-field">
-                        <label>Top Passwords (JSON: {"password": count})</label>
-                        <textarea id="data-top-passwords" rows="6">{"Summer2024": 45, "Welcome1!": 38, "Password123": 32, "Company2024!": 28, "Winter2023": 25, "qwerty123": 22, "Baseball1": 18, "Football!": 15}</textarea>
-                    </div>
-                    <div class="data-field">
-                        <label>Password Samples (one per line)</label>
-                        <textarea id="data-password-samples" rows="6">Summer2024
-Welcome1!
-Password123
-Company2024!
-JohnSmith1
-Yankees2024
-Chicago99!
-Packers!23</textarea>
-                    </div>
-                    <div class="data-field">
-                        <label>Top Substrings (JSON array)</label>
-                        <textarea id="data-substrings" rows="6">[{"substring": "2024", "count": 234}, {"substring": "2023", "count": 189}, {"substring": "pass", "count": 156}, {"substring": "summer", "count": 89}, {"substring": "welcome", "count": 67}]</textarea>
-                    </div>
-                    <div class="data-field">
-                        <label>Bad Practices (JSON)</label>
-                        <textarea id="data-bad-practices" rows="6">{"Season+Year": {"count": 234, "examples": {"Summer2024": 12, "Winter2023": 8}}, "Common Words": {"count": 456, "examples": {"Password": 45, "Welcome": 38}}, "Keyboard Patterns": {"count": 89, "examples": {"qwerty": 22, "123456": 15}}}</textarea>
-                    </div>
-                </div>
-            </div>
-
-            <div id="auto-data-section" class=\"""" + ("" if data_summary["has_data"] else "hidden") + """\">
-                <div class="data-stats">
-                    <div class="data-stat">
-                        <div class="label">Total Accounts</div>
-                        <div class="value" id="stat-total">""" + str(data_summary['stats'].get('total_accounts', 0)) + """</div>
-                    </div>
-                    <div class="data-stat">
-                        <div class="label">Cracked</div>
-                        <div class="value" id="stat-cracked">""" + str(data_summary['stats'].get('cracked_accounts', 0)) + """</div>
-                    </div>
-                    <div class="data-stat">
-                        <div class="label">Crack Rate</div>
-                        <div class="value" id="stat-percent">""" + str(data_summary['stats'].get('crack_percent', '0%')) + """</div>
-                    </div>
-                </div>
-                <p style="color: #888; font-size: 0.9em;">Data is automatically loaded from your most recent analysis. Click "Show Data" on each section to preview what will be sent to the AI.</p>
-            </div>
-        </div>
-
-        <div class="outputs-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="margin: 0;">Saved Test Outputs</h3>
-                <button onclick="toggleOutputsList()" class="secondary" id="toggle-outputs-btn">Show Outputs</button>
-            </div>
-            <div id="outputs-list" style="display: none;">
-                <p style="color: #888; font-size: 0.9em; margin-bottom: 10px;">All test runs are automatically saved to <code>test_outputs/</code> for comparison.</p>
-                <div id="outputs-content">
-                    <span class="placeholder">Loading...</span>
-                </div>
-            </div>
-        </div>
-
-        <h2>Report Sections</h2>
-        """ + sections_html + """
-
-        <script>
-            // State
-            let dataMode = '""" + ("auto" if data_summary["has_data"] else "manual") + """';
-            let analysisData = null;  // Cached real data
-
-            // Initialize temperature sliders
-            document.querySelectorAll('.temp-slider').forEach(slider => {
-                slider.addEventListener('input', function() {
-                    const sectionId = this.id.replace('temp-', '');
-                    document.getElementById('temp-value-' + sectionId).textContent = this.value;
-                });
-            });
-
-            // Set recommended models on load
-            const recommendedModels = """ + json.dumps({sid: cfg["recommended_model"] for sid, cfg in sections.items()}) + """;
-            Object.entries(recommendedModels).forEach(([sectionId, model]) => {
-                const select = document.getElementById('model-' + sectionId);
-                if (select) {
-                    const options = Array.from(select.options);
-                    const match = options.find(opt => opt.value.includes(model.split(':')[0]));
-                    if (match) select.value = match.value;
-                }
-            });
-
-            function setDataMode(mode) {
-                dataMode = mode;
-                document.getElementById('manual-data-section').classList.toggle('hidden', mode === 'auto');
-                document.getElementById('auto-data-section').classList.toggle('hidden', mode === 'manual');
-            }
-
-            async function loadRealData() {
-                try {
-                    const resp = await fetch('/api/ai/report/data/all');
-                    const data = await resp.json();
-                    if (data.has_data) {
-                        analysisData = data.sections;
-                        alert('Analysis data loaded successfully!');
-                        // Update stats display
-                        const summaryResp = await fetch('/api/ai/report/data');
-                        const summary = await summaryResp.json();
-                        if (summary.stats) {
-                            document.getElementById('stat-total').textContent = summary.stats.total_accounts || 0;
-                            document.getElementById('stat-cracked').textContent = summary.stats.cracked_accounts || 0;
-                            document.getElementById('stat-percent').textContent = summary.stats.crack_percent || '0%';
-                        }
-                        // Switch to auto mode
-                        document.querySelector('input[name="data-mode"][value="auto"]').checked = true;
-                        setDataMode('auto');
-                    } else {
-                        alert('No analysis data available: ' + (data.error || 'Unknown error'));
-                    }
-                } catch (e) {
-                    alert('Failed to load data: ' + e.message);
-                }
-            }
-
-            async function toggleDataPreview(sectionId) {
-                const contentDiv = document.getElementById('data-content-' + sectionId);
-                const promptDiv = document.getElementById('prompt-content-' + sectionId);
-                const isVisible = contentDiv.style.display !== 'none';
-
-                // Hide prompt preview when showing data
-                if (promptDiv) promptDiv.style.display = 'none';
-
-                if (isVisible) {
-                    contentDiv.style.display = 'none';
-                    return;
-                }
-
-                contentDiv.style.display = 'block';
-                contentDiv.innerHTML = '<pre>Loading...</pre>';
-
-                try {
-                    const data = await getSectionData(sectionId);
-                    contentDiv.innerHTML = '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
-                } catch (e) {
-                    contentDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
-                }
-            }
-
-            async function togglePromptPreview(sectionId) {
-                const promptDiv = document.getElementById('prompt-content-' + sectionId);
-                const dataDiv = document.getElementById('data-content-' + sectionId);
-                const isVisible = promptDiv.style.display !== 'none';
-
-                // Hide data preview when showing prompt
-                if (dataDiv) dataDiv.style.display = 'none';
-
-                if (isVisible) {
-                    promptDiv.style.display = 'none';
-                    return;
-                }
-
-                promptDiv.style.display = 'block';
-                promptDiv.innerHTML = '<pre>Loading prompt...</pre>';
-
-                try {
-                    const resp = await fetch('/api/ai/report/prompt/' + sectionId);
-                    const result = await resp.json();
-
-                    if (result.error) {
-                        promptDiv.innerHTML = '<pre class="error">Error: ' + result.error + '</pre>';
-                        return;
-                    }
-
-                    let html = '<div class="prompt-label">System Prompt:</div>';
-                    html += '<pre class="system-prompt">' + escapeHtml(result.system_prompt) + '</pre>';
-
-                    if (result.formatted_prompt) {
-                        html += '<div class="prompt-label">User Prompt (with data):</div>';
-                        html += '<pre>' + escapeHtml(result.formatted_prompt) + '</pre>';
-                    } else if (result.prompt_template) {
-                        html += '<div class="prompt-label">Prompt Template (no data loaded):</div>';
-                        html += '<pre>' + escapeHtml(result.prompt_template) + '</pre>';
-                        if (result.message) {
-                            html += '<p style="color: #ff9800; margin-top: 10px;">' + escapeHtml(result.message) + '</p>';
-                        }
-                    }
-
-                    promptDiv.innerHTML = html;
-                } catch (e) {
-                    promptDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
-                }
-            }
-
-            async function getSectionData(sectionId) {
-                if (dataMode === 'auto') {
-                    // Use real data from server
-                    if (analysisData && analysisData[sectionId]) {
-                        return analysisData[sectionId];
-                    }
-                    // Fetch from server
-                    const resp = await fetch('/api/ai/report/data/' + sectionId);
-                    const result = await resp.json();
-                    if (result.error) throw new Error(result.error);
-                    return result.data;
-                } else {
-                    // Use manual/sample data
-                    return getManualTestData();
-                }
-            }
-
-            function getManualTestData() {
-                return {
-                    top_passwords: JSON.parse(document.getElementById('data-top-passwords').value || '{}'),
-                    password_samples: document.getElementById('data-password-samples').value.split('\\n').filter(p => p.trim()),
-                    top_substrings: JSON.parse(document.getElementById('data-substrings').value || '[]'),
-                    bad_practices: JSON.parse(document.getElementById('data-bad-practices').value || '{}'),
-                    dictionary_words: [{"word": "password", "count": 156}, {"word": "welcome", "count": 67}],
-                    custom_terms: ["Company", "Corp"],
-                    semantic_categories: JSON.parse(document.getElementById('data-bad-practices').value || '{}'),
-                    length_distribution: {"8": 234, "9": 456, "10": 321, "11": 189, "12": 145},
-                    stats: {"Total Accounts Analyzed": 5000, "Cracked Accounts": 3350, "Percent of Accounts Cracked": "67%"},
-                    policy_failures: {"Minimum Length": 234, "Complexity Requirements": 456, "Blank Passwords": 12},
-                    critical_findings: ["67% of passwords cracked", "234 passwords under minimum length"],
-                    key_findings: ["High crack rate", "Weak patterns prevalent"],
-                    current_policy: {"min_length": 12, "complexity": "3 of 4 categories", "max_age": 90},
-                    worst_practices: ["Season+Year pattern", "Company name in password"]
-                };
-            }
-
-            // Timer tracking
-            let activeTimers = {};
-
-            function formatTime(seconds) {
-                if (seconds < 60) {
-                    return seconds + 's';
-                }
-                const mins = Math.floor(seconds / 60);
-                const secs = seconds % 60;
-                return mins + 'm ' + secs + 's';
-            }
-
-            function startTimer(sectionId) {
-                const contentDiv = document.getElementById('content-' + sectionId);
-                let seconds = 0;
-
-                // Clear any existing timer
-                if (activeTimers[sectionId]) {
-                    clearInterval(activeTimers[sectionId]);
-                }
-
-                activeTimers[sectionId] = setInterval(() => {
-                    seconds++;
-                    const timerSpan = contentDiv.querySelector('.timer');
-                    if (timerSpan) {
-                        timerSpan.textContent = formatTime(seconds);
-                    }
-                }, 1000);
-
-                return () => {
-                    clearInterval(activeTimers[sectionId]);
-                    delete activeTimers[sectionId];
-                };
-            }
-
-            async function analyzeSection(sectionId) {
-                const contentDiv = document.getElementById('content-' + sectionId);
-                const serverId = document.getElementById('server-' + sectionId).value;
-                const model = document.getElementById('model-' + sectionId).value;
-                const temperature = parseFloat(document.getElementById('temp-' + sectionId).value);
-
-                if (!model) {
-                    alert('Please select a model');
-                    return;
-                }
-
-                // Get server name for display
-                const serverSelect = document.getElementById('server-' + sectionId);
-                const serverName = serverSelect.options[serverSelect.selectedIndex].text.replace(/^[✓✗] /, '');
-
-                // Show loading with live timer
-                contentDiv.innerHTML = '<span class="loading">Analyzing with ' + escapeHtml(model) + ' on ' + escapeHtml(serverName) + ' (temp: ' + temperature + ')...</span> <span class="timer">0s</span>';
-
-                // Start the timer
-                const stopTimer = startTimer(sectionId);
-
-                try {
-                    const sectionData = await getSectionData(sectionId);
-                    const resp = await fetch('/api/ai/report/analyze/' + sectionId, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            model: model,
-                            temperature: temperature,
-                            server_id: serverId,
-                            data: sectionData
-                        })
-                    });
-                    stopTimer();
-                    const data = await resp.json();
-                    if (data.content) {
-                        let html = '';
-                        if (data.warning) {
-                            html += '<div class="offtopic-warning">\u26a0\ufe0f ' + escapeHtml(data.warning) + '</div>';
-                        }
-                        html += '<div class="analysis">' + escapeHtml(data.content) + '</div>';
-                        // Show response time with server info
-                        if (data.response_time_formatted) {
-                            html += '<div class="response-time-info">\u23f1\ufe0f Response time: <span class="response-time">' + escapeHtml(data.response_time_formatted) + '</span>';
-                            html += ' | Server: ' + escapeHtml(data.server_name || serverId);
-                            if (data.saved_to) {
-                                html += ' | Saved to: test_outputs/' + escapeHtml(data.saved_to);
-                            }
-                            html += '</div>';
-                        } else if (data.saved_to) {
-                            html += '<div class="save-notice">Saved to: test_outputs/' + escapeHtml(data.saved_to) + '</div>';
-                        }
-                        contentDiv.innerHTML = html;
-                        // Refresh outputs list if visible
-                        if (document.getElementById('outputs-list').style.display !== 'none') {
-                            loadOutputsList();
-                        }
-                    } else {
-                        let errorHtml = '<span class="error">Error: ' + (data.error || 'Unknown error') + '</span>';
-                        if (data.response_time_formatted) {
-                            errorHtml += ' <span style="color: #888;">(after ' + escapeHtml(data.response_time_formatted) + ' on ' + escapeHtml(data.server_name || serverId) + ')</span>';
-                        }
-                        contentDiv.innerHTML = errorHtml;
-                    }
-                } catch (e) {
-                    stopTimer();
-                    contentDiv.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
-                }
-            }
-
-            async function clearSection(sectionId) {
-                const contentDiv = document.getElementById('content-' + sectionId);
-                contentDiv.innerHTML = '<span class="placeholder">Click "Analyze" to generate this section</span>';
-                await fetch('/api/ai/report/cache/' + sectionId, { method: 'DELETE' });
-            }
-
-            function escapeHtml(text) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
-
-            async function loadCache() {
-                try {
-                    const resp = await fetch('/api/ai/report/cache');
-                    const data = await resp.json();
-                    Object.entries(data.cache || {}).forEach(([sectionId, cached]) => {
-                        const contentDiv = document.getElementById('content-' + sectionId);
-                        if (contentDiv && cached.content) {
-                            contentDiv.innerHTML = '<div class="analysis">' + escapeHtml(cached.content) + '</div>';
-                        }
-                    });
-                } catch (e) {
-                    console.error('Failed to load cache:', e);
-                }
-            }
-
-            // Pre-load real data if available
-            async function init() {
-                await loadCache();
-                if (dataMode === 'auto') {
-                    try {
-                        const resp = await fetch('/api/ai/report/data/all');
-                        const data = await resp.json();
-                        if (data.has_data) {
-                            analysisData = data.sections;
-                        }
-                    } catch (e) {
-                        console.error('Failed to pre-load data:', e);
-                    }
-                }
-            }
-
-            async function toggleOutputsList() {
-                const listDiv = document.getElementById('outputs-list');
-                const btn = document.getElementById('toggle-outputs-btn');
-                const isVisible = listDiv.style.display !== 'none';
-
-                if (isVisible) {
-                    listDiv.style.display = 'none';
-                    btn.textContent = 'Show Outputs';
-                } else {
-                    listDiv.style.display = 'block';
-                    btn.textContent = 'Hide Outputs';
-                    await loadOutputsList();
-                }
-            }
-
-            async function loadOutputsList() {
-                const contentDiv = document.getElementById('outputs-content');
-                contentDiv.innerHTML = '<span class="placeholder">Loading...</span>';
-
-                try {
-                    const resp = await fetch('/api/ai/report/outputs');
-                    const data = await resp.json();
-
-                    if (data.outputs && data.outputs.length > 0) {
-                        let html = '<div class="outputs-list">';
-                        data.outputs.forEach(output => {
-                            html += `
-                                <div class="output-item">
-                                    <div>
-                                        <span class="output-filename" onclick="viewOutput('${escapeHtml(output.filename)}')">${escapeHtml(output.filename)}</span>
-                                        <div class="output-meta">${output.modified} | ${Math.round(output.size / 1024)}KB</div>
-                                    </div>
-                                    <div class="output-actions">
-                                        <button onclick="viewOutput('${escapeHtml(output.filename)}')" class="secondary">View</button>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                        html += '</div>';
-                        html += '<p style="color: #666; font-size: 0.8em; margin-top: 10px;">' + data.count + ' saved outputs</p>';
-                        contentDiv.innerHTML = html;
-                    } else {
-                        contentDiv.innerHTML = '<span class="placeholder">No saved outputs yet. Run an analysis to generate outputs.</span>';
-                    }
-                } catch (e) {
-                    contentDiv.innerHTML = '<span class="error">Error loading outputs: ' + e.message + '</span>';
-                }
-            }
-
-            async function viewOutput(filename) {
-                try {
-                    const resp = await fetch('/api/ai/report/outputs/' + encodeURIComponent(filename));
-                    const data = await resp.json();
-
-                    if (data.content) {
-                        // Open in new window/tab with formatted content
-                        const win = window.open('', '_blank');
-                        win.document.write('<html><head><title>' + escapeHtml(filename) + '</title>');
-                        win.document.write('<style>body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; } pre { white-space: pre-wrap; background: #0f0f1a; padding: 20px; border-radius: 8px; overflow-x: auto; } h1 { color: #00d4ff; } code { background: #0f0f1a; padding: 2px 6px; border-radius: 4px; }</style>');
-                        win.document.write('</head><body>');
-                        win.document.write('<h1>' + escapeHtml(filename) + '</h1>');
-                        win.document.write('<pre>' + escapeHtml(data.content) + '</pre>');
-                        win.document.write('</body></html>');
-                        win.document.close();
-                    } else {
-                        alert('Error: ' + (data.error || 'Failed to load file'));
-                    }
-                } catch (e) {
-                    alert('Error viewing output: ' + e.message);
-                }
-            }
-
-            // Server status refresh
-            async function refreshServerStatus(serverId) {
-                const card = document.querySelector(`.server-card[data-server-id="${serverId}"]`);
-                if (!card) return;
-
-                card.style.opacity = '0.5';
-                try {
-                    const resp = await fetch('/api/ai/servers/' + serverId + '/status');
-                    const data = await resp.json();
-
-                    card.classList.remove('ok', 'error');
-                    card.classList.add(data.reachable ? 'ok' : 'error');
-
-                    const modelsDiv = card.querySelector('.server-models');
-                    if (modelsDiv) {
-                        const modelCount = (data.available_models || []).length;
-                        modelsDiv.textContent = data.reachable
-                            ? modelCount + ' models available'
-                            : 'Error: ' + (data.error || 'Unreachable');
-                    }
-                } catch (e) {
-                    console.error('Failed to refresh server status:', e);
-                }
-                card.style.opacity = '1';
-            }
-
-            document.addEventListener('DOMContentLoaded', init);
-        </script>
-    </body>
-    </html>
-    """
-    return html
+    return render_template(
+        'ai_report_test.html',
+        servers=servers_status.get("servers", []),
+        sections_sorted=sections_sorted,
+        data_summary=data_summary,
+        all_models=all_models,
+        recommended_models=recommended_models
+    )
 
 
 @app.route("/api/ai/servers/manage")
@@ -5806,419 +5077,26 @@ def ai_servers_manage_page():
     servers_status = test_all_servers()
     library_models = get_available_library_models()
 
-    # Build server cards HTML
-    server_cards_html = ""
-    for server in servers_status.get("servers", []):
-        status_class = "ok" if server.get("reachable") else "error"
-        model_count = len(server.get("available_models", []))
-        hardware_info = server.get("hardware", "")
-        error_info = server.get("error", "")
+    # Sort models for each server
+    def model_sort_key(model_name):
+        parts = model_name.split(":")
+        name = parts[0]
+        tag = parts[1] if len(parts) > 1 else ""
+        size_match = re.search(r'(\d+)', tag)
+        size_num = int(size_match.group(1)) if size_match else 0
+        return (name.lower(), size_num, tag.lower())
+
+    # Add sorted_models to each server
+    servers = servers_status.get("servers", [])
+    for server in servers:
         models_list = server.get("available_models", [])
+        server["sorted_models"] = sorted(models_list, key=model_sort_key)
 
-        # Sort models by name, then by size tag
-        def model_sort_key(model_name):
-            parts = model_name.split(":")
-            name = parts[0]
-            tag = parts[1] if len(parts) > 1 else ""
-            # Extract numeric size if present (e.g., "70b" -> 70, "8b" -> 8)
-            size_match = re.search(r'(\d+)', tag)
-            size_num = int(size_match.group(1)) if size_match else 0
-            return (name.lower(), size_num, tag.lower())
-
-        models_list = sorted(models_list, key=model_sort_key)
-
-        # Build models list HTML for this server
-        models_html = ""
-        for model in models_list:
-            models_html += f'''
-                <div class="model-item">
-                    <span class="model-name">{model}</span>
-                    <button class="danger small" onclick="deleteModel('{server["id"]}', '{model}')">Delete</button>
-                </div>
-            '''
-
-        server_cards_html += f'''
-        <div class="server-card {status_class}" id="server-{server['id']}">
-            <div class="server-header">
-                <div class="server-status">
-                    <span class="status-dot"></span>
-                    <strong>{server['name']}</strong>
-                </div>
-                <button class="secondary small" onclick="refreshServer('{server['id']}')">↻ Refresh</button>
-            </div>
-            <div class="server-info">
-                <div class="server-host">{server['host']}</div>
-                <div class="server-desc">{server.get('description', '')}</div>
-                {"<div class='server-hardware'>" + hardware_info + "</div>" if hardware_info else ""}
-                {"<div class='server-error'>" + error_info + "</div>" if error_info else ""}
-            </div>
-            <div class="server-models">
-                <div class="models-header">
-                    <strong>{model_count} Models Installed</strong>
-                    <button class="secondary small" onclick="toggleModels('{server['id']}')" id="toggle-{server['id']}">Show</button>
-                </div>
-                <div class="models-list" id="models-{server['id']}" style="display: none;">
-                    {models_html if models_html else '<span class="no-models">No models installed</span>'}
-                </div>
-            </div>
-            <div class="server-actions">
-                <input type="text" id="pull-input-{server['id']}" placeholder="Model name (e.g., llama3.1:70b)" class="pull-input">
-                <button onclick="pullModel('{server['id']}')">Pull Model</button>
-            </div>
-            <div class="server-status-msg" id="status-{server['id']}"></div>
-        </div>
-        '''
-
-    # Build library models HTML
-    library_html = ""
-    for model in library_models:
-        sizes_html = ""
-        model_name = model["name"]
-        for size in model.get("sizes", []):
-            sizes_html += f'<button class="size-btn" onclick="showPullDialog(\'{model_name}:{size}\')">{size}</button>'
-        if not sizes_html:
-            sizes_html = f'<button class="size-btn" onclick="showPullDialog(\'{model_name}\')">{model_name}</button>'
-
-        rec_tags = ""
-        for rec in model.get("recommended_for", []):
-            rec_tags += f'<span class="rec-tag">{rec}</span>'
-
-        library_html += f'''
-        <div class="library-model">
-            <div class="model-header">
-                <strong>{model["name"]}</strong>
-                {rec_tags}
-            </div>
-            <div class="model-desc">{model.get("description", "")}</div>
-            <div class="model-sizes">{sizes_html}</div>
-        </div>
-        '''
-
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>HM1K Ollama Server Management</title>
-        <style>
-            body { font-family: system-ui, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }
-            h1 { color: #00d4ff; margin-bottom: 5px; }
-            .subtitle { color: #888; margin-bottom: 25px; }
-            .nav-links { margin-bottom: 20px; }
-            .nav-links a { color: #00d4ff; margin-right: 20px; text-decoration: none; }
-            .nav-links a:hover { text-decoration: underline; }
-
-            /* Server cards grid */
-            .servers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px; }
-            .server-card { background: #16213e; border-radius: 8px; padding: 20px; border: 2px solid #333; }
-            .server-card.ok { border-color: #4caf50; }
-            .server-card.error { border-color: #f44336; }
-            .server-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-            .server-status { display: flex; align-items: center; gap: 10px; }
-            .status-dot { width: 12px; height: 12px; border-radius: 50%; }
-            .server-card.ok .status-dot { background: #4caf50; }
-            .server-card.error .status-dot { background: #f44336; }
-            .server-info { margin-bottom: 15px; }
-            .server-host { color: #00d4ff; font-family: monospace; margin-bottom: 5px; }
-            .server-desc { color: #888; font-size: 0.9em; }
-            .server-hardware { color: #666; font-size: 0.85em; margin-top: 5px; }
-            .server-error { color: #f44336; font-size: 0.85em; margin-top: 5px; }
-
-            /* Models list */
-            .server-models { background: #0f0f1a; border-radius: 6px; padding: 12px; margin-bottom: 15px; }
-            .models-header { display: flex; justify-content: space-between; align-items: center; }
-            .models-list { margin-top: 10px; max-height: 200px; overflow-y: auto; padding-right: 10px; }
-            .model-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #222; gap: 10px; }
-            .model-item:last-child { border-bottom: none; }
-            .model-name { font-family: monospace; color: #aaa; flex: 1; overflow: hidden; text-overflow: ellipsis; }
-            .no-models { color: #666; font-style: italic; }
-
-            /* Server actions */
-            .server-actions { display: flex; gap: 10px; }
-            .pull-input { flex: 1; background: #0f0f1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 8px 12px; }
-            .server-status-msg { margin-top: 10px; font-size: 0.9em; min-height: 20px; }
-            .server-status-msg.success { color: #4caf50; }
-            .server-status-msg.error { color: #f44336; }
-            .server-status-msg.loading { color: #00d4ff; }
-
-            /* Buttons */
-            button { background: #00d4ff; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-            button:hover { background: #00b8e6; }
-            button:disabled { background: #555; cursor: not-allowed; }
-            button.secondary { background: #555; color: #fff; }
-            button.secondary:hover { background: #666; }
-            button.danger { background: #f44336; color: #fff; }
-            button.danger:hover { background: #d32f2f; }
-            button.small { padding: 4px 10px; font-size: 0.85em; }
-
-            /* Library section */
-            .section { background: #16213e; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-            h2 { color: #00d4ff; margin-top: 0; }
-            .library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-            .library-model { background: #0f0f1a; padding: 15px; border-radius: 6px; border: 1px solid #333; }
-            .library-model:hover { border-color: #00d4ff; }
-            .model-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-            .model-desc { color: #888; font-size: 0.9em; margin-bottom: 10px; }
-            .model-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
-            .size-btn { background: #1a3a5c; color: #00d4ff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
-            .size-btn:hover { background: #2a4a6c; }
-            .rec-tag { background: #1e3a1e; color: #4caf50; padding: 2px 8px; border-radius: 3px; font-size: 0.75em; }
-
-            /* Pull dialog */
-            .dialog-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; }
-            .dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #16213e; padding: 25px; border-radius: 8px; min-width: 400px; z-index: 1001; }
-            .dialog h3 { color: #00d4ff; margin-top: 0; }
-            .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-            .server-select { background: #0f0f1a; color: #eee; border: 1px solid #333; padding: 8px 12px; border-radius: 4px; width: 100%; margin: 10px 0; }
-        </style>
-    </head>
-    <body>
-        <h1>Ollama Server Management</h1>
-        <p class="subtitle">Manage connectivity and models across all configured Ollama servers</p>
-
-        <div class="nav-links">
-            <a href="/api/ai/report/test">← Report Testing</a>
-            <a href="/api/ai/benchmark">Benchmark Suite</a>
-            <a href="/report">Back to Report</a>
-        </div>
-
-        <h2>Configured Servers</h2>
-        <div class="servers-grid">
-            """ + server_cards_html + """
-        </div>
-
-        <div class="section">
-            <h2>Model Library</h2>
-            <p style="color: #888; margin-bottom: 15px;">Click a size to pull that model variant. You'll be prompted to select which server to install it on.</p>
-            <div class="library-grid">
-                """ + library_html + """
-            </div>
-        </div>
-
-        <!-- Pull Dialog -->
-        <div class="dialog-overlay" id="pullDialog">
-            <div class="dialog">
-                <h3>Pull Model</h3>
-                <p>Model: <strong id="dialogModelName"></strong></p>
-                <label style="color: #888;">Select target server:</label>
-                <select id="dialogServerSelect" class="server-select"></select>
-                <div class="dialog-actions">
-                    <button class="secondary" onclick="closePullDialog()">Cancel</button>
-                    <button onclick="confirmPull()">Pull Model</button>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            // Global operation lock - prevents concurrent pull/delete operations
-            let operationInProgress = false;
-            let operationServerId = null;
-
-            function setOperationLock(serverId) {
-                operationInProgress = true;
-                operationServerId = serverId;
-                // Disable all pull buttons and inputs
-                document.querySelectorAll('.server-actions button').forEach(btn => btn.disabled = true);
-                document.querySelectorAll('.pull-input').forEach(input => input.disabled = true);
-                document.querySelectorAll('.model-item button').forEach(btn => btn.disabled = true);
-                document.querySelectorAll('.size-btn').forEach(btn => btn.disabled = true);
-            }
-
-            function clearOperationLock() {
-                operationInProgress = false;
-                operationServerId = null;
-                // Re-enable all buttons and inputs
-                document.querySelectorAll('.server-actions button').forEach(btn => btn.disabled = false);
-                document.querySelectorAll('.pull-input').forEach(input => input.disabled = false);
-                document.querySelectorAll('.model-item button').forEach(btn => btn.disabled = false);
-                document.querySelectorAll('.size-btn').forEach(btn => btn.disabled = false);
-            }
-
-            // Toggle models list visibility
-            function toggleModels(serverId) {
-                const list = document.getElementById('models-' + serverId);
-                const btn = document.getElementById('toggle-' + serverId);
-                if (list.style.display === 'none') {
-                    list.style.display = 'block';
-                    btn.textContent = 'Hide';
-                } else {
-                    list.style.display = 'none';
-                    btn.textContent = 'Show';
-                }
-            }
-
-            // Refresh server status
-            async function refreshServer(serverId) {
-                const card = document.getElementById('server-' + serverId);
-                const statusMsg = document.getElementById('status-' + serverId);
-                statusMsg.className = 'server-status-msg loading';
-                statusMsg.textContent = 'Refreshing...';
-
-                try {
-                    const resp = await fetch('/api/ai/servers/' + serverId + '/status');
-                    const data = await resp.json();
-
-                    // Update status indicator
-                    card.className = 'server-card ' + (data.reachable ? 'ok' : 'error');
-
-                    // Update models list
-                    const modelsList = document.getElementById('models-' + serverId);
-                    if (data.available_models && data.available_models.length > 0) {
-                        modelsList.innerHTML = data.available_models.map(model =>
-                            '<div class="model-item">' +
-                            '<span class="model-name">' + model + '</span>' +
-                            '<button class="danger small" onclick="deleteModel(\\'' + serverId + '\\', \\'' + model + '\\')">Delete</button>' +
-                            '</div>'
-                        ).join('');
-                        card.querySelector('.models-header strong').textContent = data.available_models.length + ' Models Installed';
-                    } else {
-                        modelsList.innerHTML = '<span class="no-models">No models installed</span>';
-                        card.querySelector('.models-header strong').textContent = '0 Models Installed';
-                    }
-
-                    statusMsg.className = 'server-status-msg success';
-                    statusMsg.textContent = 'Refreshed successfully';
-                    setTimeout(() => { statusMsg.textContent = ''; }, 3000);
-                } catch (e) {
-                    statusMsg.className = 'server-status-msg error';
-                    statusMsg.textContent = 'Error: ' + e.message;
-                }
-            }
-
-            // Pull model to specific server
-            async function pullModel(serverId) {
-                if (operationInProgress) {
-                    alert('Another operation is in progress. Please wait for it to complete.');
-                    return;
-                }
-
-                const input = document.getElementById('pull-input-' + serverId);
-                const modelName = input.value.trim();
-                if (!modelName) {
-                    alert('Please enter a model name');
-                    return;
-                }
-
-                setOperationLock(serverId);
-                const statusMsg = document.getElementById('status-' + serverId);
-                statusMsg.className = 'server-status-msg loading';
-                statusMsg.textContent = 'Pulling ' + modelName + '... This may take several minutes.';
-
-                try {
-                    const resp = await fetch('/api/ai/pull', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ model: modelName, server_id: serverId })
-                    });
-                    const data = await resp.json();
-
-                    if (data.success) {
-                        statusMsg.className = 'server-status-msg success';
-                        statusMsg.textContent = 'Successfully pulled ' + modelName;
-                        input.value = '';
-                        await refreshServer(serverId);
-                    } else {
-                        statusMsg.className = 'server-status-msg error';
-                        statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
-                    }
-                } catch (e) {
-                    statusMsg.className = 'server-status-msg error';
-                    statusMsg.textContent = 'Error: ' + e.message;
-                } finally {
-                    clearOperationLock();
-                }
-            }
-
-            // Delete model from server
-            async function deleteModel(serverId, modelName) {
-                if (operationInProgress) {
-                    alert('Another operation is in progress. Please wait for it to complete.');
-                    return;
-                }
-
-                if (!confirm('Delete ' + modelName + ' from this server?')) return;
-
-                setOperationLock(serverId);
-                const statusMsg = document.getElementById('status-' + serverId);
-                statusMsg.className = 'server-status-msg loading';
-                statusMsg.textContent = 'Deleting ' + modelName + '...';
-
-                try {
-                    const resp = await fetch('/api/ai/delete', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ model: modelName, server_id: serverId })
-                    });
-                    const data = await resp.json();
-
-                    if (data.success) {
-                        statusMsg.className = 'server-status-msg success';
-                        statusMsg.textContent = 'Deleted ' + modelName;
-                        await refreshServer(serverId);
-                    } else {
-                        statusMsg.className = 'server-status-msg error';
-                        statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
-                    }
-                } catch (e) {
-                    statusMsg.className = 'server-status-msg error';
-                    statusMsg.textContent = 'Error: ' + e.message;
-                } finally {
-                    clearOperationLock();
-                }
-            }
-
-            // Pull dialog for library models
-            let pendingPullModel = null;
-
-            function showPullDialog(modelName) {
-                if (operationInProgress) {
-                    alert('Another operation is in progress. Please wait for it to complete.');
-                    return;
-                }
-
-                pendingPullModel = modelName;
-                document.getElementById('dialogModelName').textContent = modelName;
-
-                // Populate server select with reachable servers
-                const select = document.getElementById('dialogServerSelect');
-                select.innerHTML = '';
-                document.querySelectorAll('.server-card.ok').forEach(card => {
-                    const serverId = card.id.replace('server-', '');
-                    const serverName = card.querySelector('.server-status strong').textContent;
-                    select.innerHTML += '<option value="' + serverId + '">' + serverName + '</option>';
-                });
-
-                if (select.options.length === 0) {
-                    alert('No reachable servers available');
-                    return;
-                }
-
-                document.getElementById('pullDialog').style.display = 'block';
-            }
-
-            function closePullDialog() {
-                document.getElementById('pullDialog').style.display = 'none';
-                pendingPullModel = null;
-            }
-
-            async function confirmPull() {
-                const serverId = document.getElementById('dialogServerSelect').value;
-                const modelName = pendingPullModel;  // Save before closing dialog
-                closePullDialog();
-
-                // Use the pull function
-                document.getElementById('pull-input-' + serverId).value = modelName;
-                await pullModel(serverId);
-            }
-
-            // Close dialog on overlay click
-            document.getElementById('pullDialog').addEventListener('click', function(e) {
-                if (e.target === this) closePullDialog();
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return html
+    return render_template(
+        'ai_servers_manage.html',
+        servers=servers,
+        library_models=library_models
+    )
 
 
 @app.route("/api/ai/benchmark")
@@ -7891,5 +6769,6 @@ if __name__ == "__main__":
         if stats:
             print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes")
 
-    # Start Flask application
-    app.run(host="0.0.0.0", port=8443, ssl_context=("cert.pem", "key.pem"), debug=False)
+    # Start Flask application with threading for better performance
+    # Threading allows handling multiple concurrent requests (important for report page)
+    app.run(host="0.0.0.0", port=8443, ssl_context=("cert.pem", "key.pem"), debug=False, threaded=True)

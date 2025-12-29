@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Hidden Pages Index</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
+    <!-- DO NOT add inline <style> blocks here - use style.css instead -->
+</head>
+<body class="hidden-pages-body">
+    <div class="hidden-container">
+        <a href="/report" class="hidden-back-link">&larr; Back to Report</a>
+
+        <h1>Hidden Pages Index</h1>
+        <p class="hidden-subtitle">Development tools, test pages, and API endpoints not linked from the main UI.</p>
+
+        <div class="hidden-warning-banner">
+            <span class="icon">&#9888;</span>
+            <span class="text">These pages are for development and testing purposes. Some features may be experimental or incomplete.</span>
+        </div>
+
+        <div class="hidden-section">
+            <h2><span class="icon">&#129302;</span> AI Test & Development Pages</h2>
+            <div class="hidden-page-grid">
+                <a href="/api/ai/servers/manage" class="hidden-page-card">
+                    <h3>Ollama Servers <span class="hidden-badge hidden-badge-test">Manage</span></h3>
+                    <p>Multi-server connectivity testing and model management - view, pull, and delete models across all configured Ollama servers.</p>
+                    <span class="url">/api/ai/servers/manage</span>
+                </a>
+                <a href="/api/ai/report/test" class="hidden-page-card">
+                    <h3>AI Report Test Lab <span class="hidden-badge hidden-badge-dev">Dev</span></h3>
+                    <p>Testing environment for AI report sections with prompt preview and output comparison.</p>
+                    <span class="url">/api/ai/report/test</span>
+                </a>
+                <a href="/api/ai/benchmark" class="hidden-page-card">
+                    <h3>AI Benchmark Suite <span class="hidden-badge hidden-badge-test">Test</span></h3>
+                    <p>Comprehensive model benchmarking - quick tests, production prompts, and full matrix runs.</p>
+                    <span class="url">/api/ai/benchmark</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="hidden-section">
+            <h2><span class="icon">&#128279;</span> Useful API Endpoints</h2>
+            <div class="hidden-page-grid">
+                <a href="/api/ai/status" class="hidden-page-card">
+                    <h3>AI Status <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>Check Ollama connection status, available models, and server configuration.</p>
+                    <span class="url">/api/ai/status</span>
+                </a>
+                <a href="/api/ai/servers" class="hidden-page-card">
+                    <h3>AI Servers <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>List all configured Ollama servers with their status and available models.</p>
+                    <span class="url">/api/ai/servers</span>
+                </a>
+                <a href="/api/ai/report/sections" class="hidden-page-card">
+                    <h3>Report Sections <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>View all AI report section configurations including prompts, models, and temperatures.</p>
+                    <span class="url">/api/ai/report/sections</span>
+                </a>
+                <a href="/api/ai/report/data" class="hidden-page-card">
+                    <h3>Report Data Summary <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>Summary of available analysis data for AI report generation.</p>
+                    <span class="url">/api/ai/report/data</span>
+                </a>
+                <a href="/api/ai/report/outputs" class="hidden-page-card">
+                    <h3>Saved Test Outputs <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>List of saved AI test outputs from the test lab for comparison and review.</p>
+                    <span class="url">/api/ai/report/outputs</span>
+                </a>
+                <a href="/api/ai/aaia/config" class="hidden-page-card">
+                    <h3>AAIA Configuration <span class="hidden-badge hidden-badge-api">API</span></h3>
+                    <p>Advanced AI Analysis configuration with server status and model assignments.</p>
+                    <span class="url">/api/ai/aaia/config</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="hidden-status-section">
+            <h2 style="font-size: 1rem; color: #71717a; margin-bottom: 16px;">
+                <span>&#128994;</span> Current System Status
+            </h2>
+            <div class="hidden-status-grid">
+                <div class="hidden-status-card">
+                    <div class="label">Ollama Integration</div>
+                    <div class="value {% if ollama_enabled %}status-online{% else %}status-offline{% endif %}">
+                        {% if ollama_enabled %}Enabled{% else %}Disabled{% endif %}
+                    </div>
+                </div>
+                {% for server in servers %}
+                <div class="hidden-status-card">
+                    <div class="label">{{ server.name or server.id or 'Server' }}</div>
+                    <div class="value {% if server.reachable %}status-online{% else %}status-offline{% endif %}">
+                        {% if server.reachable %}
+                            Online - {{ server.available_models|length }} models
+                        {% else %}
+                            Offline
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

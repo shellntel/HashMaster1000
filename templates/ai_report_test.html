@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K AI Report Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
+    <!-- DO NOT add inline <style> blocks here - use style.css instead -->
+</head>
+<body class="ai-report-test-body">
+    <h1>AI Report Analysis</h1>
+    <p class="ai-report-test-subtitle">Test and refine AI-generated report sections</p>
+
+    <div class="ai-report-test-nav">
+        <a href="/api/ai/servers/manage">&larr; Manage Ollama Servers</a>
+        <a href="/report">View Main Report</a>
+    </div>
+
+    <div class="ai-report-test-servers-section">
+        <h3>Ollama Servers</h3>
+        <div class="ai-report-test-servers-grid" id="servers-grid">
+            {% for server in servers %}
+            <div class="ai-report-test-server-card {{ 'ok' if server.reachable else 'error' }}" data-server-id="{{ server.id }}">
+                <div class="ai-report-test-server-header">
+                    <span class="ai-report-test-server-status-dot"></span>
+                    <strong>{{ server.name }}</strong>
+                </div>
+                <div class="ai-report-test-server-details">
+                    <div class="ai-report-test-server-host">{{ server.host }}</div>
+                    <div class="ai-report-test-server-info">{{ server.description }}{% if server.hardware %} | {{ server.hardware }}{% endif %}</div>
+                    <div class="ai-report-test-server-models">{{ server.available_models|length }} models available{% if server.error %} | Error: {{ server.error }}{% endif %}</div>
+                </div>
+                <button onclick="refreshServerStatus('{{ server.id }}')" class="secondary ai-report-test-refresh-btn">↻</button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="ai-report-test-status {{ 'ok' if data_summary.has_data else 'warning' }}" id="data-status">
+        <strong>Analysis Data:</strong>
+        {% if data_summary.has_data %}
+            Loaded - {{ data_summary.stats.total_accounts|default(0) }} accounts, {{ data_summary.stats.cracked_accounts|default(0) }} cracked ({{ data_summary.stats.crack_percent|default('0%') }})
+        {% else %}
+            No analysis data found. Run a password analysis first, or use sample data below.
+        {% endif %}
+        <div class="ai-report-test-files-list">
+            {% for f in data_summary.files_found|default([]) %}
+            <span class="ai-report-test-file-tag">{{ f }}</span>
+            {% endfor %}
+            {% for f in data_summary.files_missing|default([]) %}
+            <span class="ai-report-test-file-tag missing">{{ f }} (missing)</span>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="ai-report-test-data-section">
+        <div class="ai-report-test-data-mode-toggle">
+            <label><input type="radio" name="data-mode" value="auto" {{ 'checked' if data_summary.has_data else '' }} onchange="setDataMode('auto')"> Use Analysis Data</label>
+            <label><input type="radio" name="data-mode" value="manual" {{ '' if data_summary.has_data else 'checked' }} onchange="setDataMode('manual')"> Use Sample/Custom Data</label>
+            <button onclick="loadRealData()" class="secondary" style="margin-left: auto;">Reload Analysis Data</button>
+        </div>
+
+        <div id="manual-data-section" class="{{ 'hidden' if data_summary.has_data else '' }}">
+            <h3 class="ai-report-test-manual-header">Sample Data (editable)</h3>
+            <div class="ai-report-test-data-grid">
+                <div class="ai-report-test-data-field">
+                    <label>Top Passwords (JSON: {"password": count})</label>
+                    <textarea id="data-top-passwords" rows="6">{"Summer2024": 45, "Welcome1!": 38, "Password123": 32, "Company2024!": 28, "Winter2023": 25, "qwerty123": 22, "Baseball1": 18, "Football!": 15}</textarea>
+                </div>
+                <div class="ai-report-test-data-field">
+                    <label>Password Samples (one per line)</label>
+                    <textarea id="data-password-samples" rows="6">Summer2024
+Welcome1!
+Password123
+Company2024!
+JohnSmith1
+Yankees2024
+Chicago99!
+Packers!23</textarea>
+                </div>
+                <div class="ai-report-test-data-field">
+                    <label>Top Substrings (JSON array)</label>
+                    <textarea id="data-substrings" rows="6">[{"substring": "2024", "count": 234}, {"substring": "2023", "count": 189}, {"substring": "pass", "count": 156}, {"substring": "summer", "count": 89}, {"substring": "welcome", "count": 67}]</textarea>
+                </div>
+                <div class="ai-report-test-data-field">
+                    <label>Bad Practices (JSON)</label>
+                    <textarea id="data-bad-practices" rows="6">{"Season+Year": {"count": 234, "examples": {"Summer2024": 12, "Winter2023": 8}}, "Common Words": {"count": 456, "examples": {"Password": 45, "Welcome": 38}}, "Keyboard Patterns": {"count": 89, "examples": {"qwerty": 22, "123456": 15}}}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div id="auto-data-section" class="{{ '' if data_summary.has_data else 'hidden' }}">
+            <div class="ai-report-test-data-stats">
+                <div class="ai-report-test-data-stat">
+                    <div class="label">Total Accounts</div>
+                    <div class="value" id="stat-total">{{ data_summary.stats.total_accounts|default(0) }}</div>
+                </div>
+                <div class="ai-report-test-data-stat">
+                    <div class="label">Cracked</div>
+                    <div class="value" id="stat-cracked">{{ data_summary.stats.cracked_accounts|default(0) }}</div>
+                </div>
+                <div class="ai-report-test-data-stat">
+                    <div class="label">Crack Rate</div>
+                    <div class="value" id="stat-percent">{{ data_summary.stats.crack_percent|default('0%') }}</div>
+                </div>
+            </div>
+            <p class="ai-report-test-auto-hint">Data is automatically loaded from your most recent analysis. Click "Show Data" on each section to preview what will be sent to the AI.</p>
+        </div>
+    </div>
+
+    <div class="ai-report-test-outputs-section">
+        <div class="ai-report-test-outputs-header">
+            <h3>Saved Test Outputs</h3>
+            <button onclick="toggleOutputsList()" class="secondary" id="toggle-outputs-btn">Show Outputs</button>
+        </div>
+        <div id="outputs-list" style="display: none;">
+            <p class="ai-report-test-outputs-hint">All test runs are automatically saved to <code>test_outputs/</code> for comparison.</p>
+            <div id="outputs-content">
+                <span class="placeholder">Loading...</span>
+            </div>
+        </div>
+    </div>
+
+    <h2>Report Sections</h2>
+    {% for section_id, config in sections_sorted %}
+    <div class="ai-report-test-section" id="section-{{ section_id }}">
+        <div class="ai-report-test-section-header">
+            <div class="ai-report-test-section-info">
+                <h3>{{ config.title }}</h3>
+                <p class="ai-report-test-section-desc">{{ config.description }}</p>
+                <p class="ai-report-test-section-sources">Data: {{ config.data_sources.keys()|join(', ') }}</p>
+            </div>
+            <div class="ai-report-test-section-controls">
+                <select id="server-{{ section_id }}" class="ai-report-test-server-select">
+                    {% for server in servers %}
+                    <option value="{{ server.id }}" {{ '' if server.reachable else 'disabled' }}>{{ '✓' if server.reachable else '✗' }} {{ server.name }}</option>
+                    {% endfor %}
+                </select>
+                <select id="model-{{ section_id }}" class="ai-report-test-model-select">
+                    {% for model in all_models %}
+                    <option value="{{ model }}">{{ model }}</option>
+                    {% endfor %}
+                </select>
+                <input type="range" id="temp-{{ section_id }}" min="0" max="1" step="0.1" value="{{ config.temperature }}" class="ai-report-test-temp-slider">
+                <span id="temp-value-{{ section_id }}" class="ai-report-test-temp-value">{{ config.temperature }}</span>
+                <button onclick="analyzeSection('{{ section_id }}')" class="ai-report-test-analyze-btn">Analyze</button>
+                <button onclick="clearSection('{{ section_id }}')" class="secondary ai-report-test-clear-btn">Clear</button>
+            </div>
+        </div>
+        <div class="ai-report-test-section-data-preview" id="data-preview-{{ section_id }}">
+            <button onclick="toggleDataPreview('{{ section_id }}')" class="secondary ai-report-test-toggle-data-btn">Show Data</button>
+            <button onclick="togglePromptPreview('{{ section_id }}')" class="secondary ai-report-test-toggle-prompt-btn">Show Prompt</button>
+            <div class="ai-report-test-data-preview-content" id="data-content-{{ section_id }}" style="display:none;">
+                <pre>Loading...</pre>
+            </div>
+            <div class="ai-report-test-prompt-preview-content" id="prompt-content-{{ section_id }}" style="display:none;">
+                <pre>Loading...</pre>
+            </div>
+        </div>
+        <div class="ai-report-test-section-content" id="content-{{ section_id }}">
+            <span class="placeholder">Click "Analyze" to generate this section</span>
+        </div>
+    </div>
+    {% endfor %}
+
+    <script>
+        // State
+        let dataMode = '{{ 'auto' if data_summary.has_data else 'manual' }}';
+        let analysisData = null;  // Cached real data
+
+        // Initialize temperature sliders
+        document.querySelectorAll('.ai-report-test-temp-slider').forEach(slider => {
+            slider.addEventListener('input', function() {
+                const sectionId = this.id.replace('temp-', '');
+                document.getElementById('temp-value-' + sectionId).textContent = this.value;
+            });
+        });
+
+        // Set recommended models on load
+        const recommendedModels = {{ recommended_models|tojson }};
+        Object.entries(recommendedModels).forEach(([sectionId, model]) => {
+            const select = document.getElementById('model-' + sectionId);
+            if (select) {
+                const options = Array.from(select.options);
+                const match = options.find(opt => opt.value.includes(model.split(':')[0]));
+                if (match) select.value = match.value;
+            }
+        });
+
+        function setDataMode(mode) {
+            dataMode = mode;
+            document.getElementById('manual-data-section').classList.toggle('hidden', mode === 'auto');
+            document.getElementById('auto-data-section').classList.toggle('hidden', mode === 'manual');
+        }
+
+        async function loadRealData() {
+            try {
+                const resp = await fetch('/api/ai/report/data/all');
+                const data = await resp.json();
+                if (data.has_data) {
+                    analysisData = data.sections;
+                    alert('Analysis data loaded successfully!');
+                    // Update stats display
+                    const summaryResp = await fetch('/api/ai/report/data');
+                    const summary = await summaryResp.json();
+                    if (summary.stats) {
+                        document.getElementById('stat-total').textContent = summary.stats.total_accounts || 0;
+                        document.getElementById('stat-cracked').textContent = summary.stats.cracked_accounts || 0;
+                        document.getElementById('stat-percent').textContent = summary.stats.crack_percent || '0%';
+                    }
+                    // Switch to auto mode
+                    document.querySelector('input[name="data-mode"][value="auto"]').checked = true;
+                    setDataMode('auto');
+                } else {
+                    alert('No analysis data available: ' + (data.error || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Failed to load data: ' + e.message);
+            }
+        }
+
+        async function toggleDataPreview(sectionId) {
+            const contentDiv = document.getElementById('data-content-' + sectionId);
+            const promptDiv = document.getElementById('prompt-content-' + sectionId);
+            const isVisible = contentDiv.style.display !== 'none';
+
+            // Hide prompt preview when showing data
+            if (promptDiv) promptDiv.style.display = 'none';
+
+            if (isVisible) {
+                contentDiv.style.display = 'none';
+                return;
+            }
+
+            contentDiv.style.display = 'block';
+            contentDiv.innerHTML = '<pre>Loading...</pre>';
+
+            try {
+                const data = await getSectionData(sectionId);
+                contentDiv.innerHTML = '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+            } catch (e) {
+                contentDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
+            }
+        }
+
+        async function togglePromptPreview(sectionId) {
+            const promptDiv = document.getElementById('prompt-content-' + sectionId);
+            const dataDiv = document.getElementById('data-content-' + sectionId);
+            const isVisible = promptDiv.style.display !== 'none';
+
+            // Hide data preview when showing prompt
+            if (dataDiv) dataDiv.style.display = 'none';
+
+            if (isVisible) {
+                promptDiv.style.display = 'none';
+                return;
+            }
+
+            promptDiv.style.display = 'block';
+            promptDiv.innerHTML = '<pre>Loading prompt...</pre>';
+
+            try {
+                const resp = await fetch('/api/ai/report/prompt/' + sectionId);
+                const result = await resp.json();
+
+                if (result.error) {
+                    promptDiv.innerHTML = '<pre class="error">Error: ' + result.error + '</pre>';
+                    return;
+                }
+
+                let html = '<div class="ai-report-test-prompt-label">System Prompt:</div>';
+                html += '<pre class="ai-report-test-system-prompt">' + escapeHtml(result.system_prompt) + '</pre>';
+
+                if (result.formatted_prompt) {
+                    html += '<div class="ai-report-test-prompt-label">User Prompt (with data):</div>';
+                    html += '<pre>' + escapeHtml(result.formatted_prompt) + '</pre>';
+                } else if (result.prompt_template) {
+                    html += '<div class="ai-report-test-prompt-label">Prompt Template (no data loaded):</div>';
+                    html += '<pre>' + escapeHtml(result.prompt_template) + '</pre>';
+                    if (result.message) {
+                        html += '<p class="ai-report-test-prompt-warning">' + escapeHtml(result.message) + '</p>';
+                    }
+                }
+
+                promptDiv.innerHTML = html;
+            } catch (e) {
+                promptDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
+            }
+        }
+
+        async function getSectionData(sectionId) {
+            if (dataMode === 'auto') {
+                // Use real data from server
+                if (analysisData && analysisData[sectionId]) {
+                    return analysisData[sectionId];
+                }
+                // Fetch from server
+                const resp = await fetch('/api/ai/report/data/' + sectionId);
+                const result = await resp.json();
+                if (result.error) throw new Error(result.error);
+                return result.data;
+            } else {
+                // Use manual/sample data
+                return getManualTestData();
+            }
+        }
+
+        function getManualTestData() {
+            return {
+                top_passwords: JSON.parse(document.getElementById('data-top-passwords').value || '{}'),
+                password_samples: document.getElementById('data-password-samples').value.split('\n').filter(p => p.trim()),
+                top_substrings: JSON.parse(document.getElementById('data-substrings').value || '[]'),
+                bad_practices: JSON.parse(document.getElementById('data-bad-practices').value || '{}'),
+                dictionary_words: [{"word": "password", "count": 156}, {"word": "welcome", "count": 67}],
+                custom_terms: ["Company", "Corp"],
+                semantic_categories: JSON.parse(document.getElementById('data-bad-practices').value || '{}'),
+                length_distribution: {"8": 234, "9": 456, "10": 321, "11": 189, "12": 145},
+                stats: {"Total Accounts Analyzed": 5000, "Cracked Accounts": 3350, "Percent of Accounts Cracked": "67%"},
+                policy_failures: {"Minimum Length": 234, "Complexity Requirements": 456, "Blank Passwords": 12},
+                critical_findings: ["67% of passwords cracked", "234 passwords under minimum length"],
+                key_findings: ["High crack rate", "Weak patterns prevalent"],
+                current_policy: {"min_length": 12, "complexity": "3 of 4 categories", "max_age": 90},
+                worst_practices: ["Season+Year pattern", "Company name in password"]
+            };
+        }
+
+        // Timer tracking
+        let activeTimers = {};
+
+        function formatTime(seconds) {
+            if (seconds < 60) {
+                return seconds + 's';
+            }
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return mins + 'm ' + secs + 's';
+        }
+
+        function startTimer(sectionId) {
+            const contentDiv = document.getElementById('content-' + sectionId);
+            let seconds = 0;
+
+            // Clear any existing timer
+            if (activeTimers[sectionId]) {
+                clearInterval(activeTimers[sectionId]);
+            }
+
+            activeTimers[sectionId] = setInterval(() => {
+                seconds++;
+                const timerSpan = contentDiv.querySelector('.ai-report-test-timer');
+                if (timerSpan) {
+                    timerSpan.textContent = formatTime(seconds);
+                }
+            }, 1000);
+
+            return () => {
+                clearInterval(activeTimers[sectionId]);
+                delete activeTimers[sectionId];
+            };
+        }
+
+        async function analyzeSection(sectionId) {
+            const contentDiv = document.getElementById('content-' + sectionId);
+            const serverId = document.getElementById('server-' + sectionId).value;
+            const model = document.getElementById('model-' + sectionId).value;
+            const temperature = parseFloat(document.getElementById('temp-' + sectionId).value);
+
+            if (!model) {
+                alert('Please select a model');
+                return;
+            }
+
+            // Get server name for display
+            const serverSelect = document.getElementById('server-' + sectionId);
+            const serverName = serverSelect.options[serverSelect.selectedIndex].text.replace(/^[✓✗] /, '');
+
+            // Show loading with live timer
+            contentDiv.innerHTML = '<span class="ai-report-test-loading">Analyzing with ' + escapeHtml(model) + ' on ' + escapeHtml(serverName) + ' (temp: ' + temperature + ')...</span> <span class="ai-report-test-timer">0s</span>';
+
+            // Start the timer
+            const stopTimer = startTimer(sectionId);
+
+            try {
+                const sectionData = await getSectionData(sectionId);
+                const resp = await fetch('/api/ai/report/analyze/' + sectionId, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        model: model,
+                        temperature: temperature,
+                        server_id: serverId,
+                        data: sectionData
+                    })
+                });
+                stopTimer();
+                const data = await resp.json();
+                if (data.content) {
+                    let html = '';
+                    if (data.warning) {
+                        html += '<div class="ai-report-test-offtopic-warning">⚠️ ' + escapeHtml(data.warning) + '</div>';
+                    }
+                    html += '<div class="ai-report-test-analysis">' + escapeHtml(data.content) + '</div>';
+                    // Show response time with server info
+                    if (data.response_time_formatted) {
+                        html += '<div class="ai-report-test-response-time-info">⏱️ Response time: <span class="ai-report-test-response-time">' + escapeHtml(data.response_time_formatted) + '</span>';
+                        html += ' | Server: ' + escapeHtml(data.server_name || serverId);
+                        if (data.saved_to) {
+                            html += ' | Saved to: test_outputs/' + escapeHtml(data.saved_to);
+                        }
+                        html += '</div>';
+                    } else if (data.saved_to) {
+                        html += '<div class="ai-report-test-save-notice">Saved to: test_outputs/' + escapeHtml(data.saved_to) + '</div>';
+                    }
+                    contentDiv.innerHTML = html;
+                    // Refresh outputs list if visible
+                    if (document.getElementById('outputs-list').style.display !== 'none') {
+                        loadOutputsList();
+                    }
+                } else {
+                    let errorHtml = '<span class="ai-report-test-error">Error: ' + (data.error || 'Unknown error') + '</span>';
+                    if (data.response_time_formatted) {
+                        errorHtml += ' <span style="color: #888;">(after ' + escapeHtml(data.response_time_formatted) + ' on ' + escapeHtml(data.server_name || serverId) + ')</span>';
+                    }
+                    contentDiv.innerHTML = errorHtml;
+                }
+            } catch (e) {
+                stopTimer();
+                contentDiv.innerHTML = '<span class="ai-report-test-error">Error: ' + e.message + '</span>';
+            }
+        }
+
+        async function clearSection(sectionId) {
+            const contentDiv = document.getElementById('content-' + sectionId);
+            contentDiv.innerHTML = '<span class="placeholder">Click "Analyze" to generate this section</span>';
+            await fetch('/api/ai/report/cache/' + sectionId, { method: 'DELETE' });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function loadCache() {
+            try {
+                const resp = await fetch('/api/ai/report/cache');
+                const data = await resp.json();
+                Object.entries(data.cache || {}).forEach(([sectionId, cached]) => {
+                    const contentDiv = document.getElementById('content-' + sectionId);
+                    if (contentDiv && cached.content) {
+                        contentDiv.innerHTML = '<div class="ai-report-test-analysis">' + escapeHtml(cached.content) + '</div>';
+                    }
+                });
+            } catch (e) {
+                console.error('Failed to load cache:', e);
+            }
+        }
+
+        // Pre-load real data if available
+        async function init() {
+            await loadCache();
+            if (dataMode === 'auto') {
+                try {
+                    const resp = await fetch('/api/ai/report/data/all');
+                    const data = await resp.json();
+                    if (data.has_data) {
+                        analysisData = data.sections;
+                    }
+                } catch (e) {
+                    console.error('Failed to pre-load data:', e);
+                }
+            }
+        }
+
+        async function toggleOutputsList() {
+            const listDiv = document.getElementById('outputs-list');
+            const btn = document.getElementById('toggle-outputs-btn');
+            const isVisible = listDiv.style.display !== 'none';
+
+            if (isVisible) {
+                listDiv.style.display = 'none';
+                btn.textContent = 'Show Outputs';
+            } else {
+                listDiv.style.display = 'block';
+                btn.textContent = 'Hide Outputs';
+                await loadOutputsList();
+            }
+        }
+
+        async function loadOutputsList() {
+            const contentDiv = document.getElementById('outputs-content');
+            contentDiv.innerHTML = '<span class="placeholder">Loading...</span>';
+
+            try {
+                const resp = await fetch('/api/ai/report/outputs');
+                const data = await resp.json();
+
+                if (data.outputs && data.outputs.length > 0) {
+                    let html = '<div class="ai-report-test-outputs-list">';
+                    data.outputs.forEach(output => {
+                        html += `
+                            <div class="ai-report-test-output-item">
+                                <div>
+                                    <span class="ai-report-test-output-filename" onclick="viewOutput('${escapeHtml(output.filename)}')">${escapeHtml(output.filename)}</span>
+                                    <div class="ai-report-test-output-meta">${output.modified} | ${Math.round(output.size / 1024)}KB</div>
+                                </div>
+                                <div class="ai-report-test-output-actions">
+                                    <button onclick="viewOutput('${escapeHtml(output.filename)}')" class="secondary">View</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    html += '<p class="ai-report-test-outputs-count">' + data.count + ' saved outputs</p>';
+                    contentDiv.innerHTML = html;
+                } else {
+                    contentDiv.innerHTML = '<span class="placeholder">No saved outputs yet. Run an analysis to generate outputs.</span>';
+                }
+            } catch (e) {
+                contentDiv.innerHTML = '<span class="ai-report-test-error">Error loading outputs: ' + e.message + '</span>';
+            }
+        }
+
+        async function viewOutput(filename) {
+            try {
+                const resp = await fetch('/api/ai/report/outputs/' + encodeURIComponent(filename));
+                const data = await resp.json();
+
+                if (data.content) {
+                    // Open in new window/tab with formatted content
+                    const win = window.open('', '_blank');
+                    win.document.write('<html><head><title>' + escapeHtml(filename) + '</title>');
+                    win.document.write('<style>body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; } pre { white-space: pre-wrap; background: #0f0f1a; padding: 20px; border-radius: 8px; overflow-x: auto; } h1 { color: #00d4ff; } code { background: #0f0f1a; padding: 2px 6px; border-radius: 4px; }</style>');
+                    win.document.write('</head><body>');
+                    win.document.write('<h1>' + escapeHtml(filename) + '</h1>');
+                    win.document.write('<pre>' + escapeHtml(data.content) + '</pre>');
+                    win.document.write('</body></html>');
+                    win.document.close();
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to load file'));
+                }
+            } catch (e) {
+                alert('Error viewing output: ' + e.message);
+            }
+        }
+
+        // Server status refresh
+        async function refreshServerStatus(serverId) {
+            const card = document.querySelector(`.ai-report-test-server-card[data-server-id="${serverId}"]`);
+            if (!card) return;
+
+            card.style.opacity = '0.5';
+            try {
+                const resp = await fetch('/api/ai/servers/' + serverId + '/status');
+                const data = await resp.json();
+
+                card.classList.remove('ok', 'error');
+                card.classList.add(data.reachable ? 'ok' : 'error');
+
+                const modelsDiv = card.querySelector('.ai-report-test-server-models');
+                if (modelsDiv) {
+                    const modelCount = (data.available_models || []).length;
+                    modelsDiv.textContent = data.reachable
+                        ? modelCount + ' models available'
+                        : 'Error: ' + (data.error || 'Unreachable');
+                }
+            } catch (e) {
+                console.error('Failed to refresh server status:', e);
+            }
+            card.style.opacity = '1';
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
