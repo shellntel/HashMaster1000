@@ -210,11 +210,13 @@ def start_download(
             started_at=datetime.now(),
             output_path=os.path.join(output_dir, output_filename)
         )
+        # Keep reference to pass to thread
+        download_state = _active_download
 
-    # Start download in background thread
+    # Start download in background thread, passing the state object directly
     thread = threading.Thread(
         target=_run_download,
-        args=(output_dir, output_filename, parallelism, progress_callback),
+        args=(output_dir, output_filename, parallelism, progress_callback, download_state),
         daemon=True
     )
     thread.start()
@@ -226,7 +228,8 @@ def _run_download(
     output_dir: str,
     output_filename: str,
     parallelism: int,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]]
+    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    download_state: HIBPDownloadState
 ):
     """
     Run the actual download process.
@@ -243,8 +246,8 @@ def _run_download(
         temp_path = output_path + ".downloading"
 
         with _download_lock:
-            _active_download.status = "downloading"
-            _active_download.output_path = output_path
+            download_state.status = "downloading"
+            download_state.output_path = output_path
 
         # Generate all prefixes (00000 to FFFFF)
         prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
@@ -268,9 +271,9 @@ def _run_download(
             for future in as_completed(future_to_prefix):
                 # Check for cancellation
                 with _download_lock:
-                    if _active_download.cancel_requested:
-                        _active_download.status = "cancelled"
-                        _active_download.completed_at = datetime.now()
+                    if download_state.cancel_requested:
+                        download_state.status = "cancelled"
+                        download_state.completed_at = datetime.now()
                         logger.info("HIBP download cancelled by user")
                         return
 
@@ -281,8 +284,8 @@ def _run_download(
                     if error:
                         failed += 1
                         with _download_lock:
-                            _active_download.failed_prefixes = failed
-                            _active_download.last_error = f"Prefix {prefix}: {error}"
+                            download_state.failed_prefixes = failed
+                            download_state.last_error = f"Prefix {prefix}: {error}"
                     else:
                         all_hashes.extend(lines)
 
@@ -290,33 +293,33 @@ def _run_download(
 
                     # Update progress
                     with _download_lock:
-                        _active_download.completed_prefixes = completed
-                        _active_download.total_hashes = len(all_hashes)
+                        download_state.completed_prefixes = completed
+                        download_state.total_hashes = len(all_hashes)
 
-                    # Log progress periodically
-                    if completed % 10000 == 0:
+                    # Log progress periodically (every 1000 for first few, then every 10000)
+                    if completed == 1 or completed % 1000 == 0:
                         pct = (completed / TOTAL_PREFIXES) * 100
                         logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {len(all_hashes):,} hashes")
 
                     if progress_callback:
-                        progress_callback(_active_download)
+                        progress_callback(download_state)
 
                 except Exception as e:
                     failed += 1
                     with _download_lock:
-                        _active_download.failed_prefixes = failed
-                        _active_download.last_error = f"Prefix {prefix}: {str(e)}"
+                        download_state.failed_prefixes = failed
+                        download_state.last_error = f"Prefix {prefix}: {str(e)}"
 
         # Check for cancellation before merging
         with _download_lock:
-            if _active_download.cancel_requested:
-                _active_download.status = "cancelled"
-                _active_download.completed_at = datetime.now()
+            if download_state.cancel_requested:
+                download_state.status = "cancelled"
+                download_state.completed_at = datetime.now()
                 return
 
         # Sort and write to file
         with _download_lock:
-            _active_download.status = "merging"
+            download_state.status = "merging"
 
         logger.info(f"Sorting {len(all_hashes):,} hashes...")
 
@@ -339,26 +342,26 @@ def _run_download(
 
         # Update final state
         with _download_lock:
-            _active_download.status = "complete"
-            _active_download.completed_at = datetime.now()
-            _active_download.output_size_bytes = file_size
-            _active_download.total_hashes = len(all_hashes)
+            download_state.status = "complete"
+            download_state.completed_at = datetime.now()
+            download_state.output_size_bytes = file_size
+            download_state.total_hashes = len(all_hashes)
 
         logger.info(
             f"HIBP download complete: {len(all_hashes):,} hashes, "
             f"{file_size / (1024**3):.2f} GB, "
-            f"{_active_download.elapsed_seconds:.1f}s"
+            f"{download_state.elapsed_seconds:.1f}s"
         )
 
         if progress_callback:
-            progress_callback(_active_download)
+            progress_callback(download_state)
 
     except Exception as e:
         logger.error(f"HIBP download failed: {e}")
         with _download_lock:
-            _active_download.status = "error"
-            _active_download.error_message = str(e)
-            _active_download.completed_at = datetime.now()
+            download_state.status = "error"
+            download_state.error_message = str(e)
+            download_state.completed_at = datetime.now()
 
         # Clean up temp file
         temp_path = os.path.join(output_dir, output_filename + ".downloading")
