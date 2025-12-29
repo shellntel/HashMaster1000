@@ -693,10 +693,11 @@ def check_hashes_hibp(
             prefix_to_hashes[prefix] = []
         prefix_to_hashes[prefix].append(ntlm_hash)
 
-    logger.info(f"Optimized to {len(prefix_to_hashes)} unique prefixes (API calls)")
-
-    checked_prefixes = 0
     total_prefixes = len(prefix_to_hashes)
+    logger.info(f"Optimized to {total_prefixes} unique prefixes (API calls)")
+
+    # Use a list to make counter mutable in nested scope
+    progress_counter = [0]  # [checked_prefixes]
     hash_results: dict[str, HIBPResult] = {}
 
     def check_prefix(prefix: str, hashes: list[str]) -> list[HIBPResult]:
@@ -785,10 +786,17 @@ def check_hashes_hibp(
                 prefix_results = future.result()
                 for result in prefix_results:
                     hash_results[result.ntlm_hash] = result
-                checked_prefixes += 1
+                progress_counter[0] += 1
+
+                # Log progress periodically
+                if progress_counter[0] % 1000 == 0 or progress_counter[0] == 1:
+                    logger.info(f"HIBP progress: {progress_counter[0]}/{total_prefixes} prefixes checked")
 
                 if progress_callback:
-                    progress_callback(checked_prefixes, total_prefixes)
+                    try:
+                        progress_callback(progress_counter[0], total_prefixes)
+                    except Exception as cb_err:
+                        logger.error(f"Progress callback error: {cb_err}")
 
             except Exception as e:
                 logger.error(f"Error processing prefix {prefix}: {e}")

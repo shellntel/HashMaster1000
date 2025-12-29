@@ -2100,12 +2100,13 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
             }
             with open(progress_path, "w") as f:
                 json.dump(progress_data, f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Failed to save HIBP progress: {e}")
 
-    # Initialize progress
-    total_items = unique_prefixes if method == "api" else len(account_list)
-    save_progress(0, total_items, 0, "running")
+    # Initialize progress with estimate (will be updated by callback with actual total)
+    estimated_prefixes = unique_prefixes if method == "api" else len(account_list)
+    save_progress(0, estimated_prefixes, 0, "running")
+    logging.info(f"HIBP check starting: estimated {estimated_prefixes} prefixes for {len(account_list)} accounts")
 
     try:
         if method == "local":
