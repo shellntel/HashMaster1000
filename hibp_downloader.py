@@ -33,7 +33,7 @@ HIBP_API_URL = "https://api.pwnedpasswords.com/range"
 TOTAL_PREFIXES = 1048576  # 16^5 = 00000 to FFFFF
 
 # Default download settings
-DEFAULT_PARALLELISM = 20  # Concurrent download threads
+DEFAULT_PARALLELISM = 100  # Concurrent download threads (HIBP has no rate limit)
 DEFAULT_OUTPUT_DIR = "data"
 DEFAULT_OUTPUT_FILENAME = "pwnedpasswords-ntlm.txt"
 
