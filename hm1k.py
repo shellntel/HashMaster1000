@@ -2062,11 +2062,94 @@ def hibp_test_connection() -> Response:
     })
 
 
+def _run_hibp_check_background(session_dir: str, method: str, account_list: list,
+                                username_to_password: dict, username_to_status: dict,
+                                local_db_hash_count: int = 0):
+    """
+    Run HIBP check in background thread.
+
+    This function runs the actual HIBP check and saves results to files.
+    It's designed to be called from a background thread.
+    """
+    from hibp_checker import check_hashes_hibp, check_hashes_local
+
+    progress_path = os.path.join(session_dir, "hibp_progress.json")
+    hibp_results_path = os.path.join(session_dir, "hibp_results.json")
+
+    # Calculate unique prefixes for progress estimation (API mode)
+    unique_prefixes = len(set(acct["ntlm_hash"][:5].upper() for acct in account_list
+                              if acct.get("ntlm_hash") and len(acct["ntlm_hash"]) >= 5))
+
+    def save_progress(checked: int, total: int, found: int = 0, status: str = "running"):
+        """Save progress to file for frontend polling."""
+        try:
+            progress_data = {
+                "checked": checked,
+                "total": total,
+                "found": found,
+                "percentage": round((checked / total) * 100, 1) if total > 0 else 0,
+                "status": status
+            }
+            with open(progress_path, "w") as f:
+                json.dump(progress_data, f)
+        except Exception:
+            pass
+
+    # Initialize progress
+    total_items = unique_prefixes if method == "api" else len(account_list)
+    save_progress(0, total_items, 0, "running")
+
+    try:
+        if method == "local":
+            results = check_hashes_local(account_list, progress_callback=lambda c, t: save_progress(c, t))
+            data_source = "local"
+            data_source_info = f"Local database ({local_db_hash_count:,} hashes)"
+        else:
+            results = check_hashes_hibp(account_list, progress_callback=lambda c, t: save_progress(c, t))
+            data_source = "api"
+            data_source_info = "Have I Been Pwned API"
+
+        results_dict = results.to_dict()
+
+        # Add data source information
+        results_dict["data_source"] = data_source
+        results_dict["data_source_info"] = data_source_info
+
+        # Add cracked passwords and account status to results
+        for result in results_dict.get("results", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+        for result in results_dict.get("top_breached", []):
+            result["cracked_pw"] = username_to_password.get(result["username"])
+            result["account_status"] = username_to_status.get(result["username"], "unknown")
+
+        # Save results to session
+        with open(hibp_results_path, "w") as f:
+            json.dump(results_dict, f, indent=2)
+
+        # Mark progress as complete
+        save_progress(total_items, total_items, results_dict.get("total_found", 0), "complete")
+
+        logging.info(f"HIBP background check complete: {results_dict.get('total_found', 0)}/{results_dict.get('total_checked', 0)} found")
+
+    except Exception as e:
+        logging.error(f"HIBP background check failed: {e}")
+        # Mark progress as error
+        try:
+            with open(progress_path, "w") as f:
+                json.dump({"status": "error", "error": str(e)}, f)
+        except Exception:
+            pass
+
+
 @app.route("/api/hibp/check", methods=["POST"])
 @login_required
 def hibp_check_hashes() -> Response:
     """
     Check account hashes against the HIBP Pwned Passwords database.
+
+    This endpoint starts the check in a background thread and returns immediately.
+    The frontend should poll /api/hibp/progress to monitor status.
 
     Supports two modes:
     1. Local mode (method="local"): Uses local HIBP database - fast, no internet required
@@ -2077,9 +2160,10 @@ def hibp_check_hashes() -> Response:
         - consent: bool (required for API mode) - User must explicitly consent
 
     Returns:
-        JSON with breach check results
+        JSON with status "started" immediately, or error if validation fails
     """
-    from hibp_checker import check_hashes_hibp, check_hashes_local, get_local_db_status
+    import threading
+    from hibp_checker import get_local_db_status
 
     data = request.get_json() or {}
 
@@ -2118,25 +2202,20 @@ def hibp_check_hashes() -> Response:
         return jsonify({"error": "Account data is empty"}), 400
 
     # Convert account_data dict to list format expected by HIBP checker
-    # account_data format: {"username": {"ntlm_hash": "...", "cracked_pw": "...", ...}, ...}
-    # HIBP checker expects: [{"username": "...", "ntlm_hash": "..."}, ...]
-    # Skip accounts with blank passwords - no point checking those against HIBP
     BLANK_PASSWORD_HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
     account_list = []
-    username_to_password = {}  # Map username to cracked password for later
-    username_to_status = {}  # Map username to account status (enabled/disabled)
+    username_to_password = {}
+    username_to_status = {}
+
     for username, acct_data in account_data.items():
         if isinstance(acct_data, dict) and acct_data.get("ntlm_hash"):
-            # Skip blank password hashes
             if acct_data["ntlm_hash"].lower() == BLANK_PASSWORD_HASH:
                 continue
             account_list.append({
                 "username": username,
                 "ntlm_hash": acct_data["ntlm_hash"]
             })
-            # Store cracked password if available
             username_to_password[username] = acct_data.get("cracked_pw")
-            # Store account status if available (disabled is a boolean)
             disabled = acct_data.get("disabled")
             if disabled is True:
                 username_to_status[username] = "disabled"
@@ -2148,78 +2227,37 @@ def hibp_check_hashes() -> Response:
     if not account_list:
         return jsonify({"error": "No valid NTLM hashes found in account data"}), 400
 
-    # Calculate unique prefixes for progress estimation (API mode)
-    unique_prefixes = len(set(acct["ntlm_hash"][:5].upper() for acct in account_list if acct.get("ntlm_hash") and len(acct["ntlm_hash"]) >= 5))
-
-    # Progress file path for polling
+    # Initialize progress file
     progress_path = os.path.join(session_dir, "hibp_progress.json")
+    unique_prefixes = len(set(acct["ntlm_hash"][:5].upper() for acct in account_list
+                              if acct.get("ntlm_hash") and len(acct["ntlm_hash"]) >= 5))
+    total_items = unique_prefixes if method == "api" else len(account_list)
 
-    def save_progress(checked: int, total: int, found: int = 0):
-        """Save progress to file for frontend polling."""
-        try:
-            progress_data = {
-                "checked": checked,
-                "total": total,
-                "found": found,
-                "percentage": round((checked / total) * 100, 1) if total > 0 else 0,
-                "status": "running"
-            }
-            with open(progress_path, "w") as f:
-                json.dump(progress_data, f)
-        except Exception:
-            pass  # Don't fail the check if progress save fails
+    with open(progress_path, "w") as f:
+        json.dump({
+            "checked": 0,
+            "total": total_items,
+            "found": 0,
+            "percentage": 0,
+            "status": "starting"
+        }, f)
 
-    # Initialize progress
-    save_progress(0, unique_prefixes if method == "api" else len(account_list))
+    # Start background thread
+    thread = threading.Thread(
+        target=_run_hibp_check_background,
+        args=(session_dir, method, account_list, username_to_password, username_to_status,
+              local_db_status.get("hash_count", 0)),
+        daemon=True
+    )
+    thread.start()
 
-    # Run the HIBP check using the selected method
-    try:
-        if method == "local":
-            results = check_hashes_local(account_list, progress_callback=lambda c, t: save_progress(c, t))
-            data_source = "local"
-            data_source_info = f"Local database ({local_db_status['hash_count']:,} hashes)"
-        else:
-            results = check_hashes_hibp(account_list, progress_callback=lambda c, t: save_progress(c, t))
-            data_source = "api"
-            data_source_info = "Have I Been Pwned API"
-
-        results_dict = results.to_dict()
-
-        # Add data source information
-        results_dict["data_source"] = data_source
-        results_dict["data_source_info"] = data_source_info
-
-        # Add cracked passwords and account status to results
-        for result in results_dict.get("results", []):
-            result["cracked_pw"] = username_to_password.get(result["username"])
-            result["account_status"] = username_to_status.get(result["username"], "unknown")
-        for result in results_dict.get("top_breached", []):
-            result["cracked_pw"] = username_to_password.get(result["username"])
-            result["account_status"] = username_to_status.get(result["username"], "unknown")
-
-        # Save results to session
-        hibp_results_path = os.path.join(session_dir, "hibp_results.json")
-        with open(hibp_results_path, "w") as f:
-            json.dump(results_dict, f, indent=2)
-
-        # Clean up progress file
-        try:
-            if os.path.exists(progress_path):
-                os.remove(progress_path)
-        except Exception:
-            pass
-
-        return jsonify(results_dict)
-
-    except Exception as e:
-        logging.error(f"HIBP check failed: {e}")
-        # Clean up progress file on error
-        try:
-            if os.path.exists(progress_path):
-                os.remove(progress_path)
-        except Exception:
-            pass
-        return jsonify({"error": f"HIBP check failed: {str(e)}"}), 500
+    return jsonify({
+        "status": "started",
+        "method": method,
+        "total_accounts": len(account_list),
+        "total_api_calls": total_items,
+        "message": f"HIBP check started in background. Poll /api/hibp/progress for status."
+    })
 
 
 @app.route("/api/hibp/progress")

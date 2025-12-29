@@ -1504,21 +1504,54 @@
 			// Progress polling interval ID
 			let hibpProgressInterval = null;
 
-			// Poll for HIBP check progress
+			// Poll for HIBP check progress and handle completion
 			async function pollHIBPProgress() {
 				try {
 					const response = await fetch('/api/hibp/progress', { credentials: 'same-origin' });
 					if (response.ok) {
 						const progress = await response.json();
-						if (progress.status === 'running') {
-							const progressDetail = document.getElementById('hibpProgressDetail');
+						const progressDetail = document.getElementById('hibpProgressDetail');
+
+						if (progress.status === 'starting') {
+							progressDetail.textContent = 'Starting HIBP check...';
+						} else if (progress.status === 'running') {
 							if (progress.total > 0) {
 								progressDetail.textContent = `Checking hashes: ${progress.checked.toLocaleString()} / ${progress.total.toLocaleString()} API calls (${progress.percentage}%)`;
 							}
+						} else if (progress.status === 'complete') {
+							// Check complete - fetch and display results
+							stopHIBPProgressPolling();
+							progressDetail.textContent = 'Loading results...';
+							await loadAndDisplayHIBPResults();
+						} else if (progress.status === 'error') {
+							// Check failed
+							stopHIBPProgressPolling();
+							document.getElementById('hibpRunning').style.display = 'none';
+							document.getElementById('hibpNotRun').style.display = 'block';
+							alert('HIBP check failed: ' + (progress.error || 'Unknown error'));
 						}
 					}
 				} catch (e) {
 					// Ignore polling errors
+					console.log('Progress poll error:', e);
+				}
+			}
+
+			// Load results from file and display
+			async function loadAndDisplayHIBPResults() {
+				try {
+					const response = await fetch('/hibp_results.json', { credentials: 'same-origin' });
+					if (response.ok) {
+						const data = await response.json();
+						displayHIBPResults(data);
+					} else {
+						throw new Error('Failed to load results');
+					}
+				} catch (error) {
+					console.error('Failed to load HIBP results:', error);
+					document.getElementById('hibpRunning').style.display = 'none';
+					document.getElementById('hibpNotRun').style.display = 'block';
+					alert('Failed to load HIBP results: ' + error.message);
 				}
 			}
 
@@ -1543,9 +1576,7 @@
 				document.getElementById('hibpNotRun').style.display = 'none';
 				document.getElementById('hibpRunning').style.display = 'block';
 				document.getElementById('hibpResults').style.display = 'none';
-				document.getElementById('hibpProgressDetail').textContent = 'Checking against local database...';
-
-				startHIBPProgressPolling();
+				document.getElementById('hibpProgressDetail').textContent = 'Starting local database check...';
 
 				try {
 					const response = await fetch('/api/hibp/check', {
@@ -1555,15 +1586,18 @@
 						credentials: 'same-origin'
 					});
 
-					stopHIBPProgressPolling();
-
 					const data = await response.json();
 					if (!response.ok) {
 						throw new Error(data.error || 'HIBP check failed');
 					}
-					displayHIBPResults(data);
+
+					// Check started - begin polling for progress
+					if (data.status === 'started') {
+						startHIBPProgressPolling();
+					} else {
+						throw new Error('Unexpected response from server');
+					}
 				} catch (error) {
-					stopHIBPProgressPolling();
 					console.error('HIBP local check error:', error);
 					document.getElementById('hibpRunning').style.display = 'none';
 					document.getElementById('hibpNotRun').style.display = 'block';
@@ -1579,9 +1613,7 @@
 				document.getElementById('hibpNotRun').style.display = 'none';
 				document.getElementById('hibpRunning').style.display = 'block';
 				document.getElementById('hibpResults').style.display = 'none';
-				document.getElementById('hibpProgressDetail').textContent = 'Connecting to HIBP API...';
-
-				startHIBPProgressPolling();
+				document.getElementById('hibpProgressDetail').textContent = 'Starting HIBP API check...';
 
 				try {
 					const response = await fetch('/api/hibp/check', {
@@ -1590,8 +1622,6 @@
 						body: JSON.stringify({ method: 'api', consent: true }),
 						credentials: 'same-origin'
 					});
-
-					stopHIBPProgressPolling();
 
 					// Check content type before parsing
 					const contentType = response.headers.get('content-type');
@@ -1607,11 +1637,14 @@
 						throw new Error(data.error || 'HIBP check failed');
 					}
 
-					// Show results
-					displayHIBPResults(data);
+					// Check started - begin polling for progress
+					if (data.status === 'started') {
+						startHIBPProgressPolling();
+					} else {
+						throw new Error('Unexpected response from server');
+					}
 
 				} catch (error) {
-					stopHIBPProgressPolling();
 					console.error('HIBP check error:', error);
 					document.getElementById('hibpRunning').style.display = 'none';
 					document.getElementById('hibpNotRun').style.display = 'block';
