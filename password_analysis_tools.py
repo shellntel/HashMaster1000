@@ -93,17 +93,25 @@ def lm_count(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> int:
 
 
 # Function to get accounts with valid (non-blank) LANMan hashes (account_data based)
-def get_lm_accounts(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> List[str]:
+def get_lm_accounts(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> List[Dict[str, str]]:
     """
-    Returns a sorted list of account names that have a valid (non-blank) LM hash.
+    Returns a sorted list of dicts containing account names and cracked passwords
+    for accounts that have a valid (non-blank) LM hash.
     LM hashes are weaker than NTLM and should be disabled in modern environments.
+
+    Including the cracked password helps pentesters identify LM hash accounts
+    that haven't been cracked yet - these may have easily crackable passwords
+    that were missed because cracking focused on NTLM hashes.
     """
     lm_accounts = [
-        account_name
+        {
+            "account": account_name,
+            "cracked_pw": account.get("cracked_pw") or ""
+        }
         for account_name, account in account_data.items()
         if account.get("lm_hash") and account["lm_hash"] != "aad3b435b51404eeaad3b435b51404ee"
     ]
-    return sorted(lm_accounts)
+    return sorted(lm_accounts, key=lambda x: x["account"])
 
 
 # Function to check for password reuse

@@ -614,15 +614,22 @@
 		</section>
 		<!-- Section for Accounts with LM Hashes -->
 		<section id="lmHashSection">
-			<h2>Accounts With LM Hashes</h2>
+			<div class="section-header-with-toggle">
+				<h2 style="margin: 0;">Accounts With LM Hashes</h2>
+				<button id="toggleLmHashBlur" class="toggle-visibility-button" onclick="toggleLmHashBlur()">
+					Show Passwords
+				</button>
+			</div>
+			<p class="section-description" style="font-style: italic; color: #ff9800;"><strong>Note:</strong> LM hashes are cryptographically weak and should be trivial to crack. Accounts highlighted as <span class="uncracked-warning" style="font-size: inherit; font-style: normal;">Not Cracked</span> may indicate that LM hash cracking was missed during the engagement, or the LM hash may not be valid.</p>
 			<table
 				id="lmHashTable"
-				class="display"
+				class="display blurred"
 				style="width: 100%"
 			>
 				<thead>
 					<tr>
 						<th>Account</th>
+						<th>Cracked Password</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -5276,14 +5283,42 @@
 				.then((response) => response.json())
 				.then((data) => {
 					// Transform the JSON data into an array format suitable for DataTables
-					const transformedData = data.map((account) => ({
-						Account: account,
+					// Data is now an array of objects with account and cracked_pw fields
+					const transformedData = data.map((item) => ({
+						Account: typeof item === 'string' ? item : item.account,
+						CrackedPW: typeof item === 'string' ? '' : (item.cracked_pw || '')
 					}));
+
+					// Helper function to format password with blur pattern
+					function formatLmPassword(password) {
+						if (!password) {
+							return '<span class="uncracked-warning">Not Cracked</span>';
+						}
+						const escaped = $('<div>').text(password).html();
+						if (password.length <= 4) {
+							// Short passwords - blur entirely
+							return `<span class="lm-password-blurred">${escaped}</span>`;
+						}
+						// Show first 2 and last 2 chars, blur middle
+						const start = $('<div>').text(password.slice(0, 2)).html();
+						const middle = $('<div>').text(password.slice(2, -2)).html();
+						const end = $('<div>').text(password.slice(-2)).html();
+						return `<span class="lm-password-visible">${start}</span><span class="lm-password-blurred">${middle}</span><span class="lm-password-visible">${end}</span>`;
+					}
 
 					// Initialize the DataTable
 					$("#lmHashTable").DataTable({
 						data: transformedData,
-						columns: [{ title: "Account", data: "Account" }],
+						columns: [
+							{ title: "Account", data: "Account" },
+							{
+								title: "Cracked Password",
+								data: "CrackedPW",
+								render: function(data, type, row) {
+									return formatLmPassword(data);
+								}
+							}
+						],
 						order: [[0, "asc"]], // Sort by the account name column in ascending order
 						responsive: true,
 						destroy: true,
@@ -6231,6 +6266,23 @@
 				}
 
 				applyHistoryPasswordVisibility(historyPasswordsVisible);
+			}
+
+			// Toggle blur for LM Hash table passwords
+			function toggleLmHashBlur() {
+				const table = document.getElementById('lmHashTable');
+				const btn = document.getElementById('toggleLmHashBlur');
+				const isBlurred = table.classList.contains('blurred');
+
+				if (isBlurred) {
+					table.classList.remove('blurred');
+					btn.innerHTML = 'Hide Passwords';
+					btn.classList.add('showing');
+				} else {
+					table.classList.add('blurred');
+					btn.innerHTML = 'Show Passwords';
+					btn.classList.remove('showing');
+				}
 			}
 
 			// Load existing AAIA results if available

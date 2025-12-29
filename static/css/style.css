@@ -6076,6 +6076,23 @@ body.print-mode .privileged-subsection {
 	filter: none;
 }
 
+/* LM Hash table styles */
+#lmHashTable.blurred .lm-password-blurred {
+	filter: blur(4px);
+	user-select: none;
+}
+#lmHashTable:not(.blurred) .lm-password-blurred {
+	filter: none;
+}
+#lmHashTable .uncracked-warning {
+	color: #ff9800 !important;
+	font-weight: bold;
+	font-style: italic;
+	background-color: rgba(255, 152, 0, 0.15);
+	padding: 2px 8px;
+	border-radius: 4px;
+}
+
 /* HIBP Section Styles */
 .hibp-section { margin-top: 30px; }
 .hibp-db-status {

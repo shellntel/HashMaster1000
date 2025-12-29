@@ -490,6 +490,15 @@ Displays reused NTLM hashes, their counts, and associated accounts.
 4. **Accounts Failing Maximum Age Policy**:
    Lists accounts with expired passwords (future implementation).
 
+### **Accounts With LM Hashes**
+
+Displays accounts that have legacy LM (LAN Manager) hashes present. LM hashes are cryptographically weak and should be trivial to crack. The table includes:
+
+- **Account**: The account name
+- **Cracked Password**: The cracked password if available, or "Not Cracked" highlighted in orange
+
+Accounts marked as "Not Cracked" may indicate that LM hash cracking was missed during the engagement, or the LM hash may not be valid. This helps pentesters identify accounts that may need additional cracking effort.
+
 **Note:** At the bottom of the report page, there is a **Download All JSON Files** button. Each chart and table on the page loads a JSON object that includes the necessary data to populate the chart or table. Downloading the JSON files gives you the ability to use the raw data for other purposes outside of Hash Master 1000.
 
 ### **Important Notes**

@@ -724,10 +724,10 @@ def extract_hashes_from_add(add_result: "file_parser.ADDValidationResult") -> se
     for entry in add_result.entries:
         if entry.included and entry.is_valid:
             # Current hash
-            if entry.nt_hash:
-                hashes.add(entry.nt_hash.lower())
+            if entry.ntlm_hash:
+                hashes.add(entry.ntlm_hash.lower())
             # Historical hashes
-            for hist in entry.nt_history:
+            for hist in entry.historical_hashes:
                 if hist:
                     hashes.add(hist.lower())
     return hashes
