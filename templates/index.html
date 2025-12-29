@@ -15,6 +15,15 @@
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 	</head>
 	<body>
+		<!-- Processing Overlay -->
+		<div id="processingOverlay" class="processing-overlay">
+			<div class="processing-content">
+				<div class="processing-spinner"></div>
+				<div class="processing-text" id="processingText">Processing...</div>
+				<div class="processing-subtext" id="processingSubtext">This may take a moment for large files</div>
+			</div>
+		</div>
+
 		<!-- Modern Header -->
 		<header class="app-header">
 			<div class="brand">
@@ -71,6 +80,7 @@
 					action="{% if initial_step == 3 and input_method == 'add_json' and add_validation %}{{ url_for('process_add_validated') }}{% elif initial_step == 3 and pwdump_validation and potfile_validation %}{{ url_for('process_validated') }}{% else %}{{ url_for('validate_files_endpoint') }}{% endif %}"
 					method="POST"
 					enctype="multipart/form-data"
+					onsubmit="showProcessing('Generating Report...', 'Analyzing passwords and computing statistics')"
 				>
 					<!-- Step 1: Load Files -->
 					<div class="step-content active" data-step="1">
@@ -502,6 +512,20 @@
 		</div>
 
 		<script>
+			// Processing overlay functions
+			function showProcessing(message, subtext) {
+				const overlay = document.getElementById('processingOverlay');
+				const textEl = document.getElementById('processingText');
+				const subtextEl = document.getElementById('processingSubtext');
+				textEl.textContent = message || 'Processing...';
+				subtextEl.textContent = subtext || 'This may take a moment for large files';
+				overlay.classList.add('active');
+			}
+
+			function hideProcessing() {
+				document.getElementById('processingOverlay').classList.remove('active');
+			}
+
 			// Toggle max password age input when "Never" checkbox is changed
 			function toggleMaxAgeInput(checkbox) {
 				const input = document.getElementById('policy_max_pw_age_input');
@@ -569,9 +593,13 @@
 
 				// Handle restore method differently - switch session and go to report
 				if (inputMethod === 'restore' && restoreState.selectedSessionId) {
+					showProcessing('Restoring Session...', 'Loading previous analysis data');
 					restoreSession(restoreState.selectedSessionId);
 					return;
 				}
+
+				// Show processing overlay
+				showProcessing('Validating Files...', 'Parsing and validating your data files');
 
 				// Use appropriate endpoint based on input method
 				if (inputMethod === 'local') {

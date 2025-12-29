@@ -43,6 +43,8 @@ from session_manager import get_session_manager, SessionMetadata
 from domain_utils import filter_accounts_by_domain, detect_cross_domain_password_reuse
 # Import password history analysis module
 import password_history
+# Import potfile cache for efficient master potfile operations
+from potfile_cache import get_master_cache, build_cracked_hashes_fast
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
@@ -695,6 +697,9 @@ def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationRe
     """
     Handle master potfile merge logic when MASTER_POTFILE_ENABLED is true.
 
+    Uses cached potfile for efficient merge and validation operations.
+    With 620K+ hashes, this avoids reading the file twice per operation.
+
     Args:
         potfile_result: The validated potfile result from user's upload
 
@@ -709,8 +714,9 @@ def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationRe
     merge_stats = None
 
     try:
-        # Merge user's NTLM entries into master potfile
-        added, skipped, total = file_parser.merge_potfile_entries(
+        # Use cached merge - avoids reading file for deduplication
+        cache = get_master_cache()
+        added, skipped, total = cache.merge_entries(
             MASTER_POTFILE_PATH,
             potfile_result.entries
         )
@@ -721,8 +727,8 @@ def handle_master_potfile_merge(potfile_result: "file_parser.PotfileValidationRe
             "user_ntlm_count": potfile_result.ntlm_count,
         }
 
-        # Now validate the master potfile to use for processing
-        master_result = file_parser.validate_potfile(MASTER_POTFILE_PATH)
+        # Create PotfileValidationResult from cache (avoids full file re-parse)
+        master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
         logging.info(
             f"Master potfile merge complete: {added} added, {skipped} skipped, "
             f"{master_result.ntlm_count} total NTLM hashes in master"
@@ -746,6 +752,8 @@ def load_master_potfile_only() -> tuple:
     """
     Load master potfile when user skips providing their own potfile.
 
+    Uses cached potfile for fast loading of 620K+ hash files.
+
     Returns:
         Tuple of (potfile_result, merge_stats_dict)
     """
@@ -753,7 +761,9 @@ def load_master_potfile_only() -> tuple:
         return (None, None)
 
     try:
-        master_result = file_parser.validate_potfile(MASTER_POTFILE_PATH)
+        # Use cache for fast loading
+        cache = get_master_cache()
+        master_result = cache.to_validation_result(MASTER_POTFILE_PATH)
         merge_stats = {
             "added": 0,
             "skipped": 0,
@@ -1414,11 +1424,8 @@ def process_validated() -> Response:
         # Check password reuse (needs original file path)
         pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
 
-        # Build cracked_hashes lookup from potfile
-        cracked_hashes: dict[str, str] = {file_parser.BLANK_NTLM_HASH: ""}
-        for entry in potfile_result.entries:
-            if entry.included and entry.is_valid and entry.ntlm_hash:
-                cracked_hashes[entry.ntlm_hash] = entry.password or ""
+        # Build cracked_hashes lookup from potfile (uses cache for master potfile)
+        cracked_hashes = build_cracked_hashes_fast(potfile_result)
 
         # Run password history pattern analysis (for pwdump with _history entries)
         pwdump_lines_data = [
@@ -1860,7 +1867,17 @@ def master_potfile_status() -> Response:
             "count": 0
         })
 
-    count = file_parser.get_potfile_entry_count(MASTER_POTFILE_PATH)
+    # Use cache for fast count lookup
+    cache = get_master_cache()
+    stats = cache.get_stats()
+    if stats:
+        count = stats["ntlm_count"]
+    else:
+        # Cache not loaded yet, load it
+        cache.load(MASTER_POTFILE_PATH)
+        stats = cache.get_stats()
+        count = stats["ntlm_count"] if stats else 0
+
     return jsonify({
         "enabled": True,
         "count": count
@@ -2624,12 +2641,11 @@ def process_add_validated() -> Response:
                 status=400,
             )
 
-        # Build cracked hashes lookup for additional analysis
-        cracked_hashes: dict[str, str] = {file_parser.BLANK_NTLM_HASH: ""}
+        # Build cracked hashes lookup for additional analysis (uses cache for master potfile)
         if potfile_result:
-            for entry in potfile_result.entries:
-                if entry.included and entry.is_valid and entry.ntlm_hash:
-                    cracked_hashes[entry.ntlm_hash] = entry.password or ""
+            cracked_hashes = build_cracked_hashes_fast(potfile_result)
+        else:
+            cracked_hashes = {file_parser.BLANK_NTLM_HASH: ""}
 
         # Run historical hash analysis (basic reuse checking)
         historical_analysis = file_parser.analyze_historical_hashes(add_result, cracked_hashes)
@@ -7865,6 +7881,15 @@ if __name__ == "__main__":
             print(f"--> Warning: Could not initialize local HIBP database: {message}")
     else:
         print("\n--> No local HIBP database configured (HIBP_LOCAL_DB_PATH not set)")
+
+    # Preload master potfile cache at startup for instant first request
+    if MASTER_POTFILE_ENABLED and os.path.exists(MASTER_POTFILE_PATH):
+        print(f"\n--> Loading master potfile cache: {MASTER_POTFILE_PATH}")
+        cache = get_master_cache()
+        cache.load(MASTER_POTFILE_PATH)
+        stats = cache.get_stats()
+        if stats:
+            print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes")
 
     # Start Flask application
     app.run(host="0.0.0.0", port=8443, ssl_context=("cert.pem", "key.pem"), debug=False)

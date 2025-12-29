@@ -11,6 +11,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Processing Overlay -->
+    <div id="processingOverlay" class="processing-overlay">
+        <div class="processing-content">
+            <div class="processing-spinner"></div>
+            <div class="processing-text" id="processingText">Processing...</div>
+            <div class="processing-subtext" id="processingSubtext">This may take a moment</div>
+        </div>
+    </div>
+
     <!-- Modern Header -->
     <header class="app-header">
         <div class="brand">
@@ -188,7 +197,7 @@
                         <!-- Navigation -->
                         <div class="step-navigation compact">
                             <a href="{{ url_for('clear_and_restart') }}" class="btn btn-secondary">Start Over</a>
-                            <a href="{{ url_for('index', step=3, input_method='add_json') }}" class="btn btn-primary">Continue to Configuration</a>
+                            <a href="{{ url_for('index', step=3, input_method='add_json') }}" class="btn btn-primary" onclick="showProcessing('Loading Configuration...', 'Preparing analysis options')">Continue to Configuration</a>
                         </div>
                     </div>
                 </div>
@@ -198,6 +207,16 @@
 
     <!-- Logout handler -->
     <script>
+        // Processing overlay functions
+        function showProcessing(message, subtext) {
+            const overlay = document.getElementById('processingOverlay');
+            const textEl = document.getElementById('processingText');
+            const subtextEl = document.getElementById('processingSubtext');
+            textEl.textContent = message || 'Processing...';
+            subtextEl.textContent = subtext || 'This may take a moment';
+            overlay.classList.add('active');
+        }
+
         document.getElementById('logoutButton').addEventListener('click', function() {
             window.location.href = '/logout';
         });
