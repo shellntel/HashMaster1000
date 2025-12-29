@@ -1664,6 +1664,7 @@ def report() -> str:
 
 
 @app.route("/hiddenpages")
+@app.route("/hidden")
 @login_required
 def hidden_pages_index():
     """Index page for hidden/development pages and tools."""
@@ -1679,6 +1680,13 @@ def hidden_pages_index():
         ollama_enabled=ollama_enabled,
         servers=servers_status.get("servers", [])
     )
+
+
+@app.route("/hibp/download")
+@login_required
+def hibp_download_page():
+    """HIBP database download management page."""
+    return render_template('hibp_download.html')
 
 
 # Helper function to load session data with fallback to legacy paths
@@ -2309,6 +2317,111 @@ def hibp_summary() -> Response:
         "result_count": len(data.get("results", []))
     }
     return jsonify(summary)
+
+
+# ============================================================================
+# HIBP Database Download Endpoints
+# ============================================================================
+
+@app.route("/api/hibp/download/info")
+@login_required
+def hibp_download_info() -> Response:
+    """Get information about HIBP database download, including estimates and attribution."""
+    from hibp_downloader import estimate_download, get_download_status
+    from hibp_checker import get_local_db_status
+
+    # Get current local database status
+    local_db_status = get_local_db_status()
+
+    # Get download estimates
+    estimates = estimate_download()
+
+    # Get any active download status
+    download_status = get_download_status()
+
+    # Default output path
+    default_output = os.path.join("data", "pwnedpasswords-ntlm.txt")
+
+    return jsonify({
+        "local_database": local_db_status,
+        "estimates": estimates,
+        "download_status": download_status,
+        "default_output_path": default_output,
+        "configured_path": os.environ.get("HIBP_LOCAL_DB_PATH", "")
+    })
+
+
+@app.route("/api/hibp/download/start", methods=["POST"])
+@login_required
+def hibp_download_start() -> Response:
+    """
+    Start downloading the HIBP NTLM database.
+
+    This downloads all 1,048,576 hash prefixes from the HIBP API and
+    combines them into a single sorted file for local lookups.
+
+    Request JSON (optional):
+        - output_dir: Directory to save file (default: "data")
+        - output_filename: Filename (default: "pwnedpasswords-ntlm.txt")
+        - parallelism: Number of concurrent downloads (default: 20)
+
+    Returns immediately with status. Poll /api/hibp/download/status for progress.
+    """
+    from hibp_downloader import start_download
+
+    data = request.get_json() or {}
+
+    output_dir = data.get("output_dir", "data")
+    output_filename = data.get("output_filename", "pwnedpasswords-ntlm.txt")
+    parallelism = min(max(int(data.get("parallelism", 20)), 1), 100)  # Clamp 1-100
+
+    started = start_download(
+        output_dir=output_dir,
+        output_filename=output_filename,
+        parallelism=parallelism
+    )
+
+    if started:
+        return jsonify({
+            "success": True,
+            "message": "HIBP database download started",
+            "output_path": os.path.join(output_dir, output_filename),
+            "parallelism": parallelism
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": "A download is already in progress"
+        }), 409
+
+
+@app.route("/api/hibp/download/status")
+@login_required
+def hibp_download_status() -> Response:
+    """Get the current status of an active or completed HIBP download."""
+    from hibp_downloader import get_download_status
+
+    return jsonify(get_download_status())
+
+
+@app.route("/api/hibp/download/cancel", methods=["POST"])
+@login_required
+def hibp_download_cancel() -> Response:
+    """Cancel an active HIBP database download."""
+    from hibp_downloader import cancel_download
+
+    cancelled = cancel_download()
+
+    if cancelled:
+        return jsonify({
+            "success": True,
+            "message": "Download cancellation requested"
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": "No active download to cancel"
+        }), 400
 
 
 def run_automatic_hibp_check(account_data: dict, session_dir: str) -> Optional[dict]:

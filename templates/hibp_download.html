@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - HIBP Database Download</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="hidden-pages-body">
+    <div class="hidden-container" style="max-width: 900px;">
+        <a href="/hidden" class="hidden-back-link">&larr; Back to Hidden Index</a>
+
+        <h1>HIBP Database Download</h1>
+        <p class="hidden-subtitle">Download the Have I Been Pwned Pwned Passwords database for offline/local breach checking.</p>
+
+        <!-- Attribution Banner -->
+        <div class="hidden-warning-banner" style="background: linear-gradient(135deg, #1a365d 0%, #2563eb 100%); border-color: #3b82f6;">
+            <span class="icon">&#128274;</span>
+            <div>
+                <strong>Powered by Have I Been Pwned</strong><br>
+                <span style="font-size: 0.85em; opacity: 0.9;">
+                    Data provided by <a href="https://haveibeenpwned.com/Passwords" target="_blank" style="color: #93c5fd;">haveibeenpwned.com</a> |
+                    API by <a href="https://troyhunt.com" target="_blank" style="color: #93c5fd;">Troy Hunt</a> |
+                    Downloader inspired by <a href="https://github.com/HaveIBeenPwned/PwnedPasswordsDownloader" target="_blank" style="color: #93c5fd;">PwnedPasswordsDownloader</a>
+                </span>
+            </div>
+        </div>
+
+        <!-- Current Status Section -->
+        <div class="hidden-section">
+            <h2><span class="icon">&#128202;</span> Current Database Status</h2>
+            <div id="statusSection" class="hidden-status-grid">
+                <div class="hidden-status-card">
+                    <div class="label">Local Database</div>
+                    <div class="value" id="dbStatus">Checking...</div>
+                </div>
+                <div class="hidden-status-card">
+                    <div class="label">Hash Count</div>
+                    <div class="value" id="hashCount">-</div>
+                </div>
+                <div class="hidden-status-card">
+                    <div class="label">Configured Path</div>
+                    <div class="value" id="configuredPath" style="font-size: 0.75em;">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Info Section -->
+        <div class="hidden-section">
+            <h2><span class="icon">&#128229;</span> Download New Database</h2>
+            <div class="hidden-page-grid" style="grid-template-columns: 1fr;">
+                <div class="hidden-page-card" style="cursor: default;">
+                    <h3>Download Estimates</h3>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px;">
+                        <div>
+                            <strong>Total Prefixes:</strong><br>
+                            <span style="color: #a1a1aa;">1,048,576 (00000-FFFFF)</span>
+                        </div>
+                        <div>
+                            <strong>Estimated Hashes:</strong><br>
+                            <span style="color: #a1a1aa;">~850 million</span>
+                        </div>
+                        <div>
+                            <strong>Estimated File Size:</strong><br>
+                            <span style="color: #a1a1aa;">~16-18 GB</span>
+                        </div>
+                        <div>
+                            <strong>Estimated Time:</strong><br>
+                            <span style="color: #a1a1aa;">30-60 minutes</span>
+                        </div>
+                    </div>
+                    <p style="margin-top: 16px; font-size: 0.85em; color: #71717a;">
+                        <strong>Note:</strong> The Pwned Passwords API has no rate limit. Download time depends on your internet connection and selected parallelism.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Controls -->
+        <div class="hidden-section">
+            <h2><span class="icon">&#9881;</span> Download Controls</h2>
+            <div class="hidden-page-grid" style="grid-template-columns: 1fr;">
+                <div class="hidden-page-card" style="cursor: default;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 4px; font-weight: 600;">Output Directory</label>
+                            <input type="text" id="outputDir" value="data" style="width: 100%; padding: 8px; border: 1px solid #3f3f46; border-radius: 6px; background: #27272a; color: #fff;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 4px; font-weight: 600;">Filename</label>
+                            <input type="text" id="outputFilename" value="pwnedpasswords-ntlm.txt" style="width: 100%; padding: 8px; border: 1px solid #3f3f46; border-radius: 6px; background: #27272a; color: #fff;">
+                        </div>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <label style="display: block; margin-bottom: 4px; font-weight: 600;">Parallelism (concurrent downloads)</label>
+                        <input type="range" id="parallelism" min="1" max="100" value="20" style="width: 100%;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #71717a;">
+                            <span>1 (slow)</span>
+                            <span id="parallelismValue">20</span>
+                            <span>100 (fast)</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 24px; display: flex; gap: 12px;">
+                        <button id="startBtn" onclick="startDownload()" style="flex: 1; padding: 12px 24px; background: #2563eb; color: white; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer;">
+                            Start Download
+                        </button>
+                        <button id="cancelBtn" onclick="cancelDownload()" style="padding: 12px 24px; background: #dc2626; color: white; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; display: none;">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Section (hidden by default) -->
+        <div class="hidden-section" id="progressSection" style="display: none;">
+            <h2><span class="icon">&#9203;</span> Download Progress</h2>
+            <div class="hidden-page-grid" style="grid-template-columns: 1fr;">
+                <div class="hidden-page-card" style="cursor: default;">
+                    <div id="progressStatus" style="font-size: 1.2em; font-weight: 600; margin-bottom: 16px;">
+                        Starting...
+                    </div>
+                    <div style="background: #27272a; border-radius: 8px; height: 24px; overflow: hidden; margin-bottom: 16px;">
+                        <div id="progressBar" style="background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: center;">
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: 700;" id="progressPrefixes">0</div>
+                            <div style="font-size: 0.8em; color: #71717a;">Prefixes</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: 700;" id="progressHashes">0</div>
+                            <div style="font-size: 0.8em; color: #71717a;">Hashes</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 1.5em; font-weight: 700;" id="progressTime">-</div>
+                            <div style="font-size: 0.8em; color: #71717a;">Est. Remaining</div>
+                        </div>
+                    </div>
+                    <div id="progressErrors" style="margin-top: 16px; padding: 12px; background: #451a03; border-radius: 6px; display: none;">
+                        <strong style="color: #fbbf24;">Last Error:</strong>
+                        <span id="lastError" style="color: #fcd34d;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Completion Section (hidden by default) -->
+        <div class="hidden-section" id="completeSection" style="display: none;">
+            <h2><span class="icon">&#10004;</span> Download Complete</h2>
+            <div class="hidden-page-grid" style="grid-template-columns: 1fr;">
+                <div class="hidden-page-card" style="cursor: default; border-color: #22c55e;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 3em; color: #22c55e; margin-bottom: 16px;">&#10004;</div>
+                        <h3 id="completeTitle">Database Downloaded Successfully</h3>
+                        <p id="completeDetails" style="color: #a1a1aa;"></p>
+                    </div>
+                    <div style="margin-top: 24px; padding: 16px; background: #27272a; border-radius: 8px;">
+                        <h4 style="margin-bottom: 12px;">Next Steps</h4>
+                        <ol style="margin: 0; padding-left: 20px; color: #a1a1aa;">
+                            <li>Add the following to your <code>.env</code> file:</li>
+                            <li style="list-style: none; margin: 8px 0;">
+                                <code id="envLine" style="display: block; background: #18181b; padding: 8px 12px; border-radius: 4px; font-family: monospace;"></code>
+                            </li>
+                            <li>Restart the application to load the database</li>
+                            <li>The database will be automatically used for breach checks</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let pollInterval = null;
+
+        // Update parallelism display
+        document.getElementById('parallelism').addEventListener('input', function() {
+            document.getElementById('parallelismValue').textContent = this.value;
+        });
+
+        // Format numbers with commas
+        function formatNumber(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        // Format seconds to human readable
+        function formatTime(seconds) {
+            if (seconds <= 0) return '-';
+            if (seconds < 60) return Math.round(seconds) + 's';
+            if (seconds < 3600) return Math.round(seconds / 60) + 'm';
+            return Math.round(seconds / 3600) + 'h ' + Math.round((seconds % 3600) / 60) + 'm';
+        }
+
+        // Load initial status
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/hibp/download/info');
+                const data = await response.json();
+
+                // Update database status
+                const dbStatus = document.getElementById('dbStatus');
+                const hashCount = document.getElementById('hashCount');
+                const configuredPath = document.getElementById('configuredPath');
+
+                if (data.local_database.loaded) {
+                    dbStatus.textContent = 'Loaded';
+                    dbStatus.className = 'value status-online';
+                    hashCount.textContent = formatNumber(data.local_database.hash_count);
+                } else {
+                    dbStatus.textContent = 'Not Loaded';
+                    dbStatus.className = 'value status-offline';
+                    hashCount.textContent = '-';
+                }
+
+                configuredPath.textContent = data.configured_path || '(not configured)';
+
+                // Check if download is in progress
+                if (data.download_status.status !== 'idle') {
+                    updateProgressUI(data.download_status);
+                    if (['starting', 'downloading', 'merging'].includes(data.download_status.status)) {
+                        startPolling();
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load status:', error);
+            }
+        }
+
+        // Start download
+        async function startDownload() {
+            const outputDir = document.getElementById('outputDir').value;
+            const outputFilename = document.getElementById('outputFilename').value;
+            const parallelism = document.getElementById('parallelism').value;
+
+            try {
+                const response = await fetch('/api/hibp/download/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        output_dir: outputDir,
+                        output_filename: outputFilename,
+                        parallelism: parseInt(parallelism)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('progressSection').style.display = 'block';
+                    document.getElementById('completeSection').style.display = 'none';
+                    document.getElementById('startBtn').style.display = 'none';
+                    document.getElementById('cancelBtn').style.display = 'inline-block';
+                    startPolling();
+                } else {
+                    alert('Failed to start download: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error starting download: ' + error.message);
+            }
+        }
+
+        // Cancel download
+        async function cancelDownload() {
+            if (!confirm('Are you sure you want to cancel the download?')) return;
+
+            try {
+                const response = await fetch('/api/hibp/download/cancel', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (!data.success) {
+                    alert('Failed to cancel: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error cancelling download: ' + error.message);
+            }
+        }
+
+        // Poll for progress
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(pollProgress, 1000);
+            pollProgress();
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        async function pollProgress() {
+            try {
+                const response = await fetch('/api/hibp/download/status');
+                const data = await response.json();
+                updateProgressUI(data);
+            } catch (error) {
+                console.error('Poll error:', error);
+            }
+        }
+
+        function updateProgressUI(status) {
+            const progressSection = document.getElementById('progressSection');
+            const completeSection = document.getElementById('completeSection');
+            const startBtn = document.getElementById('startBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+
+            if (status.status === 'idle') {
+                progressSection.style.display = 'none';
+                completeSection.style.display = 'none';
+                startBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'none';
+                stopPolling();
+                return;
+            }
+
+            if (['starting', 'downloading', 'merging'].includes(status.status)) {
+                progressSection.style.display = 'block';
+                completeSection.style.display = 'none';
+                startBtn.style.display = 'none';
+                cancelBtn.style.display = 'inline-block';
+
+                // Update progress display
+                let statusText = status.status.charAt(0).toUpperCase() + status.status.slice(1);
+                if (status.status === 'downloading') {
+                    statusText = `Downloading: ${status.progress_percentage}%`;
+                } else if (status.status === 'merging') {
+                    statusText = 'Sorting and writing file...';
+                }
+                document.getElementById('progressStatus').textContent = statusText;
+                document.getElementById('progressBar').style.width = status.progress_percentage + '%';
+                document.getElementById('progressPrefixes').textContent = formatNumber(status.completed_prefixes) + ' / ' + formatNumber(status.total_prefixes);
+                document.getElementById('progressHashes').textContent = formatNumber(status.total_hashes);
+                document.getElementById('progressTime').textContent = formatTime(status.estimated_remaining_seconds);
+
+                // Show errors if any
+                if (status.last_error) {
+                    document.getElementById('progressErrors').style.display = 'block';
+                    document.getElementById('lastError').textContent = status.last_error;
+                } else {
+                    document.getElementById('progressErrors').style.display = 'none';
+                }
+            }
+
+            if (status.status === 'complete') {
+                progressSection.style.display = 'none';
+                completeSection.style.display = 'block';
+                startBtn.style.display = 'inline-block';
+                startBtn.textContent = 'Download Again';
+                cancelBtn.style.display = 'none';
+                stopPolling();
+
+                document.getElementById('completeDetails').textContent =
+                    `${formatNumber(status.total_hashes)} hashes | ${status.output_size_gb} GB | ${formatTime(status.elapsed_seconds)}`;
+                document.getElementById('envLine').textContent = `HIBP_LOCAL_DB_PATH="${status.output_path}"`;
+
+                // Refresh database status
+                loadStatus();
+            }
+
+            if (status.status === 'error') {
+                progressSection.style.display = 'none';
+                startBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'none';
+                stopPolling();
+                alert('Download failed: ' + (status.error_message || 'Unknown error'));
+            }
+
+            if (status.status === 'cancelled') {
+                progressSection.style.display = 'none';
+                startBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'none';
+                stopPolling();
+                alert('Download was cancelled');
+            }
+        }
+
+        // Load initial status on page load
+        loadStatus();
+    </script>
+</body>
+</html>
