@@ -717,9 +717,20 @@
 					let hasWarnings;
 
 					if (isAddJson) {
-						// ADD JSON format - show domain and user count
-						const domainName = data.domain_name || 'Unknown';
-						statusMessage = `${data.valid_lines} users (${domainName})`;
+						// ADD JSON format - show domain(s) and user count
+						let domainDisplay;
+						if (data.unique_domains && data.unique_domains.length > 0) {
+							if (data.unique_domains.length === 1) {
+								domainDisplay = data.unique_domains[0];
+							} else if (data.unique_domains.length <= 3) {
+								domainDisplay = data.unique_domains.join(', ');
+							} else {
+								domainDisplay = `${data.unique_domains.length} domains`;
+							}
+						} else {
+							domainDisplay = data.domain_name || 'Unknown';
+						}
+						statusMessage = `${data.valid_lines} users (${domainDisplay})`;
 						hasWarnings = data.error_lines > 0;
 						if (data.tier0_count > 0 || data.elevated_count > 0) {
 							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;
@@ -822,9 +833,20 @@
 					let hasWarnings;
 
 					if (isAddJson) {
-						// ADD JSON format - show domain and user count
-						const domainName = data.domain_name || 'Unknown';
-						statusMessage = `${data.valid_lines} users (${domainName})`;
+						// ADD JSON format - show domain(s) and user count
+						let domainDisplay;
+						if (data.unique_domains && data.unique_domains.length > 0) {
+							if (data.unique_domains.length === 1) {
+								domainDisplay = data.unique_domains[0];
+							} else if (data.unique_domains.length <= 3) {
+								domainDisplay = data.unique_domains.join(', ');
+							} else {
+								domainDisplay = `${data.unique_domains.length} domains`;
+							}
+						} else {
+							domainDisplay = data.domain_name || 'Unknown';
+						}
+						statusMessage = `${data.valid_lines} users (${domainDisplay})`;
 						hasWarnings = data.error_lines > 0;
 						if (data.tier0_count > 0 || data.elevated_count > 0) {
 							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;

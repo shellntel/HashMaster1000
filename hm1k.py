@@ -1240,6 +1240,7 @@ def validate_single_file() -> Response:
                     "status_coverage": 0,
                     "lines_with_status": 0,
                     "domain_name": add_result.domain_policy.domain_name if add_result.domain_policy else "Unknown",
+                    "unique_domains": add_result.unique_domains,
                     "tier0_count": add_result.tier0_count,
                     "elevated_count": add_result.elevated_count,
                     "privileged_count": add_result.privileged_count,
@@ -2147,14 +2148,38 @@ def hibp_check_hashes() -> Response:
     if not account_list:
         return jsonify({"error": "No valid NTLM hashes found in account data"}), 400
 
+    # Calculate unique prefixes for progress estimation (API mode)
+    unique_prefixes = len(set(acct["ntlm_hash"][:5].upper() for acct in account_list if acct.get("ntlm_hash") and len(acct["ntlm_hash"]) >= 5))
+
+    # Progress file path for polling
+    progress_path = os.path.join(session_dir, "hibp_progress.json")
+
+    def save_progress(checked: int, total: int, found: int = 0):
+        """Save progress to file for frontend polling."""
+        try:
+            progress_data = {
+                "checked": checked,
+                "total": total,
+                "found": found,
+                "percentage": round((checked / total) * 100, 1) if total > 0 else 0,
+                "status": "running"
+            }
+            with open(progress_path, "w") as f:
+                json.dump(progress_data, f)
+        except Exception:
+            pass  # Don't fail the check if progress save fails
+
+    # Initialize progress
+    save_progress(0, unique_prefixes if method == "api" else len(account_list))
+
     # Run the HIBP check using the selected method
     try:
         if method == "local":
-            results = check_hashes_local(account_list)
+            results = check_hashes_local(account_list, progress_callback=lambda c, t: save_progress(c, t))
             data_source = "local"
             data_source_info = f"Local database ({local_db_status['hash_count']:,} hashes)"
         else:
-            results = check_hashes_hibp(account_list)
+            results = check_hashes_hibp(account_list, progress_callback=lambda c, t: save_progress(c, t))
             data_source = "api"
             data_source_info = "Have I Been Pwned API"
 
@@ -2177,11 +2202,43 @@ def hibp_check_hashes() -> Response:
         with open(hibp_results_path, "w") as f:
             json.dump(results_dict, f, indent=2)
 
+        # Clean up progress file
+        try:
+            if os.path.exists(progress_path):
+                os.remove(progress_path)
+        except Exception:
+            pass
+
         return jsonify(results_dict)
 
     except Exception as e:
         logging.error(f"HIBP check failed: {e}")
+        # Clean up progress file on error
+        try:
+            if os.path.exists(progress_path):
+                os.remove(progress_path)
+        except Exception:
+            pass
         return jsonify({"error": f"HIBP check failed: {str(e)}"}), 500
+
+
+@app.route("/api/hibp/progress")
+@login_required
+def hibp_progress() -> Response:
+    """Get current HIBP check progress for polling."""
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    progress_path = os.path.join(session_dir, "hibp_progress.json")
+
+    if not os.path.exists(progress_path):
+        return jsonify({"status": "idle"})
+
+    try:
+        with open(progress_path, "r") as f:
+            progress = json.load(f)
+        return jsonify(progress)
+    except Exception:
+        return jsonify({"status": "idle"})
 
 
 @app.route("/hibp_results.json")
@@ -2363,6 +2420,7 @@ def validate_single_local_file() -> Response:
                     "status_coverage": 0,
                     "lines_with_status": 0,
                     "domain_name": add_result.domain_policy.domain_name if add_result.domain_policy else "Unknown",
+                    "unique_domains": add_result.unique_domains,
                     "tier0_count": add_result.tier0_count,
                     "elevated_count": add_result.elevated_count,
                     "privileged_count": add_result.privileged_count,
