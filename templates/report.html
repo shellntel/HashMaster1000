@@ -1824,9 +1824,9 @@
 
 				// Show loading placeholder for tables until user expands
 				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
-				if (allBreachedBody && summary.result_count > 0) {
+				if (allBreachedBody && summary.total_found > 0) {
 					allBreachedBody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 20px;">
-						<button class="btn-secondary" onclick="loadFullHIBPResults()">Load ${summary.result_count.toLocaleString()} Account Details</button>
+						<button class="btn btn-primary" onclick="loadFullHIBPResults()">Load ${summary.total_found.toLocaleString()} Breached Account Details</button>
 					</td></tr>`;
 				}
 			}
@@ -1873,8 +1873,8 @@
 							url: '/api/hibp/results/paginated?filter=breached',
 							type: 'GET'
 						},
-						pageLength: 10,
-						lengthMenu: [10, 25, 50, 100],
+						pageLength: 100,
+						lengthMenu: [25, 50, 100, 250],
 						order: [[3, 'desc']],  // Times Seen in Breaches column
 						language: {
 							search: "Filter:",
