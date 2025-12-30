@@ -174,7 +174,7 @@ def is_safe_redirect_url(target: str) -> bool:
 
 
 class User(UserMixin):
-    def __init__(self, username: str, password_hash: Optional[str] = None):
+    def __init__(self, username: str, password_hash: str | None = None):
         self.username = username
         self.password_hash = password_hash
 
@@ -224,13 +224,13 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # Custom Jinja filter for basename
 @app.template_filter('basename')
-def basename_filter(path: Optional[str]) -> str:
+def basename_filter(path: str | None) -> str:
     """Jinja filter to get basename of a path."""
     return os.path.basename(path) if path else ''
 
 # Custom Jinja test for checking if username ends with $ (computer account)
 @app.template_test('computer_account')
-def is_computer_account(username: Optional[str]) -> bool:
+def is_computer_account(username: str | None) -> bool:
     """Jinja test to check if a username is a computer account (ends with $)."""
     return bool(username and username.endswith('$'))
 
@@ -273,7 +273,7 @@ login_manager.login_message = (
 
 
 @login_manager.user_loader
-def load_user(user_id: str) -> Optional[User]:
+def load_user(user_id: str) -> User | None:
     # Return the admin user if the ID matches
     if user_id == ADMIN_USERNAME:
         return User(username=ADMIN_USERNAME)
@@ -2433,7 +2433,7 @@ def hibp_download_cancel() -> Response:
         }), 400
 
 
-def run_automatic_hibp_check(account_data: dict, session_dir: str) -> Optional[dict]:
+def run_automatic_hibp_check(account_data: dict, session_dir: str) -> dict | None:
     """
     Run HIBP check automatically during analysis pipeline if local database is available.
 
@@ -3680,7 +3680,7 @@ def ai_pipeline_stream() -> Response:
         all_phase1_results = {}
         all_phase2_results = {}
 
-        def load_latest_phase1_file(section_id: str) -> Optional[str]:
+        def load_latest_phase1_file(section_id: str) -> str | None:
             """Load the most recent Phase 1 debug file for a section."""
             import glob
             ai_analysis_dir = _get_ai_analysis_dir()
