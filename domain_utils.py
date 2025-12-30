@@ -9,7 +9,6 @@ This module handles:
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Set, Tuple
 
 
 # Placeholder domain name for accounts without an explicit domain
@@ -19,7 +18,7 @@ NO_DOMAIN = "(No Domain)"
 @dataclass
 class DomainInfo:
     """Information about domains found in the dataset."""
-    domains: Dict[str, int] = field(default_factory=dict)  # domain -> account count
+    domains: dict[str, int] = field(default_factory=dict)  # domain -> account count
     total_accounts: int = 0
     accounts_with_domain: int = 0
     accounts_without_domain: int = 0
@@ -35,7 +34,7 @@ class DomainInfo:
         return self.domain_count > 1
 
     @property
-    def all_domains(self) -> List[str]:
+    def all_domains(self) -> list[str]:
         """Get list of all domains sorted by count (descending), with NO_DOMAIN last."""
         sorted_domains = sorted(
             self.domains.items(),
@@ -65,7 +64,7 @@ class DomainInfo:
         return info
 
 
-def extract_domain_from_username(username: str) -> Tuple[Optional[str], str]:
+def extract_domain_from_username(username: str) -> tuple[str | None, str]:
     """
     Extract domain name from a username in DOMAIN\\user or DOMAIN/user format.
 
@@ -100,7 +99,7 @@ def extract_domain_from_username(username: str) -> Tuple[Optional[str], str]:
     return None, username
 
 
-def extract_domain_from_dn(distinguished_name: str) -> Optional[str]:
+def extract_domain_from_dn(distinguished_name: str) -> str | None:
     """
     Extract domain name from an Active Directory Distinguished Name.
 
@@ -127,7 +126,7 @@ def extract_domain_from_dn(distinguished_name: str) -> Optional[str]:
     return None
 
 
-def analyze_domains(usernames: List[str]) -> DomainInfo:
+def analyze_domains(usernames: list[str]) -> DomainInfo:
     """
     Analyze a list of usernames and extract domain information.
 
@@ -154,9 +153,9 @@ def analyze_domains(usernames: List[str]) -> DomainInfo:
 
 
 def filter_accounts_by_domain(
-    account_data: Dict[str, dict],
-    selected_domain: Optional[str]
-) -> Dict[str, dict]:
+    account_data: dict[str, dict],
+    selected_domain: str | None
+) -> dict[str, dict]:
     """
     Filter account data to only include accounts from the selected domain.
 
@@ -199,9 +198,9 @@ def get_username_without_domain(username: str) -> str:
 
 
 def detect_cross_domain_password_reuse(
-    account_data: Dict[str, dict],
+    account_data: dict[str, dict],
     domain_info: DomainInfo
-) -> List[dict]:
+) -> list[dict]:
     """
     Detect passwords that are reused across different domains.
 
@@ -219,7 +218,7 @@ def detect_cross_domain_password_reuse(
         return []
 
     # Group accounts by cracked password hash
-    password_to_accounts: Dict[str, List[Tuple[str, str]]] = {}  # ntlm_hash -> [(username, domain), ...]
+    password_to_accounts: dict[str, list[tuple[str, str]]] = {}  # ntlm_hash -> [(username, domain), ...]
 
     for username, data in account_data.items():
         ntlm_hash = data.get("ntlm_hash", "").lower()

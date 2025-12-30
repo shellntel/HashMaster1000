@@ -16,7 +16,7 @@ import os
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from file_parser import PotfileValidationResult, PotfileEntry
@@ -29,7 +29,7 @@ class CachedPotfile:
     """Cached representation of a potfile for fast lookups."""
     filepath: str
     mtime: float  # File modification time when cache was built
-    hash_to_password: Dict[str, str] = field(default_factory=dict)  # hash (uppercase) -> password
+    hash_to_password: dict[str, str] = field(default_factory=dict)  # hash (uppercase) -> password
     total_entries: int = 0
     ntlm_count: int = 0
 
@@ -43,7 +43,7 @@ class PotfileCache:
     """
 
     def __init__(self):
-        self._cache: Optional[CachedPotfile] = None
+        self._cache: CachedPotfile | None = None
         self._lock = threading.RLock()
 
     def _is_cache_valid(self, filepath: str) -> bool:
@@ -77,7 +77,7 @@ class PotfileCache:
 
             logger.info(f"Loading potfile into cache: {filepath}")
 
-            hash_to_password: Dict[str, str] = {}
+            hash_to_password: dict[str, str] = {}
             ntlm_count = 0
             total_entries = 0
 
@@ -119,7 +119,7 @@ class PotfileCache:
             logger.info(f"Potfile cache loaded: {ntlm_count} NTLM hashes")
             return self._cache
 
-    def get_cracked_hashes(self, filepath: str) -> Dict[str, str]:
+    def get_cracked_hashes(self, filepath: str) -> dict[str, str]:
         """
         Get the hash→password dictionary for fast lookups.
 
@@ -132,7 +132,7 @@ class PotfileCache:
         cache = self.load(filepath)
         return cache.hash_to_password
 
-    def get_hash_set(self, filepath: str) -> Set[str]:
+    def get_hash_set(self, filepath: str) -> set[str]:
         """
         Get set of all hashes (for deduplication checks).
 
@@ -149,7 +149,7 @@ class PotfileCache:
         self,
         filepath: str,
         new_entries: list,  # List of objects with ntlm_hash and password attributes
-    ) -> Tuple[int, int, int]:
+    ) -> tuple[int, int, int]:
         """
         Merge new entries into the potfile and update cache incrementally.
 
@@ -192,7 +192,7 @@ class PotfileCache:
 
             entries_added = 0
             entries_skipped = 0
-            new_hashes: Dict[str, str] = {}
+            new_hashes: dict[str, str] = {}
 
             # Check which entries are new (use lowercase for consistency)
             for entry in ntlm_entries:
@@ -236,7 +236,7 @@ class PotfileCache:
             self._cache = None
             logger.debug("Potfile cache invalidated")
 
-    def get_stats(self) -> Optional[Dict]:
+    def get_stats(self) -> dict | None:
         """Get cache statistics."""
         with self._lock:
             if self._cache is None:
@@ -268,7 +268,7 @@ class PotfileCache:
         cache = self.load(filepath)
 
         # Create lightweight PotfileEntry objects from cache
-        entries: List["PotfileEntry"] = []
+        entries: list["PotfileEntry"] = []
         for idx, (hash_val, password) in enumerate(cache.hash_to_password.items(), start=1):
             entry = PotfileEntry(
                 line_number=idx,
@@ -306,8 +306,8 @@ class PotfileCache:
     def to_filtered_validation_result(
         self,
         filepath: str,
-        matching_hashes: Set[str],
-        additional_entries: Optional[List["PotfileEntry"]] = None
+        matching_hashes: set[str],
+        additional_entries: list["PotfileEntry"] | None = None
     ) -> "PotfileValidationResult":
         """
         Create a filtered PotfileValidationResult containing only matching hashes.
@@ -329,7 +329,7 @@ class PotfileCache:
         cache = self.load(filepath)
 
         # Create entries only for matching hashes
-        entries: List["PotfileEntry"] = []
+        entries: list["PotfileEntry"] = []
         matched_count = 0
 
         for hash_val, password in cache.hash_to_password.items():
@@ -388,8 +388,8 @@ def get_master_cache() -> PotfileCache:
 
 def build_cracked_hashes_fast(
     potfile_result: "PotfileValidationResult",
-    master_potfile_path: Optional[str] = None
-) -> Dict[str, str]:
+    master_potfile_path: str | None = None
+) -> dict[str, str]:
     """
     Build a hash→password lookup dict efficiently.
 
@@ -423,14 +423,14 @@ def build_cracked_hashes_fast(
 
     # Fall back to iteration for non-master potfiles
     # Note: preserve original hash case to match how lookups work in file_parser
-    cracked_hashes: Dict[str, str] = {BLANK_NTLM_HASH: ""}
+    cracked_hashes: dict[str, str] = {BLANK_NTLM_HASH: ""}
     for entry in potfile_result.entries:
         if entry.included and entry.is_valid and entry.ntlm_hash:
             cracked_hashes[entry.ntlm_hash] = entry.password or ""
     return cracked_hashes
 
 
-def get_cracked_hashes_direct(master_potfile_path: str) -> Optional[Dict[str, str]]:
+def get_cracked_hashes_direct(master_potfile_path: str) -> dict[str, str] | None:
     """
     Get cracked hashes dict directly from cache without copying.
 

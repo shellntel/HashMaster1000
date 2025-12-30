@@ -18,7 +18,7 @@ import hashlib
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -35,7 +35,7 @@ class SessionMetadata:
     project_description: str = ""  # Required for trend analysis - e.g., "Q4 2024 Annual Pentest"
 
     # Source file information
-    source_files: Dict[str, str] = field(default_factory=dict)  # {pwdump: filename, potfile: filename}
+    source_files: dict[str, str] = field(default_factory=dict)  # {pwdump: filename, potfile: filename}
     source_hash: str = ""  # Hash of source data for staleness detection
 
     # Statistics snapshot
@@ -50,11 +50,11 @@ class SessionMetadata:
     # Optional notes
     notes: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SessionMetadata':
+    def from_dict(cls, data: dict[str, Any]) -> 'SessionMetadata':
         """
         Create SessionMetadata from a dictionary, handling backward compatibility.
 
@@ -132,9 +132,9 @@ class SessionManager:
         """Generate a unique session ID."""
         return uuid.uuid4().hex[:12]
 
-    def compute_source_hash(self, pwdump_path: Optional[str] = None,
-                           potfile_path: Optional[str] = None,
-                           account_data: Optional[List[Dict]] = None) -> str:
+    def compute_source_hash(self, pwdump_path: str | None = None,
+                           potfile_path: str | None = None,
+                           account_data: list[dict] | None = None) -> str:
         """
         Compute a hash of the source data to detect staleness.
 
@@ -171,7 +171,7 @@ class SessionManager:
         return hasher.hexdigest()[:16]
 
     def create_session(self, name: str, username: str,
-                      source_files: Optional[Dict[str, str]] = None,
+                      source_files: dict[str, str] | None = None,
                       source_hash: str = "",
                       company_name: str = "",
                       project_description: str = "") -> SessionMetadata:
@@ -222,7 +222,7 @@ class SessionManager:
 
         return metadata
 
-    def get_session(self, session_id: str) -> Optional[SessionMetadata]:
+    def get_session(self, session_id: str) -> SessionMetadata | None:
         """Get metadata for a specific session."""
         meta_path = os.path.join(self.SESSIONS_DIR, session_id, "session_meta.json")
         if not os.path.exists(meta_path):
@@ -233,7 +233,7 @@ class SessionManager:
 
         return SessionMetadata.from_dict(data)
 
-    def list_sessions(self, username: Optional[str] = None) -> List[SessionMetadata]:
+    def list_sessions(self, username: str | None = None) -> list[SessionMetadata]:
         """
         List all sessions, optionally filtered by username.
 
@@ -258,7 +258,7 @@ class SessionManager:
         sessions.sort(key=lambda s: s.updated_at, reverse=True)
         return sessions
 
-    def list_companies(self, username: Optional[str] = None) -> List[str]:
+    def list_companies(self, username: str | None = None) -> list[str]:
         """
         Get a list of distinct company names from all sessions.
 
@@ -276,7 +276,7 @@ class SessionManager:
         return sorted(companies)
 
     def list_sessions_by_company(self, company_name: str,
-                                  username: Optional[str] = None) -> List[SessionMetadata]:
+                                  username: str | None = None) -> list[SessionMetadata]:
         """
         Get all sessions for a specific company.
 
@@ -294,7 +294,7 @@ class SessionManager:
         return company_sessions
 
     def get_sessions_grouped_by_company(self,
-                                        username: Optional[str] = None) -> Dict[str, List[SessionMetadata]]:
+                                        username: str | None = None) -> dict[str, list[SessionMetadata]]:
         """
         Get all sessions grouped by company name.
 
@@ -305,7 +305,7 @@ class SessionManager:
             Dict mapping company_name -> list of sessions (sorted by date)
         """
         sessions = self.list_sessions(username=username)
-        grouped: Dict[str, List[SessionMetadata]] = {}
+        grouped: dict[str, list[SessionMetadata]] = {}
 
         for session in sessions:
             company = session.company_name or "Unknown"
@@ -320,7 +320,7 @@ class SessionManager:
         return grouped
 
     def get_company_suggestions(self, partial: str = "",
-                                 username: Optional[str] = None) -> List[str]:
+                                 username: str | None = None) -> list[str]:
         """
         Get company name suggestions for autocomplete.
 
@@ -338,7 +338,7 @@ class SessionManager:
         partial_lower = partial.lower()
         return [c for c in companies if partial_lower in c.lower()]
 
-    def update_session(self, session_id: str, **updates) -> Optional[SessionMetadata]:
+    def update_session(self, session_id: str, **updates) -> SessionMetadata | None:
         """
         Update session metadata.
 
@@ -378,7 +378,7 @@ class SessionManager:
         shutil.rmtree(session_dir)
         return True
 
-    def get_current_session(self) -> Optional[Dict[str, str]]:
+    def get_current_session(self) -> dict[str, str] | None:
         """
         Get the current active session info.
 
@@ -413,7 +413,7 @@ class SessionManager:
         if os.path.exists(self.CURRENT_SESSION_FILE):
             os.remove(self.CURRENT_SESSION_FILE)
 
-    def get_session_data_path(self, filename: str, session_id: Optional[str] = None) -> str:
+    def get_session_data_path(self, filename: str, session_id: str | None = None) -> str:
         """
         Get the path to a data file, either in the current session or specified session.
 
@@ -437,7 +437,7 @@ class SessionManager:
             # Legacy fallback - read from base data/ folder
             return os.path.join(self.BASE_DIR, filename)
 
-    def get_session_dir(self, session_id: Optional[str] = None) -> str:
+    def get_session_dir(self, session_id: str | None = None) -> str:
         """
         Get the directory path for a session.
 
@@ -457,7 +457,7 @@ class SessionManager:
             return self.BASE_DIR
 
     def save_session_data(self, filename: str, data: Any,
-                         session_id: Optional[str] = None) -> str:
+                         session_id: str | None = None) -> str:
         """
         Save data to a session file.
 
@@ -480,7 +480,7 @@ class SessionManager:
         return path
 
     def load_session_data(self, filename: str,
-                         session_id: Optional[str] = None) -> Optional[Any]:
+                         session_id: str | None = None) -> Any | None:
         """
         Load data from a session file.
 
@@ -533,7 +533,7 @@ class SessionManager:
 
         return True
 
-    def check_aaia_staleness(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def check_aaia_staleness(self, session_id: str | None = None) -> dict[str, Any]:
         """
         Check if AAIA results are stale (source data has changed).
 
@@ -588,7 +588,7 @@ class SessionManager:
 
         return result
 
-    def update_session_stats(self, session_id: str) -> Optional[SessionMetadata]:
+    def update_session_stats(self, session_id: str) -> SessionMetadata | None:
         """
         Update session statistics from cracking_stats_table.json.
 
@@ -605,7 +605,7 @@ class SessionManager:
             crack_rate=stats.get("crack_rate", 0.0)
         )
 
-    def mark_aaia_generated(self, session_id: str) -> Optional[SessionMetadata]:
+    def mark_aaia_generated(self, session_id: str) -> SessionMetadata | None:
         """Mark that AAIA has been generated for this session."""
         return self.update_session(
             session_id,
@@ -623,7 +623,7 @@ class SessionManager:
 
 
 # Singleton instance
-_session_manager: Optional[SessionManager] = None
+_session_manager: SessionManager | None = None
 
 
 def get_session_manager() -> SessionManager:
