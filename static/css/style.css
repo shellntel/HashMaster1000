@@ -9521,3 +9521,82 @@ body#reportPage.dark-theme ::-webkit-scrollbar-thumb:hover {
     border-bottom: 2px solid #00d4ff;
     border-right: 2px solid #00d4ff;
 }
+
+/* ============================================
+   Matrix Mode Easter Egg
+   ============================================ */
+
+/* Matrix rain canvas - sits behind everything */
+#matrixCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+body.matrix-mode #matrixCanvas {
+    opacity: 1;
+}
+
+/* Hidden trigger - a subtle '0' that blends in */
+.matrix-trigger {
+    position: fixed;
+    bottom: 8px;
+    right: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: #0a3d0a;
+    cursor: default;
+    user-select: none;
+    opacity: 0.3;
+    transition: opacity 0.3s, color 0.3s, text-shadow 0.3s;
+    z-index: 1000;
+}
+
+.matrix-trigger:hover {
+    opacity: 0.8;
+    color: #00ff00;
+    text-shadow: 0 0 5px #00ff00;
+}
+
+/* Matrix mode active indicator */
+body.matrix-mode .matrix-trigger {
+    color: #00ff00;
+    opacity: 1;
+    text-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00;
+    animation: matrixPulse 2s ease-in-out infinite;
+}
+
+@keyframes matrixPulse {
+    0%, 100% { text-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00; }
+    50% { text-shadow: 0 0 20px #00ff00, 0 0 40px #00ff00, 0 0 60px #00ff00; }
+}
+
+/* Toast notification for Matrix Mode toggle */
+.matrix-toast {
+    position: fixed;
+    bottom: 40px;
+    right: 20px;
+    background: rgba(0, 20, 0, 0.9);
+    border: 1px solid #00ff00;
+    color: #00ff00;
+    padding: 12px 20px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    z-index: 10000;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s, transform 0.3s;
+    box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+}
+
+.matrix-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
