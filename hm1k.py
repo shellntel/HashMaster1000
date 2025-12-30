@@ -2137,7 +2137,8 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
             json.dump(results_dict, f, indent=2)
 
         # Mark progress as complete
-        save_progress(total_items, total_items, results_dict.get("total_found", 0), "complete")
+        total_checked = results_dict.get("total_checked", estimated_prefixes)
+        save_progress(total_checked, total_checked, results_dict.get("total_found", 0), "complete")
 
         logging.info(f"HIBP background check complete: {results_dict.get('total_found', 0)}/{results_dict.get('total_checked', 0)} found")
 
