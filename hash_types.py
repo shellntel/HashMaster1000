@@ -9,7 +9,6 @@ Note: The password for all example hashes is "hashcat" unless otherwise noted.
 
 import re
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
 
 
 @dataclass
@@ -19,13 +18,13 @@ class HashType:
     name: str                    # Human-readable name
     example: str                 # Example hash
     pattern: str                 # Regex pattern to match this hash type
-    length: Optional[int] = None # Fixed length if applicable
-    prefix: Optional[str] = None # Common prefix if applicable
+    length: int | None = None # Fixed length if applicable
+    prefix: str | None = None # Common prefix if applicable
     category: str = "Other"      # Category grouping
 
 
 # Hash type definitions organized by category
-HASH_TYPES: List[HashType] = [
+HASH_TYPES: list[HashType] = [
     # ===========================================
     # Raw/Unsalted Hashes
     # ===========================================
@@ -835,7 +834,7 @@ HASH_TYPES: List[HashType] = [
 ]
 
 
-def identify_hash_type(hash_string: str) -> List[HashType]:
+def identify_hash_type(hash_string: str) -> list[HashType]:
     """
     Identify possible hash types for a given hash string.
 
@@ -863,7 +862,7 @@ def identify_hash_type(hash_string: str) -> List[HashType]:
     return matches
 
 
-def get_most_likely_type(hash_string: str) -> Optional[HashType]:
+def get_most_likely_type(hash_string: str) -> HashType | None:
     """
     Get the most likely hash type for a given hash.
 
@@ -901,7 +900,7 @@ def get_most_likely_type(hash_string: str) -> Optional[HashType]:
     return matches[0]
 
 
-def categorize_potfile_hashes(entries: List[Tuple[str, str]]) -> dict:
+def categorize_potfile_hashes(entries: list[tuple[str, str]]) -> dict:
     """
     Categorize hashes from a potfile by their type.
 

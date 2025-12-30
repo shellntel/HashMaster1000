@@ -18,7 +18,7 @@ Detection Capabilities:
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from difflib import SequenceMatcher
 from collections import Counter
 
@@ -60,7 +60,7 @@ for letter, replacements in LEET_SPEAK_MAP.items():
 class PasswordHistoryEntry:
     """Represents a single password in a user's history."""
     hash: str
-    password: Optional[str] = None  # None if not cracked
+    password: str | None = None  # None if not cracked
     position: int = 0  # 0 = current, 1 = most recent history, etc.
 
 
@@ -70,8 +70,8 @@ class PatternMatch:
     pattern_type: str  # e.g., "incrementing_number", "season_rotation"
     description: str
     confidence: float  # 0.0 to 1.0
-    examples: List[str] = field(default_factory=list)
-    passwords_involved: List[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
+    passwords_involved: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,16 +80,16 @@ class UserHistoryAnalysis:
     username: str
     total_historical: int
     cracked_historical: int
-    current_password: Optional[str]
+    current_password: str | None
     current_cracked: bool
-    historical_passwords: List[str]  # Cracked passwords in order (oldest to newest)
-    historical_hashes: List[str] = field(default_factory=list)  # All hashes for hash-based detection
+    historical_passwords: list[str]  # Cracked passwords in order (oldest to newest)
+    historical_hashes: list[str] = field(default_factory=list)  # All hashes for hash-based detection
     # Full history entries with both hash and password for display
-    full_history: List[Dict[str, Any]] = field(default_factory=list)
-    patterns_detected: List[PatternMatch] = field(default_factory=list)
+    full_history: list[dict[str, Any]] = field(default_factory=list)
+    patterns_detected: list[PatternMatch] = field(default_factory=list)
     predictability_score: float = 0.0  # 0.0 = unpredictable, 1.0 = highly predictable
     password_reuse_detected: bool = False
-    reused_passwords: List[str] = field(default_factory=list)
+    reused_passwords: list[str] = field(default_factory=list)
     # Hash reuse detection (works even without cracked passwords)
     hash_reuse_detected: bool = False
     hash_reuse_count: int = 0  # Number of extra occurrences (if hash appears 3x, count is 2)
@@ -106,14 +106,14 @@ class HistoryAnalysisResult:
     users_with_patterns: int = 0
 
     # Pattern statistics
-    pattern_counts: Dict[str, int] = field(default_factory=dict)
+    pattern_counts: dict[str, int] = field(default_factory=dict)
 
     # User-level findings
-    user_analyses: List[UserHistoryAnalysis] = field(default_factory=list)
+    user_analyses: list[UserHistoryAnalysis] = field(default_factory=list)
 
     # Top findings for summary
-    top_predictable_users: List[UserHistoryAnalysis] = field(default_factory=list)
-    pattern_examples: Dict[str, List[Dict]] = field(default_factory=dict)
+    top_predictable_users: list[UserHistoryAnalysis] = field(default_factory=list)
+    pattern_examples: dict[str, list[dict]] = field(default_factory=dict)
 
     # Hash reuse stats (detected by hash, works without cracking)
     users_with_hash_reuse: int = 0
@@ -121,9 +121,9 @@ class HistoryAnalysisResult:
 
 
 def extract_pwdump_history(
-    pwdump_lines: List[Dict[str, Any]],
-    cracked_hashes: Dict[str, str]
-) -> Dict[str, List[PasswordHistoryEntry]]:
+    pwdump_lines: list[dict[str, Any]],
+    cracked_hashes: dict[str, str]
+) -> dict[str, list[PasswordHistoryEntry]]:
     """
     Extract password history from pwdump format with _history suffixes.
 
@@ -140,8 +140,8 @@ def extract_pwdump_history(
     history_pattern = re.compile(r'^(.+)_history(\d+)$', re.IGNORECASE)
 
     # Group entries by base username
-    base_users: Dict[str, Dict[str, Any]] = {}  # username -> {hash, rid, etc.}
-    history_entries: Dict[str, List[Tuple[int, str]]] = {}  # username -> [(position, hash)]
+    base_users: dict[str, dict[str, Any]] = {}  # username -> {hash, rid, etc.}
+    history_entries: dict[str, list[tuple[int, str]]] = {}  # username -> [(position, hash)]
 
     for line in pwdump_lines:
         if not line.get('is_valid', True) or not line.get('included', True):
@@ -170,7 +170,7 @@ def extract_pwdump_history(
             }
 
     # Build history for each user
-    result: Dict[str, List[PasswordHistoryEntry]] = {}
+    result: dict[str, list[PasswordHistoryEntry]] = {}
 
     for username, user_data in base_users.items():
         entries = []
@@ -203,9 +203,9 @@ def extract_pwdump_history(
 
 
 def extract_add_history(
-    add_entries: List[Dict[str, Any]],
-    cracked_hashes: Dict[str, str]
-) -> Dict[str, List[PasswordHistoryEntry]]:
+    add_entries: list[dict[str, Any]],
+    cracked_hashes: dict[str, str]
+) -> dict[str, list[PasswordHistoryEntry]]:
     """
     Extract password history from ADD JSON format with HistoricalNTHashes.
 
@@ -216,7 +216,7 @@ def extract_add_history(
     Returns:
         Dict mapping username to list of PasswordHistoryEntry objects
     """
-    result: Dict[str, List[PasswordHistoryEntry]] = {}
+    result: dict[str, list[PasswordHistoryEntry]] = {}
 
     for entry in add_entries:
         if not entry.get('included', True) or not entry.get('is_valid', True):
@@ -257,7 +257,7 @@ def extract_add_history(
     return result
 
 
-def detect_incrementing_number(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_incrementing_number(passwords: list[str]) -> PatternMatch | None:
     """
     Detect incrementing number suffix pattern.
     e.g., Password1 → Password2 → Password3
@@ -319,7 +319,7 @@ def detect_incrementing_number(passwords: List[str]) -> Optional[PatternMatch]:
     return None
 
 
-def detect_season_rotation(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_season_rotation(passwords: list[str]) -> PatternMatch | None:
     """
     Detect season/month rotation patterns.
     e.g., Summer2023 → Fall2023 → Winter2024
@@ -358,7 +358,7 @@ def detect_season_rotation(passwords: List[str]) -> Optional[PatternMatch]:
     return None
 
 
-def detect_special_char_rotation(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_special_char_rotation(passwords: list[str]) -> PatternMatch | None:
     """
     Detect special character rotation.
     e.g., Welcome1! → Welcome1@ → Welcome1#
@@ -406,7 +406,7 @@ def detect_special_char_rotation(passwords: List[str]) -> Optional[PatternMatch]
     return None
 
 
-def detect_year_increment(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_year_increment(passwords: list[str]) -> PatternMatch | None:
     """
     Detect year increment patterns.
     e.g., Company2022 → Company2023 → Company2024
@@ -459,7 +459,7 @@ def detect_year_increment(passwords: List[str]) -> Optional[PatternMatch]:
     return None
 
 
-def detect_base_word_persistence(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_base_word_persistence(passwords: list[str]) -> PatternMatch | None:
     """
     Detect when the same base word persists across password changes.
     Uses string similarity to find common roots.
@@ -511,7 +511,7 @@ def detect_base_word_persistence(passwords: List[str]) -> Optional[PatternMatch]
     return None
 
 
-def detect_leet_progression(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_leet_progression(passwords: list[str]) -> PatternMatch | None:
     """
     Detect leet-speak progression.
     e.g., Password → P4ssword → P4ssw0rd
@@ -563,7 +563,7 @@ def detect_leet_progression(passwords: List[str]) -> Optional[PatternMatch]:
     return None
 
 
-def detect_minimal_changes(passwords: List[str]) -> Optional[PatternMatch]:
+def detect_minimal_changes(passwords: list[str]) -> PatternMatch | None:
     """
     Detect minimal character changes between passwords.
     e.g., Sunshine1 → Sunsh1ne1 → Sunsh!ne1
@@ -600,7 +600,7 @@ def detect_minimal_changes(passwords: List[str]) -> Optional[PatternMatch]:
     return None
 
 
-def detect_password_reversion(passwords: List[str]) -> List[str]:
+def detect_password_reversion(passwords: list[str]) -> list[str]:
     """
     Detect if a user returned to a previously used password.
 
@@ -618,9 +618,9 @@ def detect_password_reversion(passwords: List[str]) -> List[str]:
 
 
 def detect_hash_reuse_patterns(
-    all_hashes: List[str],
-    hash_to_password: Dict[str, Optional[str]] = None
-) -> Tuple[List[PatternMatch], Dict[str, List[int]], int, int]:
+    all_hashes: list[str],
+    hash_to_password: dict[str, str | None] | None = None
+) -> tuple[list[PatternMatch], dict[str, list[int]], int, int]:
     """
     Detect hash reuse patterns and convert them to PatternMatch objects.
 
@@ -637,7 +637,7 @@ def detect_hash_reuse_patterns(
     hash_counts = Counter(all_hashes)
 
     # Track which positions each hash appears at
-    hash_positions: Dict[str, List[int]] = {}
+    hash_positions: dict[str, list[int]] = {}
     for idx, h in enumerate(all_hashes):
         if h not in hash_positions:
             hash_positions[h] = []
@@ -722,8 +722,8 @@ def detect_hash_reuse_patterns(
 
 
 def calculate_predictability_score(
-    patterns: List[PatternMatch],
-    reused: List[str],
+    patterns: list[PatternMatch],
+    reused: list[str],
     total_history_count: int = 0,
     max_consecutive_streak: int = 0,
     distinct_reused_hashes: int = 0
@@ -795,7 +795,7 @@ def calculate_predictability_score(
 
 def analyze_user_history(
     username: str,
-    history: List[PasswordHistoryEntry]
+    history: list[PasswordHistoryEntry]
 ) -> UserHistoryAnalysis:
     """
     Analyze a single user's password history for patterns.
@@ -913,9 +913,9 @@ def analyze_user_history(
 
 
 def analyze_password_history(
-    pwdump_data: Optional[List[Dict[str, Any]]] = None,
-    add_data: Optional[List[Dict[str, Any]]] = None,
-    cracked_hashes: Dict[str, str] = None
+    pwdump_data: list[dict[str, Any]] | None = None,
+    add_data: list[dict[str, Any]] | None = None,
+    cracked_hashes: dict[str, str] | None = None
 ) -> HistoryAnalysisResult:
     """
     Perform comprehensive password history analysis.
@@ -934,7 +934,7 @@ def analyze_password_history(
     result = HistoryAnalysisResult()
 
     # Extract history from both sources
-    all_history: Dict[str, List[PasswordHistoryEntry]] = {}
+    all_history: dict[str, list[PasswordHistoryEntry]] = {}
 
     if pwdump_data:
         pwdump_history = extract_pwdump_history(pwdump_data, cracked_hashes)
@@ -995,7 +995,7 @@ def analyze_password_history(
 
 
 
-def history_analysis_to_dict(result: HistoryAnalysisResult) -> Dict[str, Any]:
+def history_analysis_to_dict(result: HistoryAnalysisResult) -> dict[str, Any]:
     """
     Convert HistoryAnalysisResult to a JSON-serializable dictionary.
     """

@@ -2,17 +2,17 @@
 Substring Analysis Function
 Extracted from password_analysis_tools.py for review
 """
-from typing import List, Dict, Any
+from typing import Any
 
 
 def substring_analysis(
-    passwords: List[str],
+    passwords: list[str],
     min_length: int = 4,
     max_length: int = 8,
     frequency_threshold: int = 2,
     normalize: bool = False,
     suppress_nested: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Analyze substrings within a range of lengths across passwords and find common patterns,
     with an option to suppress nested substrings in longer substrings.
@@ -32,14 +32,14 @@ def substring_analysis(
     """
     # Track which passwords contain each substring
     # Key: substring, Value: dict of {password: count_in_that_password}
-    substring_passwords: Dict[str, Dict[str, int]] = {}
+    substring_passwords: dict[str, dict[str, int]] = {}
 
     for password in passwords:
         # Normalize for matching if requested, but store original password
         match_password = password.lower() if normalize else password
 
         # Track substrings found in this password to count unique passwords
-        found_in_this_password: Dict[str, int] = {}
+        found_in_this_password: dict[str, int] = {}
 
         # Generate substrings using a sliding window
         for length in range(min_length, max_length + 1):
@@ -63,7 +63,7 @@ def substring_analysis(
 
     # Option to suppress nested substrings
     if suppress_nested:
-        non_nested_results: Dict[str, Dict[str, int]] = {}
+        non_nested_results: dict[str, dict[str, int]] = {}
 
         # Sort substrings by length (longest first) and by password count (highest first)
         sorted_substrings = sorted(

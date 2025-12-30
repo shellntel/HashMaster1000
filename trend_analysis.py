@@ -9,7 +9,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from session_manager import SessionManager, SessionMetadata
 
@@ -46,7 +46,7 @@ class TrendMetrics:
     password_reuse_rate: float = 0.0
 
     # Bad practices (13 categories)
-    bad_practices: Dict[str, int] = field(default_factory=dict)
+    bad_practices: dict[str, int] = field(default_factory=dict)
     total_bad_practices: int = 0
 
     # HIBP exposure (if available)
@@ -72,8 +72,8 @@ class TrendChange:
 class TrendComparison:
     """Full comparison between multiple sessions."""
     company_name: str
-    sessions: List[TrendMetrics]
-    changes: List[TrendChange]
+    sessions: list[TrendMetrics]
+    changes: list[TrendChange]
     overall_direction: str  # "improving", "regressing", "stable"
     summary: str
 
@@ -134,7 +134,7 @@ class TrendAnalyzer:
     def __init__(self, session_manager: SessionManager):
         self.session_manager = session_manager
 
-    def extract_metrics(self, session_id: str) -> Optional[TrendMetrics]:
+    def extract_metrics(self, session_id: str) -> TrendMetrics | None:
         """
         Extract metrics from a session's saved data files.
 
@@ -327,7 +327,7 @@ class TrendAnalyzer:
 
         return metrics
 
-    def _load_session_data(self, session_id: str, filename: str) -> Optional[Any]:
+    def _load_session_data(self, session_id: str, filename: str) -> Any | None:
         """Load a JSON data file from a session."""
         try:
             data = self.session_manager.load_session_data(filename, session_id)
@@ -338,9 +338,9 @@ class TrendAnalyzer:
 
     def compare_sessions(
         self,
-        session_ids: List[str],
-        company_name: Optional[str] = None
-    ) -> Optional[TrendComparison]:
+        session_ids: list[str],
+        company_name: str | None = None
+    ) -> TrendComparison | None:
         """
         Compare metrics across multiple sessions.
 
@@ -404,7 +404,7 @@ class TrendAnalyzer:
         self,
         old_metrics: TrendMetrics,
         new_metrics: TrendMetrics
-    ) -> List[TrendChange]:
+    ) -> list[TrendChange]:
         """Calculate changes between two sets of metrics."""
         changes = []
 
@@ -479,7 +479,7 @@ class TrendAnalyzer:
         self,
         oldest: TrendMetrics,
         newest: TrendMetrics,
-        changes: List[TrendChange],
+        changes: list[TrendChange],
         overall_direction: str
     ) -> str:
         """Generate a human-readable summary of the trend analysis."""
@@ -542,7 +542,7 @@ class TrendAnalyzer:
     def get_trend_data_for_chart(
         self,
         comparison: TrendComparison
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Format trend data for Chart.js visualization.
 
@@ -625,7 +625,7 @@ class TrendAnalyzer:
             ],
         }
 
-    def to_dict(self, comparison: TrendComparison) -> Dict[str, Any]:
+    def to_dict(self, comparison: TrendComparison) -> dict[str, Any]:
         """Convert TrendComparison to a JSON-serializable dictionary."""
         return {
             "company_name": comparison.company_name,

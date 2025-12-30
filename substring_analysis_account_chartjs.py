@@ -29,17 +29,17 @@ Nested suppression:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Set
+from typing import Any
 
 
 def substring_analysis(
-    entries: List[Dict[str, str]],
+    entries: list[dict[str, str]],
     min_length: int = 4,
     max_length: int = 8,
     frequency_threshold: int = 2,
     normalize: bool = False,
     suppress_nested: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Account-based substring analysis that returns Chart.js-compatible output.
 
@@ -73,7 +73,7 @@ def substring_analysis(
 
     # Key: substring
     # Value: set of account_ids that contain that substring
-    substring_accounts: Dict[str, Set[str]] = {}
+    substring_accounts: dict[str, set[str]] = {}
 
     for row in entries:
         if "account" not in row or "password" not in row:
@@ -85,7 +85,7 @@ def substring_analysis(
         match_password = password.lower() if normalize else password
 
         # Count each substring only once per account/password
-        seen_in_this_password: Set[str] = set()
+        seen_in_this_password: set[str] = set()
 
         for length in range(min_length, max_length + 1):
             if length > len(match_password):
@@ -99,7 +99,7 @@ def substring_analysis(
             substring_accounts[substring].add(account_id)
 
     # Filter by UNIQUE account count threshold
-    filtered: Dict[str, Set[str]] = {
+    filtered: dict[str, set[str]] = {
         substring: acct_set
         for substring, acct_set in substring_accounts.items()
         if len(acct_set) >= frequency_threshold
@@ -109,7 +109,7 @@ def substring_analysis(
         return []
 
     if suppress_nested:
-        non_nested: Dict[str, Set[str]] = {}
+        non_nested: dict[str, set[str]] = {}
 
         # Sort: longer substrings first, then higher account counts
         sorted_substrings = sorted(

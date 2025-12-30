@@ -2,7 +2,7 @@ import json
 import argparse
 import binascii
 import logging
-from typing import Union, Any, Optional
+from typing import Any
 import password_analysis_tools  # Local import: password_analysis.tools.py in project folder
 
 # Configure logging
@@ -20,7 +20,7 @@ def str2bool(value: str) -> bool:
 
 def process_files(
     pwdump_file: str, potfile: str
-) -> dict[str, dict[str, Optional[str]]]:
+) -> dict[str, dict[str, str | None]]:
     logging.info(f"Processing {pwdump_file} (pwdump_file) and {potfile} (potfile)")
     total_accounts, valid_accounts = 0, 0  # Initialize row counters
     account_data = {}
@@ -134,7 +134,7 @@ def load_passwords(file_path: str) -> list[str]:
 
 
 # Convert to an ordered array format for display by chart.js
-def cracking_stats_array(stats: dict[str, Any]) -> list[dict[str, Union[str, int]]]:
+def cracking_stats_array(stats: dict[str, Any]) -> list[dict[str, str | int]]:
     # Define the desired key order
     key_order = [
         "Cracked Accounts: ",

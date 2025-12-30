@@ -24,7 +24,7 @@ import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Callable, Dict
+from collections.abc import Callable
 
 # Try to import aiohttp, fall back to requests if not available
 try:
@@ -46,7 +46,7 @@ DEFAULT_OUTPUT_DIR = "data"
 DEFAULT_OUTPUT_FILENAME = "pwnedpasswords-ntlm.txt"
 
 # Global download state (for tracking active downloads)
-_active_download: Optional["HIBPDownloadState"] = None
+_active_download: "HIBPDownloadState | None" = None
 _download_lock = threading.Lock()
 
 
@@ -54,8 +54,8 @@ _download_lock = threading.Lock()
 class HIBPDownloadState:
     """Tracks the state of an active or completed download."""
     status: str = "idle"  # idle, starting, downloading, merging, complete, error, cancelled
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # Progress tracking
     total_prefixes: int = TOTAL_PREFIXES
@@ -64,12 +64,12 @@ class HIBPDownloadState:
     total_hashes: int = 0
 
     # Output info
-    output_path: Optional[str] = None
+    output_path: str | None = None
     output_size_bytes: int = 0
 
     # Error tracking
-    error_message: Optional[str] = None
-    last_error: Optional[str] = None
+    error_message: str | None = None
+    last_error: str | None = None
 
     # Control
     cancel_requested: bool = False
@@ -117,7 +117,7 @@ class HIBPDownloadState:
         }
 
 
-def get_download_status() -> Dict:
+def get_download_status() -> dict:
     """Get the current download status."""
     global _active_download
 
@@ -142,7 +142,7 @@ def start_download(
     output_dir: str = DEFAULT_OUTPUT_DIR,
     output_filename: str = DEFAULT_OUTPUT_FILENAME,
     parallelism: int = DEFAULT_PARALLELISM,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]] = None
+    progress_callback: Callable[[HIBPDownloadState], None] | None = None
 ) -> bool:
     """
     Start downloading the HIBP NTLM database.
@@ -188,7 +188,7 @@ def _run_download_wrapper(
     output_dir: str,
     output_filename: str,
     parallelism: int,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    progress_callback: Callable[[HIBPDownloadState], None] | None,
     download_state: HIBPDownloadState
 ):
     """Wrapper to run async download in a new event loop."""
@@ -213,7 +213,7 @@ async def _fetch_prefix_async(
     temp_dir: str,
     semaphore: asyncio.Semaphore,
     retries: int = 3
-) -> tuple[str, int, Optional[str]]:
+) -> tuple[str, int, str | None]:
     """
     Async fetch of hash suffixes for a prefix.
     """
@@ -266,7 +266,7 @@ async def _run_download_async(
     output_dir: str,
     output_filename: str,
     parallelism: int,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    progress_callback: Callable[[HIBPDownloadState], None] | None,
     download_state: HIBPDownloadState
 ):
     """
@@ -396,7 +396,7 @@ async def _merge_files_async(
     output_filename: str,
     temp_dir: str,
     download_state: HIBPDownloadState,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]]
+    progress_callback: Callable[[HIBPDownloadState], None] | None
 ):
     """Merge all prefix files into final output."""
     with _download_lock:
@@ -453,7 +453,7 @@ def _run_download_sync(
     output_dir: str,
     output_filename: str,
     parallelism: int,
-    progress_callback: Optional[Callable[[HIBPDownloadState], None]],
+    progress_callback: Callable[[HIBPDownloadState], None] | None,
     download_state: HIBPDownloadState
 ):
     """
@@ -485,7 +485,7 @@ def _run_download_sync(
         logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads (sync fallback)")
         logger.info(f"Temp directory: {temp_dir}")
 
-        def fetch_prefix_sync(prefix: str) -> tuple[str, int, Optional[str]]:
+        def fetch_prefix_sync(prefix: str) -> tuple[str, int, str | None]:
             for attempt in range(3):
                 try:
                     response = requests.get(
@@ -641,7 +641,7 @@ def _run_download_sync(
                 pass
 
 
-def estimate_download() -> Dict:
+def estimate_download() -> dict:
     """
     Estimate download size and time.
 

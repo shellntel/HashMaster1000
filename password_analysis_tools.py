@@ -2,13 +2,13 @@ import string
 from collections import defaultdict, Counter
 import re
 from english_words import get_english_words_set
-from typing import List, Dict, Tuple, Union, Any, TypedDict, Optional, Set
+from typing import Any, TypedDict
 
 # Module-level cache for the English dictionary (loaded once on first use)
-_english_words_cache: Optional[Set[str]] = None
+_english_words_cache: set[str] | None = None
 
 
-def _get_english_words() -> Set[str]:
+def _get_english_words() -> set[str]:
     """
     Get the cached English words set, loading it on first call.
     Uses the web2 dictionary from english-words package (~234K words).
@@ -19,12 +19,12 @@ def _get_english_words() -> Set[str]:
     return _english_words_cache
 
 
-def _load_exclusions(file_path: str = "dictionary_exclusions.conf") -> Set[str]:
+def _load_exclusions(file_path: str = "dictionary_exclusions.conf") -> set[str]:
     """
     Load exclusions from a configuration file.
     Supports comments (lines starting with #) and empty lines.
     """
-    exclusions: Set[str] = set()
+    exclusions: set[str] = set()
     try:
         with open(file_path, "r") as file:
             for line in file:
@@ -64,7 +64,7 @@ class Report(TypedDict):
 
 
 # Function to check for Lanman hashes (pwdump_file based)
-def check_lm(pwdump_file: str) -> List[str]:
+def check_lm(pwdump_file: str) -> list[str]:
     lanman_accounts = []
 
     with open(pwdump_file, "r") as f:
@@ -83,7 +83,7 @@ def check_lm(pwdump_file: str) -> List[str]:
 
 
 # Function to count LANMan hashes (account_data based)
-def lm_count(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> int:
+def lm_count(account_data: dict[str, dict[str, str | int | None]]) -> int:
     count = sum(
         1
         for account in account_data.values()
@@ -93,7 +93,7 @@ def lm_count(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> int:
 
 
 # Function to get accounts with valid (non-blank) LANMan hashes (account_data based)
-def get_lm_accounts(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -> List[Dict[str, str]]:
+def get_lm_accounts(account_data: dict[str, dict[str, str | int | None]]) -> list[dict[str, str]]:
     """
     Returns a sorted list of dicts containing account names and cracked passwords
     for accounts that have a valid (non-blank) LM hash.
@@ -115,7 +115,7 @@ def get_lm_accounts(account_data: Dict[str, Dict[str, Union[str, int, None]]]) -
 
 
 # Function to check for password reuse
-def check_pw_reuse(pwdump_file: str) -> List[Tuple[str, int, List[str]]]:
+def check_pw_reuse(pwdump_file: str) -> list[tuple[str, int, list[str]]]:
     ntlm_hashes = defaultdict(list)
 
     with open(pwdump_file, "r") as f:
@@ -135,8 +135,8 @@ def check_pw_reuse(pwdump_file: str) -> List[Tuple[str, int, List[str]]]:
 
 
 def check_pw_reuse_from_account_data(
-    account_data: Dict[str, Dict[str, Union[str, int, None]]]
-) -> List[Tuple[str, int, List[str]]]:
+    account_data: dict[str, dict[str, str | int | None]]
+) -> list[tuple[str, int, list[str]]]:
     """
     Check for password reuse using account_data dictionary format.
 
@@ -150,7 +150,7 @@ def check_pw_reuse_from_account_data(
         List of tuples: (ntlm_hash, count, [account_names])
         Only includes hashes shared by 2+ accounts, sorted by count descending.
     """
-    ntlm_hashes: Dict[str, List[str]] = defaultdict(list)
+    ntlm_hashes: dict[str, list[str]] = defaultdict(list)
 
     # Blank NTLM hash should be excluded from reuse analysis
     blank_ntlm_hash = "31d6cfe0d16ae931b73c59d7e0c089c0"
@@ -174,9 +174,9 @@ def check_pw_reuse_from_account_data(
 
 # List accounts with blank passwords (only if the ignore blanks option wasn't checked)
 def check_blank(
-    accounts_info: Dict[str, Dict[str, Union[str, int, None]]],
+    accounts_info: dict[str, dict[str, str | int | None]],
     ignore_blank_passwords: bool = False,
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Identifies accounts with blank passwords.
     Includes accounts with either an empty string or "{Blank Password}" as the password.
@@ -203,9 +203,9 @@ def check_blank(
 
 
 def check_max_age(
-    accounts_info: Dict[str, Dict[str, Union[str, int, None]]],
+    accounts_info: dict[str, dict[str, str | int | None]],
     max_age_days: int = 90,
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Identifies accounts with passwords older than the maximum age policy.
 
@@ -221,7 +221,7 @@ def check_max_age(
     """
     from datetime import datetime, date
 
-    failing_accounts: Dict[str, Dict[str, Any]] = {}
+    failing_accounts: dict[str, dict[str, Any]] = {}
 
     # If max_age_days is 0, passwords never expire - return empty result
     if max_age_days == 0:
@@ -270,8 +270,8 @@ def check_max_age(
 
 # List accounts failing password complexity
 def get_non_compliant_accounts(
-    account_data: Dict[str, Dict[str, Union[str, int, None]]], num_categories_req: int
-) -> Dict[str, Dict[str, Union[str, int]]]:
+    account_data: dict[str, dict[str, str | int | None]], num_categories_req: int
+) -> dict[str, dict[str, str | int]]:
     def check_complexity(password: str) -> int:
         if not password:  # Catch blank passwords
             return 0
@@ -285,7 +285,7 @@ def get_non_compliant_accounts(
         }
         return sum(categories.values())  # Count of categories present
 
-    non_compliant_accounts: Dict[str, Dict[str, Union[str, int]]] = {}
+    non_compliant_accounts: dict[str, dict[str, str | int]] = {}
     for account, details in account_data.items():
         password = details.get("cracked_pw")
         if isinstance(password, str):  # Ensure password is a string
@@ -301,12 +301,12 @@ def get_non_compliant_accounts(
 
 # Function to report general statistics from the source hashes and cracked passwords
 def crack_stats(
-    account_data: Dict[str, Dict[str, Union[str, int, None]]],
+    account_data: dict[str, dict[str, str | int | None]],
     min_len: int = 14,
     complexity: int = 3,
     ignore_blank_passwords: bool = False,
     max_pw_age: int = 90,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate password cracking statistics.
 
@@ -516,13 +516,13 @@ def crack_stats(
 
 
 def substring_analysis(
-    entries: List[Dict[str, str]],
+    entries: list[dict[str, str]],
     min_length: int = 4,
     max_length: int = 8,
     frequency_threshold: int = 2,
     normalize: bool = False,
     suppress_nested: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Account-based substring analysis that returns Chart.js-compatible output.
 
@@ -553,7 +553,7 @@ def substring_analysis(
 
     # Key: substring
     # Value: set of account_ids that contain that substring
-    substring_accounts: Dict[str, Set[str]] = {}
+    substring_accounts: dict[str, set[str]] = {}
 
     for row in entries:
         if "account" not in row or "password" not in row:
@@ -565,7 +565,7 @@ def substring_analysis(
         match_password = password.lower() if normalize else password
 
         # Count each substring only once per account/password
-        seen_in_this_password: Set[str] = set()
+        seen_in_this_password: set[str] = set()
 
         for length in range(min_length, max_length + 1):
             if length > len(match_password):
@@ -579,7 +579,7 @@ def substring_analysis(
             substring_accounts[substring].add(account_id)
 
     # Filter by UNIQUE account count threshold
-    filtered: Dict[str, Set[str]] = {
+    filtered: dict[str, set[str]] = {
         substring: acct_set
         for substring, acct_set in substring_accounts.items()
         if len(acct_set) >= frequency_threshold
@@ -589,7 +589,7 @@ def substring_analysis(
         return []
 
     if suppress_nested:
-        non_nested: Dict[str, Set[str]] = {}
+        non_nested: dict[str, set[str]] = {}
 
         # Sort: longer substrings first, then higher account counts
         sorted_substrings = sorted(
@@ -615,10 +615,10 @@ def substring_analysis(
 
 
 def dictionary_analysis(
-    passwords: List[str],
+    passwords: list[str],
     min_word_length: int = 4,
     omit_nested: bool = False,
-) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
+) -> tuple[dict[str, list[str]], dict[str, int]]:
     """
     Analyze a list of passwords to identify dictionary words.
 
@@ -638,13 +638,13 @@ def dictionary_analysis(
     exclusions = _load_exclusions()
     english_words -= exclusions
 
-    password_analysis: Dict[str, List[str]] = {}  # Store each password with its dictionary words
-    word_count: Dict[str, int] = {}  # Store each English dictionary word with its count
+    password_analysis: dict[str, list[str]] = {}  # Store each password with its dictionary words
+    word_count: dict[str, int] = {}  # Store each English dictionary word with its count
 
     for password in passwords:
         # Extract alphabetic substrings from the password with their positions
         # Each match contains: (word, start_in_password, end_in_password)
-        matches_with_positions: List[Tuple[str, int, int]] = []
+        matches_with_positions: list[tuple[str, int, int]] = []
 
         # Find all alphabetic substrings and their positions in the original password
         for match in re.finditer(r"[a-zA-Z]+", password):
@@ -666,7 +666,7 @@ def dictionary_analysis(
             # Sort by length (longest first), then by start position
             matches_with_positions.sort(key=lambda x: (-len(x[0]), x[1]))
 
-            filtered_matches: List[Tuple[str, int, int]] = []
+            filtered_matches: list[tuple[str, int, int]] = []
             covered_positions: set = set()
 
             for word, start, end in matches_with_positions:
@@ -693,9 +693,9 @@ def dictionary_analysis(
 
 
 def bad_practices_analysis(
-    passwords: List[str],
-    custom_keywords: List[str] = None,
-) -> Dict[str, Dict[str, Any]]:
+    passwords: list[str],
+    custom_keywords: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """
     Analyze passwords for common bad practices and anti-patterns.
 
@@ -717,7 +717,7 @@ def bad_practices_analysis(
     :return: Dictionary with category names as keys, containing counts and example passwords
     """
 
-    results: Dict[str, Dict[str, Any]] = {
+    results: dict[str, dict[str, Any]] = {
         "Password Variants": {"count": 0, "examples": {}},
         "Season + Year": {"count": 0, "examples": {}},
         "Keyboard Walks": {"count": 0, "examples": {}},

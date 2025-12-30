@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from service_account import (
     ServiceAccountInfo,
@@ -66,7 +66,7 @@ class RiskReason(str, Enum):
 
 
 # Risk scores for each reason
-RISK_SCORES: Dict[RiskReason, int] = {
+RISK_SCORES: dict[RiskReason, int] = {
     RiskReason.SPN_PRESENT: 10,  # Base risk - account is Kerberoastable
     RiskReason.ASREP_PREAUTH_DISABLED: 25,  # Critical - AS-REP roastable
     RiskReason.PRIVILEGED_ADMINCOUNT: 30,  # Critical - high-value target
@@ -106,26 +106,26 @@ class KerberoastRiskAssessment:
     description: str = ""
 
     # Service account info
-    spns: List[str] = field(default_factory=list)
+    spns: list[str] = field(default_factory=list)
     is_service_account: bool = False
     enabled: bool = True
 
     # Risk scoring
     risk_score: int = 0
     risk_category: str = "Info"
-    risk_reasons: List[str] = field(default_factory=list)
-    risk_details: Dict[str, Any] = field(default_factory=dict)
+    risk_reasons: list[str] = field(default_factory=list)
+    risk_details: dict[str, Any] = field(default_factory=dict)
 
     # Account details
     is_privileged: bool = False
     password_never_expires: bool = False
     preauth_not_required: bool = False
-    password_age_days: Optional[int] = None
+    password_age_days: int | None = None
     pwd_last_set: str = ""
     last_logon: str = ""
 
     # Encryption
-    encryption_types: List[str] = field(default_factory=list)
+    encryption_types: list[str] = field(default_factory=list)
     supports_rc4: bool = True
     supports_aes: bool = False
     supports_des: bool = False
@@ -134,7 +134,7 @@ class KerberoastRiskAssessment:
     has_delegation: bool = False
     unconstrained_delegation: bool = False
     constrained_delegation: bool = False
-    delegation_targets: List[str] = field(default_factory=list)
+    delegation_targets: list[str] = field(default_factory=list)
 
     # Password analysis results (populated externally)
     password_cracked: bool = False
@@ -145,7 +145,7 @@ class KerberoastRiskAssessment:
     reuse_cluster_size: int = 0
 
 
-def parse_ad_timestamp(timestamp_str: str) -> Optional[datetime]:
+def parse_ad_timestamp(timestamp_str: str) -> datetime | None:
     """
     Parse various Active Directory timestamp formats.
 
@@ -187,7 +187,7 @@ def parse_ad_timestamp(timestamp_str: str) -> Optional[datetime]:
     return None
 
 
-def calculate_password_age_days(pwd_last_set: str, reference_date: Optional[datetime] = None) -> Optional[int]:
+def calculate_password_age_days(pwd_last_set: str, reference_date: datetime | None = None) -> int | None:
     """
     Calculate password age in days.
 
@@ -209,11 +209,11 @@ def calculate_password_age_days(pwd_last_set: str, reference_date: Optional[date
 
 
 def assess_account_risk(
-    user_data: Dict[str, Any],
-    cracked_accounts: Optional[Dict[str, str]] = None,
-    hibp_results: Optional[Dict[str, Dict[str, Any]]] = None,
-    password_reuse_clusters: Optional[Dict[str, List[str]]] = None,
-    reference_date: Optional[datetime] = None,
+    user_data: dict[str, Any],
+    cracked_accounts: dict[str, str] | None = None,
+    hibp_results: dict[str, dict[str, Any]] | None = None,
+    password_reuse_clusters: dict[str, list[str]] | None = None,
+    reference_date: datetime | None = None,
 ) -> KerberoastRiskAssessment:
     """
     Assess Kerberoast risk for a single account.
@@ -261,8 +261,8 @@ def assess_account_risk(
     )
 
     # Collect risk reasons
-    reasons: List[RiskReason] = []
-    details: Dict[str, Any] = {}
+    reasons: list[RiskReason] = []
+    details: dict[str, Any] = {}
 
     # Base risk: Has SPNs
     if svc_info.is_service_account:
@@ -378,11 +378,11 @@ class KerberoastReportSummary:
 class KerberoastReport:
     """Complete Kerberoast analysis report."""
     summary: KerberoastReportSummary
-    assessments: List[KerberoastRiskAssessment]
-    chart_data: Dict[str, Any]
+    assessments: list[KerberoastRiskAssessment]
+    chart_data: dict[str, Any]
     generated_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "summary": asdict(self.summary),
@@ -392,7 +392,7 @@ class KerberoastReport:
         }
 
 
-def generate_chart_data(assessments: List[KerberoastRiskAssessment]) -> Dict[str, Any]:
+def generate_chart_data(assessments: list[KerberoastRiskAssessment]) -> dict[str, Any]:
     """
     Generate Chart.js-compatible data for visualization.
 
@@ -414,7 +414,7 @@ def generate_chart_data(assessments: List[KerberoastRiskAssessment]) -> Dict[str
             category_counts[a.risk_category] += 1
 
     # Risk factor frequency
-    reason_counts: Dict[str, int] = {}
+    reason_counts: dict[str, int] = {}
     for a in assessments:
         for reason in a.risk_reasons:
             # Skip ACCOUNT_DISABLED as it's not a risk factor
@@ -474,12 +474,12 @@ def generate_chart_data(assessments: List[KerberoastRiskAssessment]) -> Dict[str
 
 
 def analyze_kerberoast_exposure(
-    users: List[Dict[str, Any]],
-    cracked_accounts: Optional[Dict[str, str]] = None,
-    hibp_results: Optional[Dict[str, Dict[str, Any]]] = None,
-    password_reuse_clusters: Optional[Dict[str, List[str]]] = None,
+    users: list[dict[str, Any]],
+    cracked_accounts: dict[str, str] | None = None,
+    hibp_results: dict[str, dict[str, Any]] | None = None,
+    password_reuse_clusters: dict[str, list[str]] | None = None,
     include_non_service_accounts: bool = False,
-    reference_date: Optional[datetime] = None,
+    reference_date: datetime | None = None,
 ) -> KerberoastReport:
     """
     Perform complete Kerberoast exposure analysis.
@@ -495,7 +495,7 @@ def analyze_kerberoast_exposure(
     Returns:
         KerberoastReport with summary, assessments, and chart data
     """
-    assessments: List[KerberoastRiskAssessment] = []
+    assessments: list[KerberoastRiskAssessment] = []
     summary = KerberoastReportSummary(total_accounts_analyzed=len(users))
 
     for user in users:
@@ -571,7 +571,7 @@ def analyze_kerberoast_exposure(
     )
 
 
-def format_risk_reasons_for_display(reasons: List[str]) -> List[Dict[str, str]]:
+def format_risk_reasons_for_display(reasons: list[str]) -> list[dict[str, str]]:
     """
     Format risk reasons for human-readable display.
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from service_account import (
     ServiceAccountInfo,
@@ -72,7 +72,7 @@ class ASREPRiskReason(str, Enum):
 
 # Risk scores for each factor
 # Framing: These are exposure amplifiers, not "old = weak"
-ASREP_RISK_SCORES: Dict[ASREPRiskReason, int] = {
+ASREP_RISK_SCORES: dict[ASREPRiskReason, int] = {
     # Base score for being AS-REP roastable
     ASREPRiskReason.ASREP_ROASTABLE: 15,
 
@@ -129,17 +129,17 @@ class ASREPRiskAssessment:
     # Risk scoring
     risk_score: int = 0
     risk_category: str = "Info"
-    risk_reasons: List[str] = field(default_factory=list)
-    risk_details: Dict[str, Any] = field(default_factory=dict)
+    risk_reasons: list[str] = field(default_factory=list)
+    risk_details: dict[str, Any] = field(default_factory=dict)
 
     # Password info
     pwd_last_set: str = ""
-    password_age_days: Optional[int] = None
+    password_age_days: int | None = None
     password_never_expires: bool = False
 
     # Activity
     last_logon: str = ""
-    last_logon_days_ago: Optional[int] = None
+    last_logon_days_ago: int | None = None
     recently_active: bool = False
 
     # Password analysis results (populated externally)
@@ -151,7 +151,7 @@ class ASREPRiskAssessment:
     reuse_cluster_size: int = 0
 
 
-def parse_ad_timestamp(timestamp_str: str) -> Optional[datetime]:
+def parse_ad_timestamp(timestamp_str: str) -> datetime | None:
     """
     Parse various Active Directory timestamp formats.
     """
@@ -185,7 +185,7 @@ def parse_ad_timestamp(timestamp_str: str) -> Optional[datetime]:
     return None
 
 
-def calculate_days_ago(timestamp_str: str, reference_date: Optional[datetime] = None) -> Optional[int]:
+def calculate_days_ago(timestamp_str: str, reference_date: datetime | None = None) -> int | None:
     """Calculate days since a timestamp."""
     ts = parse_ad_timestamp(timestamp_str)
     if ts is None:
@@ -213,11 +213,11 @@ def classify_account(
 
 
 def assess_asrep_risk(
-    user_data: Dict[str, Any],
-    cracked_accounts: Optional[Dict[str, str]] = None,
-    hibp_results: Optional[Dict[str, Dict[str, Any]]] = None,
-    password_reuse_clusters: Optional[Dict[str, List[str]]] = None,
-    reference_date: Optional[datetime] = None,
+    user_data: dict[str, Any],
+    cracked_accounts: dict[str, str] | None = None,
+    hibp_results: dict[str, dict[str, Any]] | None = None,
+    password_reuse_clusters: dict[str, list[str]] | None = None,
+    reference_date: datetime | None = None,
 ) -> ASREPRiskAssessment:
     """
     Assess AS-REP roasting risk for a single account.
@@ -277,8 +277,8 @@ def assess_asrep_risk(
     )
 
     # Collect risk reasons
-    reasons: List[ASREPRiskReason] = []
-    details: Dict[str, Any] = {}
+    reasons: list[ASREPRiskReason] = []
+    details: dict[str, Any] = {}
 
     # Base risk: AS-REP roastable
     reasons.append(ASREPRiskReason.ASREP_ROASTABLE)
@@ -383,11 +383,11 @@ class ASREPReportSummary:
 class ASREPReport:
     """Complete AS-REP roasting analysis report."""
     summary: ASREPReportSummary
-    assessments: List[ASREPRiskAssessment]
-    chart_data: Dict[str, Any]
+    assessments: list[ASREPRiskAssessment]
+    chart_data: dict[str, Any]
     generated_at: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "summary": asdict(self.summary),
@@ -398,9 +398,9 @@ class ASREPReport:
 
 
 def generate_asrep_chart_data(
-    assessments: List[ASREPRiskAssessment],
+    assessments: list[ASREPRiskAssessment],
     summary: ASREPReportSummary
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generate Chart.js-compatible data for visualization.
 
@@ -460,7 +460,7 @@ def generate_asrep_chart_data(
     }
 
     # Risk factor frequency
-    reason_counts: Dict[str, int] = {}
+    reason_counts: dict[str, int] = {}
     for a in assessments:
         for reason in a.risk_reasons:
             if reason != ASREPRiskReason.ACCOUNT_DISABLED.value:
@@ -535,11 +535,11 @@ def generate_asrep_chart_data(
 
 
 def analyze_asrep_exposure(
-    users: List[Dict[str, Any]],
-    cracked_accounts: Optional[Dict[str, str]] = None,
-    hibp_results: Optional[Dict[str, Dict[str, Any]]] = None,
-    password_reuse_clusters: Optional[Dict[str, List[str]]] = None,
-    reference_date: Optional[datetime] = None,
+    users: list[dict[str, Any]],
+    cracked_accounts: dict[str, str] | None = None,
+    hibp_results: dict[str, dict[str, Any]] | None = None,
+    password_reuse_clusters: dict[str, list[str]] | None = None,
+    reference_date: datetime | None = None,
 ) -> ASREPReport:
     """
     Perform complete AS-REP roasting exposure analysis.
@@ -554,7 +554,7 @@ def analyze_asrep_exposure(
     Returns:
         ASREPReport with summary, assessments, and chart data
     """
-    assessments: List[ASREPRiskAssessment] = []
+    assessments: list[ASREPRiskAssessment] = []
     summary = ASREPReportSummary(total_user_count=len(users))
 
     for user in users:
@@ -625,7 +625,7 @@ def analyze_asrep_exposure(
     )
 
 
-def format_asrep_risk_reasons(reasons: List[str]) -> List[Dict[str, str]]:
+def format_asrep_risk_reasons(reasons: list[str]) -> list[dict[str, str]]:
     """
     Format risk reasons for human-readable display.
 

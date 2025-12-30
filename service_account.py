@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntFlag
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 
 class UserAccountControlFlags(IntFlag):
@@ -66,7 +66,7 @@ class DelegationInfo:
     unconstrained: bool = False  # TRUSTED_FOR_DELEGATION flag
     constrained: bool = False  # Has allowedToDelegateTo entries
     constrained_with_protocol_transition: bool = False  # TRUSTED_TO_AUTH_FOR_DELEGATION flag
-    delegation_targets: List[str] = field(default_factory=list)  # SPNs this account can delegate to
+    delegation_targets: list[str] = field(default_factory=list)  # SPNs this account can delegate to
 
     @property
     def has_delegation(self) -> bool:
@@ -84,7 +84,7 @@ class ServiceAccountInfo:
     description: str = ""
 
     # SPN information
-    spns: List[str] = field(default_factory=list)
+    spns: list[str] = field(default_factory=list)
     is_service_account: bool = False  # True if has SPNs
 
     # Account status
@@ -93,7 +93,7 @@ class ServiceAccountInfo:
 
     # UAC analysis
     raw_uac_value: int = 0
-    uac_flags: Set[str] = field(default_factory=set)
+    uac_flags: set[str] = field(default_factory=set)
     password_never_expires: bool = False
     preauth_not_required: bool = False  # AS-REP roastable
 
@@ -102,7 +102,7 @@ class ServiceAccountInfo:
     supports_rc4: bool = True  # Default - vulnerable to Kerberoasting
     supports_aes: bool = False
     supports_des: bool = False
-    encryption_type_names: List[str] = field(default_factory=list)
+    encryption_type_names: list[str] = field(default_factory=list)
 
     # Delegation
     delegation: DelegationInfo = field(default_factory=DelegationInfo)
@@ -112,7 +112,7 @@ class ServiceAccountInfo:
     last_logon: str = ""
 
 
-def parse_uac_flags(raw_uac_value: str | int) -> tuple[int, Set[str]]:
+def parse_uac_flags(raw_uac_value: str | int) -> tuple[int, set[str]]:
     """
     Parse UserAccountControl value into integer and set of flag names.
 
@@ -130,7 +130,7 @@ def parse_uac_flags(raw_uac_value: str | int) -> tuple[int, Set[str]]:
     else:
         uac_int = raw_uac_value
 
-    flags: Set[str] = set()
+    flags: set[str] = set()
 
     for flag in UserAccountControlFlags:
         if uac_int & flag:
@@ -139,7 +139,7 @@ def parse_uac_flags(raw_uac_value: str | int) -> tuple[int, Set[str]]:
     return uac_int, flags
 
 
-def parse_encryption_types(supported_enc_types: str | int) -> tuple[int, List[str], bool, bool, bool]:
+def parse_encryption_types(supported_enc_types: str | int) -> tuple[int, list[str], bool, bool, bool]:
     """
     Parse supportedEncryptionTypes value.
 
@@ -159,7 +159,7 @@ def parse_encryption_types(supported_enc_types: str | int) -> tuple[int, List[st
     else:
         enc_int = supported_enc_types
 
-    type_names: List[str] = []
+    type_names: list[str] = []
     supports_rc4 = False
     supports_aes = False
     supports_des = False
@@ -197,8 +197,8 @@ def parse_encryption_types(supported_enc_types: str | int) -> tuple[int, List[st
 
 def parse_delegation_info(
     uac_int: int,
-    uac_flags: Set[str],
-    allowed_to_delegate_to: List[str]
+    uac_flags: set[str],
+    allowed_to_delegate_to: list[str]
 ) -> DelegationInfo:
     """
     Parse delegation configuration from UAC flags and allowedToDelegateTo.
@@ -229,7 +229,7 @@ def parse_delegation_info(
     return delegation
 
 
-def identify_service_account(user_data: Dict[str, Any]) -> ServiceAccountInfo:
+def identify_service_account(user_data: dict[str, Any]) -> ServiceAccountInfo:
     """
     Analyze a user object and return service account information.
 
@@ -306,7 +306,7 @@ def identify_service_account(user_data: Dict[str, Any]) -> ServiceAccountInfo:
     return info
 
 
-def get_service_accounts(users: List[Dict[str, Any]]) -> List[ServiceAccountInfo]:
+def get_service_accounts(users: list[dict[str, Any]]) -> list[ServiceAccountInfo]:
     """
     Filter and return only service accounts from a list of users.
 
@@ -326,7 +326,7 @@ def get_service_accounts(users: List[Dict[str, Any]]) -> List[ServiceAccountInfo
     return service_accounts
 
 
-def get_kerberoastable_accounts(users: List[Dict[str, Any]], include_disabled: bool = False) -> List[ServiceAccountInfo]:
+def get_kerberoastable_accounts(users: list[dict[str, Any]], include_disabled: bool = False) -> list[ServiceAccountInfo]:
     """
     Return accounts that can be Kerberoasted.
 
@@ -369,7 +369,7 @@ def get_kerberoastable_accounts(users: List[Dict[str, Any]], include_disabled: b
     return kerberoastable
 
 
-def get_asrep_roastable_accounts(users: List[Dict[str, Any]], include_disabled: bool = False) -> List[ServiceAccountInfo]:
+def get_asrep_roastable_accounts(users: list[dict[str, Any]], include_disabled: bool = False) -> list[ServiceAccountInfo]:
     """
     Return accounts vulnerable to AS-REP roasting.
 
@@ -402,7 +402,7 @@ def get_asrep_roastable_accounts(users: List[Dict[str, Any]], include_disabled: 
     return asrep_roastable
 
 
-def get_delegation_accounts(users: List[Dict[str, Any]]) -> Dict[str, List[ServiceAccountInfo]]:
+def get_delegation_accounts(users: list[dict[str, Any]]) -> dict[str, list[ServiceAccountInfo]]:
     """
     Return accounts with delegation configured, grouped by type.
 
