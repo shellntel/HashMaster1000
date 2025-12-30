@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Manager - Hash Master 1000</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/matrix.js') }}" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Modern Header -->
+    <header class="app-header">
+        <div class="brand">
+            <h1 class="brand-name">Hash Master 1000</h1>
+            <span class="brand-tagline">Session Manager</span>
+        </div>
+        <div class="header-actions">
+            {% if advanced_options_enabled %}
+            <a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
+            {% endif %}
+            <a href="{{ url_for('index') }}" class="header-btn"><span class="btn-icon">&#8592;</span>Back</a>
+            <button id="logoutButton" class="header-btn logout icon-btn" title="Logout" onclick="logout()"><span class="btn-icon">⎋</span></button>
+        </div>
+    </header>
+
+    <div class="sessions-page">
+        <!-- Toolbar -->
+        <div class="sessions-toolbar">
+            <div class="toolbar-left">
+                <div class="search-box">
+                    <input type="text" id="sessionSearch" placeholder="Search sessions..." oninput="filterSessions()">
+                    <span class="search-icon">&#128269;</span>
+                </div>
+                <div class="view-toggle">
+                    <button class="view-btn active" data-view="grouped" onclick="setView('grouped')" title="Group by Company">
+                        <span>&#128193;</span> Grouped
+                    </button>
+                    <button class="view-btn" data-view="list" onclick="setView('list')" title="Flat List">
+                        <span>&#9776;</span> List
+                    </button>
+                </div>
+                <div class="expand-collapse-btns" id="expandCollapseBtns">
+                    <button class="expand-btn" onclick="expandAllGroups()" title="Expand All">&#9660; Expand</button>
+                    <button class="collapse-btn" onclick="collapseAllGroups()" title="Collapse All">&#9654; Collapse</button>
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <div class="sort-controls">
+                    <label>Sort by:</label>
+                    <select id="sortField" onchange="sortSessions()">
+                        <option value="updated_at">Last Updated</option>
+                        <option value="created_at">Created</option>
+                        <option value="name">Name</option>
+                        <option value="crack_rate">Crack Rate</option>
+                        <option value="total_accounts">Total Accounts</option>
+                    </select>
+                    <button class="sort-dir-btn" id="sortDirBtn" onclick="toggleSortDir()" title="Toggle sort direction">
+                        &#9660;
+                    </button>
+                </div>
+                <div class="bulk-actions" id="bulkActions" style="display: none;">
+                    <span id="selectedCount">0 selected</span>
+                    <button class="btn btn-danger btn-small" onclick="deleteSelected()">
+                        &#128465; Delete Selected
+                    </button>
+                    <button class="btn btn-secondary btn-small" onclick="clearSelection()">
+                        Clear
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Summary -->
+        <div class="sessions-stats" id="sessionStats">
+            <div class="stat-item">
+                <span class="stat-value" id="totalSessionsCount">0</span>
+                <span class="stat-label">Sessions</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="totalCompaniesCount">0</span>
+                <span class="stat-label">Companies</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="totalAccountsCount">0</span>
+                <span class="stat-label">Total Accounts</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-value" id="avgCrackRate">0%</span>
+                <span class="stat-label">Avg Crack Rate</span>
+            </div>
+        </div>
+
+        <!-- Sessions Container -->
+        <div class="sessions-container" id="sessionsContainer">
+            <div class="sessions-loading">Loading sessions...</div>
+        </div>
+
+        <!-- Empty State -->
+        <div class="sessions-empty" id="sessionsEmpty" style="display: none;">
+            <div class="empty-icon">&#128194;</div>
+            <h3>No Sessions Found</h3>
+            <p>Create your first session by analyzing password files.</p>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Start Analysis</a>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Confirm Delete</h3>
+                <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p id="deleteMessage">Are you sure you want to delete this session?</p>
+                <p class="warning-text" style="color: #ff6b6b; font-size: 0.9em;">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let allSessions = [];
+        let filteredSessions = [];
+        let sessionsByCompany = {};
+        let currentView = 'grouped';
+        let sortField = 'updated_at';
+        let sortAsc = false;
+        let selectedSessions = new Set();
+        let deleteTarget = null; // {type: 'single'|'bulk', ids: [...]}
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSessions();
+        });
+
+        async function loadSessions() {
+            const container = document.getElementById('sessionsContainer');
+            container.innerHTML = '<div class="sessions-loading">Loading sessions...</div>';
+
+            try {
+                const response = await fetch('/api/sessions');
+                const data = await response.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="sessions-error">${data.error}</div>`;
+                    return;
+                }
+
+                allSessions = data.sessions || [];
+                sessionsByCompany = data.sessions_by_company || {};
+
+                if (allSessions.length === 0) {
+                    container.style.display = 'none';
+                    document.getElementById('sessionsEmpty').style.display = 'flex';
+                    updateStats([]);
+                    return;
+                }
+
+                container.style.display = 'block';
+                document.getElementById('sessionsEmpty').style.display = 'none';
+
+                updateStats(allSessions);
+                filterSessions();
+
+            } catch (error) {
+                container.innerHTML = `<div class="sessions-error">Failed to load sessions: ${error.message}</div>`;
+            }
+        }
+
+        function updateStats(sessions) {
+            document.getElementById('totalSessionsCount').textContent = sessions.length.toLocaleString();
+
+            const companies = new Set(sessions.map(s => s.company_name).filter(c => c && c !== 'Unknown'));
+            document.getElementById('totalCompaniesCount').textContent = companies.size.toLocaleString();
+
+            const totalAccounts = sessions.reduce((sum, s) => sum + (s.total_accounts || 0), 0);
+            document.getElementById('totalAccountsCount').textContent = totalAccounts.toLocaleString();
+
+            const avgRate = sessions.length > 0
+                ? sessions.reduce((sum, s) => sum + (s.crack_rate || 0), 0) / sessions.length
+                : 0;
+            document.getElementById('avgCrackRate').textContent = avgRate.toFixed(1) + '%';
+        }
+
+        function filterSessions() {
+            const searchTerm = document.getElementById('sessionSearch').value.toLowerCase().trim();
+
+            if (!searchTerm) {
+                filteredSessions = [...allSessions];
+            } else {
+                filteredSessions = allSessions.filter(s => {
+                    return (s.name && s.name.toLowerCase().includes(searchTerm)) ||
+                           (s.company_name && s.company_name.toLowerCase().includes(searchTerm)) ||
+                           (s.project_description && s.project_description.toLowerCase().includes(searchTerm));
+                });
+            }
+
+            sortSessions();
+        }
+
+        function sortSessions() {
+            sortField = document.getElementById('sortField').value;
+
+            filteredSessions.sort((a, b) => {
+                let cmp = 0;
+                switch (sortField) {
+                    case 'name':
+                        cmp = (a.name || '').localeCompare(b.name || '');
+                        break;
+                    case 'crack_rate':
+                        cmp = (a.crack_rate || 0) - (b.crack_rate || 0);
+                        break;
+                    case 'total_accounts':
+                        cmp = (a.total_accounts || 0) - (b.total_accounts || 0);
+                        break;
+                    case 'created_at':
+                        cmp = new Date(a.created_at) - new Date(b.created_at);
+                        break;
+                    case 'updated_at':
+                    default:
+                        cmp = new Date(a.updated_at) - new Date(b.updated_at);
+                }
+                return sortAsc ? cmp : -cmp;
+            });
+
+            renderSessions();
+        }
+
+        function toggleSortDir() {
+            sortAsc = !sortAsc;
+            document.getElementById('sortDirBtn').innerHTML = sortAsc ? '&#9650;' : '&#9660;';
+            sortSessions();
+        }
+
+        function setView(view) {
+            currentView = view;
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+            // Show/hide expand/collapse buttons based on view
+            document.getElementById('expandCollapseBtns').style.display = view === 'grouped' ? 'flex' : 'none';
+            renderSessions();
+        }
+
+        function expandAllGroups() {
+            document.querySelectorAll('.company-group').forEach(group => {
+                const toggle = group.querySelector('.company-toggle');
+                const sessions = group.querySelector('.company-sessions');
+                if (sessions) {
+                    sessions.style.display = 'block';
+                    if (toggle) toggle.innerHTML = '&#9660;';
+                }
+            });
+        }
+
+        function collapseAllGroups() {
+            document.querySelectorAll('.company-group').forEach(group => {
+                const toggle = group.querySelector('.company-toggle');
+                const sessions = group.querySelector('.company-sessions');
+                if (sessions) {
+                    sessions.style.display = 'none';
+                    if (toggle) toggle.innerHTML = '&#9654;';
+                }
+            });
+        }
+
+        function renderSessions() {
+            const container = document.getElementById('sessionsContainer');
+
+            if (filteredSessions.length === 0) {
+                container.innerHTML = '<div class="sessions-no-results">No sessions match your search.</div>';
+                return;
+            }
+
+            if (currentView === 'grouped') {
+                renderGroupedView(container);
+            } else {
+                renderListView(container);
+            }
+        }
+
+        function renderGroupedView(container) {
+            // Group filtered sessions by company
+            const grouped = {};
+            for (const session of filteredSessions) {
+                const company = session.company_name || 'Unknown';
+                if (!grouped[company]) grouped[company] = [];
+                grouped[company].push(session);
+            }
+
+            // Sort companies alphabetically
+            const companies = Object.keys(grouped).sort((a, b) => {
+                if (a === 'Unknown') return 1;
+                if (b === 'Unknown') return -1;
+                return a.localeCompare(b);
+            });
+
+            let html = '';
+            for (const company of companies) {
+                const sessions = grouped[company];
+                const isExpanded = true; // Default expanded
+
+                html += `
+                    <div class="company-group" data-company="${escapeHtml(company)}">
+                        <div class="company-header" onclick="toggleCompanyGroup(this)">
+                            <span class="company-toggle">&#9660;</span>
+                            <span class="company-name">${escapeHtml(company)}</span>
+                            <span class="company-count">${sessions.length} session${sessions.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="company-sessions">
+                            ${sessions.map(s => renderSessionCard(s)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderListView(container) {
+            let html = '<div class="sessions-list">';
+            html += filteredSessions.map(s => renderSessionCard(s)).join('');
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function renderSessionCard(session) {
+            const isSelected = selectedSessions.has(session.session_id);
+            const crackedPct = session.crack_rate ? session.crack_rate.toFixed(1) : '0.0';
+            const updatedDate = formatDate(session.updated_at);
+            const createdDate = formatDate(session.created_at);
+            const aaiaIcon = session.aaia_generated ? '<span class="aaia-badge" title="AI Analysis Generated">&#10024;</span>' : '';
+
+            return `
+                <div class="session-card ${isSelected ? 'selected' : ''}" data-id="${session.session_id}">
+                    <div class="session-checkbox">
+                        <input type="checkbox" ${isSelected ? 'checked' : ''}
+                               onchange="toggleSessionSelect('${session.session_id}', this.checked)">
+                    </div>
+                    <div class="session-info" onclick="viewSession('${session.session_id}')">
+                        <div class="session-name">
+                            ${escapeHtml(session.name)} ${aaiaIcon}
+                        </div>
+                        <div class="session-meta">
+                            <span title="Total accounts">&#128100; ${(session.total_accounts || 0).toLocaleString()}</span>
+                            <span title="Cracked">&#128275; ${(session.cracked_accounts || 0).toLocaleString()} (${crackedPct}%)</span>
+                            <span title="Last updated">&#128197; ${updatedDate}</span>
+                        </div>
+                        ${session.project_description ? `<div class="session-project">${escapeHtml(session.project_description)}</div>` : ''}
+                    </div>
+                    <div class="session-actions">
+                        <button class="action-btn view" onclick="viewSession('${session.session_id}')" title="View Report">
+                            &#128065;
+                        </button>
+                        <button class="action-btn delete" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete">
+                            &#128465;
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleCompanyGroup(header) {
+            const group = header.parentElement;
+            const toggle = header.querySelector('.company-toggle');
+            const sessions = group.querySelector('.company-sessions');
+
+            if (sessions.style.display === 'none') {
+                sessions.style.display = 'block';
+                toggle.innerHTML = '&#9660;';
+            } else {
+                sessions.style.display = 'none';
+                toggle.innerHTML = '&#9654;';
+            }
+        }
+
+        function toggleSessionSelect(sessionId, checked) {
+            if (checked) {
+                selectedSessions.add(sessionId);
+            } else {
+                selectedSessions.delete(sessionId);
+            }
+            updateBulkActions();
+            // Update card styling
+            const card = document.querySelector(`.session-card[data-id="${sessionId}"]`);
+            if (card) card.classList.toggle('selected', checked);
+        }
+
+        function updateBulkActions() {
+            const bulkActions = document.getElementById('bulkActions');
+            const count = selectedSessions.size;
+
+            if (count > 0) {
+                bulkActions.style.display = 'flex';
+                document.getElementById('selectedCount').textContent = `${count} selected`;
+            } else {
+                bulkActions.style.display = 'none';
+            }
+        }
+
+        function clearSelection() {
+            selectedSessions.clear();
+            document.querySelectorAll('.session-card.selected').forEach(card => {
+                card.classList.remove('selected');
+                const checkbox = card.querySelector('input[type="checkbox"]');
+                if (checkbox) checkbox.checked = false;
+            });
+            updateBulkActions();
+        }
+
+        async function viewSession(sessionId) {
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}/switch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    alert('Failed to load session: ' + data.error);
+                    return;
+                }
+
+                window.location.href = '/report';
+            } catch (error) {
+                alert('Failed to load session: ' + error.message);
+            }
+        }
+
+        function deleteSession(sessionId, sessionName) {
+            deleteTarget = { type: 'single', ids: [sessionId], name: sessionName };
+            document.getElementById('deleteMessage').textContent =
+                `Are you sure you want to delete "${sessionName}"?`;
+            document.getElementById('deleteModal').style.display = 'flex';
+        }
+
+        function deleteSelected() {
+            if (selectedSessions.size === 0) return;
+
+            deleteTarget = { type: 'bulk', ids: Array.from(selectedSessions) };
+            document.getElementById('deleteMessage').textContent =
+                `Are you sure you want to delete ${selectedSessions.size} session${selectedSessions.size !== 1 ? 's' : ''}?`;
+            document.getElementById('deleteModal').style.display = 'flex';
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+            deleteTarget = null;
+        }
+
+        async function confirmDelete() {
+            if (!deleteTarget) return;
+
+            const btn = document.getElementById('confirmDeleteBtn');
+            btn.disabled = true;
+            btn.textContent = 'Deleting...';
+
+            try {
+                for (const sessionId of deleteTarget.ids) {
+                    await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                }
+
+                closeDeleteModal();
+                selectedSessions.clear();
+                updateBulkActions();
+                loadSessions();
+
+            } catch (error) {
+                alert('Failed to delete: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Delete';
+            }
+        }
+
+        function formatDate(isoString) {
+            if (!isoString) return '-';
+            const date = new Date(isoString);
+            const now = new Date();
+            const isThisYear = date.getFullYear() === now.getFullYear();
+
+            const month = date.toLocaleString('default', { month: 'short' });
+            const day = date.getDate();
+
+            if (isThisYear) {
+                return `${month} ${day}`;
+            }
+            return `${month} ${day}, ${date.getFullYear()}`;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function logout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

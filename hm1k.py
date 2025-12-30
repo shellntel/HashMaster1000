@@ -1663,6 +1663,13 @@ def report() -> str:
     return render_template("report.html")
 
 
+@app.route("/sessions")
+@login_required
+def sessions_page() -> str:
+    """Session management page with sorting, grouping, and bulk operations."""
+    return render_template("sessions.html", advanced_options_enabled=ADVANCED_OPTIONS_ENABLED)
+
+
 @app.route("/hiddenpages")
 @app.route("/hidden")
 @login_required
@@ -3081,26 +3088,30 @@ def browse_directory() -> Response:
                 "name": "..",
                 "path": parent,
                 "is_dir": True,
-                "size": None
+                "size": None,
+                "mtime": None
             })
 
         # List directory contents
         for entry in sorted(os.listdir(abs_path)):
             entry_path = os.path.join(abs_path, entry)
             try:
+                stat_info = os.stat(entry_path)
                 is_dir = os.path.isdir(entry_path)
-                size = None if is_dir else os.path.getsize(entry_path)
+                size = None if is_dir else stat_info.st_size
+                mtime = stat_info.st_mtime  # Unix timestamp
                 entries.append({
                     "name": entry,
                     "path": entry_path,
                     "is_dir": is_dir,
-                    "size": size
+                    "size": size,
+                    "mtime": mtime
                 })
             except (PermissionError, OSError):
                 # Skip entries we can't access
                 continue
 
-        # Sort: directories first, then files, both alphabetically
+        # Sort: directories first, then files, both alphabetically (default)
         entries.sort(key=lambda x: (not x["is_dir"] if x["name"] != ".." else False, x["name"].lower()))
 
         return jsonify({

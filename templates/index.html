@@ -41,6 +41,7 @@
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
 				{% endif %}
+				<a href="{{ url_for('sessions_page') }}" class="header-btn" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
 				<button type="button" class="header-btn help helpButton"><span class="btn-icon">?</span>Help</button>
 				<button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
 			</div>
@@ -1213,7 +1214,10 @@
 			let fileBrowserState = {
 				targetInput: null,
 				currentPath: '.',
-				selectedFile: null
+				selectedFile: null,
+				entries: [],
+				sortBy: 'name',      // 'name', 'size', 'date'
+				sortAsc: true
 			};
 
 			function openFileBrowser(inputId) {
@@ -1263,12 +1267,78 @@
 					}
 
 					fileBrowserState.currentPath = data.current_path;
+					fileBrowserState.entries = data.entries;
 					document.getElementById('browserPathInput').value = data.current_path;
 
-					renderDirectoryContents(data.entries);
+					sortAndRenderEntries();
 
 				} catch (error) {
 					content.innerHTML = `<div class="browser-error">Error loading directory: ${error.message}</div>`;
+				}
+			}
+
+			function sortAndRenderEntries() {
+				const entries = [...fileBrowserState.entries];
+
+				// Separate parent dir entry (..) from the rest
+				const parentEntry = entries.find(e => e.name === '..');
+				const otherEntries = entries.filter(e => e.name !== '..');
+
+				// Sort based on current sort settings
+				otherEntries.sort((a, b) => {
+					// Directories always first
+					if (a.is_dir !== b.is_dir) {
+						return a.is_dir ? -1 : 1;
+					}
+
+					let cmp = 0;
+					switch (fileBrowserState.sortBy) {
+						case 'size':
+							cmp = (a.size || 0) - (b.size || 0);
+							break;
+						case 'date':
+							cmp = (a.mtime || 0) - (b.mtime || 0);
+							break;
+						case 'name':
+						default:
+							cmp = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+					}
+
+					return fileBrowserState.sortAsc ? cmp : -cmp;
+				});
+
+				// Reconstruct entries with parent first
+				const sortedEntries = parentEntry ? [parentEntry, ...otherEntries] : otherEntries;
+				renderDirectoryContents(sortedEntries);
+			}
+
+			function setSortBy(sortBy) {
+				if (fileBrowserState.sortBy === sortBy) {
+					// Toggle direction if same column
+					fileBrowserState.sortAsc = !fileBrowserState.sortAsc;
+				} else {
+					fileBrowserState.sortBy = sortBy;
+					// Default directions: name asc, size desc, date desc
+					fileBrowserState.sortAsc = sortBy === 'name';
+				}
+				sortAndRenderEntries();
+			}
+
+			function formatDate(timestamp) {
+				if (!timestamp) return '';
+				const date = new Date(timestamp * 1000);
+				const now = new Date();
+				const isThisYear = date.getFullYear() === now.getFullYear();
+
+				const month = date.toLocaleString('default', { month: 'short' });
+				const day = date.getDate();
+
+				if (isThisYear) {
+					const hours = date.getHours().toString().padStart(2, '0');
+					const mins = date.getMinutes().toString().padStart(2, '0');
+					return `${month} ${day} ${hours}:${mins}`;
+				} else {
+					return `${month} ${day} ${date.getFullYear()}`;
 				}
 			}
 
@@ -1280,10 +1350,25 @@
 					return;
 				}
 
-				let html = '<div class="browser-list">';
+				// Sort indicator arrows
+				const arrow = (col) => {
+					if (fileBrowserState.sortBy !== col) return '';
+					return fileBrowserState.sortAsc ? ' ▲' : ' ▼';
+				};
+
+				let html = `
+					<div class="browser-header">
+						<span class="header-icon"></span>
+						<span class="header-name sortable" onclick="setSortBy('name')">Name${arrow('name')}</span>
+						<span class="header-size sortable" onclick="setSortBy('size')">Size${arrow('size')}</span>
+						<span class="header-date sortable" onclick="setSortBy('date')">Modified${arrow('date')}</span>
+					</div>
+					<div class="browser-list">`;
+
 				for (const entry of entries) {
 					const icon = entry.is_dir ? '&#128193;' : '&#128196;';
 					const sizeStr = entry.size !== null ? formatFileSize(entry.size) : '';
+					const dateStr = formatDate(entry.mtime);
 					const itemClass = entry.is_dir ? 'browser-item dir' : 'browser-item file';
 
 					html += `
@@ -1292,6 +1377,7 @@
 							<span class="item-icon">${icon}</span>
 							<span class="item-name">${escapeHtml(entry.name)}</span>
 							<span class="item-size">${sizeStr}</span>
+							<span class="item-date">${dateStr}</span>
 						</div>
 					`;
 				}

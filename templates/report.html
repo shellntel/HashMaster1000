@@ -29,7 +29,6 @@
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 	</head>
 	<!-- NOTE: All CSS has been consolidated into static/css/style.css -->
-	<!-- DO NOT add inline <style> blocks here - use style.css instead -->
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
 	<body id="reportPage" class="dark-theme">
 		<!-- App Header -->
@@ -46,6 +45,7 @@
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
 				{% endif %}
+				<a href="{{ url_for('sessions_page') }}" class="header-btn" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
 				<button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('clear_and_restart') }}'"><span class="btn-icon">↩</span>Start Over</button>
 				<button type="button" id="themeToggle" class="header-btn theme icon-btn" title="Switch to Print View"><span class="btn-icon">☀</span></button>
 				<form action="/logout" method="post" style="display: inline; margin: 0;">
@@ -56,7 +56,7 @@
 
 		<!-- Session Picker Modal -->
 		<div id="sessionPickerModal" class="session-modal" style="display: none;">
-			<div class="session-modal-content">
+			<div class="session-modal-content session-modal-enhanced">
 				<div class="session-modal-header">
 					<h2>Session Manager</h2>
 					<button class="session-modal-close" onclick="closeSessionPicker()">&times;</button>
@@ -65,8 +65,32 @@
 					<div class="session-current-info" id="sessionCurrentInfo">
 						<!-- Current session details shown here -->
 					</div>
+					<!-- Search and Controls -->
+					<div class="session-modal-controls">
+						<div class="session-search-box">
+							<input type="text" id="sessionModalSearch" placeholder="Search sessions..." oninput="filterModalSessions()">
+							<span class="search-icon">🔍</span>
+						</div>
+						<div class="session-modal-options">
+							<div class="session-view-toggle">
+								<button class="session-view-btn active" data-view="grouped" onclick="setModalView('grouped')" title="Group by Company">📁</button>
+								<button class="session-view-btn" data-view="list" onclick="setModalView('list')" title="Flat List">☰</button>
+							</div>
+							<div class="session-expand-btns" id="sessionExpandBtns">
+								<button class="expand-btn" onclick="expandAllModalGroups()" title="Expand All">▼</button>
+								<button class="collapse-btn" onclick="collapseAllModalGroups()" title="Collapse All">▶</button>
+							</div>
+							<select id="sessionModalSort" onchange="sortModalSessions()">
+								<option value="updated_at">Last Updated</option>
+								<option value="created_at">Created</option>
+								<option value="name">Name</option>
+								<option value="crack_rate">Crack Rate</option>
+							</select>
+							<button class="session-sort-dir" id="sessionSortDirBtn" onclick="toggleModalSortDir()" title="Toggle sort direction">▼</button>
+						</div>
+					</div>
 					<div class="session-list-header">
-						<h3>Available Sessions</h3>
+						<h3>Available Sessions <span id="sessionFilteredCount"></span></h3>
 						<button class="session-migrate-btn" id="migrateLegacyBtn" onclick="migrateLegacyData()" style="display: none;">
 							📥 Import Legacy Data
 						</button>
@@ -7810,6 +7834,14 @@
 				}
 			}
 
+			// Session modal state
+			let modalAllSessions = [];
+			let modalFilteredSessions = [];
+			let modalCurrentSessionId = null;
+			let modalSortField = 'updated_at';
+			let modalSortAsc = false;
+			let modalView = 'grouped';
+
 			// Open session picker modal
 			async function openSessionPicker() {
 				document.getElementById('sessionPickerModal').style.display = 'flex';
@@ -7830,6 +7862,9 @@
 					const response = await fetch('/api/sessions');
 					const data = await response.json();
 
+					modalAllSessions = data.sessions || [];
+					modalCurrentSessionId = data.current_session_id;
+
 					// Check for legacy data
 					const legacyBtn = document.getElementById('migrateLegacyBtn');
 					try {
@@ -7846,7 +7881,7 @@
 					}
 
 					// Display current session info
-					const current = data.sessions.find(s => s.session_id === data.current_session_id);
+					const current = modalAllSessions.find(s => s.session_id === modalCurrentSessionId);
 					if (current) {
 						currentInfoEl.innerHTML = `
 							<div class="session-current-card">
@@ -7866,37 +7901,209 @@
 						currentInfoEl.innerHTML = '<div class="session-no-current">No active session</div>';
 					}
 
-					// Display session list
-					if (data.sessions.length === 0) {
-						listEl.innerHTML = '<div class="session-empty">No sessions found. Create a new analysis to start a session.</div>';
-						return;
-					}
-
-					listEl.innerHTML = data.sessions.map(session => `
-						<div class="session-item ${session.session_id === data.current_session_id ? 'session-item-current' : ''}"
-							 data-session-id="${session.session_id}">
-							<div class="session-item-info">
-								<div class="session-item-name">${escapeHtml(session.name)}</div>
-								<div class="session-item-meta">
-									<span>${session.total_accounts || 0} accounts</span>
-									<span>${session.cracked_accounts || 0} cracked</span>
-									<span>${formatDate(session.created_at)}</span>
-									${session.aaia_generated ? '<span class="session-aaia-badge">✨</span>' : ''}
-								</div>
-							</div>
-							<div class="session-item-actions">
-								${session.session_id !== data.current_session_id ?
-									`<button class="session-action-btn session-switch-btn" onclick="switchSession('${session.session_id}')">Switch</button>` :
-									'<span class="session-current-badge">Current</span>'
-								}
-								<button class="session-action-btn session-delete-btn" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete session">🗑️</button>
-							</div>
-						</div>
-					`).join('');
+					// Apply filtering and sorting
+					filterModalSessions();
 
 				} catch (error) {
 					console.error('Error loading sessions:', error);
 					listEl.innerHTML = '<div class="session-error">Error loading sessions</div>';
+				}
+			}
+
+			// Filter sessions by search term
+			function filterModalSessions() {
+				const searchTerm = document.getElementById('sessionModalSearch').value.toLowerCase().trim();
+
+				if (!searchTerm) {
+					modalFilteredSessions = [...modalAllSessions];
+				} else {
+					modalFilteredSessions = modalAllSessions.filter(s => {
+						return (s.name && s.name.toLowerCase().includes(searchTerm)) ||
+							   (s.company_name && s.company_name.toLowerCase().includes(searchTerm)) ||
+							   (s.project_description && s.project_description.toLowerCase().includes(searchTerm));
+					});
+				}
+
+				sortModalSessions();
+			}
+
+			// Sort sessions
+			function sortModalSessions() {
+				modalSortField = document.getElementById('sessionModalSort').value;
+
+				modalFilteredSessions.sort((a, b) => {
+					let cmp = 0;
+					switch (modalSortField) {
+						case 'name':
+							cmp = (a.name || '').localeCompare(b.name || '');
+							break;
+						case 'crack_rate':
+							cmp = (a.crack_rate || 0) - (b.crack_rate || 0);
+							break;
+						case 'created_at':
+							cmp = new Date(a.created_at) - new Date(b.created_at);
+							break;
+						case 'updated_at':
+						default:
+							cmp = new Date(a.updated_at) - new Date(b.updated_at);
+					}
+					return modalSortAsc ? cmp : -cmp;
+				});
+
+				renderModalSessions();
+			}
+
+			// Toggle sort direction
+			function toggleModalSortDir() {
+				modalSortAsc = !modalSortAsc;
+				document.getElementById('sessionSortDirBtn').innerHTML = modalSortAsc ? '▲' : '▼';
+				sortModalSessions();
+			}
+
+			// Set view mode
+			function setModalView(view) {
+				modalView = view;
+				document.querySelectorAll('.session-view-btn').forEach(btn => {
+					btn.classList.toggle('active', btn.dataset.view === view);
+				});
+				// Show/hide expand/collapse buttons based on view
+				document.getElementById('sessionExpandBtns').style.display = view === 'grouped' ? 'flex' : 'none';
+				renderModalSessions();
+			}
+
+			// Expand all groups in modal
+			function expandAllModalGroups() {
+				document.querySelectorAll('.session-group').forEach(group => {
+					const toggle = group.querySelector('.session-group-toggle');
+					const items = group.querySelector('.session-group-items');
+					if (items) {
+						items.style.display = 'block';
+						if (toggle) toggle.textContent = '▼';
+					}
+				});
+			}
+
+			// Collapse all groups in modal
+			function collapseAllModalGroups() {
+				document.querySelectorAll('.session-group').forEach(group => {
+					const toggle = group.querySelector('.session-group-toggle');
+					const items = group.querySelector('.session-group-items');
+					if (items) {
+						items.style.display = 'none';
+						if (toggle) toggle.textContent = '▶';
+					}
+				});
+			}
+
+			// Render sessions in the modal
+			function renderModalSessions() {
+				const listEl = document.getElementById('sessionList');
+				const countEl = document.getElementById('sessionFilteredCount');
+
+				// Update count
+				if (modalFilteredSessions.length !== modalAllSessions.length) {
+					countEl.textContent = `(${modalFilteredSessions.length} of ${modalAllSessions.length})`;
+				} else {
+					countEl.textContent = `(${modalAllSessions.length})`;
+				}
+
+				if (modalAllSessions.length === 0) {
+					listEl.innerHTML = '<div class="session-empty">No sessions found. Create a new analysis to start a session.</div>';
+					return;
+				}
+
+				if (modalFilteredSessions.length === 0) {
+					listEl.innerHTML = '<div class="session-empty">No sessions match your search.</div>';
+					return;
+				}
+
+				if (modalView === 'grouped') {
+					renderGroupedModalSessions(listEl);
+				} else {
+					renderListModalSessions(listEl);
+				}
+			}
+
+			// Render grouped view
+			function renderGroupedModalSessions(listEl) {
+				// Group by company
+				const grouped = {};
+				for (const session of modalFilteredSessions) {
+					const company = session.company_name || 'Unknown';
+					if (!grouped[company]) grouped[company] = [];
+					grouped[company].push(session);
+				}
+
+				// Sort companies
+				const companies = Object.keys(grouped).sort((a, b) => {
+					if (a === 'Unknown') return 1;
+					if (b === 'Unknown') return -1;
+					return a.localeCompare(b);
+				});
+
+				let html = '';
+				for (const company of companies) {
+					const sessions = grouped[company];
+					html += `
+						<div class="session-group" data-company="${escapeHtml(company)}">
+							<div class="session-group-header" onclick="toggleSessionGroup(this)">
+								<span class="session-group-toggle">▼</span>
+								<span class="session-group-name">${escapeHtml(company)}</span>
+								<span class="session-group-count">${sessions.length}</span>
+							</div>
+							<div class="session-group-items">
+								${sessions.map(s => renderModalSessionItem(s)).join('')}
+							</div>
+						</div>
+					`;
+				}
+
+				listEl.innerHTML = html;
+			}
+
+			// Render flat list view
+			function renderListModalSessions(listEl) {
+				listEl.innerHTML = modalFilteredSessions.map(s => renderModalSessionItem(s)).join('');
+			}
+
+			// Render a single session item
+			function renderModalSessionItem(session) {
+				const isCurrent = session.session_id === modalCurrentSessionId;
+				return `
+					<div class="session-item ${isCurrent ? 'session-item-current' : ''}"
+						 data-session-id="${session.session_id}">
+						<div class="session-item-info">
+							<div class="session-item-name">${escapeHtml(session.name)}</div>
+							<div class="session-item-meta">
+								<span>${session.total_accounts || 0} accounts</span>
+								<span>${session.cracked_accounts || 0} cracked</span>
+								<span>${formatDate(session.updated_at)}</span>
+								${session.aaia_generated ? '<span class="session-aaia-badge">✨</span>' : ''}
+							</div>
+						</div>
+						<div class="session-item-actions">
+							${!isCurrent ?
+								`<button class="session-action-btn session-switch-btn" onclick="switchSession('${session.session_id}')">Switch</button>` :
+								'<span class="session-current-badge">Current</span>'
+							}
+							<button class="session-action-btn session-delete-btn" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete session">🗑️</button>
+						</div>
+					</div>
+				`;
+			}
+
+			// Toggle company group collapse
+			function toggleSessionGroup(header) {
+				const group = header.parentElement;
+				const toggle = header.querySelector('.session-group-toggle');
+				const items = group.querySelector('.session-group-items');
+
+				if (items.style.display === 'none') {
+					items.style.display = 'block';
+					toggle.textContent = '▼';
+				} else {
+					items.style.display = 'none';
+					toggle.textContent = '▶';
 				}
 			}
 
