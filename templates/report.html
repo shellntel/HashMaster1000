@@ -1516,7 +1516,7 @@
 							progressDetail.textContent = 'Starting HIBP check...';
 						} else if (progress.status === 'running') {
 							if (progress.total > 0) {
-								progressDetail.textContent = `Checking hashes: ${progress.checked.toLocaleString()} / ${progress.total.toLocaleString()} API calls (${progress.percentage}%)`;
+								progressDetail.textContent = `Checking hashes: ${progress.checked.toLocaleString()} / ${progress.total.toLocaleString()} (${progress.percentage}%)`;
 							}
 						} else if (progress.status === 'complete') {
 							// Check complete - fetch and display results

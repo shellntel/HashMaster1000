@@ -389,6 +389,8 @@ def check_hashes_local(
 
     total = len(account_data)
     checked = 0
+    # Update progress every 500 items or at 1%, whichever is smaller
+    progress_interval = min(500, max(1, total // 100))
 
     # Cache results for duplicate hashes to avoid redundant disk seeks
     hash_cache: Dict[str, Tuple[bool, int]] = {}
@@ -441,7 +443,7 @@ def check_hashes_local(
         results.total_checked += 1
 
         checked += 1
-        if progress_callback and checked % 100 == 0:
+        if progress_callback and (checked % progress_interval == 0 or checked == 1):
             progress_callback(checked, total)
 
     results.check_duration_seconds = time.time() - start_time
