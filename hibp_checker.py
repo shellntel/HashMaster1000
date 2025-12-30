@@ -707,19 +707,29 @@ def check_hashes_hibp(
     progress_counter = [0]  # [checked_prefixes]
     hash_results: dict[str, HIBPResult] = {}
 
+    # Create a session with connection pooling for better performance
+    # This reuses TCP connections across requests instead of creating new ones
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=max_workers,
+        pool_maxsize=max_workers,
+        max_retries=1
+    )
+    session.mount("https://", adapter)
+    session.headers.update({
+        "User-Agent": "HashMaster1000-PasswordAudit",
+        "Add-Padding": "true"
+    })
+
     def check_prefix(prefix: str, hashes: list[str]) -> list[HIBPResult]:
         """Check all hashes with a given prefix in one API call."""
         results = []
 
         try:
-            response = requests.get(
+            response = session.get(
                 f"{HIBP_API_URL}/{prefix}",
                 params={"mode": "ntlm"},
-                headers={
-                    "User-Agent": "HashMaster1000-PasswordAudit",
-                    "Add-Padding": "true"
-                },
-                timeout=10
+                timeout=5  # HIBP typically responds in <1s
             )
 
             if response.status_code != 200:
@@ -777,36 +787,42 @@ def check_hashes_hibp(
                     error=str(e)
                 ))
 
-        time.sleep(delay_between_requests)
+        # Only sleep if delay is configured (default is 0)
+        if delay_between_requests > 0:
+            time.sleep(delay_between_requests)
         return results
 
     # Process prefixes in parallel
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_prefix = {
-            executor.submit(check_prefix, prefix, hashes): prefix
-            for prefix, hashes in prefix_to_hashes.items()
-        }
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_prefix = {
+                executor.submit(check_prefix, prefix, hashes): prefix
+                for prefix, hashes in prefix_to_hashes.items()
+            }
 
-        for future in as_completed(future_to_prefix):
-            prefix = future_to_prefix[future]
-            try:
-                prefix_results = future.result()
-                for result in prefix_results:
-                    hash_results[result.ntlm_hash] = result
-                progress_counter[0] += 1
+            for future in as_completed(future_to_prefix):
+                prefix = future_to_prefix[future]
+                try:
+                    prefix_results = future.result()
+                    for result in prefix_results:
+                        hash_results[result.ntlm_hash] = result
+                    progress_counter[0] += 1
 
-                # Log progress periodically
-                if progress_counter[0] % 1000 == 0 or progress_counter[0] == 1:
-                    logger.info(f"HIBP progress: {progress_counter[0]}/{total_prefixes} prefixes checked")
+                    # Log progress periodically
+                    if progress_counter[0] % 1000 == 0 or progress_counter[0] == 1:
+                        logger.info(f"HIBP progress: {progress_counter[0]}/{total_prefixes} prefixes checked")
 
-                if progress_callback:
-                    try:
-                        progress_callback(progress_counter[0], total_prefixes)
-                    except Exception as cb_err:
-                        logger.error(f"Progress callback error: {cb_err}")
+                    if progress_callback:
+                        try:
+                            progress_callback(progress_counter[0], total_prefixes)
+                        except Exception as cb_err:
+                            logger.error(f"Progress callback error: {cb_err}")
 
-            except Exception as e:
-                logger.error(f"Error processing prefix {prefix}: {e}")
+                except Exception as e:
+                    logger.error(f"Error processing prefix {prefix}: {e}")
+    finally:
+        # Close the session to release connection pool resources
+        session.close()
 
     # Build final results, expanding back to all usernames
     for ntlm_hash, usernames in hash_to_usernames.items():
