@@ -1726,58 +1726,29 @@
 					</div>
 				`;
 
-				// Helper to format password display with blur structure
-				function formatHIBPPassword(pw) {
-					if (pw === null || pw === undefined) {
-						return '<span class="hibp-password-unknown">(not cracked)</span>';
-					}
-					if (pw === '') {
-						return '<span class="hibp-password-unknown">(blank)</span>';
-					}
-					// Apply blur structure: show first 2 and last 2, blur middle
-					if (pw.length <= 4) {
-						// Short passwords - blur entirely
-						return `<span class="hibp-password-blurred">${escapeHtml(pw)}</span>`;
-					}
-					const start = escapeHtml(pw.slice(0, 2));
-					const middle = escapeHtml(pw.slice(2, -2));
-					const end = escapeHtml(pw.slice(-2));
-					return `<span class="hibp-password-visible">${start}</span><span class="hibp-password-blurred">${middle}</span><span class="hibp-password-visible">${end}</span>`;
-				}
+				// For large datasets, use server-side pagination
+				// Count breached accounts to decide approach
+				const breachedCount = data.total_found || 0;
 
-				// Breached accounts table
-				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
-				const breachedResults = data.results.filter(r => r.found_in_breach);
-				if (breachedResults.length > 0) {
-					// Sort by breach count descending
-					breachedResults.sort((a, b) => b.breach_count - a.breach_count);
-					allBreachedBody.innerHTML = breachedResults.map(item => {
-						const status = item.account_status || 'unknown';
-						const statusClass = status === 'enabled' ? 'status-enabled' : (status === 'disabled' ? 'status-disabled' : '');
-						const statusDisplay = status.charAt(0).toUpperCase() + status.slice(1);
-						return `
-						<tr>
-							<td>${escapeHtml(item.username)}</td>
-							<td class="${statusClass}" style="text-align: center">${statusDisplay}</td>
-							<td style="text-align: center">${formatHIBPPassword(item.cracked_pw)}</td>
-							<td style="text-align: center">${item.breach_count.toLocaleString()}</td>
-						</tr>
-					`}).join('');
+				if (breachedCount > 0) {
+					// Destroy existing DataTable if any
+					if (hibpDataTable) {
+						hibpDataTable.destroy();
+						hibpDataTable = null;
+					}
+
+					// Clear table body and initialize server-side DataTable
+					const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+					if (allBreachedBody) {
+						allBreachedBody.innerHTML = '';
+					}
+
+					// Initialize with server-side processing
+					loadFullHIBPResults();
 				} else {
-					allBreachedBody.innerHTML = '<tr><td colspan="4">No breached passwords found</td></tr>';
-				}
-
-				// Initialize DataTable if available
-				if (typeof $.fn.DataTable !== 'undefined') {
-					if (!$.fn.DataTable.isDataTable('#hibpAllBreachedTable')) {
-						$('#hibpAllBreachedTable').DataTable({
-							pageLength: 10,
-							order: [[3, 'desc']],  // Times Seen in Breaches column
-							language: { search: "Filter:" },
-							columnDefs: [
-								{ targets: [1, 2, 3], className: 'dt-center' }  // Center Status, Password, Times Seen columns
-							]
-						});
+					const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+					if (allBreachedBody) {
+						allBreachedBody.innerHTML = '<tr><td colspan="4">No breached passwords found</td></tr>';
 					}
 				}
 			}
@@ -1852,27 +1823,81 @@
 				}
 			}
 
-			// Load full HIBP results when user requests them
-			let hibpFullResultsLoaded = false;
+			// Load HIBP results with server-side pagination
+			let hibpDataTable = null;
 			async function loadFullHIBPResults() {
-				if (hibpFullResultsLoaded) return;
+				if (hibpDataTable) return;  // Already initialized
 
 				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
 				if (allBreachedBody) {
-					allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Loading account details...</td></tr>';
+					allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Initializing...</td></tr>';
 				}
 
-				try {
-					const response = await fetch('/hibp_results.json');
-					if (response.ok) {
-						const data = await response.json();
-						hibpFullResultsLoaded = true;
-						displayHIBPResults(data);
+				// Helper to format password display with blur structure
+				function formatHIBPPasswordForTable(pw) {
+					if (pw === null || pw === undefined) {
+						return '<span class="hibp-password-unknown">(not cracked)</span>';
 					}
-				} catch (e) {
+					if (pw === '') {
+						return '<span class="hibp-password-unknown">(blank)</span>';
+					}
+					// Apply blur structure: show first 2 and last 2, blur middle
+					if (pw.length <= 4) {
+						return `<span class="hibp-password-blurred">${escapeHtml(pw)}</span>`;
+					}
+					const start = escapeHtml(pw.slice(0, 2));
+					const middle = escapeHtml(pw.slice(2, -2));
+					const end = escapeHtml(pw.slice(-2));
+					return `<span class="hibp-password-visible">${start}</span><span class="hibp-password-blurred">${middle}</span><span class="hibp-password-visible">${end}</span>`;
+				}
+
+				// Initialize DataTable with server-side processing
+				if (typeof $.fn.DataTable !== 'undefined') {
+					// Clear existing table body
 					if (allBreachedBody) {
-						allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Error loading results</td></tr>';
+						allBreachedBody.innerHTML = '';
 					}
+
+					hibpDataTable = $('#hibpAllBreachedTable').DataTable({
+						processing: true,
+						serverSide: true,
+						ajax: {
+							url: '/api/hibp/results/paginated?filter=breached',
+							type: 'GET'
+						},
+						pageLength: 10,
+						lengthMenu: [10, 25, 50, 100],
+						order: [[3, 'desc']],  // Times Seen in Breaches column
+						language: {
+							search: "Filter:",
+							processing: '<div class="hibp-loading">Loading results...</div>'
+						},
+						columns: [
+							{ data: 'username', render: function(data) { return escapeHtml(data); } },
+							{
+								data: 'account_status',
+								className: 'dt-center',
+								render: function(data) {
+									const statusClass = data === 'enabled' ? 'status-enabled' : (data === 'disabled' ? 'status-disabled' : '');
+									const statusDisplay = data ? data.charAt(0).toUpperCase() + data.slice(1) : 'Unknown';
+									return `<span class="${statusClass}">${statusDisplay}</span>`;
+								}
+							},
+							{
+								data: 'cracked_pw',
+								className: 'dt-center',
+								render: function(data) { return formatHIBPPasswordForTable(data); }
+							},
+							{
+								data: 'breach_count',
+								className: 'dt-center',
+								render: function(data) { return data ? data.toLocaleString() : '0'; }
+							}
+						],
+						columnDefs: [
+							{ targets: [1, 2, 3], className: 'dt-center' }
+						]
+					});
 				}
 			}
 

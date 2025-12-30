@@ -2306,6 +2306,100 @@ def hibp_results() -> Response:
     return jsonify(data)
 
 
+@app.route("/api/hibp/results/paginated")
+@login_required
+def hibp_results_paginated() -> Response:
+    """
+    Get paginated HIBP results for DataTables server-side processing.
+
+    Query parameters (DataTables server-side):
+    - draw: DataTables draw counter
+    - start: Starting record index
+    - length: Number of records to return
+    - search[value]: Global search term
+    - order[0][column]: Column index to sort by
+    - order[0][dir]: Sort direction (asc/desc)
+    - filter: Optional filter ('breached' or 'all')
+    """
+    data = _load_session_json("hibp_results.json")
+    if data is None:
+        return jsonify({
+            "draw": int(request.args.get("draw", 1)),
+            "recordsTotal": 0,
+            "recordsFiltered": 0,
+            "data": []
+        })
+
+    results = data.get("results", [])
+
+    # Get DataTables parameters
+    draw = int(request.args.get("draw", 1))
+    start = int(request.args.get("start", 0))
+    length = int(request.args.get("length", 10))
+    search_value = request.args.get("search[value]", "").lower()
+    order_column = int(request.args.get("order[0][column]", 3))  # Default: breach_count
+    order_dir = request.args.get("order[0][dir]", "desc")
+    filter_type = request.args.get("filter", "breached")  # Default to breached only
+
+    # Column mapping for sorting
+    column_map = {
+        0: "username",
+        1: "account_status",
+        2: "cracked_pw",
+        3: "breach_count"
+    }
+    sort_key = column_map.get(order_column, "breach_count")
+
+    # Filter results
+    if filter_type == "breached":
+        filtered_results = [r for r in results if r.get("found_in_breach")]
+    else:
+        filtered_results = results
+
+    records_total = len(filtered_results)
+
+    # Apply search filter
+    if search_value:
+        filtered_results = [
+            r for r in filtered_results
+            if search_value in r.get("username", "").lower()
+            or search_value in str(r.get("cracked_pw", "")).lower()
+            or search_value in r.get("account_status", "").lower()
+        ]
+
+    records_filtered = len(filtered_results)
+
+    # Sort results
+    reverse = order_dir == "desc"
+    try:
+        filtered_results.sort(
+            key=lambda x: (x.get(sort_key) or 0) if sort_key == "breach_count" else (x.get(sort_key) or "").lower(),
+            reverse=reverse
+        )
+    except (TypeError, AttributeError):
+        pass  # Skip sorting if data types are inconsistent
+
+    # Paginate
+    paginated = filtered_results[start:start + length]
+
+    # Format response for DataTables
+    response_data = []
+    for item in paginated:
+        response_data.append({
+            "username": item.get("username", ""),
+            "account_status": item.get("account_status", "unknown"),
+            "cracked_pw": item.get("cracked_pw", ""),
+            "breach_count": item.get("breach_count", 0)
+        })
+
+    return jsonify({
+        "draw": draw,
+        "recordsTotal": records_total,
+        "recordsFiltered": records_filtered,
+        "data": response_data
+    })
+
+
 @app.route("/api/hibp/summary")
 @login_required
 def hibp_summary() -> Response:

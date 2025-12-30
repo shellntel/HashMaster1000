@@ -7458,6 +7458,24 @@ table.dataTable th.dt-center { text-align: center !important; }
 .hibp-table-section .status-enabled { color: #28a745; }
 .hibp-table-section .status-disabled { color: #6c757d; }
 
+/* HIBP DataTable server-side processing indicator */
+.hibp-loading {
+	padding: 20px;
+	text-align: center;
+	color: var(--text-secondary, #999);
+}
+#hibpAllBreachedTable_processing {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	background: rgba(0, 0, 0, 0.7);
+	color: #fff;
+	padding: 10px 20px;
+	border-radius: 4px;
+	z-index: 100;
+}
+
 /* HIBP Modal Styles */
 .hibp-modal {
 	position: fixed;
