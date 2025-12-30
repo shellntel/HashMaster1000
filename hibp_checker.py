@@ -14,7 +14,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Tuple
+from collections.abc import Callable
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -38,7 +38,7 @@ if MAX_WORKERS != DEFAULT_MAX_WORKERS:
     logger.info(f"HIBP API workers configured via env: {MAX_WORKERS}")
 
 # Local database state (binary search mode - no memory loading required)
-_local_db_path: Optional[str] = None
+_local_db_path: str | None = None
 _local_db_file_size: int = 0
 _local_db_estimated_entries: int = 0
 _local_db_ready: bool = False
@@ -51,7 +51,7 @@ class HIBPResult:
     username: str
     found_in_breach: bool
     breach_count: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -105,7 +105,7 @@ class HIBPCheckResults:
 # Local HIBP Database Support (Binary Search - No Memory Loading Required)
 # ============================================================================
 
-def init_local_hibp_database(db_path: str) -> Tuple[bool, str, int]:
+def init_local_hibp_database(db_path: str) -> tuple[bool, str, int]:
     """
     Initialize the local HIBP database for binary search lookups.
 
@@ -200,12 +200,12 @@ def init_local_hibp_database(db_path: str) -> Tuple[bool, str, int]:
 
 
 # Backwards compatibility alias
-def load_local_hibp_database(db_path: str, force_reload: bool = False) -> Tuple[bool, str, int]:
+def load_local_hibp_database(db_path: str, force_reload: bool = False) -> tuple[bool, str, int]:
     """Alias for init_local_hibp_database (backwards compatibility)."""
     return init_local_hibp_database(db_path)
 
 
-def get_local_db_status() -> Dict:
+def get_local_db_status() -> dict:
     """
     Get the current status of the local HIBP database.
 
@@ -237,7 +237,7 @@ def get_local_db_status() -> Dict:
     }
 
 
-def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> Tuple[bool, int]:
+def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> tuple[bool, int]:
     """
     Perform binary search on the sorted HIBP database file.
 
@@ -342,7 +342,7 @@ def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> Tuple
     return False, 0
 
 
-def check_hash_local(ntlm_hash: str) -> Tuple[bool, int]:
+def check_hash_local(ntlm_hash: str) -> tuple[bool, int]:
     """
     Check a single hash against the local database using binary search.
 
@@ -361,7 +361,7 @@ def check_hash_local(ntlm_hash: str) -> Tuple[bool, int]:
 
 def check_hashes_local(
     account_data: list[dict],
-    progress_callback: Optional[callable] = None
+    progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """
     Check multiple NTLM hashes against the local HIBP database using binary search.
@@ -393,7 +393,7 @@ def check_hashes_local(
     progress_interval = min(500, max(1, total // 100))
 
     # Cache results for duplicate hashes to avoid redundant disk seeks
-    hash_cache: Dict[str, Tuple[bool, int]] = {}
+    hash_cache: dict[str, tuple[bool, int]] = {}
 
     for account in account_data:
         ntlm_hash = account.get("ntlm_hash", "").upper().strip()
@@ -457,7 +457,7 @@ def check_hashes_local(
     return results
 
 
-def validate_local_db_path(db_path: str) -> Tuple[bool, str, Dict]:
+def validate_local_db_path(db_path: str) -> tuple[bool, str, dict]:
     """
     Validate a local HIBP database file without loading it.
 
@@ -658,7 +658,7 @@ def check_hashes_hibp(
     account_data: list[dict],
     delay_between_requests: float = DEFAULT_DELAY_BETWEEN_REQUESTS,
     max_workers: int = MAX_WORKERS,
-    progress_callback: Optional[callable] = None
+    progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """
     Check multiple NTLM hashes against HIBP using parallel requests.
