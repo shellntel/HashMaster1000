@@ -1042,6 +1042,208 @@ body#reportPage {
 		inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
+/* ==========================================================================
+   LOGIN PAGE - Modern Green High-Tech Theme
+   ========================================================================== */
+
+.login-page {
+	background:
+		linear-gradient(180deg, #000000 0%, #040804 30%, #060c06 50%, #040804 70%, #000000 100%),
+		repeating-linear-gradient(
+			0deg,
+			transparent,
+			transparent 40px,
+			rgba(49, 176, 5, 0.02) 40px,
+			rgba(49, 176, 5, 0.02) 41px
+		),
+		repeating-linear-gradient(
+			90deg,
+			transparent,
+			transparent 40px,
+			rgba(49, 176, 5, 0.02) 40px,
+			rgba(49, 176, 5, 0.02) 41px
+		);
+	background-attachment: fixed;
+	min-height: 100vh;
+	display: flex;
+	justify-content: center;
+	align-items: flex-start;
+	padding: 10vh 20px 20px 20px;
+	font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.login-container {
+	width: 100%;
+	max-width: 420px;
+	text-align: center;
+}
+
+/* Modern CSS Logo */
+.login-logo {
+	margin-bottom: 40px;
+}
+
+.login-logo-text {
+	display: flex;
+	justify-content: center;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.login-logo-hash {
+	font-size: 3rem;
+	font-weight: 300;
+	font-style: italic;
+	color: #31b005;
+	text-shadow:
+		0 0 20px rgba(49, 176, 5, 0.5),
+		0 0 40px rgba(49, 176, 5, 0.3);
+	letter-spacing: -2px;
+}
+
+.login-logo-master {
+	font-size: 3rem;
+	font-weight: 700;
+	font-style: italic;
+	color: #31b005;
+	text-shadow:
+		0 0 20px rgba(49, 176, 5, 0.5),
+		0 0 40px rgba(49, 176, 5, 0.3);
+	letter-spacing: -1px;
+}
+
+.login-logo-1000 {
+	font-size: 2.2rem;
+	font-weight: 700;
+	color: #ffffff;
+	text-shadow:
+		0 0 15px rgba(255, 255, 255, 0.3);
+	font-family: 'Courier New', monospace;
+	letter-spacing: 2px;
+	position: relative;
+	top: -2px;
+}
+
+.login-logo-subtitle {
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: #6a6a6a;
+	letter-spacing: 4px;
+	text-transform: uppercase;
+}
+
+/* Login Form */
+.login-form {
+	background: linear-gradient(180deg, #151a15 0%, #111511 100%);
+	border: 1px solid rgba(49, 176, 5, 0.2);
+	border-radius: 12px;
+	padding: 32px;
+	box-shadow:
+		0 8px 32px rgba(0, 0, 0, 0.5),
+		0 0 20px rgba(49, 176, 5, 0.05),
+		inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.login-input-group {
+	margin-bottom: 20px;
+	text-align: left;
+}
+
+.login-input-group label {
+	display: block;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: #8a8a8a;
+	margin-bottom: 8px;
+	text-transform: uppercase;
+	letter-spacing: 1px;
+}
+
+.login-input-group input {
+	width: 100%;
+	padding: 14px 16px;
+	font-size: 1rem;
+	color: #e0e0e0;
+	background: linear-gradient(180deg, #0a0c0a 0%, #0d100d 100%);
+	border: 1px solid rgba(49, 176, 5, 0.15);
+	border-radius: 8px;
+	box-sizing: border-box;
+	transition: all 0.3s ease;
+}
+
+.login-input-group input::placeholder {
+	color: #4a4a4a;
+}
+
+.login-input-group input:focus {
+	outline: none;
+	border-color: rgba(49, 176, 5, 0.5);
+	background: linear-gradient(180deg, #0c0f0c 0%, #101410 100%);
+	box-shadow:
+		0 0 0 3px rgba(49, 176, 5, 0.1),
+		0 0 15px rgba(49, 176, 5, 0.1);
+}
+
+/* Login Button */
+.login-btn {
+	width: 100%;
+	padding: 14px 24px;
+	margin-top: 8px;
+	font-size: 1rem;
+	font-weight: 600;
+	color: #ffffff;
+	background: linear-gradient(180deg, #2f9a2f 0%, #289028 50%, #217821 100%);
+	border: 1px solid rgba(49, 176, 5, 0.3);
+	border-radius: 8px;
+	cursor: pointer;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	gap: 10px;
+	box-shadow:
+		0 4px 15px rgba(0, 0, 0, 0.3),
+		inset 0 1px 0 rgba(255, 255, 255, 0.15);
+	transition: all 0.3s ease;
+}
+
+.login-btn:hover {
+	background: linear-gradient(180deg, #3aaa3a 0%, #2f9a2f 50%, #289028 100%);
+	box-shadow:
+		0 6px 20px rgba(0, 0, 0, 0.35),
+		0 0 20px rgba(49, 176, 5, 0.2),
+		inset 0 1px 0 rgba(255, 255, 255, 0.2);
+	transform: translateY(-2px);
+}
+
+.login-btn:active {
+	transform: translateY(0);
+	box-shadow:
+		0 2px 10px rgba(0, 0, 0, 0.3),
+		inset 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.login-btn-text {
+	letter-spacing: 1px;
+}
+
+.login-btn-icon {
+	font-size: 1.2rem;
+	transition: transform 0.3s ease;
+}
+
+.login-btn:hover .login-btn-icon {
+	transform: translateX(4px);
+}
+
+/* Login Footer */
+.login-footer {
+	margin-top: 24px;
+	font-size: 0.8rem;
+	color: #4a4a4a;
+	letter-spacing: 1px;
+}
+
 /* ==================== GLOBAL APP HEADER ==================== */
 
 /* App Header - used on all pages */

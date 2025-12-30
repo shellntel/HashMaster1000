@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - AI Benchmark Suite</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Benchmark-specific styles extending advanced-mode */
+        .bench-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
+        .bench-controls label { color: #71717a; }
+        .bench-controls select { min-width: 180px; }
+        .bench-controls input[type="range"] { width: 80px; }
+        .bench-temp-value { color: #00d4ff; font-weight: 600; min-width: 35px; }
+
+        .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 10px; margin: 15px 0; }
+        .test-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
+        .test-item:hover { border-color: rgba(0, 212, 255, 0.4); }
+        .test-item input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; cursor: pointer; accent-color: #00d4ff; }
+        .test-item label { cursor: pointer; flex: 1; line-height: 1.4; }
+        .test-item label strong { color: #00d4ff; }
+        .test-item label span { color: #71717a; }
+
+        .bench-progress { margin: 15px 0; }
+
+        .results-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .results-table th, .results-table td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .results-table th { color: #71717a; font-weight: normal; font-size: 0.9em; }
+        .results-table tr:hover { background: rgba(0, 212, 255, 0.05); }
+
+        .summary-stats { display: flex; gap: 30px; padding: 15px; background: rgba(0,0,0,0.3); border-radius: 6px; margin-top: 15px; flex-wrap: wrap; }
+        .summary-stat .label { color: #71717a; font-size: 0.85em; }
+        .summary-stat .value { color: #00d4ff; font-weight: bold; font-size: 1.15em; margin-top: 4px; }
+
+        .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 15px; }
+        .matrix-item { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 14px; border: 2px solid rgba(255,255,255,0.1); transition: all 0.2s; }
+        .matrix-item.running { border-color: #00d4ff; animation: item-pulse 1s infinite; }
+        .matrix-item.complete { border-color: rgba(74, 222, 128, 0.5); }
+        .matrix-item.error { border-color: rgba(248, 113, 113, 0.5); }
+        .matrix-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .matrix-item-title { font-weight: 600; color: #00d4ff; }
+        .matrix-item-model { color: #71717a; font-family: monospace; font-size: 0.85em; }
+        .matrix-item-time { color: #555; font-size: 0.85em; margin-top: 6px; }
+        @keyframes item-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        .model-select-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0; max-height: 200px; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
+        .model-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.3); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; transition: all 0.2s; }
+        .model-checkbox:hover { border-color: #f59e0b; }
+        .model-checkbox.selected { border-color: #f59e0b; background: rgba(245, 158, 11, 0.15); }
+        .model-checkbox input { display: none; }
+        .model-checkbox .model-label { font-family: monospace; font-size: 0.9em; color: #a0a0a0; }
+
+        .prompt-area { width: 100%; min-height: 150px; background: rgba(0,0,0,0.4); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 14px; font-family: monospace; font-size: 0.9em; resize: vertical; box-sizing: border-box; }
+        .prompt-area:focus { border-color: rgba(245, 158, 11, 0.5); outline: none; box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
+
+        .preset-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .preset-btn { background: rgba(0,0,0,0.3); color: #a0a0a0; border: 1px solid rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
+        .preset-btn:hover { background: rgba(255,255,255,0.05); border-color: rgba(245, 158, 11, 0.5); }
+        .preset-btn.active { background: #f59e0b; color: #000; border-color: #f59e0b; }
+        .preset-btn.section-preset { border-color: rgba(139, 92, 246, 0.3); }
+        .preset-btn.section-preset:hover { border-color: rgba(139, 92, 246, 0.6); }
+        .preset-btn.section-preset.active { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+
+        .compare-result { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.08); }
+        .compare-result.running { border-color: #00d4ff; }
+        .compare-result.complete { border-color: rgba(74, 222, 128, 0.4); }
+        .compare-result.error { border-color: rgba(248, 113, 113, 0.4); }
+        .compare-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .compare-result-model { font-weight: 600; color: #f59e0b; font-family: monospace; }
+        .compare-result-stats { display: flex; gap: 20px; font-size: 0.85em; color: #71717a; }
+        .compare-result-content { background: rgba(0,0,0,0.3); border-radius: 4px; padding: 14px; max-height: 300px; overflow-y: auto; font-size: 0.9em; line-height: 1.6; white-space: pre-wrap; }
+
+        .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
+        .history-item:hover { border-color: rgba(245, 158, 11, 0.4); }
+        .history-item-info { flex: 1; }
+        .history-item-date { color: #71717a; font-size: 0.85em; }
+        .history-item-models { color: #f59e0b; font-family: monospace; font-size: 0.9em; margin-top: 4px; }
+        .history-item-prompt { color: #555; font-size: 0.85em; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+
+        .data-warning { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; color: #fbbf24; }
+
+        .compare-section .advanced-section-title { color: #f59e0b !important; }
+        .matrix-section .advanced-section-title { color: #4ade80 !important; }
+    </style>
+</head>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">AI Benchmark Suite</h1>
+                <p class="advanced-subtitle">Comprehensive model benchmarking and comparison</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link active">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Ollama Servers Status -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128421;</span>
+                <h2 class="advanced-section-title">Ollama Servers</h2>
+                <button onclick="refreshServers()" id="refresh-servers-btn" class="advanced-btn advanced-btn-secondary advanced-btn-small" style="margin-left: auto;">Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div class="advanced-server-grid" id="servers-grid">
+                    {{ server_cards_html|safe }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Benchmark Tests -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#9889;</span>
+                <h2 class="advanced-section-title">Quick Benchmark Tests</h2>
+            </div>
+            <div class="advanced-section-content">
+                <p style="color: #71717a; margin-bottom: 15px;">Run predefined tests to evaluate model performance. Select tests, choose a server and model, then run.</p>
+
+                <div class="bench-controls">
+                    <label>Server:</label>
+                    <select id="quick-server" class="advanced-select">{{ server_options|safe }}</select>
+                    <label style="margin-left: 15px;">Model:</label>
+                    <select id="quick-model" class="advanced-select">{{ model_options|safe }}</select>
+                    <label style="margin-left: 15px;">Temp:</label>
+                    <input type="range" id="quick-temp" min="0" max="1" step="0.1" value="0.3">
+                    <span id="quick-temp-value" class="bench-temp-value">0.3</span>
+                </div>
+
+                <h3 style="color: #71717a; font-size: 0.95em; margin: 20px 0 10px;">Quick Tests</h3>
+                <div class="test-grid">
+                    <div class="test-item">
+                        <input type="checkbox" id="test-reasoning" checked>
+                        <label for="test-reasoning"><strong>Reasoning Test</strong> <span>- Logic puzzle with IT administrators</span></label>
+                    </div>
+                    <div class="test-item">
+                        <input type="checkbox" id="test-summarization" checked>
+                        <label for="test-summarization"><strong>Summarization</strong> <span>- Condense security audit findings</span></label>
+                    </div>
+                    <div class="test-item">
+                        <input type="checkbox" id="test-password-mini">
+                        <label for="test-password-mini"><strong>Password Mini-Test</strong> <span>- Quick password analysis (10 samples)</span></label>
+                    </div>
+                    <div class="test-item">
+                        <input type="checkbox" id="test-instruction">
+                        <label for="test-instruction"><strong>Instruction Following</strong> <span>- Format compliance test</span></label>
+                    </div>
+                </div>
+
+                <h3 style="color: #71717a; font-size: 0.95em; margin: 20px 0 10px;">Production Section Tests</h3>
+                {% if not data_has_content %}
+                <div class="data-warning">No password analysis data found. Run a password analysis first to use production sections.</div>
+                {% endif %}
+                <div class="test-grid" {% if not data_has_content %}style="opacity: 0.5; pointer-events: none;"{% endif %}>
+                    {{ section_checkboxes|safe }}
+                </div>
+
+                <div style="margin-top: 20px; display: flex; gap: 15px; align-items: center;">
+                    <button onclick="runQuickBenchmark()" id="quick-run-btn" class="advanced-btn advanced-btn-primary">Run Selected Tests</button>
+                    <button onclick="stopQuickBenchmark()" id="quick-stop-btn" class="advanced-btn advanced-btn-danger" style="display: none;">Stop</button>
+                    <span id="quick-status" style="color: #71717a;"></span>
+                </div>
+
+                <div class="bench-progress" id="quick-progress" style="display: none;">
+                    <div class="advanced-progress">
+                        <div class="advanced-progress-bar" id="quick-progress-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <div id="quick-results"></div>
+            </div>
+        </div>
+
+        <!-- Model Comparison -->
+        <div class="advanced-section compare-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128200;</span>
+                <h2 class="advanced-section-title">Model Comparison</h2>
+            </div>
+            <div class="advanced-section-content">
+                <p style="color: #71717a; margin-bottom: 15px;">Compare multiple models on the same prompt. Results are saved for manual quality review.</p>
+
+                <div class="bench-controls">
+                    <label>Server:</label>
+                    <select id="compare-server" class="advanced-select" onchange="updateCompareModels()">{{ server_options|safe }}</select>
+                    <label style="margin-left: 15px;">Temp:</label>
+                    <input type="range" id="compare-temp" min="0" max="1" step="0.1" value="0.3">
+                    <span id="compare-temp-value" class="bench-temp-value" style="color: #f59e0b;">0.3</span>
+                </div>
+
+                <h3 style="color: #f59e0b; font-size: 0.95em; margin: 20px 0 10px;">Select Models to Compare</h3>
+                <div class="model-select-grid" id="compare-models-grid">
+                    <span style="color: #555;">Loading models...</span>
+                </div>
+                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                    <button onclick="selectAllCompareModels()" class="advanced-btn advanced-btn-secondary advanced-btn-small">Select All</button>
+                    <button onclick="deselectAllCompareModels()" class="advanced-btn advanced-btn-secondary advanced-btn-small">Deselect All</button>
+                    <span id="compare-models-count" style="color: #71717a; font-size: 0.9em; align-self: center;"></span>
+                </div>
+
+                <h3 style="color: #f59e0b; font-size: 0.95em; margin: 20px 0 10px;">Prompt</h3>
+                <p style="color: #555; font-size: 0.85em; margin-bottom: 8px;">Quick Tests:</p>
+                <div class="preset-buttons">
+                    <button class="preset-btn active" onclick="setComparePreset('reasoning', this)">Reasoning</button>
+                    <button class="preset-btn" onclick="setComparePreset('summarization', this)">Summarization</button>
+                    <button class="preset-btn" onclick="setComparePreset('password', this)">Password Analysis</button>
+                    <button class="preset-btn" onclick="setComparePreset('instruction', this)">Instruction Following</button>
+                    <button class="preset-btn" onclick="setComparePreset('custom', this)">Custom</button>
+                </div>
+                <p style="color: #555; font-size: 0.85em; margin: 15px 0 8px;">Production Sections (uses real data):</p>
+                {% if not data_has_content %}
+                <div class="data-warning" style="margin-bottom: 10px;">No password analysis data found.</div>
+                {% endif %}
+                <div class="preset-buttons">
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('weak-habits', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Weak Habits</button>
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('company-intel', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Company Intel</button>
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('user-behavior', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>User Behavior</button>
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('recommendations', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Recommendations</button>
+                </div>
+                <textarea id="compare-prompt" class="prompt-area" placeholder="Enter your prompt here..."></textarea>
+
+                <div style="margin-top: 15px; display: flex; gap: 15px; align-items: center;">
+                    <button onclick="runComparison()" id="compare-run-btn" class="advanced-btn advanced-btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">Run Comparison</button>
+                    <button onclick="stopComparison()" id="compare-stop-btn" class="advanced-btn advanced-btn-danger" style="display: none;">Stop</button>
+                    <span id="compare-status" style="color: #71717a;"></span>
+                </div>
+
+                <div class="bench-progress" id="compare-progress" style="display: none;">
+                    <div class="advanced-progress">
+                        <div class="advanced-progress-bar" id="compare-progress-fill" style="width: 0%; background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%);"></div>
+                    </div>
+                </div>
+
+                <div id="compare-results"></div>
+
+                <!-- Comparison History -->
+                <div id="compare-history-section" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <h3 style="color: #f59e0b; font-size: 0.95em; margin-bottom: 12px;">Comparison History</h3>
+                    <div id="compare-history-list" class="history-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Matrix Run -->
+        <div class="advanced-section matrix-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128202;</span>
+                <h2 class="advanced-section-title">Full Matrix Run</h2>
+            </div>
+            <div class="advanced-section-content">
+                <p style="color: #71717a; margin-bottom: 15px;">Run all production sections against all models on a selected server. Results are saved to test_outputs/.</p>
+                {% if not data_has_content %}
+                <div class="data-warning">No password analysis data found. Run a password analysis first to use the matrix run.</div>
+                {% endif %}
+
+                <div class="bench-controls" {% if not data_has_content %}style="opacity: 0.5; pointer-events: none;"{% endif %}>
+                    <label>Server:</label>
+                    <select id="matrix-server" class="advanced-select">{{ server_options|safe }}</select>
+                    <label style="margin-left: 15px;">Temp:</label>
+                    <input type="range" id="matrix-temp" min="0" max="1" step="0.1" value="0.3">
+                    <span id="matrix-temp-value" class="bench-temp-value" style="color: #4ade80;">0.3</span>
+                    <button onclick="runMatrix()" id="matrix-run-btn" class="advanced-btn advanced-btn-primary" style="margin-left: 20px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);">Run Full Matrix</button>
+                    <button onclick="stopMatrix()" id="matrix-stop-btn" class="advanced-btn advanced-btn-danger" style="display: none;">Stop</button>
+                </div>
+
+                <div id="matrix-status" style="display: none; margin-top: 12px; padding: 12px 16px; border-radius: 6px;"></div>
+
+                <div class="bench-progress" id="matrix-progress" style="display: none;">
+                    <div class="advanced-progress">
+                        <div class="advanced-progress-bar" id="matrix-progress-fill" style="width: 0%; background: linear-gradient(90deg, #22c55e 0%, #4ade80 50%, #22c55e 100%);"></div>
+                    </div>
+                </div>
+
+                <div id="matrix-results" class="matrix-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/api/ai')) {
+                exitLink.href = referrer;
+            }
+        })();
+
+        // Format time helper
+        function formatTime(seconds) {
+            if (seconds < 60) return seconds.toFixed(1) + 's';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.round(seconds % 60);
+            return mins + 'm ' + secs + 's';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        // Temperature sliders
+        document.getElementById('quick-temp').addEventListener('input', function() {
+            document.getElementById('quick-temp-value').textContent = this.value;
+        });
+        document.getElementById('matrix-temp').addEventListener('input', function() {
+            document.getElementById('matrix-temp-value').textContent = this.value;
+        });
+        document.getElementById('compare-temp').addEventListener('input', function() {
+            document.getElementById('compare-temp-value').textContent = this.value;
+        });
+
+        // Quick benchmark tests definitions
+        const QUICK_TESTS = {
+            'reasoning': {
+                name: 'Reasoning Test',
+                type: 'custom',
+                prompt: `Solve this logic puzzle step by step:
+
+Three IT administrators - Alice, Bob, and Charlie - each manage a different system (Active Directory, Azure, and Linux servers) and use different password managers (Bitwarden, 1Password, and KeePass).
+
+Clues:
+1. Alice doesn't manage Active Directory
+2. The person who uses Bitwarden manages Linux servers
+3. Charlie uses 1Password
+4. Bob doesn't manage Azure
+5. The person who manages Active Directory uses KeePass
+
+Questions:
+1. Which system does each person manage?
+2. Which password manager does each person use?
+3. Explain your reasoning process.
+
+Provide a clear, structured answer with your step-by-step logic.`
+            },
+            'summarization': {
+                name: 'Summarization Test',
+                type: 'custom',
+                prompt: `Summarize the following security audit findings in exactly 3 bullet points, capturing the most critical issues:
+
+During the comprehensive password security assessment of the organization's Active Directory environment, we discovered several critical vulnerabilities that require immediate attention. The analysis covered 847 user accounts across three domains, with a password cracking success rate of 67.2% using standard dictionary and rule-based attacks executed over a 48-hour period.
+
+The most alarming finding was the widespread use of company-related terms in passwords. Over 40% of cracked passwords contained variations of the company name "TechCorp", project codes like "Project Phoenix" or "Initiative Blue", or product names. This pattern suggests either a failure in security awareness training or an overly permissive password policy that allows predictable constructions.
+
+Password reuse emerged as another significant concern, with 33 accounts sharing the single password "TechCorp2024!" and 11 additional accounts using "Summer2024". This level of reuse suggests either credential sharing among team members or IT-provisioned default passwords that were never changed. Either scenario represents a serious security risk.
+
+The technical analysis revealed that 89 accounts still have LM hashes stored, indicating legacy compatibility settings that significantly weaken the security posture. Additionally, 23 service accounts were found to have passwords that haven't been rotated in over 2 years, with 7 of those being cracked during testing.
+
+Provide exactly 3 bullet points summarizing the most critical findings.`
+            },
+            'password-mini': {
+                name: 'Password Mini-Test',
+                type: 'custom',
+                prompt: `Analyze these 10 passwords from a security perspective and identify patterns:
+
+1. Summer2024
+2. Welcome1!
+3. Password123
+4. Company2024!
+5. qwerty123
+6. Baseball!1
+7. JohnSmith1
+8. Winter2023
+9. P@ssw0rd!
+10. Football99
+
+For each password, briefly explain:
+- Why it's weak
+- What pattern category it falls into (season+year, keyboard pattern, name-based, etc.)
+
+Then provide a summary of the overall password hygiene issues observed.
+
+Keep your response concise but thorough.`
+            },
+            'instruction': {
+                name: 'Instruction Following Test',
+                type: 'custom',
+                prompt: `You are testing your ability to follow formatting instructions precisely.
+
+TASK: Analyze the following list and respond EXACTLY in the format specified.
+
+Input data:
+- apples: 50
+- bananas: 30
+- oranges: 45
+- grapes: 25
+- mangoes: 40
+
+REQUIRED FORMAT (follow EXACTLY):
+1. Start with "ANALYSIS RESULTS" on its own line
+2. List each item as "- [item]: [count] units" (all lowercase for item name)
+3. Add a blank line
+4. Write "TOTAL: [sum] units"
+5. Add a blank line
+6. Write "TOP ITEM: [highest item] with [count] units"
+7. Write "BOTTOM ITEM: [lowest item] with [count] units"
+
+Your response should contain ONLY the formatted output, nothing else. No explanations, no additional text.`
+            }
+        };
+
+        // Section tests (production prompts)
+        const SECTION_TESTS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+
+        let quickRunning = false;
+        let quickStopped = false;
+        let quickResults = [];
+
+        async function runQuickBenchmark() {
+            if (quickRunning) return;
+
+            const serverId = document.getElementById('quick-server').value;
+            const model = document.getElementById('quick-model').value;
+            const temperature = parseFloat(document.getElementById('quick-temp').value);
+
+            if (!model) {
+                alert('Please select a model');
+                return;
+            }
+
+            // Get selected tests
+            const selectedTests = [];
+
+            // Quick tests
+            for (const testId of Object.keys(QUICK_TESTS)) {
+                const checkbox = document.getElementById('test-' + testId);
+                if (checkbox && checkbox.checked) {
+                    selectedTests.push({ id: testId, ...QUICK_TESTS[testId] });
+                }
+            }
+
+            // Section tests
+            for (const sectionId of SECTION_TESTS) {
+                const checkbox = document.getElementById('test-' + sectionId);
+                if (checkbox && checkbox.checked) {
+                    selectedTests.push({ id: sectionId, type: 'section', name: sectionId.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) });
+                }
+            }
+
+            if (selectedTests.length === 0) {
+                alert('Please select at least one test');
+                return;
+            }
+
+            // Verify server is reachable
+            const serverResp = await fetch('/api/ai/servers/' + serverId + '/status');
+            const serverData = await serverResp.json();
+            if (!serverData.reachable) {
+                document.getElementById('quick-status').innerHTML = '<span style="color: #f87171;">Server not reachable</span>';
+                return;
+            }
+
+            // Setup UI
+            quickRunning = true;
+            quickStopped = false;
+            quickResults = [];
+
+            const runBtn = document.getElementById('quick-run-btn');
+            const stopBtn = document.getElementById('quick-stop-btn');
+            const statusSpan = document.getElementById('quick-status');
+            const progressDiv = document.getElementById('quick-progress');
+            const progressFill = document.getElementById('quick-progress-fill');
+            const resultsDiv = document.getElementById('quick-results');
+
+            runBtn.disabled = true;
+            stopBtn.style.display = 'inline-flex';
+            progressDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+
+            const startTime = Date.now();
+
+            // Run each test
+            for (let i = 0; i < selectedTests.length; i++) {
+                if (quickStopped) break;
+
+                const test = selectedTests[i];
+                statusSpan.innerHTML = `Running: <strong style="color: #00d4ff;">${escapeHtml(test.name)}</strong> (${i + 1}/${selectedTests.length})`;
+
+                const pct = Math.round((i / selectedTests.length) * 100);
+                progressFill.style.width = pct + '%';
+
+                let testSeconds = 0;
+                const timerId = setInterval(() => {
+                    testSeconds++;
+                    statusSpan.innerHTML = `Running: <strong style="color: #00d4ff;">${escapeHtml(test.name)}</strong> (${i + 1}/${selectedTests.length}) - ${formatTime(testSeconds)}`;
+                }, 1000);
+
+                try {
+                    let result;
+                    if (test.type === 'section') {
+                        const analyzeResp = await fetch('/api/ai/report/analyze/' + test.id, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                model: model,
+                                temperature: temperature,
+                                server_id: serverId
+                            })
+                        });
+                        result = await analyzeResp.json();
+                    } else {
+                        const genResp = await fetch('/api/ai/generate', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                prompt: test.prompt,
+                                model: model,
+                                temperature: temperature,
+                                server_id: serverId
+                            })
+                        });
+                        result = await genResp.json();
+                    }
+
+                    clearInterval(timerId);
+                    quickResults.push({
+                        test: test,
+                        time: result.response_time_seconds || testSeconds,
+                        success: !!(result.content || result.response),
+                        error: result.error,
+                        contentLength: (result.content || result.response || '').length,
+                        savedTo: result.saved_to
+                    });
+                } catch (e) {
+                    clearInterval(timerId);
+                    quickResults.push({
+                        test: test,
+                        time: 0,
+                        success: false,
+                        error: e.message,
+                        contentLength: 0
+                    });
+                }
+            }
+
+            // Complete
+            quickRunning = false;
+            runBtn.disabled = false;
+            stopBtn.style.display = 'none';
+            progressFill.style.width = '100%';
+
+            const totalTime = Math.round((Date.now() - startTime) / 1000);
+            const successCount = quickResults.filter(r => r.success).length;
+            statusSpan.innerHTML = `<span style="color: #4ade80;">Complete!</span> ${successCount}/${selectedTests.length} passed in ${formatTime(totalTime)}`;
+
+            displayQuickResults(model);
+        }
+
+        function stopQuickBenchmark() {
+            quickStopped = true;
+            document.getElementById('quick-status').innerHTML += ' <span style="color: #fbbf24;">Stopping...</span>';
+        }
+
+        function displayQuickResults(model) {
+            const resultsDiv = document.getElementById('quick-results');
+            const maxTime = Math.max(...quickResults.map(r => r.time || 0), 1);
+
+            let html = '<table class="results-table">';
+            html += '<tr><th>Test</th><th style="text-align: right;">Time</th><th style="text-align: right;">Output</th><th style="width: 35%;"></th></tr>';
+
+            quickResults.forEach(result => {
+                const barWidth = result.success ? Math.max((result.time / maxTime) * 100, 5) : 100;
+                const barColor = result.success ? '#4ade80' : '#f87171';
+                const icon = result.success ? '&#10004;' : '&#10008;';
+                const iconColor = result.success ? '#4ade80' : '#f87171';
+
+                html += `
+                    <tr>
+                        <td>
+                            <span style="color: ${iconColor}; margin-right: 8px;">${icon}</span>
+                            <strong style="color: #00d4ff;">${escapeHtml(result.test.name)}</strong>
+                        </td>
+                        <td style="text-align: right; color: ${result.success ? '#4ade80' : '#f87171'}; font-weight: bold;">
+                            ${formatTime(result.time)}
+                        </td>
+                        <td style="text-align: right; color: #71717a;">
+                            ${result.success ? (result.contentLength / 1000).toFixed(1) + 'KB' : '-'}
+                        </td>
+                        <td>
+                            <div style="height: 16px; background: rgba(0,0,0,0.3); border-radius: 3px; overflow: hidden;">
+                                <div style="height: 100%; width: ${barWidth}%; background: ${barColor};"></div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            html += '</table>';
+
+            // Summary
+            const successful = quickResults.filter(r => r.success);
+            if (successful.length > 0) {
+                const totalTime = successful.reduce((sum, r) => sum + r.time, 0);
+                const avgTime = totalTime / successful.length;
+                const totalOutput = successful.reduce((sum, r) => sum + r.contentLength, 0);
+
+                html += `
+                    <div class="summary-stats">
+                        <div class="summary-stat"><span class="label">Tests Passed</span><br><span class="value" style="color: #4ade80;">${successful.length}/${quickResults.length}</span></div>
+                        <div class="summary-stat"><span class="label">Total Time</span><br><span class="value">${formatTime(Math.round(totalTime))}</span></div>
+                        <div class="summary-stat"><span class="label">Avg Time</span><br><span class="value">${formatTime(Math.round(avgTime))}</span></div>
+                        <div class="summary-stat"><span class="label">Total Output</span><br><span class="value">${(totalOutput / 1000).toFixed(1)}KB</span></div>
+                    </div>
+                `;
+            }
+
+            resultsDiv.innerHTML = html;
+        }
+
+        // Matrix run
+        let matrixRunning = false;
+        let matrixStopped = false;
+        let matrixResults = [];
+
+        async function runMatrix() {
+            if (matrixRunning) return;
+
+            const serverId = document.getElementById('matrix-server').value;
+            const temperature = parseFloat(document.getElementById('matrix-temp').value);
+
+            const runBtn = document.getElementById('matrix-run-btn');
+            const stopBtn = document.getElementById('matrix-stop-btn');
+            const statusDiv = document.getElementById('matrix-status');
+            const progressDiv = document.getElementById('matrix-progress');
+            const progressFill = document.getElementById('matrix-progress-fill');
+            const resultsDiv = document.getElementById('matrix-results');
+
+            // Get server models
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(0, 212, 255, 0.1)';
+            statusDiv.style.border = '1px solid rgba(0, 212, 255, 0.3)';
+            statusDiv.style.color = '#00d4ff';
+            statusDiv.textContent = 'Fetching server models...';
+
+            const serverResp = await fetch('/api/ai/servers/' + serverId + '/status');
+            const serverData = await serverResp.json();
+
+            if (!serverData.reachable) {
+                statusDiv.style.background = 'rgba(248, 113, 113, 0.1)';
+                statusDiv.style.border = '1px solid rgba(248, 113, 113, 0.3)';
+                statusDiv.style.color = '#f87171';
+                statusDiv.textContent = 'Server not reachable: ' + (serverData.error || 'Unknown error');
+                return;
+            }
+
+            const models = serverData.available_models || [];
+            if (models.length === 0) {
+                statusDiv.style.background = 'rgba(248, 113, 113, 0.1)';
+                statusDiv.style.border = '1px solid rgba(248, 113, 113, 0.3)';
+                statusDiv.style.color = '#f87171';
+                statusDiv.textContent = 'No models available on this server';
+                return;
+            }
+
+            const sections = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+            const sectionNames = {
+                'weak-habits': 'Weak Password Habits',
+                'company-intel': 'Company Intelligence',
+                'user-behavior': 'User Behavior',
+                'recommendations': 'Recommendations'
+            };
+
+            // Build matrix
+            const matrix = [];
+            for (const section of sections) {
+                for (const model of models) {
+                    matrix.push({ section, model, sectionName: sectionNames[section] });
+                }
+            }
+
+            const totalRuns = matrix.length;
+            statusDiv.innerHTML = `Starting: ${sections.length} sections &times; ${models.length} models = <strong>${totalRuns} runs</strong>`;
+
+            // Setup UI
+            matrixRunning = true;
+            matrixStopped = false;
+            matrixResults = [];
+            runBtn.disabled = true;
+            stopBtn.style.display = 'inline-flex';
+            progressDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+
+            // Create placeholders
+            matrix.forEach((item, idx) => {
+                resultsDiv.innerHTML += `
+                    <div class="matrix-item" id="matrix-item-${idx}">
+                        <div class="matrix-item-header">
+                            <span class="matrix-item-title">${escapeHtml(item.sectionName)}</span>
+                            <span id="matrix-status-${idx}" style="color: #71717a;">Pending</span>
+                        </div>
+                        <div class="matrix-item-model">${escapeHtml(item.model)}</div>
+                        <div class="matrix-item-time" id="matrix-time-${idx}"></div>
+                    </div>
+                `;
+            });
+
+            // Run matrix
+            let completed = 0;
+            const startTime = Date.now();
+
+            for (let i = 0; i < matrix.length; i++) {
+                if (matrixStopped) break;
+
+                const item = matrix[i];
+                const itemDiv = document.getElementById('matrix-item-' + i);
+                const statusSpan = document.getElementById('matrix-status-' + i);
+                const timeDiv = document.getElementById('matrix-time-' + i);
+
+                itemDiv.classList.add('running');
+                statusSpan.innerHTML = '<span style="color: #00d4ff;">Running...</span>';
+
+                let itemSeconds = 0;
+                const timerId = setInterval(() => {
+                    itemSeconds++;
+                    timeDiv.textContent = formatTime(itemSeconds);
+                }, 1000);
+
+                try {
+                    const resp = await fetch('/api/ai/report/analyze/' + item.section, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            model: item.model,
+                            temperature: temperature,
+                            server_id: serverId
+                        })
+                    });
+
+                    clearInterval(timerId);
+                    const result = await resp.json();
+
+                    itemDiv.classList.remove('running');
+                    if (result.content) {
+                        itemDiv.classList.add('complete');
+                        statusSpan.innerHTML = '<span style="color: #4ade80;">&#10004;</span>';
+                        timeDiv.textContent = result.response_time_formatted || formatTime(itemSeconds);
+                        matrixResults.push({ ...item, success: true, time: result.response_time_seconds });
+                    } else {
+                        itemDiv.classList.add('error');
+                        statusSpan.innerHTML = '<span style="color: #f87171;">&#10008;</span>';
+                        timeDiv.textContent = result.error || 'Failed';
+                        matrixResults.push({ ...item, success: false, error: result.error });
+                    }
+                } catch (e) {
+                    clearInterval(timerId);
+                    itemDiv.classList.remove('running');
+                    itemDiv.classList.add('error');
+                    statusSpan.innerHTML = '<span style="color: #f87171;">&#10008;</span>';
+                    timeDiv.textContent = e.message;
+                    matrixResults.push({ ...item, success: false, error: e.message });
+                }
+
+                completed++;
+                const pct = Math.round((completed / totalRuns) * 100);
+                progressFill.style.width = pct + '%';
+
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const avgPerRun = elapsed / completed;
+                const remaining = Math.round(avgPerRun * (totalRuns - completed));
+                statusDiv.innerHTML = `Progress: ${completed}/${totalRuns} | Elapsed: ${formatTime(elapsed)} | Est. remaining: ${formatTime(remaining)}`;
+            }
+
+            // Complete
+            matrixRunning = false;
+            runBtn.disabled = false;
+            stopBtn.style.display = 'none';
+
+            const totalElapsed = Math.round((Date.now() - startTime) / 1000);
+            const successCount = matrixResults.filter(r => r.success).length;
+            statusDiv.style.background = 'rgba(74, 222, 128, 0.1)';
+            statusDiv.style.border = '1px solid rgba(74, 222, 128, 0.3)';
+            statusDiv.style.color = '#4ade80';
+            statusDiv.innerHTML = `<strong>Complete!</strong> ${successCount}/${totalRuns} successful in ${formatTime(totalElapsed)}`;
+
+            if (matrixStopped) {
+                statusDiv.innerHTML += ' <span style="color: #fbbf24;">(Stopped early)</span>';
+            }
+        }
+
+        function stopMatrix() {
+            matrixStopped = true;
+            document.getElementById('matrix-status').innerHTML += ' <span style="color: #fbbf24;">Stopping...</span>';
+        }
+
+        // Model Comparison
+        const COMPARE_PRESETS = {
+            'reasoning': {
+                name: 'Reasoning',
+                prompt: QUICK_TESTS['reasoning'].prompt
+            },
+            'summarization': {
+                name: 'Summarization',
+                prompt: QUICK_TESTS['summarization'].prompt
+            },
+            'password': {
+                name: 'Password Analysis',
+                prompt: QUICK_TESTS['password-mini'].prompt
+            },
+            'instruction': {
+                name: 'Instruction Following',
+                prompt: QUICK_TESTS['instruction'].prompt
+            },
+            'custom': {
+                name: 'Custom',
+                prompt: ''
+            }
+        };
+
+        let compareRunning = false;
+        let compareStopped = false;
+        let compareResults = [];
+        let currentComparePrompt = '';
+        let usingSectionPreset = false;
+        let currentSectionId = null;
+
+        function setComparePreset(presetId, btn) {
+            // Clear all active states
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const preset = COMPARE_PRESETS[presetId];
+            document.getElementById('compare-prompt').value = preset.prompt;
+            currentComparePrompt = preset.prompt;
+            usingSectionPreset = false;
+            currentSectionId = null;
+        }
+
+        async function setCompareSectionPreset(sectionId, btn) {
+            // Clear all active states
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            usingSectionPreset = true;
+            currentSectionId = sectionId;
+
+            // Load the prompt from the server
+            try {
+                const resp = await fetch('/api/ai/report/prompt/' + sectionId);
+                const data = await resp.json();
+                if (data.formatted_prompt) {
+                    document.getElementById('compare-prompt').value = data.formatted_prompt;
+                    currentComparePrompt = data.formatted_prompt;
+                } else if (data.prompt_template) {
+                    document.getElementById('compare-prompt').value = data.prompt_template;
+                    currentComparePrompt = data.prompt_template;
+                }
+            } catch (e) {
+                alert('Error loading section prompt: ' + e.message);
+            }
+        }
+
+        async function updateCompareModels() {
+            const serverId = document.getElementById('compare-server').value;
+            const grid = document.getElementById('compare-models-grid');
+            grid.innerHTML = '<span style="color: #555;">Loading models...</span>';
+
+            try {
+                const resp = await fetch('/api/ai/servers/' + serverId + '/status');
+                const data = await resp.json();
+
+                if (data.reachable && data.available_models && data.available_models.length > 0) {
+                    grid.innerHTML = '';
+                    data.available_models.sort().forEach(model => {
+                        grid.innerHTML += `
+                            <label class="model-checkbox" onclick="toggleModelCheckbox(this)">
+                                <input type="checkbox" value="${escapeHtml(model)}">
+                                <span class="model-label">${escapeHtml(model)}</span>
+                            </label>
+                        `;
+                    });
+                    updateCompareModelsCount();
+                } else {
+                    grid.innerHTML = '<span style="color: #f87171;">Server not reachable or no models available</span>';
+                }
+            } catch (e) {
+                grid.innerHTML = '<span style="color: #f87171;">Error loading models</span>';
+            }
+        }
+
+        function toggleModelCheckbox(label) {
+            const checkbox = label.querySelector('input');
+            checkbox.checked = !checkbox.checked;
+            label.classList.toggle('selected', checkbox.checked);
+            updateCompareModelsCount();
+        }
+
+        function selectAllCompareModels() {
+            document.querySelectorAll('#compare-models-grid .model-checkbox').forEach(label => {
+                const checkbox = label.querySelector('input');
+                checkbox.checked = true;
+                label.classList.add('selected');
+            });
+            updateCompareModelsCount();
+        }
+
+        function deselectAllCompareModels() {
+            document.querySelectorAll('#compare-models-grid .model-checkbox').forEach(label => {
+                const checkbox = label.querySelector('input');
+                checkbox.checked = false;
+                label.classList.remove('selected');
+            });
+            updateCompareModelsCount();
+        }
+
+        function updateCompareModelsCount() {
+            const count = document.querySelectorAll('#compare-models-grid .model-checkbox input:checked').length;
+            document.getElementById('compare-models-count').textContent = count + ' selected';
+        }
+
+        async function runComparison() {
+            if (compareRunning) return;
+
+            const serverId = document.getElementById('compare-server').value;
+            const temperature = parseFloat(document.getElementById('compare-temp').value);
+            const prompt = document.getElementById('compare-prompt').value.trim();
+
+            if (!prompt) {
+                alert('Please enter a prompt');
+                return;
+            }
+
+            // Get selected models
+            const selectedModels = [];
+            document.querySelectorAll('#compare-models-grid .model-checkbox input:checked').forEach(cb => {
+                selectedModels.push(cb.value);
+            });
+
+            if (selectedModels.length === 0) {
+                alert('Please select at least one model');
+                return;
+            }
+
+            // Setup UI
+            compareRunning = true;
+            compareStopped = false;
+            compareResults = [];
+
+            const runBtn = document.getElementById('compare-run-btn');
+            const stopBtn = document.getElementById('compare-stop-btn');
+            const statusSpan = document.getElementById('compare-status');
+            const progressDiv = document.getElementById('compare-progress');
+            const progressFill = document.getElementById('compare-progress-fill');
+            const resultsDiv = document.getElementById('compare-results');
+
+            runBtn.disabled = true;
+            stopBtn.style.display = 'inline-flex';
+            progressDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+
+            const startTime = Date.now();
+
+            // Run each model
+            for (let i = 0; i < selectedModels.length; i++) {
+                if (compareStopped) break;
+
+                const model = selectedModels[i];
+                statusSpan.innerHTML = `Running: <strong style="color: #f59e0b;">${escapeHtml(model)}</strong> (${i + 1}/${selectedModels.length})`;
+
+                const pct = Math.round((i / selectedModels.length) * 100);
+                progressFill.style.width = pct + '%';
+
+                let testSeconds = 0;
+                const timerId = setInterval(() => {
+                    testSeconds++;
+                    statusSpan.innerHTML = `Running: <strong style="color: #f59e0b;">${escapeHtml(model)}</strong> (${i + 1}/${selectedModels.length}) - ${formatTime(testSeconds)}`;
+                }, 1000);
+
+                try {
+                    let result;
+                    if (usingSectionPreset && currentSectionId) {
+                        const analyzeResp = await fetch('/api/ai/report/analyze/' + currentSectionId, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                model: model,
+                                temperature: temperature,
+                                server_id: serverId
+                            })
+                        });
+                        result = await analyzeResp.json();
+                        result.response = result.content;
+                    } else {
+                        const genResp = await fetch('/api/ai/generate', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                prompt: prompt,
+                                model: model,
+                                temperature: temperature,
+                                server_id: serverId
+                            })
+                        });
+                        result = await genResp.json();
+                    }
+
+                    clearInterval(timerId);
+                    compareResults.push({
+                        model: model,
+                        time: result.response_time_seconds || testSeconds,
+                        success: !!(result.response || result.content),
+                        error: result.error,
+                        content: result.response || result.content || '',
+                        contentLength: (result.response || result.content || '').length
+                    });
+                } catch (e) {
+                    clearInterval(timerId);
+                    compareResults.push({
+                        model: model,
+                        time: 0,
+                        success: false,
+                        error: e.message,
+                        content: '',
+                        contentLength: 0
+                    });
+                }
+
+                // Display result immediately
+                const lastResult = compareResults[compareResults.length - 1];
+                const statusClass = lastResult.success ? 'complete' : 'error';
+                resultsDiv.innerHTML += `
+                    <div class="compare-result ${statusClass}">
+                        <div class="compare-result-header">
+                            <span class="compare-result-model">${escapeHtml(lastResult.model)}</span>
+                            <div class="compare-result-stats">
+                                <span style="color: ${lastResult.success ? '#4ade80' : '#f87171'};">${lastResult.success ? formatTime(lastResult.time) : 'Failed'}</span>
+                                ${lastResult.success ? ' | ' + (lastResult.contentLength / 1000).toFixed(1) + 'KB' : ''}
+                            </div>
+                        </div>
+                        <div class="compare-result-content">${lastResult.success ? escapeHtml(lastResult.content) : '<span style="color: #f87171;">Error: ' + escapeHtml(lastResult.error) + '</span>'}</div>
+                    </div>
+                `;
+            }
+
+            // Complete
+            compareRunning = false;
+            runBtn.disabled = false;
+            stopBtn.style.display = 'none';
+            progressFill.style.width = '100%';
+
+            const totalTime = Math.round((Date.now() - startTime) / 1000);
+            const successCount = compareResults.filter(r => r.success).length;
+            statusSpan.innerHTML = `<span style="color: #4ade80;">Complete!</span> ${successCount}/${selectedModels.length} in ${formatTime(totalTime)}`;
+
+            // Save comparison
+            if (successCount > 0) {
+                try {
+                    await fetch('/api/ai/benchmark/comparison/save', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            prompt: prompt.substring(0, 200),
+                            models: selectedModels,
+                            results: compareResults,
+                            temperature: temperature
+                        })
+                    });
+                } catch (e) {
+                    console.error('Failed to save comparison:', e);
+                }
+            }
+
+            loadCompareHistory();
+        }
+
+        function stopComparison() {
+            compareStopped = true;
+            document.getElementById('compare-status').innerHTML += ' <span style="color: #fbbf24;">Stopping...</span>';
+        }
+
+        async function loadCompareHistory() {
+            try {
+                const resp = await fetch('/api/ai/benchmark/comparison/history');
+                const data = await resp.json();
+
+                const section = document.getElementById('compare-history-section');
+                const list = document.getElementById('compare-history-list');
+
+                if (data.comparisons && data.comparisons.length > 0) {
+                    section.style.display = 'block';
+                    list.innerHTML = '';
+
+                    data.comparisons.forEach(comp => {
+                        list.innerHTML += `
+                            <div class="history-item">
+                                <div class="history-item-info">
+                                    <div class="history-item-date">${escapeHtml(comp.date)}</div>
+                                    <div class="history-item-models">${comp.models} models - ${comp.success_count}/${comp.total_count} passed</div>
+                                    <div class="history-item-prompt">${escapeHtml(comp.prompt_preview)}</div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button onclick="viewComparisonHistory('${comp.id}')" class="advanced-btn advanced-btn-secondary advanced-btn-small">View</button>
+                                    <button onclick="deleteComparisonHistory('${comp.id}')" class="advanced-btn advanced-btn-danger advanced-btn-small">Delete</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    section.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Failed to load comparison history:', e);
+            }
+        }
+
+        async function viewComparisonHistory(comparisonId) {
+            try {
+                const resp = await fetch('/api/ai/benchmark/comparison/' + comparisonId);
+                const data = await resp.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                // Display in results
+                const resultsDiv = document.getElementById('compare-results');
+                resultsDiv.innerHTML = '<h3 style="color: #f59e0b; margin-bottom: 12px;">Loaded: ' + escapeHtml(data.prompt_preview || 'Saved comparison') + '</h3>';
+
+                data.results.forEach(result => {
+                    const statusClass = result.success ? 'complete' : 'error';
+                    resultsDiv.innerHTML += `
+                        <div class="compare-result ${statusClass}">
+                            <div class="compare-result-header">
+                                <span class="compare-result-model">${escapeHtml(result.model)}</span>
+                                <div class="compare-result-stats">
+                                    <span style="color: ${result.success ? '#4ade80' : '#f87171'};">${result.success ? formatTime(result.time) : 'Failed'}</span>
+                                    ${result.success ? ' | ' + (result.contentLength / 1000).toFixed(1) + 'KB' : ''}
+                                </div>
+                            </div>
+                            <div class="compare-result-content">${result.success ? escapeHtml(result.content) : '<span style="color: #f87171;">Error: ' + escapeHtml(result.error) + '</span>'}</div>
+                        </div>
+                    `;
+                });
+
+                // Scroll to results
+                resultsDiv.scrollIntoView({ behavior: 'smooth' });
+            } catch (e) {
+                alert('Error loading comparison: ' + e.message);
+            }
+        }
+
+        async function deleteComparisonHistory(comparisonId) {
+            if (!confirm('Delete this comparison result?')) return;
+
+            try {
+                await fetch('/api/ai/benchmark/comparison/' + comparisonId, { method: 'DELETE' });
+                loadCompareHistory();
+            } catch (e) {
+                alert('Error deleting comparison: ' + e.message);
+            }
+        }
+
+        async function refreshServers() {
+            const btn = document.getElementById('refresh-servers-btn');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+
+            try {
+                const resp = await fetch('/api/ai/servers');
+                const data = await resp.json();
+
+                const grid = document.getElementById('servers-grid');
+                grid.innerHTML = '';
+
+                (data.servers || []).forEach(server => {
+                    const statusClass = server.reachable ? 'online' : 'offline';
+                    const modelCount = (server.available_models || []).length;
+                    const hardwareInfo = server.hardware ? ` | ${server.hardware}` : '';
+                    const errorInfo = server.error ? ` | Error: ${server.error}` : '';
+
+                    grid.innerHTML += `
+                        <div class="advanced-server-card ${statusClass}" data-server-id="${server.id}">
+                            <div class="advanced-server-header">
+                                <div class="advanced-server-status">
+                                    <span class="advanced-status-dot"></span>
+                                    <span class="advanced-server-name">${escapeHtml(server.name)}</span>
+                                </div>
+                            </div>
+                            <div class="advanced-server-host">${escapeHtml(server.host)}</div>
+                            <div class="advanced-server-desc">${escapeHtml(server.description || '')}${hardwareInfo}</div>
+                            <div class="advanced-server-desc" style="margin-top: 4px; color: #555;">${modelCount} models available${errorInfo}</div>
+                        </div>
+                    `;
+                });
+
+            } catch (e) {
+                console.error('Failed to refresh servers:', e);
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Refresh';
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            setComparePreset('reasoning', document.querySelector('.preset-btn.active'));
+            updateCompareModels();
+            loadCompareHistory();
+        });
+    </script>
+</body>
+</html>

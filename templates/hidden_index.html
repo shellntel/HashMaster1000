@@ -1,120 +1,204 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HM1K - Hidden Pages Index</title>
+    <title>HM1K - Advanced Mode</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
 </head>
-<body class="hidden-pages-body">
-    <div class="hidden-container">
-        <a href="/report" class="hidden-back-link">&larr; Back to Report</a>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
 
-        <h1>Hidden Pages Index</h1>
-        <p class="hidden-subtitle">Development tools, test pages, and API endpoints not linked from the main UI.</p>
-
-        <div class="hidden-warning-banner">
-            <span class="icon">&#9888;</span>
-            <span class="text">These pages are for development and testing purposes. Some features may be experimental or incomplete.</span>
-        </div>
-
-        <div class="hidden-section">
-            <h2><span class="icon">&#129302;</span> AI Test & Development Pages</h2>
-            <div class="hidden-page-grid">
-                <a href="/api/ai/servers/manage" class="hidden-page-card">
-                    <h3>Ollama Servers <span class="hidden-badge hidden-badge-test">Manage</span></h3>
-                    <p>Multi-server connectivity testing and model management - view, pull, and delete models across all configured Ollama servers.</p>
-                    <span class="url">/api/ai/servers/manage</span>
-                </a>
-                <a href="/api/ai/report/test" class="hidden-page-card">
-                    <h3>AI Report Test Lab <span class="hidden-badge hidden-badge-dev">Dev</span></h3>
-                    <p>Testing environment for AI report sections with prompt preview and output comparison.</p>
-                    <span class="url">/api/ai/report/test</span>
-                </a>
-                <a href="/api/ai/benchmark" class="hidden-page-card">
-                    <h3>AI Benchmark Suite <span class="hidden-badge hidden-badge-test">Test</span></h3>
-                    <p>Comprehensive model benchmarking - quick tests, production prompts, and full matrix runs.</p>
-                    <span class="url">/api/ai/benchmark</span>
-                </a>
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Advanced Mode</h1>
+                <p class="advanced-subtitle">Development tools, diagnostics, and system configuration</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
             </div>
         </div>
 
-        <div class="hidden-section">
-            <h2><span class="icon">&#128274;</span> HIBP Database Management</h2>
-            <div class="hidden-page-grid">
-                <a href="/hibp/download" class="hidden-page-card">
-                    <h3>HIBP Database Download <span class="hidden-badge hidden-badge-test">Tool</span></h3>
-                    <p>Download the Have I Been Pwned Pwned Passwords NTLM database for offline/local breach checking. ~70-80GB, 850M+ hashes.</p>
-                    <span class="url">/hibp/download</span>
-                </a>
-                <a href="/api/hibp/download/info" class="hidden-page-card">
-                    <h3>Download Status <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>Check current HIBP database status, download progress, and configuration.</p>
-                    <span class="url">/api/hibp/download/info</span>
-                </a>
-            </div>
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link active">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Warning Banner -->
+        <div class="advanced-banner advanced-banner-warning">
+            <span class="advanced-banner-icon">&#9888;</span>
+            <span class="advanced-banner-text">
+                <strong>Development Environment</strong> — These pages provide direct access to system internals and experimental features. Some functionality may be incomplete or unstable.
+            </span>
         </div>
 
-        <div class="hidden-section">
-            <h2><span class="icon">&#128279;</span> Useful API Endpoints</h2>
-            <div class="hidden-page-grid">
-                <a href="/api/ai/status" class="hidden-page-card">
-                    <h3>AI Status <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>Check Ollama connection status, available models, and server configuration.</p>
-                    <span class="url">/api/ai/status</span>
-                </a>
-                <a href="/api/ai/servers" class="hidden-page-card">
-                    <h3>AI Servers <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>List all configured Ollama servers with their status and available models.</p>
-                    <span class="url">/api/ai/servers</span>
-                </a>
-                <a href="/api/ai/report/sections" class="hidden-page-card">
-                    <h3>Report Sections <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>View all AI report section configurations including prompts, models, and temperatures.</p>
-                    <span class="url">/api/ai/report/sections</span>
-                </a>
-                <a href="/api/ai/report/data" class="hidden-page-card">
-                    <h3>Report Data Summary <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>Summary of available analysis data for AI report generation.</p>
-                    <span class="url">/api/ai/report/data</span>
-                </a>
-                <a href="/api/ai/report/outputs" class="hidden-page-card">
-                    <h3>Saved Test Outputs <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>List of saved AI test outputs from the test lab for comparison and review.</p>
-                    <span class="url">/api/ai/report/outputs</span>
-                </a>
-                <a href="/api/ai/aaia/config" class="hidden-page-card">
-                    <h3>AAIA Configuration <span class="hidden-badge hidden-badge-api">API</span></h3>
-                    <p>Advanced AI Analysis configuration with server status and model assignments.</p>
-                    <span class="url">/api/ai/aaia/config</span>
-                </a>
+        <!-- Tools Section - Primary actions first -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128736;</span>
+                <h2 class="advanced-section-title">Tools & Utilities</h2>
             </div>
-        </div>
-
-        <div class="hidden-status-section">
-            <h2 style="font-size: 1rem; color: #71717a; margin-bottom: 16px;">
-                <span>&#128994;</span> Current System Status
-            </h2>
-            <div class="hidden-status-grid">
-                <div class="hidden-status-card">
-                    <div class="label">Ollama Integration</div>
-                    <div class="value {% if ollama_enabled %}status-online{% else %}status-offline{% endif %}">
-                        {% if ollama_enabled %}Enabled{% else %}Disabled{% endif %}
-                    </div>
+            <div class="advanced-section-content">
+                <div class="advanced-card-grid">
+                    <a href="/hibp/download" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            HIBP Database Download
+                            <span class="advanced-tag advanced-tag-tool">Tool</span>
+                        </h3>
+                        <p class="advanced-card-desc">Download the Have I Been Pwned NTLM database for offline breach checking. ~70-80GB, 850M+ password hashes.</p>
+                        <span class="advanced-card-url">/hibp/download</span>
+                    </a>
+                    <a href="/api/ai/servers/manage" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Ollama Servers
+                            <span class="advanced-tag advanced-tag-manage">Manage</span>
+                        </h3>
+                        <p class="advanced-card-desc">Multi-server connectivity testing and model management. View, pull, and delete models across all configured Ollama servers.</p>
+                        <span class="advanced-card-url">/api/ai/servers/manage</span>
+                    </a>
+                    <a href="/api/ai/report/test" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            AI Report Lab
+                            <span class="advanced-tag advanced-tag-dev">Dev</span>
+                        </h3>
+                        <p class="advanced-card-desc">Testing environment for AI report sections with prompt preview, temperature tuning, and output comparison.</p>
+                        <span class="advanced-card-url">/api/ai/report/test</span>
+                    </a>
+                    <a href="/api/ai/benchmark" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Benchmark Suite
+                            <span class="advanced-tag advanced-tag-test">Test</span>
+                        </h3>
+                        <p class="advanced-card-desc">Comprehensive model benchmarking — quick tests, production prompts, and full matrix performance analysis.</p>
+                        <span class="advanced-card-url">/api/ai/benchmark</span>
+                    </a>
                 </div>
-                {% for server in servers %}
-                <div class="hidden-status-card">
-                    <div class="label">{{ server.name or server.id or 'Server' }}</div>
-                    <div class="value {% if server.reachable %}status-online{% else %}status-offline{% endif %}">
-                        {% if server.reachable %}
-                            Online - {{ server.available_models|length }} models
-                        {% else %}
-                            Offline
-                        {% endif %}
-                    </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128279;</span>
+                <h2 class="advanced-section-title">System API Endpoints</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="advanced-card-grid">
+                    <a href="/api/ai/status" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            AI Status
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">Check Ollama connection status, available models, and server configuration.</p>
+                        <span class="advanced-card-url">/api/ai/status</span>
+                    </a>
+                    <a href="/api/ai/servers" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Server List
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">List all configured Ollama servers with their status and available models.</p>
+                        <span class="advanced-card-url">/api/ai/servers</span>
+                    </a>
+                    <a href="/api/ai/report/sections" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Report Sections
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">View all AI report section configurations including prompts, models, and temperatures.</p>
+                        <span class="advanced-card-url">/api/ai/report/sections</span>
+                    </a>
+                    <a href="/api/ai/report/data" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Report Data
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">Summary of available analysis data for AI report generation.</p>
+                        <span class="advanced-card-url">/api/ai/report/data</span>
+                    </a>
+                    <a href="/api/ai/report/outputs" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Test Outputs
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">List of saved AI test outputs from the test lab for comparison and review.</p>
+                        <span class="advanced-card-url">/api/ai/report/outputs</span>
+                    </a>
+                    <a href="/api/ai/aaia/config" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            AAIA Config
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">Advanced AI Analysis configuration with server status and model assignments.</p>
+                        <span class="advanced-card-url">/api/ai/aaia/config</span>
+                    </a>
+                    <a href="/api/hibp/download/info" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            HIBP Status
+                            <span class="advanced-tag advanced-tag-api">API</span>
+                        </h3>
+                        <p class="advanced-card-desc">Check current HIBP database status, download progress, and configuration details.</p>
+                        <span class="advanced-card-url">/api/hibp/download/info</span>
+                    </a>
                 </div>
-                {% endfor %}
+            </div>
+        </div>
+
+        <!-- System Status Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128994;</span>
+                <h2 class="advanced-section-title">System Status</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="advanced-status-grid">
+                    <div class="advanced-status-card">
+                        <div class="advanced-status-label">Ollama Integration</div>
+                        <div class="advanced-status-value {% if ollama_enabled %}advanced-status-online{% else %}advanced-status-offline{% endif %}">
+                            {% if ollama_enabled %}Enabled{% else %}Disabled{% endif %}
+                        </div>
+                    </div>
+                    {% for server in servers %}
+                    <div class="advanced-status-card">
+                        <div class="advanced-status-label">{{ server.name or server.id or 'Server' }}</div>
+                        <div class="advanced-status-value {% if server.reachable %}advanced-status-online{% else %}advanced-status-offline{% endif %}">
+                            {% if server.reachable %}
+                                Online — {{ server.available_models|length }} models
+                            {% else %}
+                                Offline
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
+
+    <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden')) {
+                exitLink.href = referrer;
+            }
+            // Store current referrer if coming from main app
+            if (document.referrer && !document.referrer.includes('/hidden') && !document.referrer.includes('/api/ai')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        })();
+    </script>
 </body>
 </html>

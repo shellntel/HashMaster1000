@@ -1,112 +1,154 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HM1K Ollama Server Management</title>
+    <title>HM1K - Ollama Server Management</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
-    <!-- DO NOT add inline <style> blocks here - use style.css instead -->
 </head>
-<body class="ai-servers-body">
-    <h1>Ollama Server Management</h1>
-    <p class="ai-servers-subtitle">Manage connectivity and models across all configured Ollama servers</p>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
 
-    <div class="ai-servers-nav">
-        <a href="/hiddenpages">&larr; Hidden Pages</a>
-        <a href="/api/ai/report/test">Report Testing</a>
-        <a href="/api/ai/benchmark">Benchmark Suite</a>
-        <a href="/report">Back to Report</a>
-    </div>
-
-    <h2>Configured Servers</h2>
-    <div class="ai-servers-grid">
-        {% for server in servers %}
-        <div class="ai-server-card {{ 'ok' if server.reachable else 'error' }}" id="server-{{ server.id }}">
-            <div class="ai-server-header">
-                <div class="ai-server-status">
-                    <span class="ai-status-dot"></span>
-                    <strong>{{ server.name }}</strong>
-                </div>
-                <button class="secondary small" onclick="refreshServer('{{ server.id }}')">&#8635; Refresh</button>
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Ollama Server Management</h1>
+                <p class="advanced-subtitle">Manage connectivity and models across all configured Ollama servers</p>
             </div>
-            <div class="ai-server-info">
-                <div class="ai-server-host">{{ server.host }}</div>
-                <div class="ai-server-desc">{{ server.description or '' }}</div>
-                {% if server.hardware %}
-                <div class="ai-server-hardware">{{ server.hardware }}</div>
-                {% endif %}
-                {% if server.error %}
-                <div class="ai-server-error">{{ server.error }}</div>
-                {% endif %}
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
             </div>
-            <div class="ai-server-models">
-                <div class="ai-models-header">
-                    <strong>{{ server.available_models|length }} Models Installed</strong>
-                    <button class="secondary small" onclick="toggleModels('{{ server.id }}')" id="toggle-{{ server.id }}">Show</button>
-                </div>
-                <div class="ai-models-list" id="models-{{ server.id }}" style="display: none;">
-                    {% if server.available_models %}
-                        {% for model in server.sorted_models %}
-                        <div class="ai-model-item">
-                            <span class="ai-model-name">{{ model }}</span>
-                            <button class="danger small" onclick="deleteModel('{{ server.id }}', '{{ model }}')">Delete</button>
-                        </div>
-                        {% endfor %}
-                    {% else %}
-                        <span class="ai-no-models">No models installed</span>
-                    {% endif %}
-                </div>
-            </div>
-            <div class="ai-server-actions">
-                <input type="text" id="pull-input-{{ server.id }}" placeholder="Model name (e.g., llama3.1:70b)" class="ai-pull-input">
-                <button onclick="pullModel('{{ server.id }}')">Pull Model</button>
-            </div>
-            <div class="ai-server-status-msg" id="status-{{ server.id }}"></div>
         </div>
-        {% endfor %}
-    </div>
 
-    <div class="ai-servers-section">
-        <h2>Model Library</h2>
-        <p class="ai-library-hint">Click a size to pull that model variant. You'll be prompted to select which server to install it on.</p>
-        <div class="ai-library-grid">
-            {% for model in library_models %}
-            <div class="ai-library-model">
-                <div class="ai-model-header">
-                    <strong>{{ model.name }}</strong>
-                    {% for rec in model.recommended_for or [] %}
-                    <span class="ai-rec-tag">{{ rec }}</span>
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link active">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Configured Servers -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128421;</span>
+                <h2 class="advanced-section-title">Configured Servers</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="advanced-server-grid">
+                    {% for server in servers %}
+                    <div class="advanced-server-card {{ 'online' if server.reachable else 'offline' }}" id="server-{{ server.id }}">
+                        <div class="advanced-server-header">
+                            <div class="advanced-server-status">
+                                <span class="advanced-status-dot"></span>
+                                <span class="advanced-server-name">{{ server.name }}</span>
+                            </div>
+                            <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshServer('{{ server.id }}')">&#8635; Refresh</button>
+                        </div>
+                        <div class="advanced-server-info">
+                            <div class="advanced-server-host">{{ server.host }}</div>
+                            <div class="advanced-server-desc">{{ server.description or '' }}</div>
+                            {% if server.hardware %}
+                            <div class="advanced-server-desc" style="margin-top: 4px; font-size: 0.8rem;">{{ server.hardware }}</div>
+                            {% endif %}
+                            {% if server.error %}
+                            <div style="color: #f87171; font-size: 0.85rem; margin-top: 4px;">{{ server.error }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="advanced-server-models">
+                            <div class="advanced-models-header">
+                                <strong>{{ server.available_models|length }} Models Installed</strong>
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="toggleModels('{{ server.id }}')" id="toggle-{{ server.id }}">Show</button>
+                            </div>
+                            <div class="advanced-models-list" id="models-{{ server.id }}" style="display: none;">
+                                {% if server.available_models %}
+                                    {% for model in server.sorted_models %}
+                                    <div class="advanced-model-item">
+                                        <span class="advanced-model-name">{{ model }}</span>
+                                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteModel('{{ server.id }}', '{{ model }}')">Delete</button>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <span style="color: #666; font-style: italic;">No models installed</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 12px;">
+                            <input type="text" id="pull-input-{{ server.id }}" placeholder="Model name (e.g., llama3.1:70b)" class="advanced-input" style="flex: 1;">
+                            <button class="advanced-btn advanced-btn-primary" onclick="pullModel('{{ server.id }}')">Pull Model</button>
+                        </div>
+                        <div class="advanced-server-status-msg" id="status-{{ server.id }}" style="margin-top: 10px; font-size: 0.9em; min-height: 20px;"></div>
+                    </div>
                     {% endfor %}
                 </div>
-                <div class="ai-model-desc">{{ model.description or '' }}</div>
-                <div class="ai-model-sizes">
-                    {% if model.sizes %}
-                        {% for size in model.sizes %}
-                        <button class="ai-size-btn" onclick="showPullDialog('{{ model.name }}:{{ size }}')">{{ size }}</button>
-                        {% endfor %}
-                    {% else %}
-                        <button class="ai-size-btn" onclick="showPullDialog('{{ model.name }}')">{{ model.name }}</button>
-                    {% endif %}
+            </div>
+        </div>
+
+        <!-- Model Library -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128218;</span>
+                <h2 class="advanced-section-title">Model Library</h2>
+            </div>
+            <div class="advanced-section-content">
+                <p style="color: #71717a; margin-bottom: 16px;">Click a size to pull that model variant. You'll be prompted to select which server to install it on.</p>
+                <div class="advanced-library-grid">
+                    {% for model in library_models %}
+                    <div class="advanced-library-item">
+                        <div class="advanced-library-header">
+                            <span class="advanced-library-name">{{ model.name }}</span>
+                            {% for rec in model.recommended_for or [] %}
+                            <span class="advanced-tag advanced-tag-dev">{{ rec }}</span>
+                            {% endfor %}
+                        </div>
+                        <div class="advanced-library-desc">{{ model.description or '' }}</div>
+                        <div class="advanced-library-sizes">
+                            {% if model.sizes %}
+                                {% for size in model.sizes %}
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="showPullDialog('{{ model.name }}:{{ size }}')">{{ size }}</button>
+                                {% endfor %}
+                            {% else %}
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="showPullDialog('{{ model.name }}')">{{ model.name }}</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
-            {% endfor %}
         </div>
     </div>
 
     <!-- Pull Dialog -->
-    <div class="ai-dialog-overlay" id="pullDialog">
-        <div class="ai-dialog">
+    <div class="advanced-dialog-overlay" id="pullDialog">
+        <div class="advanced-dialog">
             <h3>Pull Model</h3>
-            <p>Model: <strong id="dialogModelName"></strong></p>
-            <label class="ai-dialog-label">Select target server:</label>
-            <select id="dialogServerSelect" class="ai-server-select"></select>
-            <div class="ai-dialog-actions">
-                <button class="secondary" onclick="closePullDialog()">Cancel</button>
-                <button onclick="confirmPull()">Pull Model</button>
+            <p style="color: #a0a0a0;">Model: <strong id="dialogModelName" style="color: #00d4ff;"></strong></p>
+            <label style="color: #71717a; display: block; margin-top: 16px;">Select target server:</label>
+            <select id="dialogServerSelect" class="advanced-select" style="width: 100%; margin-top: 8px;"></select>
+            <div class="advanced-dialog-actions">
+                <button class="advanced-btn advanced-btn-secondary" onclick="closePullDialog()">Cancel</button>
+                <button class="advanced-btn advanced-btn-primary" onclick="confirmPull()">Pull Model</button>
             </div>
         </div>
     </div>
 
     <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/api/ai')) {
+                exitLink.href = referrer;
+            }
+        })();
+
         // Global operation lock - prevents concurrent pull/delete operations
         let operationInProgress = false;
         let operationServerId = null;
@@ -114,24 +156,17 @@
         function setOperationLock(serverId) {
             operationInProgress = true;
             operationServerId = serverId;
-            // Disable all pull buttons and inputs
-            document.querySelectorAll('.ai-server-actions button').forEach(btn => btn.disabled = true);
-            document.querySelectorAll('.ai-pull-input').forEach(input => input.disabled = true);
-            document.querySelectorAll('.ai-model-item button').forEach(btn => btn.disabled = true);
-            document.querySelectorAll('.ai-size-btn').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.advanced-btn-primary, .advanced-btn-danger').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.advanced-input').forEach(input => input.disabled = true);
         }
 
         function clearOperationLock() {
             operationInProgress = false;
             operationServerId = null;
-            // Re-enable all buttons and inputs
-            document.querySelectorAll('.ai-server-actions button').forEach(btn => btn.disabled = false);
-            document.querySelectorAll('.ai-pull-input').forEach(input => input.disabled = false);
-            document.querySelectorAll('.ai-model-item button').forEach(btn => btn.disabled = false);
-            document.querySelectorAll('.ai-size-btn').forEach(btn => btn.disabled = false);
+            document.querySelectorAll('.advanced-btn-primary, .advanced-btn-danger').forEach(btn => btn.disabled = false);
+            document.querySelectorAll('.advanced-input').forEach(input => input.disabled = false);
         }
 
-        // Toggle models list visibility
         function toggleModels(serverId) {
             const list = document.getElementById('models-' + serverId);
             const btn = document.getElementById('toggle-' + serverId);
@@ -144,45 +179,41 @@
             }
         }
 
-        // Refresh server status
         async function refreshServer(serverId) {
             const card = document.getElementById('server-' + serverId);
             const statusMsg = document.getElementById('status-' + serverId);
-            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.style.color = '#00d4ff';
             statusMsg.textContent = 'Refreshing...';
 
             try {
                 const resp = await fetch('/api/ai/servers/' + serverId + '/status');
                 const data = await resp.json();
 
-                // Update status indicator
-                card.className = 'ai-server-card ' + (data.reachable ? 'ok' : 'error');
+                card.className = 'advanced-server-card ' + (data.reachable ? 'online' : 'offline');
 
-                // Update models list
                 const modelsList = document.getElementById('models-' + serverId);
                 if (data.available_models && data.available_models.length > 0) {
                     modelsList.innerHTML = data.available_models.map(model =>
-                        '<div class="ai-model-item">' +
-                        '<span class="ai-model-name">' + model + '</span>' +
-                        '<button class="danger small" onclick="deleteModel(\'' + serverId + '\', \'' + model + '\')">Delete</button>' +
+                        '<div class="advanced-model-item">' +
+                        '<span class="advanced-model-name">' + model + '</span>' +
+                        '<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteModel(\'' + serverId + '\', \'' + model + '\')">Delete</button>' +
                         '</div>'
                     ).join('');
-                    card.querySelector('.ai-models-header strong').textContent = data.available_models.length + ' Models Installed';
+                    card.querySelector('.advanced-models-header strong').textContent = data.available_models.length + ' Models Installed';
                 } else {
-                    modelsList.innerHTML = '<span class="ai-no-models">No models installed</span>';
-                    card.querySelector('.ai-models-header strong').textContent = '0 Models Installed';
+                    modelsList.innerHTML = '<span style="color: #666; font-style: italic;">No models installed</span>';
+                    card.querySelector('.advanced-models-header strong').textContent = '0 Models Installed';
                 }
 
-                statusMsg.className = 'ai-server-status-msg success';
+                statusMsg.style.color = '#4ade80';
                 statusMsg.textContent = 'Refreshed successfully';
                 setTimeout(() => { statusMsg.textContent = ''; }, 3000);
             } catch (e) {
-                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.style.color = '#f87171';
                 statusMsg.textContent = 'Error: ' + e.message;
             }
         }
 
-        // Pull model to specific server
         async function pullModel(serverId) {
             if (operationInProgress) {
                 alert('Another operation is in progress. Please wait for it to complete.');
@@ -198,7 +229,7 @@
 
             setOperationLock(serverId);
             const statusMsg = document.getElementById('status-' + serverId);
-            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.style.color = '#00d4ff';
             statusMsg.textContent = 'Pulling ' + modelName + '... This may take several minutes.';
 
             try {
@@ -210,23 +241,22 @@
                 const data = await resp.json();
 
                 if (data.success) {
-                    statusMsg.className = 'ai-server-status-msg success';
+                    statusMsg.style.color = '#4ade80';
                     statusMsg.textContent = 'Successfully pulled ' + modelName;
                     input.value = '';
                     await refreshServer(serverId);
                 } else {
-                    statusMsg.className = 'ai-server-status-msg error';
+                    statusMsg.style.color = '#f87171';
                     statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
                 }
             } catch (e) {
-                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.style.color = '#f87171';
                 statusMsg.textContent = 'Error: ' + e.message;
             } finally {
                 clearOperationLock();
             }
         }
 
-        // Delete model from server
         async function deleteModel(serverId, modelName) {
             if (operationInProgress) {
                 alert('Another operation is in progress. Please wait for it to complete.');
@@ -237,7 +267,7 @@
 
             setOperationLock(serverId);
             const statusMsg = document.getElementById('status-' + serverId);
-            statusMsg.className = 'ai-server-status-msg loading';
+            statusMsg.style.color = '#00d4ff';
             statusMsg.textContent = 'Deleting ' + modelName + '...';
 
             try {
@@ -249,15 +279,15 @@
                 const data = await resp.json();
 
                 if (data.success) {
-                    statusMsg.className = 'ai-server-status-msg success';
+                    statusMsg.style.color = '#4ade80';
                     statusMsg.textContent = 'Deleted ' + modelName;
                     await refreshServer(serverId);
                 } else {
-                    statusMsg.className = 'ai-server-status-msg error';
+                    statusMsg.style.color = '#f87171';
                     statusMsg.textContent = 'Failed: ' + (data.error || 'Unknown error');
                 }
             } catch (e) {
-                statusMsg.className = 'ai-server-status-msg error';
+                statusMsg.style.color = '#f87171';
                 statusMsg.textContent = 'Error: ' + e.message;
             } finally {
                 clearOperationLock();
@@ -276,12 +306,11 @@
             pendingPullModel = modelName;
             document.getElementById('dialogModelName').textContent = modelName;
 
-            // Populate server select with reachable servers
             const select = document.getElementById('dialogServerSelect');
             select.innerHTML = '';
-            document.querySelectorAll('.ai-server-card.ok').forEach(card => {
+            document.querySelectorAll('.advanced-server-card.online').forEach(card => {
                 const serverId = card.id.replace('server-', '');
-                const serverName = card.querySelector('.ai-server-status strong').textContent;
+                const serverName = card.querySelector('.advanced-server-name').textContent;
                 select.innerHTML += '<option value="' + serverId + '">' + serverName + '</option>';
             });
 
@@ -300,15 +329,13 @@
 
         async function confirmPull() {
             const serverId = document.getElementById('dialogServerSelect').value;
-            const modelName = pendingPullModel;  // Save before closing dialog
+            const modelName = pendingPullModel;
             closePullDialog();
 
-            // Use the pull function
             document.getElementById('pull-input-' + serverId).value = modelName;
             await pullModel(serverId);
         }
 
-        // Close dialog on overlay click
         document.getElementById('pullDialog').addEventListener('click', function(e) {
             if (e.target === this) closePullDialog();
         });

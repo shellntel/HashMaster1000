@@ -4,109 +4,152 @@
     <title>HM1K - HIBP Database Download</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="hidden-pages-body">
-    <div class="hidden-container" style="max-width: 1000px;">
-        <a href="/hidden" class="hidden-back-link">&larr; Back to Hidden Index</a>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
 
-        <h1 style="margin-bottom: 8px;">HIBP Database Download</h1>
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">HIBP Database Download</h1>
+                <p class="advanced-subtitle">Download the Have I Been Pwned password database for offline breach checking</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
+        </div>
 
-        <!-- Attribution Banner - compact -->
-        <div class="hidden-warning-banner" style="background: linear-gradient(135deg, #1a365d 0%, #2563eb 100%); border-color: #3b82f6; padding: 8px 16px; margin-bottom: 16px;">
-            <span class="icon" style="font-size: 1.2em;">&#128274;</span>
-            <span style="font-size: 0.85em;">
-                <strong>Powered by Have I Been Pwned</strong> |
-                <a href="https://haveibeenpwned.com/Passwords" target="_blank" style="color: #93c5fd;">haveibeenpwned.com</a> |
-                <a href="https://troyhunt.com" target="_blank" style="color: #93c5fd;">Troy Hunt</a>
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link active">HIBP Download</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Attribution Banner -->
+        <div class="advanced-banner advanced-banner-info">
+            <span class="advanced-banner-icon">&#128274;</span>
+            <span class="advanced-banner-text">
+                <strong>Powered by Have I Been Pwned</strong> —
+                <a href="https://haveibeenpwned.com/Passwords" target="_blank" style="color: #7dd3fc;">haveibeenpwned.com</a> |
+                <a href="https://troyhunt.com" target="_blank" style="color: #7dd3fc;">Troy Hunt</a>
             </span>
         </div>
 
-        <!-- Two-column layout for status and estimates -->
+        <!-- Status and Estimates Grid -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
             <!-- Current Status -->
-            <div class="hidden-page-card" style="cursor: default; padding: 12px 16px;">
-                <h3 style="margin: 0 0 8px 0; font-size: 0.95em;">Current Database Status</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85em;">
-                    <div><span style="color: #71717a;">Status:</span> <span id="dbStatus">Checking...</span></div>
-                    <div><span style="color: #71717a;">Hashes:</span> <span id="hashCount">-</span></div>
+            <div class="advanced-section" style="margin-bottom: 0;">
+                <div class="advanced-section-content" style="padding: 14px 18px;">
+                    <h3 style="color: #00d4ff; margin: 0 0 10px 0; font-size: 0.95rem;">Current Database Status</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em;">
+                        <div><span style="color: #71717a;">Status:</span> <span id="dbStatus">Checking...</span></div>
+                        <div><span style="color: #71717a;">Hashes:</span> <span id="hashCount">-</span></div>
+                    </div>
+                    <div style="font-size: 0.75em; color: #555; margin-top: 8px; font-family: monospace;" id="configuredPath">-</div>
                 </div>
-                <div style="font-size: 0.75em; color: #71717a; margin-top: 6px;" id="configuredPath">-</div>
             </div>
 
             <!-- Download Estimates -->
-            <div class="hidden-page-card" style="cursor: default; padding: 12px 16px;">
-                <h3 style="margin: 0 0 8px 0; font-size: 0.95em;">Download Estimates</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 0.85em;">
-                    <div><span style="color: #71717a;">Prefixes:</span> 1,048,576</div>
-                    <div><span style="color: #71717a;">Hashes:</span> ~850M</div>
-                    <div><span style="color: #71717a;">Size:</span> ~70-80 GB</div>
-                    <div><span style="color: #71717a;">Time:</span> 60-120 min</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Download Controls - compact single row -->
-        <div class="hidden-page-card" style="cursor: default; padding: 12px 16px; margin-bottom: 16px;">
-            <div style="display: grid; grid-template-columns: 1fr 1.5fr 1fr auto auto; gap: 12px; align-items: end;">
-                <div>
-                    <label style="display: block; margin-bottom: 4px; font-size: 0.8em; color: #a1a1aa;">Directory</label>
-                    <input type="text" id="outputDir" value="data" style="width: 100%; padding: 6px 8px; border: 1px solid #3f3f46; border-radius: 4px; background: #27272a; color: #fff; font-size: 0.9em;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 4px; font-size: 0.8em; color: #a1a1aa;">Filename</label>
-                    <input type="text" id="outputFilename" value="pwnedpasswords-ntlm.txt" style="width: 100%; padding: 6px 8px; border: 1px solid #3f3f46; border-radius: 4px; background: #27272a; color: #fff; font-size: 0.9em;">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 4px; font-size: 0.8em; color: #a1a1aa;">Parallelism (1-500)</label>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="range" id="parallelismSlider" min="1" max="500" value="100" style="flex: 1; height: 6px;">
-                        <input type="number" id="parallelism" min="1" max="500" value="100" style="width: 60px; padding: 6px; border: 1px solid #3f3f46; border-radius: 4px; background: #27272a; color: #fff; text-align: center; font-size: 0.9em;">
+            <div class="advanced-section" style="margin-bottom: 0;">
+                <div class="advanced-section-content" style="padding: 14px 18px;">
+                    <h3 style="color: #00d4ff; margin: 0 0 10px 0; font-size: 0.95rem;">Download Estimates</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 0.9em;">
+                        <div><span style="color: #71717a;">Prefixes:</span> 1,048,576</div>
+                        <div><span style="color: #71717a;">Hashes:</span> ~850M</div>
+                        <div><span style="color: #71717a;">Size:</span> ~70-80 GB</div>
+                        <div><span style="color: #71717a;">Time:</span> 60-120 min</div>
                     </div>
                 </div>
-                <button id="startBtn" onclick="startDownload()" style="padding: 8px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 0.9em; font-weight: 600; cursor: pointer; white-space: nowrap;">
-                    Start Download
-                </button>
-                <button id="cancelBtn" onclick="cancelDownload()" style="padding: 8px 20px; background: #dc2626; color: white; border: none; border-radius: 6px; font-size: 0.9em; font-weight: 600; cursor: pointer; display: none;">
-                    Cancel
-                </button>
             </div>
         </div>
 
-        <!-- Progress Section (hidden by default) -->
-        <div class="hidden-page-card" id="progressSection" style="cursor: default; padding: 16px; display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <div id="progressStatus" style="font-size: 1.1em; font-weight: 600;">Starting...</div>
-                <div style="display: flex; gap: 24px; font-size: 0.9em;">
-                    <div><span style="color: #71717a;">Prefixes:</span> <span id="progressPrefixes">0</span></div>
-                    <div><span style="color: #71717a;">Hashes:</span> <span id="progressHashes">0</span></div>
-                    <div><span style="color: #71717a;">ETA:</span> <span id="progressTime">-</span></div>
+        <!-- Download Controls -->
+        <div class="advanced-section">
+            <div class="advanced-section-content" style="padding: 14px 18px;">
+                <div style="display: grid; grid-template-columns: 1fr 1.5fr 1.2fr auto auto; gap: 14px; align-items: end;">
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-size: 0.8em; color: #71717a;">Directory</label>
+                        <input type="text" id="outputDir" value="data" class="advanced-input" style="width: 100%; padding: 8px 12px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-size: 0.8em; color: #71717a;">Filename</label>
+                        <input type="text" id="outputFilename" value="pwnedpasswords-ntlm.txt" class="advanced-input" style="width: 100%; padding: 8px 12px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-size: 0.8em; color: #71717a;">Parallelism (1-2000)</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input type="range" id="parallelismSlider" min="1" max="2000" value="500" style="flex: 1; height: 6px;">
+                            <input type="number" id="parallelism" min="1" max="2000" value="500" class="advanced-input" style="width: 65px; padding: 8px; text-align: center;">
+                        </div>
+                    </div>
+                    <button id="startBtn" onclick="startDownload()" class="advanced-btn advanced-btn-primary">
+                        Start Download
+                    </button>
+                    <button id="cancelBtn" onclick="cancelDownload()" class="advanced-btn advanced-btn-danger" style="display: none;">
+                        Cancel
+                    </button>
                 </div>
             </div>
-            <div style="background: #27272a; border-radius: 6px; height: 20px; overflow: hidden;">
-                <div id="progressBar" style="background: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
-            </div>
-            <div id="progressErrors" style="margin-top: 12px; padding: 8px 12px; background: #451a03; border-radius: 4px; font-size: 0.85em; display: none;">
-                <strong style="color: #fbbf24;">Error:</strong> <span id="lastError" style="color: #fcd34d;"></span>
-            </div>
         </div>
 
-        <!-- Completion Section (hidden by default) -->
-        <div class="hidden-page-card" id="completeSection" style="cursor: default; padding: 16px; border-color: #22c55e; display: none;">
-            <div style="display: flex; align-items: center; gap: 16px;">
-                <div style="font-size: 2em; color: #22c55e;">&#10004;</div>
-                <div style="flex: 1;">
-                    <h3 style="margin: 0;" id="completeTitle">Download Complete</h3>
-                    <p id="completeDetails" style="color: #a1a1aa; margin: 4px 0 0 0; font-size: 0.9em;"></p>
+        <!-- Progress Section -->
+        <div class="advanced-section" id="progressSection" style="display: none;">
+            <div class="advanced-section-content" style="padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                    <div id="progressStatus" style="font-size: 1.1em; font-weight: 600; color: #00d4ff;">Starting...</div>
+                    <div style="display: flex; gap: 24px; font-size: 0.9em;">
+                        <div><span style="color: #71717a;">Prefixes:</span> <span id="progressPrefixes" style="color: #e0e0e0;">0</span></div>
+                        <div><span style="color: #71717a;">Hashes:</span> <span id="progressHashes" style="color: #e0e0e0;">0</span></div>
+                        <div><span style="color: #71717a;">ETA:</span> <span id="progressTime" style="color: #fbbf24; font-weight: 600;">-</span></div>
+                    </div>
+                </div>
+                <div class="advanced-progress">
+                    <div id="progressBar" class="advanced-progress-bar" style="width: 0%;"></div>
+                </div>
+                <div id="progressErrors" style="margin-top: 14px; padding: 10px 14px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; display: none;">
+                    <strong style="color: #fbbf24;">Error:</strong> <span id="lastError" style="color: #fcd34d;"></span>
                 </div>
             </div>
-            <div style="margin-top: 12px; padding: 12px; background: #27272a; border-radius: 6px; font-size: 0.85em;">
-                <strong>Add to .env:</strong>
-                <code id="envLine" style="display: block; background: #18181b; padding: 6px 10px; border-radius: 4px; margin-top: 6px; font-family: monospace;"></code>
-            </div>
         </div>
 
+        <!-- Completion Section -->
+        <div class="advanced-section" id="completeSection" style="display: none; border-color: rgba(74, 222, 128, 0.5);">
+            <div class="advanced-section-content" style="padding: 18px;">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                    <div style="font-size: 2.5em; color: #4ade80; text-shadow: 0 0 20px rgba(74, 222, 128, 0.5);">&#10004;</div>
+                    <div style="flex: 1;">
+                        <h3 style="margin: 0; color: #4ade80;" id="completeTitle">Download Complete</h3>
+                        <p id="completeDetails" style="color: #a0a0a0; margin: 6px 0 0 0; font-size: 0.95em;"></p>
+                    </div>
+                </div>
+                <div style="margin-top: 16px; padding: 14px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+                    <strong style="color: #71717a;">Add to .env:</strong>
+                    <code id="envLine" class="advanced-code" style="display: block; margin-top: 8px; padding: 10px 14px;"></code>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/api/ai') && !referrer.includes('/hibp')) {
+                exitLink.href = referrer;
+            }
+        })();
+
         let pollInterval = null;
 
         // Sync parallelism slider and input
@@ -119,10 +162,20 @@
 
         parallelismInput.addEventListener('input', function() {
             let value = parseInt(this.value) || 1;
-            value = Math.max(1, Math.min(500, value));
+            value = Math.max(1, Math.min(2000, value));
             this.value = value;
             parallelismSlider.value = value;
         });
+
+        function setControlsEnabled(enabled) {
+            const controls = ['outputDir', 'outputFilename', 'parallelism', 'parallelismSlider'];
+            controls.forEach(id => {
+                const el = document.getElementById(id);
+                el.disabled = !enabled;
+                el.style.opacity = enabled ? '1' : '0.5';
+                el.style.cursor = enabled ? '' : 'not-allowed';
+            });
+        }
 
         function formatNumber(num) {
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -146,11 +199,13 @@
 
                 if (data.local_database.loaded) {
                     dbStatus.textContent = 'Loaded';
-                    dbStatus.style.color = '#22c55e';
+                    dbStatus.style.color = '#4ade80';
+                    dbStatus.style.textShadow = '0 0 10px rgba(74, 222, 128, 0.4)';
                     hashCount.textContent = formatNumber(data.local_database.hash_count);
                 } else {
                     dbStatus.textContent = 'Not Loaded';
-                    dbStatus.style.color = '#ef4444';
+                    dbStatus.style.color = '#f87171';
+                    dbStatus.style.textShadow = '0 0 10px rgba(248, 113, 113, 0.4)';
                     hashCount.textContent = '-';
                 }
 
@@ -189,7 +244,7 @@
                     document.getElementById('progressSection').style.display = 'block';
                     document.getElementById('completeSection').style.display = 'none';
                     document.getElementById('startBtn').style.display = 'none';
-                    document.getElementById('cancelBtn').style.display = 'inline-block';
+                    document.getElementById('cancelBtn').style.display = 'inline-flex';
                     startPolling();
                 } else {
                     alert('Failed to start download: ' + data.message);
@@ -240,8 +295,9 @@
             if (status.status === 'idle') {
                 progressSection.style.display = 'none';
                 completeSection.style.display = 'none';
-                startBtn.style.display = 'inline-block';
+                startBtn.style.display = 'inline-flex';
                 cancelBtn.style.display = 'none';
+                setControlsEnabled(true);
                 stopPolling();
                 return;
             }
@@ -250,7 +306,8 @@
                 progressSection.style.display = 'block';
                 completeSection.style.display = 'none';
                 startBtn.style.display = 'none';
-                cancelBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'inline-flex';
+                setControlsEnabled(false);
 
                 let statusText = status.status === 'downloading' ? `Downloading: ${status.progress_percentage}%` :
                                  status.status === 'merging' ? 'Merging files...' : 'Starting...';
@@ -271,9 +328,10 @@
             if (status.status === 'complete') {
                 progressSection.style.display = 'none';
                 completeSection.style.display = 'block';
-                startBtn.style.display = 'inline-block';
+                startBtn.style.display = 'inline-flex';
                 startBtn.textContent = 'Download Again';
                 cancelBtn.style.display = 'none';
+                setControlsEnabled(true);
                 stopPolling();
 
                 document.getElementById('completeDetails').textContent =
@@ -284,16 +342,18 @@
 
             if (status.status === 'error') {
                 progressSection.style.display = 'none';
-                startBtn.style.display = 'inline-block';
+                startBtn.style.display = 'inline-flex';
                 cancelBtn.style.display = 'none';
+                setControlsEnabled(true);
                 stopPolling();
                 alert('Download failed: ' + (status.error_message || 'Unknown error'));
             }
 
             if (status.status === 'cancelled') {
                 progressSection.style.display = 'none';
-                startBtn.style.display = 'inline-block';
+                startBtn.style.display = 'inline-flex';
                 cancelBtn.style.display = 'none';
+                setControlsEnabled(true);
                 stopPolling();
                 alert('Download cancelled');
             }

@@ -1,174 +1,280 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>HM1K AI Report Analysis</title>
+    <title>HM1K - AI Report Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- NOTE: All CSS has been consolidated into static/css/style.css -->
-    <!-- DO NOT add inline <style> blocks here - use style.css instead -->
+    <style>
+        /* Page-specific styles that extend advanced-mode */
+        .report-test-status { padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        .report-test-status.ok { background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); }
+        .report-test-status.warning { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        .report-test-file-tag { background: rgba(74, 222, 128, 0.15); color: #4ade80; padding: 3px 8px; border-radius: 4px; font-size: 0.8em; }
+        .report-test-file-tag.missing { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+        .report-test-data-mode { display: flex; gap: 16px; margin-bottom: 15px; align-items: center; }
+        .report-test-data-mode label { color: #a0a0a0; display: flex; align-items: center; gap: 6px; }
+
+        .report-test-data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
+        .report-test-data-field label { display: block; color: #71717a; margin-bottom: 5px; font-size: 0.9em; }
+        .report-test-data-field textarea { width: 100%; background: rgba(0,0,0,0.4); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; font-family: monospace; box-sizing: border-box; resize: vertical; }
+        .report-test-data-field textarea:focus { outline: none; border-color: rgba(0, 212, 255, 0.5); box-shadow: 0 0 15px rgba(0, 212, 255, 0.2); }
+
+        .report-test-stats { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 15px; }
+        .report-test-stat { background: rgba(0,0,0,0.3); padding: 12px 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
+        .report-test-stat .label { color: #71717a; font-size: 0.8em; }
+        .report-test-stat .value { color: #00d4ff; font-size: 1.2em; font-weight: 600; }
+
+        .report-test-outputs-list { max-height: 300px; overflow-y: auto; }
+        .report-test-output-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(0,0,0,0.3); border-radius: 4px; margin-bottom: 8px; }
+        .report-test-output-item:hover { background: rgba(0, 212, 255, 0.05); }
+        .report-test-output-filename { color: #00d4ff; font-family: monospace; font-size: 0.85em; cursor: pointer; }
+        .report-test-output-meta { color: #666; font-size: 0.8em; }
+
+        .report-section { background: rgba(15, 15, 30, 0.9); border: 1px solid rgba(0, 212, 255, 0.15); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+        .report-section-header { padding: 16px 20px; border-bottom: 1px solid rgba(0, 212, 255, 0.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+        .report-section-info { flex: 1; min-width: 250px; }
+        .report-section-info h3 { color: #00d4ff; margin: 0; font-size: 1.1rem; }
+        .report-section-desc { color: #71717a; font-size: 0.9em; margin: 4px 0 0 0; }
+        .report-section-sources { color: #555; font-size: 0.8em; margin: 2px 0 0 0; }
+        .report-section-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .report-section-controls select { min-width: 140px; background: rgba(0,0,0,0.4); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.1); padding: 8px 12px; border-radius: 6px; font-size: 0.9em; }
+        .report-section-controls select:focus { outline: none; border-color: rgba(0, 212, 255, 0.5); }
+        .report-section-controls input[type="range"] { width: 80px; }
+        .report-section-temp { color: #00d4ff; font-weight: 600; min-width: 30px; }
+
+        .report-section-preview { padding: 12px 20px; background: rgba(0,0,0,0.2); border-bottom: 1px solid rgba(0, 212, 255, 0.1); display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+        .report-section-preview pre { margin: 10px 0 0 0; width: 100%; white-space: pre-wrap; font-size: 0.8em; color: #888; max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; }
+        .report-section-preview .system-prompt { color: #d8a8d8; }
+        .report-section-preview .prompt-label { color: #00d4ff; font-weight: 600; margin-bottom: 6px; display: block; }
+
+        .report-section-content { padding: 20px; min-height: 100px; }
+        .report-section-content .placeholder { color: #555; font-style: italic; }
+        .report-section-analysis { white-space: pre-wrap; line-height: 1.6; }
+        .report-section-timer { color: #fbbf24; font-weight: 600; font-family: monospace; font-size: 1.1em; }
+        .report-section-loading { color: #00d4ff; }
+        .report-section-error { color: #f87171; }
+        .report-section-response-info { margin-top: 12px; padding: 10px 14px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px; color: #4ade80; font-size: 0.9em; }
+        .report-section-offtopic { margin-bottom: 12px; padding: 10px 14px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; color: #fbbf24; font-size: 0.9em; }
+
+        .server-mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+        .server-mini-card { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px 14px; position: relative; border: 2px solid rgba(255,255,255,0.1); }
+        .server-mini-card.ok { border-color: rgba(74, 222, 128, 0.4); }
+        .server-mini-card.error { border-color: rgba(248, 113, 113, 0.4); opacity: 0.7; }
+        .server-mini-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .server-mini-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .server-mini-card.ok .server-mini-dot { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+        .server-mini-card.error .server-mini-dot { background: #f87171; }
+        .server-mini-host { font-family: monospace; font-size: 0.85em; color: #00d4ff; }
+        .server-mini-info { font-size: 0.8em; color: #666; }
+        .server-mini-refresh { position: absolute; top: 10px; right: 10px; }
+    </style>
 </head>
-<body class="ai-report-test-body">
-    <h1>AI Report Analysis</h1>
-    <p class="ai-report-test-subtitle">Test and refine AI-generated report sections</p>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
 
-    <div class="ai-report-test-nav">
-        <a href="/api/ai/servers/manage">&larr; Manage Ollama Servers</a>
-        <a href="/report">View Main Report</a>
-    </div>
-
-    <div class="ai-report-test-servers-section">
-        <h3>Ollama Servers</h3>
-        <div class="ai-report-test-servers-grid" id="servers-grid">
-            {% for server in servers %}
-            <div class="ai-report-test-server-card {{ 'ok' if server.reachable else 'error' }}" data-server-id="{{ server.id }}">
-                <div class="ai-report-test-server-header">
-                    <span class="ai-report-test-server-status-dot"></span>
-                    <strong>{{ server.name }}</strong>
-                </div>
-                <div class="ai-report-test-server-details">
-                    <div class="ai-report-test-server-host">{{ server.host }}</div>
-                    <div class="ai-report-test-server-info">{{ server.description }}{% if server.hardware %} | {{ server.hardware }}{% endif %}</div>
-                    <div class="ai-report-test-server-models">{{ server.available_models|length }} models available{% if server.error %} | Error: {{ server.error }}{% endif %}</div>
-                </div>
-                <button onclick="refreshServerStatus('{{ server.id }}')" class="secondary ai-report-test-refresh-btn">↻</button>
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">AI Report Lab</h1>
+                <p class="advanced-subtitle">Test and refine AI-generated report sections</p>
             </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="ai-report-test-status {{ 'ok' if data_summary.has_data else 'warning' }}" id="data-status">
-        <strong>Analysis Data:</strong>
-        {% if data_summary.has_data %}
-            Loaded - {{ data_summary.stats.total_accounts|default(0) }} accounts, {{ data_summary.stats.cracked_accounts|default(0) }} cracked ({{ data_summary.stats.crack_percent|default('0%') }})
-        {% else %}
-            No analysis data found. Run a password analysis first, or use sample data below.
-        {% endif %}
-        <div class="ai-report-test-files-list">
-            {% for f in data_summary.files_found|default([]) %}
-            <span class="ai-report-test-file-tag">{{ f }}</span>
-            {% endfor %}
-            {% for f in data_summary.files_missing|default([]) %}
-            <span class="ai-report-test-file-tag missing">{{ f }} (missing)</span>
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="ai-report-test-data-section">
-        <div class="ai-report-test-data-mode-toggle">
-            <label><input type="radio" name="data-mode" value="auto" {{ 'checked' if data_summary.has_data else '' }} onchange="setDataMode('auto')"> Use Analysis Data</label>
-            <label><input type="radio" name="data-mode" value="manual" {{ '' if data_summary.has_data else 'checked' }} onchange="setDataMode('manual')"> Use Sample/Custom Data</label>
-            <button onclick="loadRealData()" class="secondary" style="margin-left: auto;">Reload Analysis Data</button>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
         </div>
 
-        <div id="manual-data-section" class="{{ 'hidden' if data_summary.has_data else '' }}">
-            <h3 class="ai-report-test-manual-header">Sample Data (editable)</h3>
-            <div class="ai-report-test-data-grid">
-                <div class="ai-report-test-data-field">
-                    <label>Top Passwords (JSON: {"password": count})</label>
-                    <textarea id="data-top-passwords" rows="6">{"Summer2024": 45, "Welcome1!": 38, "Password123": 32, "Company2024!": 28, "Winter2023": 25, "qwerty123": 22, "Baseball1": 18, "Football!": 15}</textarea>
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link active">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Server Status -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128421;</span>
+                <h2 class="advanced-section-title">Ollama Servers</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="server-mini-grid" id="servers-grid">
+                    {% for server in servers %}
+                    <div class="server-mini-card {{ 'ok' if server.reachable else 'error' }}" data-server-id="{{ server.id }}">
+                        <div class="server-mini-header">
+                            <span class="server-mini-dot"></span>
+                            <strong>{{ server.name }}</strong>
+                        </div>
+                        <div class="server-mini-host">{{ server.host }}</div>
+                        <div class="server-mini-info">{{ server.description }}{% if server.hardware %} | {{ server.hardware }}{% endif %}</div>
+                        <div class="server-mini-info">{{ server.available_models|length }} models{% if server.error %} | {{ server.error }}{% endif %}</div>
+                        <button onclick="refreshServerStatus('{{ server.id }}')" class="advanced-btn advanced-btn-secondary advanced-btn-small server-mini-refresh">&#8635;</button>
+                    </div>
+                    {% endfor %}
                 </div>
-                <div class="ai-report-test-data-field">
-                    <label>Password Samples (one per line)</label>
-                    <textarea id="data-password-samples" rows="6">Summer2024
+            </div>
+        </div>
+
+        <!-- Data Status -->
+        <div class="report-test-status {{ 'ok' if data_summary.has_data else 'warning' }}" id="data-status">
+            <strong>Analysis Data:</strong>
+            {% if data_summary.has_data %}
+                Loaded — {{ data_summary.stats.total_accounts|default(0) }} accounts, {{ data_summary.stats.cracked_accounts|default(0) }} cracked ({{ data_summary.stats.crack_percent|default('0%') }})
+            {% else %}
+                No analysis data found. Run a password analysis first, or use sample data below.
+            {% endif %}
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                {% for f in data_summary.files_found|default([]) %}
+                <span class="report-test-file-tag">{{ f }}</span>
+                {% endfor %}
+                {% for f in data_summary.files_missing|default([]) %}
+                <span class="report-test-file-tag missing">{{ f }} (missing)</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Data Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128202;</span>
+                <h2 class="advanced-section-title">Test Data</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="report-test-data-mode">
+                    <label><input type="radio" name="data-mode" value="auto" {{ 'checked' if data_summary.has_data else '' }} onchange="setDataMode('auto')"> Use Analysis Data</label>
+                    <label><input type="radio" name="data-mode" value="manual" {{ '' if data_summary.has_data else 'checked' }} onchange="setDataMode('manual')"> Use Sample/Custom Data</label>
+                    <button onclick="loadRealData()" class="advanced-btn advanced-btn-secondary advanced-btn-small" style="margin-left: auto;">Reload Analysis Data</button>
+                </div>
+
+                <div id="manual-data-section" class="{{ 'hidden' if data_summary.has_data else '' }}">
+                    <p style="color: #71717a; margin-bottom: 12px;">Sample Data (editable)</p>
+                    <div class="report-test-data-grid">
+                        <div class="report-test-data-field">
+                            <label>Top Passwords (JSON)</label>
+                            <textarea id="data-top-passwords" rows="5">{"Summer2024": 45, "Welcome1!": 38, "Password123": 32, "Company2024!": 28, "Winter2023": 25, "qwerty123": 22}</textarea>
+                        </div>
+                        <div class="report-test-data-field">
+                            <label>Password Samples (one per line)</label>
+                            <textarea id="data-password-samples" rows="5">Summer2024
 Welcome1!
 Password123
 Company2024!
 JohnSmith1
-Yankees2024
-Chicago99!
-Packers!23</textarea>
+Yankees2024</textarea>
+                        </div>
+                        <div class="report-test-data-field">
+                            <label>Top Substrings (JSON array)</label>
+                            <textarea id="data-substrings" rows="5">[{"substring": "2024", "count": 234}, {"substring": "2023", "count": 189}, {"substring": "pass", "count": 156}]</textarea>
+                        </div>
+                        <div class="report-test-data-field">
+                            <label>Bad Practices (JSON)</label>
+                            <textarea id="data-bad-practices" rows="5">{"Season+Year": {"count": 234, "examples": {"Summer2024": 12}}, "Common Words": {"count": 456, "examples": {"Password": 45}}}</textarea>
+                        </div>
+                    </div>
                 </div>
-                <div class="ai-report-test-data-field">
-                    <label>Top Substrings (JSON array)</label>
-                    <textarea id="data-substrings" rows="6">[{"substring": "2024", "count": 234}, {"substring": "2023", "count": 189}, {"substring": "pass", "count": 156}, {"substring": "summer", "count": 89}, {"substring": "welcome", "count": 67}]</textarea>
-                </div>
-                <div class="ai-report-test-data-field">
-                    <label>Bad Practices (JSON)</label>
-                    <textarea id="data-bad-practices" rows="6">{"Season+Year": {"count": 234, "examples": {"Summer2024": 12, "Winter2023": 8}}, "Common Words": {"count": 456, "examples": {"Password": 45, "Welcome": 38}}, "Keyboard Patterns": {"count": 89, "examples": {"qwerty": 22, "123456": 15}}}</textarea>
+
+                <div id="auto-data-section" class="{{ '' if data_summary.has_data else 'hidden' }}">
+                    <div class="report-test-stats">
+                        <div class="report-test-stat">
+                            <div class="label">Total Accounts</div>
+                            <div class="value" id="stat-total">{{ data_summary.stats.total_accounts|default(0) }}</div>
+                        </div>
+                        <div class="report-test-stat">
+                            <div class="label">Cracked</div>
+                            <div class="value" id="stat-cracked">{{ data_summary.stats.cracked_accounts|default(0) }}</div>
+                        </div>
+                        <div class="report-test-stat">
+                            <div class="label">Crack Rate</div>
+                            <div class="value" id="stat-percent">{{ data_summary.stats.crack_percent|default('0%') }}</div>
+                        </div>
+                    </div>
+                    <p style="color: #71717a; font-size: 0.9em;">Data is automatically loaded from your most recent analysis. Click "Show Data" on each section to preview what will be sent to the AI.</p>
                 </div>
             </div>
         </div>
 
-        <div id="auto-data-section" class="{{ '' if data_summary.has_data else 'hidden' }}">
-            <div class="ai-report-test-data-stats">
-                <div class="ai-report-test-data-stat">
-                    <div class="label">Total Accounts</div>
-                    <div class="value" id="stat-total">{{ data_summary.stats.total_accounts|default(0) }}</div>
+        <!-- Saved Outputs -->
+        <div class="advanced-section">
+            <div class="advanced-section-header" style="cursor: pointer;" onclick="toggleOutputsList()">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="advanced-section-icon">&#128190;</span>
+                    <h2 class="advanced-section-title">Saved Test Outputs</h2>
                 </div>
-                <div class="ai-report-test-data-stat">
-                    <div class="label">Cracked</div>
-                    <div class="value" id="stat-cracked">{{ data_summary.stats.cracked_accounts|default(0) }}</div>
-                </div>
-                <div class="ai-report-test-data-stat">
-                    <div class="label">Crack Rate</div>
-                    <div class="value" id="stat-percent">{{ data_summary.stats.crack_percent|default('0%') }}</div>
-                </div>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" id="toggle-outputs-btn">Show</button>
             </div>
-            <p class="ai-report-test-auto-hint">Data is automatically loaded from your most recent analysis. Click "Show Data" on each section to preview what will be sent to the AI.</p>
+            <div class="advanced-section-content" id="outputs-list" style="display: none;">
+                <p style="color: #71717a; margin-bottom: 12px;">All test runs are automatically saved to <code class="advanced-code">test_outputs/</code> for comparison.</p>
+                <div id="outputs-content"><span style="color: #555; font-style: italic;">Loading...</span></div>
+            </div>
         </div>
-    </div>
 
-    <div class="ai-report-test-outputs-section">
-        <div class="ai-report-test-outputs-header">
-            <h3>Saved Test Outputs</h3>
-            <button onclick="toggleOutputsList()" class="secondary" id="toggle-outputs-btn">Show Outputs</button>
-        </div>
-        <div id="outputs-list" style="display: none;">
-            <p class="ai-report-test-outputs-hint">All test runs are automatically saved to <code>test_outputs/</code> for comparison.</p>
-            <div id="outputs-content">
-                <span class="placeholder">Loading...</span>
+        <!-- Report Sections -->
+        <h2 style="color: #00d4ff; margin: 24px 0 16px 0;">Report Sections</h2>
+        {% for section_id, config in sections_sorted %}
+        <div class="report-section" id="section-{{ section_id }}">
+            <div class="report-section-header">
+                <div class="report-section-info">
+                    <h3>{{ config.title }}</h3>
+                    <p class="report-section-desc">{{ config.description }}</p>
+                    <p class="report-section-sources">Data: {{ config.data_sources.keys()|join(', ') }}</p>
+                </div>
+                <div class="report-section-controls">
+                    <select id="server-{{ section_id }}">
+                        {% for server in servers %}
+                        <option value="{{ server.id }}" {{ '' if server.reachable else 'disabled' }}>{{ '✓' if server.reachable else '✗' }} {{ server.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="model-{{ section_id }}">
+                        {% for model in all_models %}
+                        <option value="{{ model }}">{{ model }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="range" id="temp-{{ section_id }}" min="0" max="1" step="0.1" value="{{ config.temperature }}">
+                    <span id="temp-value-{{ section_id }}" class="report-section-temp">{{ config.temperature }}</span>
+                    <button onclick="analyzeSection('{{ section_id }}')" class="advanced-btn advanced-btn-primary advanced-btn-small">Analyze</button>
+                    <button onclick="clearSection('{{ section_id }}')" class="advanced-btn advanced-btn-secondary advanced-btn-small">Clear</button>
+                </div>
+            </div>
+            <div class="report-section-preview" id="preview-{{ section_id }}">
+                <button onclick="toggleDataPreview('{{ section_id }}')" class="advanced-btn advanced-btn-secondary advanced-btn-small">Show Data</button>
+                <button onclick="togglePromptPreview('{{ section_id }}')" class="advanced-btn advanced-btn-secondary advanced-btn-small">Show Prompt</button>
+                <div id="data-content-{{ section_id }}" style="display: none; width: 100%;"><pre>Loading...</pre></div>
+                <div id="prompt-content-{{ section_id }}" style="display: none; width: 100%;"></div>
+            </div>
+            <div class="report-section-content" id="content-{{ section_id }}">
+                <span class="placeholder">Click "Analyze" to generate this section</span>
             </div>
         </div>
+        {% endfor %}
     </div>
-
-    <h2>Report Sections</h2>
-    {% for section_id, config in sections_sorted %}
-    <div class="ai-report-test-section" id="section-{{ section_id }}">
-        <div class="ai-report-test-section-header">
-            <div class="ai-report-test-section-info">
-                <h3>{{ config.title }}</h3>
-                <p class="ai-report-test-section-desc">{{ config.description }}</p>
-                <p class="ai-report-test-section-sources">Data: {{ config.data_sources.keys()|join(', ') }}</p>
-            </div>
-            <div class="ai-report-test-section-controls">
-                <select id="server-{{ section_id }}" class="ai-report-test-server-select">
-                    {% for server in servers %}
-                    <option value="{{ server.id }}" {{ '' if server.reachable else 'disabled' }}>{{ '✓' if server.reachable else '✗' }} {{ server.name }}</option>
-                    {% endfor %}
-                </select>
-                <select id="model-{{ section_id }}" class="ai-report-test-model-select">
-                    {% for model in all_models %}
-                    <option value="{{ model }}">{{ model }}</option>
-                    {% endfor %}
-                </select>
-                <input type="range" id="temp-{{ section_id }}" min="0" max="1" step="0.1" value="{{ config.temperature }}" class="ai-report-test-temp-slider">
-                <span id="temp-value-{{ section_id }}" class="ai-report-test-temp-value">{{ config.temperature }}</span>
-                <button onclick="analyzeSection('{{ section_id }}')" class="ai-report-test-analyze-btn">Analyze</button>
-                <button onclick="clearSection('{{ section_id }}')" class="secondary ai-report-test-clear-btn">Clear</button>
-            </div>
-        </div>
-        <div class="ai-report-test-section-data-preview" id="data-preview-{{ section_id }}">
-            <button onclick="toggleDataPreview('{{ section_id }}')" class="secondary ai-report-test-toggle-data-btn">Show Data</button>
-            <button onclick="togglePromptPreview('{{ section_id }}')" class="secondary ai-report-test-toggle-prompt-btn">Show Prompt</button>
-            <div class="ai-report-test-data-preview-content" id="data-content-{{ section_id }}" style="display:none;">
-                <pre>Loading...</pre>
-            </div>
-            <div class="ai-report-test-prompt-preview-content" id="prompt-content-{{ section_id }}" style="display:none;">
-                <pre>Loading...</pre>
-            </div>
-        </div>
-        <div class="ai-report-test-section-content" id="content-{{ section_id }}">
-            <span class="placeholder">Click "Analyze" to generate this section</span>
-        </div>
-    </div>
-    {% endfor %}
 
     <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/api/ai')) {
+                exitLink.href = referrer;
+            }
+        })();
+
         // State
         let dataMode = '{{ 'auto' if data_summary.has_data else 'manual' }}';
-        let analysisData = null;  // Cached real data
+        let analysisData = null;
+        let activeTimers = {};
 
         // Initialize temperature sliders
-        document.querySelectorAll('.ai-report-test-temp-slider').forEach(slider => {
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
             slider.addEventListener('input', function() {
                 const sectionId = this.id.replace('temp-', '');
                 document.getElementById('temp-value-' + sectionId).textContent = this.value;
@@ -199,7 +305,6 @@ Packers!23</textarea>
                 if (data.has_data) {
                     analysisData = data.sections;
                     alert('Analysis data loaded successfully!');
-                    // Update stats display
                     const summaryResp = await fetch('/api/ai/report/data');
                     const summary = await summaryResp.json();
                     if (summary.stats) {
@@ -207,7 +312,6 @@ Packers!23</textarea>
                         document.getElementById('stat-cracked').textContent = summary.stats.cracked_accounts || 0;
                         document.getElementById('stat-percent').textContent = summary.stats.crack_percent || '0%';
                     }
-                    // Switch to auto mode
                     document.querySelector('input[name="data-mode"][value="auto"]').checked = true;
                     setDataMode('auto');
                 } else {
@@ -223,7 +327,6 @@ Packers!23</textarea>
             const promptDiv = document.getElementById('prompt-content-' + sectionId);
             const isVisible = contentDiv.style.display !== 'none';
 
-            // Hide prompt preview when showing data
             if (promptDiv) promptDiv.style.display = 'none';
 
             if (isVisible) {
@@ -238,7 +341,7 @@ Packers!23</textarea>
                 const data = await getSectionData(sectionId);
                 contentDiv.innerHTML = '<pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
             } catch (e) {
-                contentDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
+                contentDiv.innerHTML = '<pre style="color: #f87171;">Error: ' + e.message + '</pre>';
             }
         }
 
@@ -247,7 +350,6 @@ Packers!23</textarea>
             const dataDiv = document.getElementById('data-content-' + sectionId);
             const isVisible = promptDiv.style.display !== 'none';
 
-            // Hide data preview when showing prompt
             if (dataDiv) dataDiv.style.display = 'none';
 
             if (isVisible) {
@@ -263,43 +365,40 @@ Packers!23</textarea>
                 const result = await resp.json();
 
                 if (result.error) {
-                    promptDiv.innerHTML = '<pre class="error">Error: ' + result.error + '</pre>';
+                    promptDiv.innerHTML = '<pre style="color: #f87171;">Error: ' + result.error + '</pre>';
                     return;
                 }
 
-                let html = '<div class="ai-report-test-prompt-label">System Prompt:</div>';
-                html += '<pre class="ai-report-test-system-prompt">' + escapeHtml(result.system_prompt) + '</pre>';
+                let html = '<span class="prompt-label">System Prompt:</span>';
+                html += '<pre class="system-prompt">' + escapeHtml(result.system_prompt) + '</pre>';
 
                 if (result.formatted_prompt) {
-                    html += '<div class="ai-report-test-prompt-label">User Prompt (with data):</div>';
+                    html += '<span class="prompt-label">User Prompt (with data):</span>';
                     html += '<pre>' + escapeHtml(result.formatted_prompt) + '</pre>';
                 } else if (result.prompt_template) {
-                    html += '<div class="ai-report-test-prompt-label">Prompt Template (no data loaded):</div>';
+                    html += '<span class="prompt-label">Prompt Template (no data loaded):</span>';
                     html += '<pre>' + escapeHtml(result.prompt_template) + '</pre>';
                     if (result.message) {
-                        html += '<p class="ai-report-test-prompt-warning">' + escapeHtml(result.message) + '</p>';
+                        html += '<p style="color: #fbbf24; margin-top: 8px;">' + escapeHtml(result.message) + '</p>';
                     }
                 }
 
                 promptDiv.innerHTML = html;
             } catch (e) {
-                promptDiv.innerHTML = '<pre class="error">Error: ' + e.message + '</pre>';
+                promptDiv.innerHTML = '<pre style="color: #f87171;">Error: ' + e.message + '</pre>';
             }
         }
 
         async function getSectionData(sectionId) {
             if (dataMode === 'auto') {
-                // Use real data from server
                 if (analysisData && analysisData[sectionId]) {
                     return analysisData[sectionId];
                 }
-                // Fetch from server
                 const resp = await fetch('/api/ai/report/data/' + sectionId);
                 const result = await resp.json();
                 if (result.error) throw new Error(result.error);
                 return result.data;
             } else {
-                // Use manual/sample data
                 return getManualTestData();
             }
         }
@@ -323,13 +422,8 @@ Packers!23</textarea>
             };
         }
 
-        // Timer tracking
-        let activeTimers = {};
-
         function formatTime(seconds) {
-            if (seconds < 60) {
-                return seconds + 's';
-            }
+            if (seconds < 60) return seconds + 's';
             const mins = Math.floor(seconds / 60);
             const secs = seconds % 60;
             return mins + 'm ' + secs + 's';
@@ -339,23 +433,15 @@ Packers!23</textarea>
             const contentDiv = document.getElementById('content-' + sectionId);
             let seconds = 0;
 
-            // Clear any existing timer
-            if (activeTimers[sectionId]) {
-                clearInterval(activeTimers[sectionId]);
-            }
+            if (activeTimers[sectionId]) clearInterval(activeTimers[sectionId]);
 
             activeTimers[sectionId] = setInterval(() => {
                 seconds++;
-                const timerSpan = contentDiv.querySelector('.ai-report-test-timer');
-                if (timerSpan) {
-                    timerSpan.textContent = formatTime(seconds);
-                }
+                const timerSpan = contentDiv.querySelector('.report-section-timer');
+                if (timerSpan) timerSpan.textContent = formatTime(seconds);
             }, 1000);
 
-            return () => {
-                clearInterval(activeTimers[sectionId]);
-                delete activeTimers[sectionId];
-            };
+            return () => { clearInterval(activeTimers[sectionId]); delete activeTimers[sectionId]; };
         }
 
         async function analyzeSection(sectionId) {
@@ -364,19 +450,13 @@ Packers!23</textarea>
             const model = document.getElementById('model-' + sectionId).value;
             const temperature = parseFloat(document.getElementById('temp-' + sectionId).value);
 
-            if (!model) {
-                alert('Please select a model');
-                return;
-            }
+            if (!model) { alert('Please select a model'); return; }
 
-            // Get server name for display
             const serverSelect = document.getElementById('server-' + sectionId);
             const serverName = serverSelect.options[serverSelect.selectedIndex].text.replace(/^[✓✗] /, '');
 
-            // Show loading with live timer
-            contentDiv.innerHTML = '<span class="ai-report-test-loading">Analyzing with ' + escapeHtml(model) + ' on ' + escapeHtml(serverName) + ' (temp: ' + temperature + ')...</span> <span class="ai-report-test-timer">0s</span>';
+            contentDiv.innerHTML = '<span class="report-section-loading">Analyzing with ' + escapeHtml(model) + ' on ' + escapeHtml(serverName) + ' (temp: ' + temperature + ')...</span> <span class="report-section-timer">0s</span>';
 
-            // Start the timer
             const stopTimer = startTimer(sectionId);
 
             try {
@@ -384,53 +464,40 @@ Packers!23</textarea>
                 const resp = await fetch('/api/ai/report/analyze/' + sectionId, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        model: model,
-                        temperature: temperature,
-                        server_id: serverId,
-                        data: sectionData
-                    })
+                    body: JSON.stringify({ model: model, temperature: temperature, server_id: serverId, data: sectionData })
                 });
                 stopTimer();
                 const data = await resp.json();
+
                 if (data.content) {
                     let html = '';
                     if (data.warning) {
-                        html += '<div class="ai-report-test-offtopic-warning">⚠️ ' + escapeHtml(data.warning) + '</div>';
+                        html += '<div class="report-section-offtopic">' + escapeHtml(data.warning) + '</div>';
                     }
-                    html += '<div class="ai-report-test-analysis">' + escapeHtml(data.content) + '</div>';
-                    // Show response time with server info
+                    html += '<div class="report-section-analysis">' + escapeHtml(data.content) + '</div>';
                     if (data.response_time_formatted) {
-                        html += '<div class="ai-report-test-response-time-info">⏱️ Response time: <span class="ai-report-test-response-time">' + escapeHtml(data.response_time_formatted) + '</span>';
+                        html += '<div class="report-section-response-info">Response time: ' + escapeHtml(data.response_time_formatted);
                         html += ' | Server: ' + escapeHtml(data.server_name || serverId);
-                        if (data.saved_to) {
-                            html += ' | Saved to: test_outputs/' + escapeHtml(data.saved_to);
-                        }
+                        if (data.saved_to) html += ' | Saved to: test_outputs/' + escapeHtml(data.saved_to);
                         html += '</div>';
-                    } else if (data.saved_to) {
-                        html += '<div class="ai-report-test-save-notice">Saved to: test_outputs/' + escapeHtml(data.saved_to) + '</div>';
                     }
                     contentDiv.innerHTML = html;
-                    // Refresh outputs list if visible
-                    if (document.getElementById('outputs-list').style.display !== 'none') {
-                        loadOutputsList();
-                    }
+                    if (document.getElementById('outputs-list').style.display !== 'none') loadOutputsList();
                 } else {
-                    let errorHtml = '<span class="ai-report-test-error">Error: ' + (data.error || 'Unknown error') + '</span>';
+                    let errorHtml = '<span class="report-section-error">Error: ' + (data.error || 'Unknown error') + '</span>';
                     if (data.response_time_formatted) {
-                        errorHtml += ' <span style="color: #888;">(after ' + escapeHtml(data.response_time_formatted) + ' on ' + escapeHtml(data.server_name || serverId) + ')</span>';
+                        errorHtml += ' <span style="color: #666;">(after ' + escapeHtml(data.response_time_formatted) + ')</span>';
                     }
                     contentDiv.innerHTML = errorHtml;
                 }
             } catch (e) {
                 stopTimer();
-                contentDiv.innerHTML = '<span class="ai-report-test-error">Error: ' + e.message + '</span>';
+                contentDiv.innerHTML = '<span class="report-section-error">Error: ' + e.message + '</span>';
             }
         }
 
         async function clearSection(sectionId) {
-            const contentDiv = document.getElementById('content-' + sectionId);
-            contentDiv.innerHTML = '<span class="placeholder">Click "Analyze" to generate this section</span>';
+            document.getElementById('content-' + sectionId).innerHTML = '<span class="placeholder">Click "Analyze" to generate this section</span>';
             await fetch('/api/ai/report/cache/' + sectionId, { method: 'DELETE' });
         }
 
@@ -447,28 +514,10 @@ Packers!23</textarea>
                 Object.entries(data.cache || {}).forEach(([sectionId, cached]) => {
                     const contentDiv = document.getElementById('content-' + sectionId);
                     if (contentDiv && cached.content) {
-                        contentDiv.innerHTML = '<div class="ai-report-test-analysis">' + escapeHtml(cached.content) + '</div>';
+                        contentDiv.innerHTML = '<div class="report-section-analysis">' + escapeHtml(cached.content) + '</div>';
                     }
                 });
-            } catch (e) {
-                console.error('Failed to load cache:', e);
-            }
-        }
-
-        // Pre-load real data if available
-        async function init() {
-            await loadCache();
-            if (dataMode === 'auto') {
-                try {
-                    const resp = await fetch('/api/ai/report/data/all');
-                    const data = await resp.json();
-                    if (data.has_data) {
-                        analysisData = data.sections;
-                    }
-                } catch (e) {
-                    console.error('Failed to pre-load data:', e);
-                }
-            }
+            } catch (e) { console.error('Failed to load cache:', e); }
         }
 
         async function toggleOutputsList() {
@@ -478,45 +527,38 @@ Packers!23</textarea>
 
             if (isVisible) {
                 listDiv.style.display = 'none';
-                btn.textContent = 'Show Outputs';
+                btn.textContent = 'Show';
             } else {
                 listDiv.style.display = 'block';
-                btn.textContent = 'Hide Outputs';
+                btn.textContent = 'Hide';
                 await loadOutputsList();
             }
         }
 
         async function loadOutputsList() {
             const contentDiv = document.getElementById('outputs-content');
-            contentDiv.innerHTML = '<span class="placeholder">Loading...</span>';
+            contentDiv.innerHTML = '<span style="color: #555; font-style: italic;">Loading...</span>';
 
             try {
                 const resp = await fetch('/api/ai/report/outputs');
                 const data = await resp.json();
 
                 if (data.outputs && data.outputs.length > 0) {
-                    let html = '<div class="ai-report-test-outputs-list">';
+                    let html = '<div class="report-test-outputs-list">';
                     data.outputs.forEach(output => {
-                        html += `
-                            <div class="ai-report-test-output-item">
-                                <div>
-                                    <span class="ai-report-test-output-filename" onclick="viewOutput('${escapeHtml(output.filename)}')">${escapeHtml(output.filename)}</span>
-                                    <div class="ai-report-test-output-meta">${output.modified} | ${Math.round(output.size / 1024)}KB</div>
-                                </div>
-                                <div class="ai-report-test-output-actions">
-                                    <button onclick="viewOutput('${escapeHtml(output.filename)}')" class="secondary">View</button>
-                                </div>
-                            </div>
-                        `;
+                        html += '<div class="report-test-output-item">';
+                        html += '<div><span class="report-test-output-filename" onclick="viewOutput(\'' + escapeHtml(output.filename) + '\')">' + escapeHtml(output.filename) + '</span>';
+                        html += '<div class="report-test-output-meta">' + output.modified + ' | ' + Math.round(output.size / 1024) + 'KB</div></div>';
+                        html += '<button onclick="viewOutput(\'' + escapeHtml(output.filename) + '\')" class="advanced-btn advanced-btn-secondary advanced-btn-small">View</button>';
+                        html += '</div>';
                     });
-                    html += '</div>';
-                    html += '<p class="ai-report-test-outputs-count">' + data.count + ' saved outputs</p>';
+                    html += '</div><p style="color: #666; font-size: 0.8em; margin-top: 10px;">' + data.count + ' saved outputs</p>';
                     contentDiv.innerHTML = html;
                 } else {
-                    contentDiv.innerHTML = '<span class="placeholder">No saved outputs yet. Run an analysis to generate outputs.</span>';
+                    contentDiv.innerHTML = '<span style="color: #555; font-style: italic;">No saved outputs yet. Run an analysis to generate outputs.</span>';
                 }
             } catch (e) {
-                contentDiv.innerHTML = '<span class="ai-report-test-error">Error loading outputs: ' + e.message + '</span>';
+                contentDiv.innerHTML = '<span class="report-section-error">Error loading outputs: ' + e.message + '</span>';
             }
         }
 
@@ -526,14 +568,10 @@ Packers!23</textarea>
                 const data = await resp.json();
 
                 if (data.content) {
-                    // Open in new window/tab with formatted content
                     const win = window.open('', '_blank');
                     win.document.write('<html><head><title>' + escapeHtml(filename) + '</title>');
-                    win.document.write('<style>body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; } pre { white-space: pre-wrap; background: #0f0f1a; padding: 20px; border-radius: 8px; overflow-x: auto; } h1 { color: #00d4ff; } code { background: #0f0f1a; padding: 2px 6px; border-radius: 4px; }</style>');
-                    win.document.write('</head><body>');
-                    win.document.write('<h1>' + escapeHtml(filename) + '</h1>');
-                    win.document.write('<pre>' + escapeHtml(data.content) + '</pre>');
-                    win.document.write('</body></html>');
+                    win.document.write('<style>body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #0a0a12; color: #e0e0e0; } pre { white-space: pre-wrap; background: rgba(0,0,0,0.4); padding: 20px; border-radius: 8px; } h1 { color: #00d4ff; }</style>');
+                    win.document.write('</head><body><h1>' + escapeHtml(filename) + '</h1><pre>' + escapeHtml(data.content) + '</pre></body></html>');
                     win.document.close();
                 } else {
                     alert('Error: ' + (data.error || 'Failed to load file'));
@@ -543,30 +581,34 @@ Packers!23</textarea>
             }
         }
 
-        // Server status refresh
         async function refreshServerStatus(serverId) {
-            const card = document.querySelector(`.ai-report-test-server-card[data-server-id="${serverId}"]`);
+            const card = document.querySelector('.server-mini-card[data-server-id="' + serverId + '"]');
             if (!card) return;
 
             card.style.opacity = '0.5';
             try {
                 const resp = await fetch('/api/ai/servers/' + serverId + '/status');
                 const data = await resp.json();
-
                 card.classList.remove('ok', 'error');
                 card.classList.add(data.reachable ? 'ok' : 'error');
-
-                const modelsDiv = card.querySelector('.ai-report-test-server-models');
+                const modelsDiv = card.querySelector('.server-mini-info:last-of-type');
                 if (modelsDiv) {
                     const modelCount = (data.available_models || []).length;
-                    modelsDiv.textContent = data.reachable
-                        ? modelCount + ' models available'
-                        : 'Error: ' + (data.error || 'Unreachable');
+                    modelsDiv.textContent = data.reachable ? modelCount + ' models' : 'Error: ' + (data.error || 'Unreachable');
                 }
-            } catch (e) {
-                console.error('Failed to refresh server status:', e);
-            }
+            } catch (e) { console.error('Failed to refresh:', e); }
             card.style.opacity = '1';
+        }
+
+        async function init() {
+            await loadCache();
+            if (dataMode === 'auto') {
+                try {
+                    const resp = await fetch('/api/ai/report/data/all');
+                    const data = await resp.json();
+                    if (data.has_data) analysisData = data.sections;
+                } catch (e) { console.error('Failed to pre-load data:', e); }
+            }
         }
 
         document.addEventListener('DOMContentLoaded', init);
