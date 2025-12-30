@@ -802,20 +802,29 @@ def bad_practices_analysis(
     ]
     sequential_regex = re.compile("|".join(sequential_patterns), re.IGNORECASE)
 
-    # Bible verse patterns
+    # Bible verse patterns - must have chapter:verse or chapter.verse format to avoid
+    # false positives on common names like James, Daniel, Peter, John, Phil, etc.
+    # Use word boundaries (?<![a-z]) to prevent matching substrings like "AMcor" or "Nicol"
     bible_patterns = [
-        # Book + chapter:verse or chapter.verse patterns
-        r"(john|psalm|psalms|genesis|matthew|mark|luke|romans|proverbs|isaiah|jeremiah|ezekiel|daniel|acts|james|peter|revelations?|revelation|rev|gen|matt|rom|cor|corinthians|ephesians|eph|philippians|phil|colossians|col|thessalonians|thess|timothy|tim|titus|hebrews|heb)[^a-z]*\d+[:\.]?\d*",
-        # Common verse references
-        r"john3[:\.]?16",
-        r"psalm23",
-        r"psalm91",
-        r"phil4[:\.]?13",
-        r"jer29[:\.]?11",
-        r"rom8[:\.]?28",
-        r"john14[:\.]?6",
-        r"matt6[:\.]?33",
-        r"prov3[:\.]?5",
+        # Book names that are NOT common first names - can match with just chapter number
+        # These are clearly biblical and unlikely to be used as personal names
+        # Require word boundary at start to avoid matching "AMcor", "Nicol", etc.
+        r"(?<![a-z])(psalm|psalms|proverbs|prov|isaiah|ezekiel|revelations?|revelation|corinthians|ephesians|colossians|thessalonians|hebrews|jeremiah|exodus|leviticus|deuteronomy|ecclesiastes|lamentations|galatians)[^a-z]*\d+[:\.,]?\d*",
+        # Book names that ARE common first names - REQUIRE chapter:verse format (colon, period, or comma separator)
+        # This prevents "James1", "Daniel2023", "John2024", "Genesis123" from matching
+        r"(?<![a-z])(john|luke|mark|daniel|james|peter|timothy|titus|acts|philippians|joseph|matthew|romans|genesis)[^a-z]*\d+[:\.,]\d+",
+        # Well-known specific verse references (these are unambiguous even without separator)
+        # Require word boundary to prevent false matches
+        r"(?<![a-z])john3[:\.]?16",
+        r"(?<![a-z])psalm23",
+        r"(?<![a-z])psalm91",
+        r"(?<![a-z])phil[^a-z]*4[:\.,]13",  # Philippians 4:13
+        r"(?<![a-z])phil[^a-z]*4[:\.,]7",   # Philippians 4:7
+        r"(?<![a-z])jer29[:\.]?11",
+        r"(?<![a-z])rom8[:\.]?28",
+        r"(?<![a-z])john14[:\.]?6",
+        r"(?<![a-z])matt6[:\.]?33",
+        r"(?<![a-z])prov3[:\.]?5",
     ]
     bible_regex = re.compile("|".join(bible_patterns), re.IGNORECASE)
 
