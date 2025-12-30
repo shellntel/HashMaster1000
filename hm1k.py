@@ -34,7 +34,7 @@ from flask_login import (
 from flask_session import Session
 # werkzeug.security not used - using bcrypt directly for password verification
 from datetime import datetime, timedelta
-from typing import Dict, Union, Optional, cast
+from typing import Any, cast
 # Import file parser module for validation
 import file_parser
 # Import session manager for multi-session support
@@ -65,8 +65,8 @@ MASTER_POTFILE_PATH = os.getenv("MASTER_POTFILE_PATH", "data/master.potfile")
 ADVANCED_OPTIONS_ENABLED = os.getenv("ADVANCED_OPTIONS_ENABLED", "false").lower() == "true"
 
 
-def validate_libraries():
-    # Define required libraries and their import names
+def validate_libraries() -> None:
+    """Validate that all required libraries are installed."""
     required_libraries = {
         "Flask": "flask",
         "flask-login": "flask_login",
@@ -95,7 +95,7 @@ def validate_libraries():
     print("\n--> All required libraries are installed.")
 
 
-def validate_files():
+def validate_files() -> None:
     """
     Validate the existence of critical files required for the application.
     Create a .env file from env.example if necessary.
@@ -236,7 +236,7 @@ def is_computer_account(username: Optional[str]) -> bool:
 
 # Context processor to make global variables available to all templates
 @app.context_processor
-def inject_global_settings():
+def inject_global_settings() -> dict[str, Any]:
     """Inject global settings into all templates."""
     return {
         'advanced_options_enabled': ADVANCED_OPTIONS_ENABLED
@@ -281,7 +281,7 @@ def load_user(user_id: str) -> Optional[User]:
 
 
 @login_manager.unauthorized_handler
-def unauthorized():
+def unauthorized() -> Response | str:
     """Custom unauthorized handler that returns JSON for API calls."""
     # Check if this is an API/AJAX request
     if request.path.startswith('/api/') or request.is_json or request.headers.get('Accept', '').startswith('application/json'):
@@ -1673,7 +1673,7 @@ def sessions_page() -> str:
 @app.route("/hiddenpages")
 @app.route("/hidden")
 @login_required
-def hidden_pages_index():
+def hidden_pages_index() -> str:
     """Index page for hidden/development pages and tools."""
     from ollama_tools import test_all_servers, get_ollama_config
 
@@ -1691,13 +1691,13 @@ def hidden_pages_index():
 
 @app.route("/hibp/download")
 @login_required
-def hibp_download_page():
+def hibp_download_page() -> str:
     """HIBP database download management page."""
     return render_template('hibp_download.html')
 
 
 # Helper function to load session data with fallback to legacy paths
-def _load_session_json(filename: str) -> Optional[dict]:
+def _load_session_json(filename: str) -> dict | None:
     """
     Load JSON data from the current session folder.
     Falls back to legacy data/ folder if no session is active.
@@ -3132,7 +3132,7 @@ def browse_directory() -> Response:
 
 @app.route("/api/ai/status", methods=["GET"])
 @login_required
-def ai_status():
+def ai_status() -> Response:
     """Check Ollama AI integration status."""
     from ollama_tools import test_ollama_connection, get_ollama_config
 
@@ -3144,7 +3144,7 @@ def ai_status():
 
 @app.route("/api/ai/models", methods=["GET"])
 @login_required
-def ai_models():
+def ai_models() -> Response:
     """Get list of available models from Ollama server."""
     from ollama_tools import OllamaClient, get_ollama_config
 
@@ -3163,7 +3163,7 @@ def ai_models():
 
 @app.route("/api/ai/library", methods=["GET"])
 @login_required
-def ai_library_models():
+def ai_library_models() -> Response:
     """Get list of popular models available to pull from Ollama library."""
     from ollama_tools import get_available_library_models
 
@@ -3173,7 +3173,7 @@ def ai_library_models():
 
 @app.route("/api/ai/presets", methods=["GET"])
 @login_required
-def ai_presets():
+def ai_presets() -> Response:
     """Get analysis preset configurations."""
     from ollama_tools import get_analysis_presets
 
@@ -3183,7 +3183,7 @@ def ai_presets():
 
 @app.route("/api/ai/pull", methods=["POST"])
 @login_required
-def ai_pull_model():
+def ai_pull_model() -> Response:
     """Pull (download) a model from Ollama library."""
     from ollama_tools import pull_model, get_ollama_config
 
@@ -3207,7 +3207,7 @@ def ai_pull_model():
 
 @app.route("/api/ai/delete", methods=["POST"])
 @login_required
-def ai_delete_model():
+def ai_delete_model() -> Response:
     """Delete a model from the Ollama server."""
     from ollama_tools import delete_model, get_ollama_config
 
@@ -3231,7 +3231,7 @@ def ai_delete_model():
 
 @app.route("/api/ai/generate", methods=["POST"])
 @login_required
-def ai_generate():
+def ai_generate() -> Response:
     """Send a prompt to the Ollama server."""
     import time
     from ollama_tools import OllamaClient, get_ollama_config
@@ -3279,7 +3279,7 @@ def ai_generate():
 
 @app.route("/api/ai/executive-summary", methods=["POST"])
 @login_required
-def ai_executive_summary():
+def ai_executive_summary() -> Response:
     """Generate an executive summary from session data."""
     from ollama_tools import PasswordAnalysisAI, get_ollama_config
 
@@ -3313,7 +3313,7 @@ def ai_executive_summary():
 
 @app.route("/api/ai/analyze-patterns", methods=["POST"])
 @login_required
-def ai_analyze_patterns():
+def ai_analyze_patterns() -> Response:
     """Generate natural language pattern analysis."""
     from ollama_tools import PasswordAnalysisAI, get_ollama_config
 
@@ -3343,7 +3343,7 @@ def ai_analyze_patterns():
 
 @app.route("/api/ai/cluster-passwords", methods=["POST"])
 @login_required
-def ai_cluster_passwords():
+def ai_cluster_passwords() -> Response:
     """Categorize passwords by semantic meaning."""
     from ollama_tools import PasswordAnalysisAI, get_ollama_config
 
@@ -3381,7 +3381,7 @@ def ai_cluster_passwords():
 
 @app.route("/api/ai/attack-strategy", methods=["POST"])
 @login_required
-def ai_attack_strategy():
+def ai_attack_strategy() -> Response:
     """Generate attack strategy recommendations."""
     from ollama_tools import PasswordAnalysisAI, get_ollama_config
 
@@ -3415,7 +3415,7 @@ def ai_attack_strategy():
 
 @app.route("/api/ai/servers", methods=["GET"])
 @login_required
-def ai_list_servers():
+def ai_list_servers() -> Response:
     """Get all configured Ollama servers and their status."""
     from ollama_tools import test_all_servers
     return jsonify(test_all_servers())
@@ -3423,7 +3423,7 @@ def ai_list_servers():
 
 @app.route("/api/ai/servers/<server_id>/status", methods=["GET"])
 @login_required
-def ai_server_status(server_id):
+def ai_server_status(server_id: str) -> Response:
     """Get detailed status of a specific Ollama server including running models."""
     from ollama_tools import test_ollama_connection, get_server_by_id, get_ollama_config, OllamaClient
 
@@ -3458,7 +3458,7 @@ def ai_server_status(server_id):
 
 @app.route("/api/ai/report/sections", methods=["GET"])
 @login_required
-def ai_report_sections():
+def ai_report_sections() -> Response:
     """Get all AI report section configurations."""
     from ollama_tools import get_ai_report_sections
     return jsonify({"sections": get_ai_report_sections()})
@@ -3466,7 +3466,7 @@ def ai_report_sections():
 
 @app.route("/api/ai/report/analyze/<section_id>", methods=["POST"])
 @login_required
-def ai_report_analyze_section(section_id):
+def ai_report_analyze_section(section_id: str) -> Response:
     """
     Analyze a specific report section.
 
@@ -3616,7 +3616,7 @@ def ai_report_analyze_section(section_id):
 
 @app.route("/api/ai/report/pipeline/stream", methods=["GET"])
 @login_required
-def ai_pipeline_stream():
+def ai_pipeline_stream() -> Response:
     """
     Run 3-phase pipeline with Server-Sent Events (SSE) for real-time progress.
 
@@ -4153,7 +4153,7 @@ def ai_pipeline_stream():
 
 @app.route("/api/ai/report/cache", methods=["GET"])
 @login_required
-def ai_report_get_cache():
+def ai_report_get_cache() -> Response:
     """Get cached AI report analyses from session."""
     cache = session.get("ai_report_cache", {})
     return jsonify({"cache": cache})
@@ -4161,7 +4161,7 @@ def ai_report_get_cache():
 
 @app.route("/api/ai/report/cache/<section_id>", methods=["DELETE"])
 @login_required
-def ai_report_clear_section_cache(section_id):
+def ai_report_clear_section_cache(section_id: str) -> Response:
     """Clear cached analysis for a specific section."""
     if "ai_report_cache" in session and section_id in session["ai_report_cache"]:
         del session["ai_report_cache"][section_id]
@@ -4171,7 +4171,7 @@ def ai_report_clear_section_cache(section_id):
 
 @app.route("/api/ai/report/cache", methods=["DELETE"])
 @login_required
-def ai_report_clear_all_cache():
+def ai_report_clear_all_cache() -> Response:
     """Clear all cached AI report analyses."""
     session["ai_report_cache"] = {}
     session.modified = True
@@ -4184,7 +4184,7 @@ def ai_report_clear_all_cache():
 
 @app.route("/api/sessions", methods=["GET"])
 @login_required
-def list_sessions():
+def list_sessions() -> Response:
     """List all sessions for the current user."""
     session_mgr = get_session_manager()
     sessions = session_mgr.list_sessions(username=current_user.id)
@@ -4206,7 +4206,7 @@ def list_sessions():
 
 @app.route("/api/sessions/companies", methods=["GET"])
 @login_required
-def get_company_suggestions():
+def get_company_suggestions() -> Response:
     """Get list of company names for autocomplete."""
     session_mgr = get_session_manager()
     partial = request.args.get("q", "")
@@ -4219,7 +4219,7 @@ def get_company_suggestions():
 
 @app.route("/api/sessions/current", methods=["GET"])
 @login_required
-def get_current_session_info():
+def get_current_session_info() -> Response:
     """Get information about the current session."""
     session_mgr = get_session_manager()
     current = session_mgr.get_current_session()
@@ -4242,7 +4242,7 @@ def get_current_session_info():
 
 @app.route("/api/sessions", methods=["POST"])
 @login_required
-def create_session():
+def create_session() -> Response:
     """Create a new session."""
     try:
         data = request.get_json() or {}
@@ -4268,7 +4268,7 @@ def create_session():
 
 @app.route("/api/sessions/<session_id>", methods=["GET"])
 @login_required
-def get_session_info(session_id: str):
+def get_session_info(session_id: str) -> Response:
     """Get information about a specific session."""
     session_mgr = get_session_manager()
     metadata = session_mgr.get_session(session_id)
@@ -4287,7 +4287,7 @@ def get_session_info(session_id: str):
 
 @app.route("/api/sessions/<session_id>", methods=["PUT"])
 @login_required
-def update_session_info(session_id: str):
+def update_session_info(session_id: str) -> Response:
     """Update session metadata (name, notes)."""
     try:
         session_mgr = get_session_manager()
@@ -4324,7 +4324,7 @@ def update_session_info(session_id: str):
 
 @app.route("/api/sessions/<session_id>", methods=["DELETE"])
 @login_required
-def delete_session_endpoint(session_id: str):
+def delete_session_endpoint(session_id: str) -> Response:
     """Delete a session."""
     try:
         session_mgr = get_session_manager()
@@ -4349,7 +4349,7 @@ def delete_session_endpoint(session_id: str):
 
 @app.route("/api/sessions/<session_id>/switch", methods=["POST"])
 @login_required
-def switch_to_session(session_id: str):
+def switch_to_session(session_id: str) -> Response:
     """Switch to a different session."""
     try:
         session_mgr = get_session_manager()
@@ -4381,7 +4381,7 @@ def switch_to_session(session_id: str):
 
 @app.route("/api/sessions/trend-analysis", methods=["POST"])
 @login_required
-def analyze_session_trends():
+def analyze_session_trends() -> Response:
     """
     Analyze trends across multiple sessions.
 
@@ -4434,7 +4434,7 @@ def analyze_session_trends():
 
 @app.route("/api/sessions/by-company/<company_name>", methods=["GET"])
 @login_required
-def get_sessions_by_company(company_name: str):
+def get_sessions_by_company(company_name: str) -> Response:
     """Get all sessions for a specific company."""
     try:
         session_mgr = get_session_manager()
@@ -4454,7 +4454,7 @@ def get_sessions_by_company(company_name: str):
 
 @app.route("/api/sessions/migrate-legacy", methods=["POST"])
 @login_required
-def migrate_legacy_data():
+def migrate_legacy_data() -> Response:
     """
     Migrate legacy data from data/ folder to a new session.
     Useful for upgrading from pre-session installations.
@@ -4516,7 +4516,7 @@ def migrate_legacy_data():
 
 @app.route("/api/sessions/check-duplicate", methods=["POST"])
 @login_required
-def check_duplicate_session():
+def check_duplicate_session() -> Response:
     """
     Check if source files match any existing session.
     Used before processing to warn users about potential duplicates.
@@ -4920,7 +4920,7 @@ def _get_ai_analysis_dir() -> str:
 
 @app.route("/api/ai/aaia/results", methods=["GET"])
 @login_required
-def aaia_get_results():
+def aaia_get_results() -> Response:
     """Get saved AAIA results for current session."""
     session_mgr = get_session_manager()
     data = session_mgr.load_session_data("aaia_results.json")
@@ -4940,7 +4940,7 @@ def aaia_get_results():
 
 @app.route("/api/ai/aaia/save", methods=["POST"])
 @login_required
-def aaia_save_results():
+def aaia_save_results() -> Response:
     """Save AAIA results to current session folder."""
     try:
         data = request.get_json()
@@ -4963,7 +4963,7 @@ def aaia_save_results():
 
 @app.route("/api/ai/aaia/clear", methods=["DELETE"])
 @login_required
-def aaia_clear_results():
+def aaia_clear_results() -> Response:
     """Clear saved AAIA results for current session."""
     try:
         aaia_path = _get_aaia_results_path()
@@ -4988,7 +4988,7 @@ def aaia_clear_results():
 
 @app.route("/api/ai/aaia/config", methods=["GET"])
 @login_required
-def aaia_get_config():
+def aaia_get_config() -> Response:
     """Get AAIA configuration with section recommendations and available servers/models."""
     from ollama_tools import test_all_servers, OllamaClient, get_ollama_config
     from ollama_prompts import AI_REPORT_SECTIONS
@@ -5044,7 +5044,7 @@ def aaia_get_config():
 
 @app.route("/api/ai/report/outputs", methods=["GET"])
 @login_required
-def ai_report_list_outputs():
+def ai_report_list_outputs() -> Response:
     """List saved test outputs from the test_outputs folder."""
     test_output_dir = os.path.join(os.path.dirname(__file__), "test_outputs")
 
@@ -5074,7 +5074,7 @@ def ai_report_list_outputs():
 
 @app.route("/api/ai/report/outputs/<filename>", methods=["GET"])
 @login_required
-def ai_report_get_output(filename):
+def ai_report_get_output(filename: str) -> Response:
     """Get contents of a specific test output file."""
     test_output_dir = os.path.join(os.path.dirname(__file__), "test_outputs")
     filepath = os.path.join(test_output_dir, filename)
@@ -5097,7 +5097,7 @@ def ai_report_get_output(filename):
 
 @app.route("/api/ai/report/data", methods=["GET"])
 @login_required
-def ai_report_data_summary():
+def ai_report_data_summary() -> Response:
     """Get summary of available analysis data for AI reports."""
     from ollama_tools import get_ai_data_loader
 
@@ -5110,7 +5110,7 @@ def ai_report_data_summary():
 
 @app.route("/api/ai/report/data/<section_id>", methods=["GET"])
 @login_required
-def ai_report_section_data(section_id):
+def ai_report_section_data(section_id: str) -> Response:
     """
     Get pre-loaded analysis data for a specific AI report section.
 
@@ -5149,7 +5149,7 @@ def ai_report_section_data(section_id):
 
 @app.route("/api/ai/report/data/all", methods=["GET"])
 @login_required
-def ai_report_all_section_data():
+def ai_report_all_section_data() -> Response:
     """
     Get pre-loaded analysis data for all AI report sections.
 
@@ -5184,7 +5184,7 @@ def ai_report_all_section_data():
 
 @app.route("/api/ai/report/prompt/<section_id>", methods=["GET"])
 @login_required
-def ai_report_section_prompt(section_id):
+def ai_report_section_prompt(section_id: str) -> Response:
     """
     Get the formatted prompt for a specific AI report section.
 
@@ -5255,7 +5255,7 @@ def ai_report_section_prompt(section_id):
 
 @app.route("/api/ai/report/test")
 @login_required
-def ai_report_test_page():
+def ai_report_test_page() -> str:
     """AI Report Analysis test page for experimenting with report sections."""
     from ollama_tools import test_all_servers, get_ai_report_sections, get_ai_data_loader
 
@@ -5294,7 +5294,7 @@ def ai_report_test_page():
 
 @app.route("/api/ai/servers/manage")
 @login_required
-def ai_servers_manage_page():
+def ai_servers_manage_page() -> str:
     """Multi-server Ollama management page - connectivity testing and model management."""
     from ollama_tools import test_all_servers, get_available_library_models
 
@@ -5326,7 +5326,7 @@ def ai_servers_manage_page():
 
 @app.route("/api/ai/benchmark")
 @login_required
-def ai_benchmark_page():
+def ai_benchmark_page() -> str:
     """AI Benchmark Suite - comprehensive model benchmarking and comparison."""
     from ollama_tools import test_all_servers, get_ai_report_sections
 
@@ -5416,7 +5416,7 @@ COMPARISON_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "benchmark_resu
 
 @app.route("/api/ai/benchmark/comparison/save", methods=["POST"])
 @login_required
-def save_comparison_results():
+def save_comparison_results() -> Response:
     """Save model comparison benchmark results to a file."""
     # Ensure directory exists
     os.makedirs(COMPARISON_RESULTS_DIR, exist_ok=True)
@@ -5448,7 +5448,7 @@ def save_comparison_results():
 
 @app.route("/api/ai/benchmark/comparison/history", methods=["GET"])
 @login_required
-def get_comparison_history():
+def get_comparison_history() -> Response:
     """Get list of saved comparison results."""
     os.makedirs(COMPARISON_RESULTS_DIR, exist_ok=True)
 
@@ -5478,7 +5478,7 @@ def get_comparison_history():
 
 @app.route("/api/ai/benchmark/comparison/<comparison_id>", methods=["GET"])
 @login_required
-def get_comparison_result(comparison_id):
+def get_comparison_result(comparison_id: str) -> Response:
     """Get a specific comparison result."""
     filename = f"{comparison_id}.json"
     filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
@@ -5496,7 +5496,7 @@ def get_comparison_result(comparison_id):
 
 @app.route("/api/ai/benchmark/comparison/<comparison_id>", methods=["DELETE"])
 @login_required
-def delete_comparison_result(comparison_id):
+def delete_comparison_result(comparison_id: str) -> Response:
     """Delete a comparison result."""
     filename = f"{comparison_id}.json"
     filepath = os.path.join(COMPARISON_RESULTS_DIR, filename)
