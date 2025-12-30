@@ -15,7 +15,7 @@
 		<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 	</head>
-	<body>
+	<body{% if initial_step and initial_step > 1 %} class="loading-on-entry"{% endif %}>
 		<!-- Processing Overlay -->
 		<div id="processingOverlay" class="processing-overlay">
 			<div class="processing-content">
@@ -1206,6 +1206,7 @@
 
 			// All Step 3 data has been populated - hide loading overlay
 			hideProcessing();
+			document.body.classList.remove('loading-on-entry');
 			{% endif %}
 
 			// ============================================

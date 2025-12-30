@@ -30,7 +30,15 @@
 	</head>
 	<!-- NOTE: All CSS has been consolidated into static/css/style.css -->
 	<!-- --------------- Create Visible Title, Headings & Page Sections --------------- -->
-	<body id="reportPage" class="dark-theme">
+	<body id="reportPage" class="dark-theme loading-on-entry">
+		<!-- Processing Overlay - shown on page load, hidden when content is ready -->
+		<div id="processingOverlay" class="processing-overlay">
+			<div class="processing-content">
+				<div class="processing-spinner"></div>
+				<div class="processing-text" id="processingText">Generating Report...</div>
+				<div class="processing-subtext" id="processingSubtext">Analyzing passwords and computing statistics</div>
+			</div>
+		</div>
 		<!-- App Header -->
 		<header class="app-header">
 			<div class="brand">
@@ -8499,6 +8507,9 @@
 				}
 			}
 			loadMasterPotfileIndicator();
+
+			// Hide loading overlay once page is ready
+			document.body.classList.remove('loading-on-entry');
 		</script>
 	</body>
 </html>

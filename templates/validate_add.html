@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="loading-on-entry">
     <!-- Processing Overlay -->
     <div id="processingOverlay" class="processing-overlay">
         <div class="processing-content">
@@ -239,6 +239,9 @@
             }
         }
         loadMasterPotfileIndicator();
+
+        // Hide loading overlay once page is ready
+        document.body.classList.remove('loading-on-entry');
     </script>
 </body>
 </html>

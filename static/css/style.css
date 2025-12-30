@@ -6796,6 +6796,13 @@ body.light-theme .trend-sessions-checkboxes {
 	visibility: visible;
 }
 
+/* Show overlay immediately on page load when loading=1 URL parameter is present */
+body.loading-on-entry .processing-overlay {
+	opacity: 1;
+	visibility: visible;
+	transition: none; /* No transition on entry - show immediately */
+}
+
 .processing-content {
 	background: #1e1e1e;
 	border-radius: 16px;
