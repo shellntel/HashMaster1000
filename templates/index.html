@@ -1135,6 +1135,11 @@
 			goToStep({{ initial_step }});
 			{% endif %}
 
+			// Show loading overlay for Step 3 while data loads
+			{% if initial_step == 3 %}
+			showProcessing('Loading Configuration...', 'Preparing analysis options');
+			{% endif %}
+
 			// Auto-populate Company Name & Terms with domain names and company name
 			{% if initial_step == 3 %}
 			(function() {
@@ -1196,6 +1201,9 @@
 					}
 				}
 			})();
+
+			// All Step 3 data has been populated - hide loading overlay
+			hideProcessing();
 			{% endif %}
 
 			// ============================================
