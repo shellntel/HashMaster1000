@@ -614,7 +614,8 @@ tr.shown td.details-control {
 #copyTopPasswordsChart,
 #copyPasswordLengthChart,
 #copyTopSubstringsChart,
-#copyTopDictionaryWordsChart {
+#copyTopDictionaryWordsChart,
+#copyBadPracticesChart {
 	background-color: #007bff; /* Blue */
 	color: white;
 	border: none;
@@ -627,7 +628,8 @@ tr.shown td.details-control {
 #copyTopPasswordsChart:hover,
 #copyPasswordLengthChart:hover,
 #copyTopSubstringsChart:hover,
-#copyTopDictionaryWordsChart:hover {
+#copyTopDictionaryWordsChart:hover,
+#copyBadPracticesChart:hover {
 	background-color: #0056b3; /* Darker blue */
 }
 
@@ -635,7 +637,8 @@ tr.shown td.details-control {
 #downloadTopPasswordsChart,
 #downloadPasswordLengthChart,
 #downloadTopSubstringsChart,
-#downloadTopDictionaryWordsChart {
+#downloadTopDictionaryWordsChart,
+#downloadBadPracticesChart {
 	background-color: #dc3545; /* Red */
 	color: white;
 	border: none;
@@ -648,7 +651,8 @@ tr.shown td.details-control {
 #downloadTopPasswordsChart:hover,
 #downloadPasswordLengthChart:hover,
 #downloadTopSubstringsChart:hover,
-#downloadTopDictionaryWordsChart:hover {
+#downloadTopDictionaryWordsChart:hover,
+#downloadBadPracticesChart:hover {
 	background-color: #a71d2a; /* Darker red */
 }
 
@@ -661,7 +665,13 @@ tr.shown td.details-control {
 #downloadFailsMinLengthCSV,
 #downloadFailsComplexityCSV,
 #downloadFailsBlankCSV,
-#downloadFailsMaxAgeCSV {
+#downloadFailsMaxAgeCSV,
+#downloadBadPracticesCSV,
+#downloadLmHashCSV,
+#downloadHIBPCSV,
+#downloadKerberoastCSV,
+#downloadASREPCSV,
+#downloadPasswordHistoryCSV {
 	background-color: #28a745; /* Green */
 	color: white;
 	border: none;
@@ -679,7 +689,13 @@ tr.shown td.details-control {
 #downloadFailsMinLengthCSV:hover,
 #downloadFailsComplexityCSV:hover,
 #downloadFailsBlankCSV:hover,
-#downloadFailsMaxAgeCSV:hover {
+#downloadFailsMaxAgeCSV:hover,
+#downloadBadPracticesCSV:hover,
+#downloadLmHashCSV:hover,
+#downloadHIBPCSV:hover,
+#downloadKerberoastCSV:hover,
+#downloadASREPCSV:hover,
+#downloadPasswordHistoryCSV:hover {
 	background-color: #1e7e34; /* Darker green */
 }
 
@@ -2802,6 +2818,41 @@ body#reportPage.light-theme section button[id*="Download"] {
 body#reportPage.light-theme section button[id*="download"]:hover,
 body#reportPage.light-theme section button[id*="Download"]:hover {
 	background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+}
+
+/* Light theme - Blue Copy PNG buttons */
+body#reportPage.light-theme section button[id*="copy"],
+body#reportPage.light-theme section button[id*="Copy"] {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+	border: 1px solid #1d4ed8;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme section button[id*="copy"]:hover,
+body#reportPage.light-theme section button[id*="Copy"]:hover {
+	background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+}
+
+/* Light theme - Red Download SVG buttons (charts only, not toggle buttons) */
+body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button) {
+	background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+	border: 1px solid #b91c1c;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button):hover {
+	background: linear-gradient(180deg, #f87171 0%, #ef4444 100%);
+}
+
+/* Light theme - Purple toggle visibility buttons */
+body#reportPage.light-theme section button.toggle-visibility-button {
+	background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+	border: 1px solid #6d28d9;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme section button.toggle-visibility-button:hover {
+	background: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 100%);
 }
 
 /* Light theme - Warning/info text boxes */
@@ -7574,6 +7625,10 @@ table.dataTable th.dt-center { text-align: center !important; }
 	background: var(--surface-color, #2a2a2a);
 	border-radius: 8px;
 	padding: 16px;
+	max-height: 280px;
+}
+.kerberoast-chart-container canvas {
+	max-height: 220px;
 }
 .kerberoast-chart-container h4 {
 	margin-bottom: 12px;
@@ -7739,6 +7794,10 @@ body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
 	background: var(--surface-color, #2a2a2a);
 	border-radius: 8px;
 	padding: 16px;
+	max-height: 280px;
+}
+.asrep-chart-container canvas {
+	max-height: 220px;
 }
 .asrep-chart-container h4 {
 	margin-bottom: 12px;
@@ -9467,6 +9526,47 @@ body#reportPage.dark-theme .btn:not(.report-nav-btn):hover {
         0 4px 14px rgba(0, 0, 0, 0.3),
         0 0 10px rgba(49, 176, 5, 0.08);
     transform: translateY(-1px);
+}
+
+/* Dark theme - Blue Copy PNG buttons */
+body#reportPage.dark-theme button[id*="copy"],
+body#reportPage.dark-theme button[id*="Copy"] {
+    background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%) !important;
+    border: 1px solid rgba(59, 130, 246, 0.25) !important;
+}
+
+body#reportPage.dark-theme button[id*="copy"]:hover,
+body#reportPage.dark-theme button[id*="Copy"]:hover {
+    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%) !important;
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.3),
+        0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Dark theme - Red Download SVG buttons (charts only, not toggle buttons) */
+body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button) {
+    background: linear-gradient(180deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%) !important;
+    border: 1px solid rgba(220, 38, 38, 0.25) !important;
+}
+
+body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button):hover {
+    background: linear-gradient(180deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%) !important;
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.3),
+        0 0 10px rgba(220, 38, 38, 0.15) !important;
+}
+
+/* Dark theme - Purple toggle visibility buttons */
+body#reportPage.dark-theme button.toggle-visibility-button {
+    background: linear-gradient(180deg, #7c3aed 0%, #6d28d9 50%, #5b21b6 100%) !important;
+    border: 1px solid rgba(139, 92, 246, 0.25) !important;
+}
+
+body#reportPage.dark-theme button.toggle-visibility-button:hover {
+    background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 50%, #6d28d9 100%) !important;
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.3),
+        0 0 10px rgba(139, 92, 246, 0.15);
 }
 
 /* Jump-to navigation section - add matching left border */

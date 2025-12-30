@@ -741,7 +741,7 @@
 			</div>
 
 			<div class="button-container" style="text-align: center; margin-top: 10px">
-				<button onclick="downloadPasswordHistoryCSV()">Download CSV</button>
+				<button id="downloadPasswordHistoryCSV" onclick="downloadPasswordHistoryCSV()">Download CSV</button>
 			</div>
 		</section>
 
@@ -2217,7 +2217,8 @@
 						kerberoastDataTable.destroy();
 					}
 					kerberoastDataTable = $('#kerberoastTable').DataTable({
-						pageLength: 25,
+						pageLength: 5,
+						lengthMenu: [5, 10, 25, 100],
 						order: [[1, 'desc']],
 						autoWidth: false,
 						columnDefs: [
@@ -2646,7 +2647,8 @@
 						asrepDataTable.destroy();
 					}
 					asrepDataTable = $('#asrepTable').DataTable({
-						pageLength: 25,
+						pageLength: 10,
+						lengthMenu: [10, 25, 100],
 						order: [[2, 'desc']],  // Sort by risk score
 						autoWidth: false,
 						columnDefs: [
@@ -5901,6 +5903,16 @@
 								</tr>
 							`;
 						}).join('');
+
+						// Initialize DataTable for crackedPrivilegedTable
+						if (typeof $ !== 'undefined' && $.fn.DataTable) {
+							$('#crackedPrivilegedTable').DataTable({
+								pageLength: 10,
+								lengthMenu: [10, 25, 100],
+								order: [[1, 'asc']],
+								autoWidth: false
+							});
+						}
 					}
 
 					// Populate Tier 0 accounts table
@@ -5915,6 +5927,16 @@
 								<td>${acc.cracked ? '<span class="cracked-yes">Yes</span>' : '<span class="cracked-no">No</span>'}</td>
 							</tr>
 						`).join('');
+
+						// Initialize DataTable for tier0AccountsTable
+						if (typeof $ !== 'undefined' && $.fn.DataTable) {
+							$('#tier0AccountsTable').DataTable({
+								pageLength: 10,
+								lengthMenu: [10, 25, 100],
+								order: [[0, 'asc']],
+								autoWidth: false
+							});
+						}
 					}
 
 					// Populate Elevated accounts table
@@ -5992,6 +6014,16 @@
 								</tr>
 							`;
 							}).join('');
+
+							// Initialize DataTable for passwordSharingTable
+							if (typeof $ !== 'undefined' && $.fn.DataTable) {
+								$('#passwordSharingTable').DataTable({
+									pageLength: 10,
+									lengthMenu: [10, 25, 100],
+									order: [[1, 'asc']],
+									autoWidth: false
+								});
+							}
 						}
 					}
 
