@@ -28,7 +28,14 @@ HIBP_NTLM_SUFFIX_LENGTH = 27  # NTLM suffixes are 27 chars (32 - 5)
 # Parallelism settings - HIBP has no rate limit, so we can be aggressive
 # See: https://haveibeenpwned.com/API/v3#PwnedPasswords
 DEFAULT_DELAY_BETWEEN_REQUESTS = 0.0  # No delay needed - HIBP has no rate limit
-MAX_WORKERS = 200  # Parallel threads for checking (aggressive - HIBP has no rate limit)
+# Default parallel workers - can be overridden via HIBP_API_WORKERS environment variable
+# Higher values = faster but more network/CPU load. HIBP has no rate limit.
+DEFAULT_MAX_WORKERS = 200
+MAX_WORKERS = int(os.environ.get("HIBP_API_WORKERS", DEFAULT_MAX_WORKERS))
+
+# Log the configured worker count at module load
+if MAX_WORKERS != DEFAULT_MAX_WORKERS:
+    logger.info(f"HIBP API workers configured via env: {MAX_WORKERS}")
 
 # Local database state (binary search mode - no memory loading required)
 _local_db_path: Optional[str] = None
