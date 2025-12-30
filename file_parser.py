@@ -14,7 +14,7 @@ import re
 import binascii
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any
 import json
 
 from hash_types import identify_hash_type, get_most_likely_type, is_ntlm_hash, HashType
@@ -89,7 +89,7 @@ class ValidationError:
     severity: ErrorSeverity
     code: str
     message: str
-    field_index: Optional[int] = None
+    field_index: int | None = None
 
 
 @dataclass
@@ -100,12 +100,12 @@ class ParsedLine:
     format_detected: FileFormat = FileFormat.UNKNOWN
 
     # Parsed fields
-    username: Optional[str] = None
-    rid: Optional[int] = None
-    lm_hash: Optional[str] = None
-    ntlm_hash: Optional[str] = None
-    status: Optional[str] = None  # "Enabled", "Disabled", or None
-    domain: Optional[str] = None  # Extracted domain from username (e.g., "CORP" from "CORP\\user")
+    username: str | None = None
+    rid: int | None = None
+    lm_hash: str | None = None
+    ntlm_hash: str | None = None
+    status: str | None = None  # "Enabled", "Disabled", or None
+    domain: str | None = None  # Extracted domain from username (e.g., "CORP" from "CORP\\user")
 
     # Validation state
     is_valid: bool = True
@@ -120,12 +120,12 @@ class PotfileEntry:
     """Represents a single entry from a potfile."""
     line_number: int
     raw_line: str
-    ntlm_hash: Optional[str] = None
-    password: Optional[str] = None
+    ntlm_hash: str | None = None
+    password: str | None = None
     is_valid: bool = True
     is_ntlm: bool = True  # Whether the hash is NTLM format
-    detected_type: Optional[str] = None  # Detected hash type name
-    detected_mode: Optional[int] = None  # Hashcat mode number
+    detected_type: str | None = None  # Detected hash type name
+    detected_mode: int | None = None  # Hashcat mode number
     errors: list[ValidationError] = field(default_factory=list)
     included: bool = True
 
@@ -141,7 +141,7 @@ class ValidationResult:
     lines: list[ParsedLine]
     formats_detected: dict[str, int] = field(default_factory=dict)
     error_summary: dict[str, int] = field(default_factory=dict)
-    domain_info: Optional[DomainInfo] = None  # Domain statistics for the file
+    domain_info: DomainInfo | None = None  # Domain statistics for the file
 
     @property
     def has_fatal_errors(self) -> bool:
@@ -197,7 +197,7 @@ def is_valid_hash(hash_value: str) -> bool:
     return bool(HASH_PATTERN.match(hash_value))
 
 
-def validate_hash(hash_value: str, allow_empty: bool = False) -> Tuple[bool, Optional[str]]:
+def validate_hash(hash_value: str, allow_empty: bool = False) -> tuple[bool, str | None]:
     """
     Validate a hash string and return detailed result.
 
@@ -219,7 +219,7 @@ def validate_hash(hash_value: str, allow_empty: bool = False) -> Tuple[bool, Opt
     return (True, None)
 
 
-def extract_status_suffix(line: str) -> Tuple[str, Optional[str]]:
+def extract_status_suffix(line: str) -> tuple[str, str | None]:
     """
     Check for and extract status suffix from a line.
 
@@ -237,7 +237,7 @@ def extract_status_suffix(line: str) -> Tuple[str, Optional[str]]:
     return (line, None)
 
 
-def extract_rid(field_value: str) -> Optional[int]:
+def extract_rid(field_value: str) -> int | None:
     """
     Extract RID from a field if it's numeric.
 
@@ -676,7 +676,7 @@ def get_potfile_entry_count(potfile_path: str) -> int:
     return count
 
 
-def decode_hex_password(password: Optional[str]) -> Optional[str]:
+def decode_hex_password(password: str | None) -> str | None:
     """
     Decode $HEX[] encoded passwords from hashcat.
 
@@ -718,7 +718,7 @@ def build_account_data(
     potfile_result: PotfileValidationResult,
     ignore_disabled: bool = False,
     ignore_computer_accounts: bool = False
-) -> dict[str, dict[str, Optional[str | int | bool]]]:
+) -> dict[str, dict[str, str | int | bool | None]]:
     """
     Build account_data dictionary from validated results.
 
@@ -740,7 +740,7 @@ def build_account_data(
         if entry.included and entry.is_valid and entry.ntlm_hash:
             cracked_hashes[entry.ntlm_hash] = entry.password or ""
 
-    account_data: dict[str, dict[str, Optional[str | int | bool]]] = {}
+    account_data: dict[str, dict[str, str | int | bool | None]] = {}
 
     for line in pwdump_result.lines:
         if not (line.included and line.is_valid):
@@ -757,7 +757,7 @@ def build_account_data(
         if ignore_disabled and line.status == "Disabled":
             continue
 
-        account_entry: dict[str, Optional[str | int | bool]] = {
+        account_entry: dict[str, str | int | bool | None] = {
             "lm_hash": line.lm_hash,
             "ntlm_hash": line.ntlm_hash,
             "cracked_pw": None,
@@ -782,7 +782,7 @@ def build_account_data_with_cache(
     cracked_hashes: dict[str, str],
     ignore_disabled: bool = False,
     ignore_computer_accounts: bool = False
-) -> dict[str, dict[str, Optional[str | int | bool]]]:
+) -> dict[str, dict[str, str | int | bool | None]]:
     """
     Build account_data dictionary using a pre-built cracked_hashes lookup.
 
@@ -803,7 +803,7 @@ def build_account_data_with_cache(
     if BLANK_NTLM_HASH not in cracked_hashes:
         cracked_hashes = {BLANK_NTLM_HASH: "", **cracked_hashes}
 
-    account_data: dict[str, dict[str, Optional[str | int | bool]]] = {}
+    account_data: dict[str, dict[str, str | int | bool | None]] = {}
 
     for line in pwdump_result.lines:
         if not (line.included and line.is_valid):
@@ -820,7 +820,7 @@ def build_account_data_with_cache(
         if ignore_disabled and line.status == "Disabled":
             continue
 
-        account_entry: dict[str, Optional[str | int | bool]] = {
+        account_entry: dict[str, str | int | bool | None] = {
             "lm_hash": line.lm_hash,
             "ntlm_hash": line.ntlm_hash,
             "cracked_pw": None,
@@ -1035,7 +1035,7 @@ def dict_to_potfile_result(data: dict) -> PotfileValidationResult:
     )
 
 
-def get_potfile_hash_type_message(result: PotfileValidationResult) -> Optional[str]:
+def get_potfile_hash_type_message(result: PotfileValidationResult) -> str | None:
     """
     Generate a user-friendly message about hash types found in a potfile.
 
@@ -1206,23 +1206,23 @@ class ADDAccountEntry:
     rid: int
 
     # NTLM hashes
-    ntlm_hash: Optional[str]
-    lm_hash: Optional[str]
-    historical_hashes: List[str]  # Previous NTLM hashes
+    ntlm_hash: str | None
+    lm_hash: str | None
+    historical_hashes: list[str]  # Previous NTLM hashes
 
     # Group membership
-    member_of: List[str]
+    member_of: list[str]
     primary_group_id: int
 
     # Account status
-    user_account_control: List[str]  # Flags like "NORMAL_ACCOUNT", "ACCOUNT_DISABLED"
+    user_account_control: list[str]  # Flags like "NORMAL_ACCOUNT", "ACCOUNT_DISABLED"
     is_disabled: bool
-    pwd_last_set: Optional[str]
+    pwd_last_set: str | None
 
     # Privilege detection (computed)
     is_privileged: bool = False
     privilege_level: str = "standard"  # "standard", "elevated", "tier0"
-    privilege_groups: List[str] = field(default_factory=list)
+    privilege_groups: list[str] = field(default_factory=list)
 
     # Descriptive fields
     display_name: str = ""
@@ -1231,7 +1231,7 @@ class ADDAccountEntry:
 
     # Validation
     is_valid: bool = True
-    errors: List[ValidationError] = field(default_factory=list)
+    errors: list[ValidationError] = field(default_factory=list)
     included: bool = True
 
     def to_dict(self) -> dict:
@@ -1309,7 +1309,7 @@ class ADDAccountEntry:
 class ADDValidationResult:
     """Complete validation results for ADD JSON file."""
     filepath: str
-    domain_policy: Optional[DomainPolicy]
+    domain_policy: DomainPolicy | None
     total_users: int
     valid_users: int
     error_users: int
@@ -1319,18 +1319,18 @@ class ADDValidationResult:
     tier0_count: int  # Domain Admins, Enterprise Admins, etc.
     elevated_count: int  # Other privileged groups
 
-    entries: List[ADDAccountEntry]
-    errors: List[ValidationError] = field(default_factory=list)
+    entries: list[ADDAccountEntry]
+    errors: list[ValidationError] = field(default_factory=list)
 
     # Historical hash stats
     users_with_history: int = 0
     total_historical_hashes: int = 0
 
     # Domain stats
-    unique_domains: List[str] = field(default_factory=list)
+    unique_domains: list[str] = field(default_factory=list)
 
     # Raw user data for advanced analysis (Kerberoast, etc.)
-    raw_users: List[Dict[str, Any]] = field(default_factory=list)
+    raw_users: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def domain_count(self) -> int:
@@ -1338,7 +1338,7 @@ class ADDValidationResult:
         return len(self.unique_domains) if self.unique_domains else 1
 
     @property
-    def processable_entries(self) -> List[ADDAccountEntry]:
+    def processable_entries(self) -> list[ADDAccountEntry]:
         """Get entries that are valid and included."""
         return [e for e in self.entries if e.included and e.is_valid]
 
@@ -1348,7 +1348,7 @@ class ADDValidationResult:
         return len(self.errors) > 0 or self.error_users > 0
 
 
-def extract_rid_from_sid(object_sid: str) -> Optional[int]:
+def extract_rid_from_sid(object_sid: str) -> int | None:
     """
     Extract RID from ObjectSid string.
 
@@ -1370,10 +1370,10 @@ def extract_rid_from_sid(object_sid: str) -> Optional[int]:
 
 
 def detect_privilege_level(
-    member_of: List[str],
-    rid: Optional[int],
-    user_account_control: List[str] = None
-) -> Tuple[str, List[str]]:
+    member_of: list[str],
+    rid: int | None,
+    user_account_control: list[str] | None = None
+) -> tuple[str, list[str]]:
     """
     Detect privilege level based on group membership and RID.
 
@@ -1399,7 +1399,7 @@ def detect_privilege_level(
     return ("standard", [])
 
 
-def parse_add_ntlm_hash(hash_field: str) -> Tuple[Optional[str], Optional[str]]:
+def parse_add_ntlm_hash(hash_field: str) -> tuple[str | None, str | None]:
     """
     Parse NTLMHash field from ADD JSON.
 
@@ -1466,9 +1466,9 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
     Returns:
         ADDValidationResult with domain policy and all user entries
     """
-    entries: List[ADDAccountEntry] = []
-    errors: List[ValidationError] = []
-    domain_policy: Optional[DomainPolicy] = None
+    entries: list[ADDAccountEntry] = []
+    errors: list[ValidationError] = []
+    domain_policy: DomainPolicy | None = None
     users_with_history = 0
     total_historical_hashes = 0
     privileged_count = 0
@@ -1578,7 +1578,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
     error_users = 0
 
     for user in users:
-        entry_errors: List[ValidationError] = []
+        entry_errors: list[ValidationError] = []
         is_valid = True
 
         # Parse required fields
@@ -1703,10 +1703,10 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
 
 def add_to_account_data(
     add_result: ADDValidationResult,
-    potfile_result: Optional[PotfileValidationResult],
+    potfile_result: PotfileValidationResult | None,
     ignore_disabled: bool = False,
     ignore_computer_accounts: bool = False
-) -> Tuple[dict, dict]:
+) -> tuple[dict, dict]:
     """
     Convert ADD data to account_data format compatible with existing analysis.
 
@@ -1877,7 +1877,7 @@ def analyze_historical_hashes(
 def detect_privilege_password_sharing(
     add_result: ADDValidationResult,
     cracked_hashes: dict[str, str]
-) -> List[dict]:
+) -> list[dict]:
     """
     Detect when privileged accounts share passwords with standard accounts.
 
@@ -1891,7 +1891,7 @@ def detect_privilege_password_sharing(
     findings = []
 
     # Build hash->accounts mapping
-    hash_to_accounts: dict[str, List[ADDAccountEntry]] = {}
+    hash_to_accounts: dict[str, list[ADDAccountEntry]] = {}
     for entry in add_result.entries:
         if not entry.included or not entry.is_valid or not entry.ntlm_hash:
             continue
