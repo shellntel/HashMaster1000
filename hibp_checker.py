@@ -43,9 +43,8 @@ _local_db_file_size: int = 0
 _local_db_estimated_entries: int = 0
 _local_db_ready: bool = False
 
-# Threshold for choosing streaming vs binary search strategy
-# For hash counts above this, streaming merge-join is faster
-STREAMING_THRESHOLD = 1000
+# Binary search is always used - streaming was found to be extremely slow
+# due to Python overhead reading billions of lines
 
 
 @dataclass
@@ -236,102 +235,13 @@ def get_local_db_status() -> dict:
         "path": _local_db_path,
         "hash_count": _local_db_estimated_entries,
         "file_size_gb": round(_local_db_file_size / (1024 ** 3), 2) if _local_db_file_size else 0,
-        "mode": "streaming" if _local_db_estimated_entries > STREAMING_THRESHOLD else "binary_search",
+        "mode": "binary_search",
         "file_date": file_date,
     }
 
 
 # ============================================================================
-# Streaming Merge-Join for Large Batch Lookups
-# ============================================================================
-
-def _streaming_merge_join(
-    db_path: str,
-    sorted_hashes: list[str],
-    progress_callback: Callable[[int, int], None] | None = None
-) -> dict[str, tuple[bool, int]]:
-    """
-    Perform a streaming merge-join between sorted target hashes and the HIBP database.
-
-    This is dramatically faster than binary search for large hash sets because:
-    - Reads the HIBP file sequentially (one pass)
-    - Converts random disk seeks into linear streaming I/O
-    - Works well with OS file caching and disk prefetching
-
-    Args:
-        db_path: Path to the sorted HIBP database file
-        sorted_hashes: List of NTLM hashes to look up (must be sorted, uppercase)
-        progress_callback: Optional callback(checked, total) for progress updates
-
-    Returns:
-        Dict mapping hash -> (found, breach_count)
-    """
-    results: dict[str, tuple[bool, int]] = {}
-    total = len(sorted_hashes)
-
-    if total == 0:
-        return results
-
-    # Initialize all hashes as not found
-    for h in sorted_hashes:
-        results[h] = (False, 0)
-
-    target_idx = 0
-    lines_read = 0
-    progress_interval = max(1, total // 100)  # Update every 1%
-
-    try:
-        with open(db_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                lines_read += 1
-
-                # Early exit if we've found all targets
-                if target_idx >= total:
-                    break
-
-                line = line.strip()
-                if not line or ':' not in line:
-                    continue
-
-                parts = line.split(':', 1)
-                if len(parts) != 2:
-                    continue
-
-                hibp_hash = parts[0].upper()
-
-                # Advance target pointer while targets are less than current HIBP hash
-                while target_idx < total and sorted_hashes[target_idx] < hibp_hash:
-                    target_idx += 1
-
-                    # Progress update
-                    if progress_callback and target_idx % progress_interval == 0:
-                        progress_callback(target_idx, total)
-
-                # Check for match
-                if target_idx < total and sorted_hashes[target_idx] == hibp_hash:
-                    try:
-                        count = int(parts[1])
-                    except ValueError:
-                        count = 1
-                    results[hibp_hash] = (True, count)
-                    target_idx += 1
-
-                    # Progress update
-                    if progress_callback and target_idx % progress_interval == 0:
-                        progress_callback(target_idx, total)
-
-    except Exception as e:
-        logger.error(f"Error during streaming merge-join: {e}")
-
-    # Final progress update
-    if progress_callback:
-        progress_callback(total, total)
-
-    return results
-
-
-# ============================================================================
-# Binary Search for Small Batch Lookups
+# Binary Search for Local Database Lookups
 # ============================================================================
 
 def _binary_search_hash_with_handle(
@@ -482,16 +392,11 @@ def check_hashes_local(
     progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """
-    Check multiple NTLM hashes against the local HIBP database.
+    Check multiple NTLM hashes against the local HIBP database using binary search.
 
-    Automatically selects the best strategy based on hash count:
-    - Small batches (<1000): Binary search with persistent file handle
-    - Large batches (>=1000): Streaming merge-join (single sequential scan)
-
-    The streaming merge-join is dramatically faster for large batches because it:
-    - Reads the HIBP file once, sequentially
-    - Converts random disk seeks into linear I/O
-    - Works well with OS file caching and disk prefetching
+    Uses a persistent file handle and deduplicates hashes before lookup to
+    minimize disk I/O. Binary search is O(log n) per hash, which is much
+    faster than streaming through billions of lines.
 
     Args:
         account_data: List of account dicts with 'ntlm_hash' and 'username' keys
@@ -534,41 +439,27 @@ def check_hashes_local(
             hash_to_accounts[ntlm_hash] = []
         hash_to_accounts[ntlm_hash].append((username, idx))
 
-    # Get unique hashes sorted (required for both strategies)
-    unique_hashes = sorted(hash_to_accounts.keys())
+    # Get unique hashes (sorting not required for binary search)
+    unique_hashes = list(hash_to_accounts.keys())
     unique_count = len(unique_hashes)
-
-    # Choose strategy based on unique hash count
-    use_streaming = unique_count >= STREAMING_THRESHOLD
-    strategy_name = "streaming merge-join" if use_streaming else "binary search"
 
     logger.info(
         f"HIBP local check: {len(account_data)} accounts -> "
-        f"{unique_count} unique hashes ({strategy_name}) "
+        f"{unique_count} unique hashes (binary search) "
         f"({len(blank_accounts)} blank, {len(invalid_accounts)} invalid)"
     )
 
-    # Phase 2: Perform lookups using selected strategy
-    if use_streaming:
-        # Streaming merge-join: single sequential scan of HIBP file
-        hash_results = _streaming_merge_join(
-            _local_db_path,
-            unique_hashes,
-            progress_callback
-        )
-    else:
-        # Binary search: good for small batches
-        hash_results: dict[str, tuple[bool, int]] = {}
-        progress_interval = max(1, unique_count // 100)
+    # Phase 2: Perform binary search lookups with persistent file handle
+    hash_results: dict[str, tuple[bool, int]] = {}
+    progress_interval = max(1, unique_count // 100)
 
-        with open(_local_db_path, 'rb') as f:
-            for i, ntlm_hash in enumerate(unique_hashes):
-                found, count = _binary_search_hash_with_handle(f, ntlm_hash, _local_db_file_size)
-                hash_results[ntlm_hash] = (found, count)
+    with open(_local_db_path, 'rb') as f:
+        for i, ntlm_hash in enumerate(unique_hashes):
+            found, count = _binary_search_hash_with_handle(f, ntlm_hash, _local_db_file_size)
+            hash_results[ntlm_hash] = (found, count)
 
-                if progress_callback and (i % progress_interval == 0 or i == 0):
-                    estimated_progress = int((i / unique_count) * total) if unique_count > 0 else 0
-                    progress_callback(estimated_progress, total)
+            if progress_callback and (i % progress_interval == 0 or i == unique_count - 1):
+                progress_callback(i + 1, unique_count)
 
     # Phase 3: Build results for all accounts
     results.results = [None] * total  # type: ignore
@@ -618,7 +509,7 @@ def check_hashes_local(
     logger.info(
         f"Local HIBP check complete: {results.total_found}/{results.total_checked} "
         f"found in breaches ({results.found_percentage:.1f}%) "
-        f"in {results.check_duration_seconds:.2f}s ({strategy_name})"
+        f"in {results.check_duration_seconds:.2f}s (binary search)"
     )
 
     return results
