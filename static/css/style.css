@@ -7465,29 +7465,7 @@ table.dataTable th.dt-center { text-align: center !important; }
 .hibp-table-section .status-enabled { color: #28a745; }
 .hibp-table-section .status-disabled { color: #6c757d; }
 
-/* HIBP DataTable server-side processing indicator */
-.hibp-loading {
-	padding: 20px;
-	text-align: center;
-	color: var(--text-secondary, #999);
-}
-
-/* HIBP table processing indicator - centered on viewport for visibility */
-#hibpAllBreachedTable_processing {
-	position: fixed !important;
-	top: 50% !important;
-	left: 50% !important;
-	transform: translate(-50%, -50%) !important;
-	background: rgba(20, 20, 20, 0.95) !important;
-	color: #fff !important;
-	padding: 16px 32px !important;
-	border-radius: 8px !important;
-	z-index: 9999 !important;
-	font-size: 15px !important;
-	font-weight: 500 !important;
-	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-	border: 1px solid rgba(49, 176, 5, 0.3) !important;
-}
+/* HIBP DataTable - processing indicator disabled (server-side fetch is instant) */
 
 /* HIBP Modal Styles */
 .hibp-modal {

@@ -1867,7 +1867,7 @@
 					}
 
 					hibpDataTable = $('#hibpAllBreachedTable').DataTable({
-						processing: true,
+						processing: false,  // Disabled - server-side fetch is fast enough
 						serverSide: true,
 						ajax: {
 							url: '/api/hibp/results/paginated?filter=breached',
@@ -1877,8 +1877,7 @@
 						lengthMenu: [10, 25, 50, 100],
 						order: [[3, 'desc']],  // Times Seen in Breaches column
 						language: {
-							search: "Filter:",
-							processing: '<div class="hibp-loading">Loading results...</div>'
+							search: "Filter:"
 						},
 						columns: [
 							{ data: 'username', render: function(data) { return escapeHtml(data); } },
