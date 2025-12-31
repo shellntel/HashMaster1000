@@ -95,7 +95,7 @@ def lm_count(account_data: dict[str, dict[str, str | int | None]]) -> int:
 # Function to get accounts with valid (non-blank) LANMan hashes (account_data based)
 def get_lm_accounts(account_data: dict[str, dict[str, str | int | None]]) -> list[dict[str, str]]:
     """
-    Returns a sorted list of dicts containing account names and cracked passwords
+    Returns a sorted list of dicts containing account names, LM hashes, and cracked passwords
     for accounts that have a valid (non-blank) LM hash.
     LM hashes are weaker than NTLM and should be disabled in modern environments.
 
@@ -106,6 +106,7 @@ def get_lm_accounts(account_data: dict[str, dict[str, str | int | None]]) -> lis
     lm_accounts = [
         {
             "account": account_name,
+            "lm_hash": account.get("lm_hash") or "",
             "cracked_pw": account.get("cracked_pw") or ""
         }
         for account_name, account in account_data.items()
