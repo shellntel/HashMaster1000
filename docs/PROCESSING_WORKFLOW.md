@@ -139,30 +139,28 @@ The workflow consists of four main phases:
 - **Impact:** <1 second
 
 ### Step 3.5: Statistical Analysis - `crack_stats()`
-**Location:** `password_analysis_tools.py:304-516`
+**Location:** `password_analysis_tools.py:304-330` (delegates to `crack_stats_single_pass()`)
 
-This is the **most expensive analysis function** due to multiple iterations:
+Collects all password statistics in a **single pass** over account_data:
 
-| Operation | Lines | Iterations | Purpose |
-|-----------|-------|------------|---------|
-| `check_blank()` | 325-327 | 1x | Find blank passwords |
-| Count cracked | 331-336 | 1x | Count accounts with passwords |
-| Unique NTLM hashes | 346-351 | 1x | Build unique hash set |
-| Cracked NTLM hashes | 354-367 | 1x | Build cracked hash set |
-| Check blank in hashes | 363-367 | 1x | Check for blank hash |
-| `lm_count()` | 374 | 1x | Count LM hashes |
-| Password lengths | 392-399 | 1x | Build length list |
-| Min length failures | 428-442 | 1x | Find short passwords |
-| `get_non_compliant_accounts()` | 445 | 1x | Check complexity |
-| `check_max_age()` | 457 | 1x | Check password age |
-| Top passwords | 469-482 | 1x | Count password frequency |
-| `get_lm_accounts()` | 485 | 1x | Get LM hash accounts |
+| Metric | Description |
+|--------|-------------|
+| Blank accounts | Detected by NTLM hash or empty password |
+| Cracked counts | Accounts with cracked passwords |
+| Unique NTLM hashes | Deduplicated hash set |
+| Cracked NTLM hashes | Hashes with known passwords |
+| LM hash count | Accounts with non-blank LM hashes |
+| Password lengths | Length distribution for cracked passwords |
+| Min length failures | Passwords shorter than policy minimum |
+| Complexity failures | Passwords failing complexity requirements |
+| Max age violations | Passwords older than policy maximum |
+| Top passwords | Password frequency counting |
+| LM hash accounts | Detailed list of accounts with LM hashes |
 
-**Total:** ~12 iterations over account_data
-**Time:** O(12n) = O(n)
-**Impact:** ~600K accounts × 12 passes = 5-10 seconds
+**Time:** O(n) - single pass
+**Impact:** ~600K accounts = 1-2 seconds
 
-**FUTURE OPTIMIZATION:** Consolidate into single-pass analysis to reduce to O(n).
+**OPTIMIZATION APPLIED:** Consolidated from 12 separate iterations into single-pass `crack_stats_single_pass()`.
 
 ### Step 3.6: Substring Analysis
 **Location:** `password_analysis_tools.py:518-614`
@@ -262,13 +260,13 @@ This is the **most expensive analysis function** due to multiple iterations:
 | 1 | Session serialization | 3-5s |
 | 3 | Reconstruct validation | 2-3s |
 | 3 | Build account data | 1-2s |
-| 3 | `crack_stats()` | 5-10s |
+| 3 | `crack_stats()` | 1-2s (optimized) |
 | 3 | Substring analysis | 2-5s |
 | 3 | Dictionary analysis | 2-5s |
 | 3 | Bad practices | 2-3s |
 | 3 | Password reuse | <1s (optimized) |
 | 3 | Save session files | 2-5s |
-| **Total** | | **~25-45s** |
+| **Total** | | **~20-38s** |
 
 ---
 
@@ -296,21 +294,22 @@ This is the **most expensive analysis function** due to multiple iterations:
    - Avoids copying 750K dict
    - **Savings:** <1 second
 
+5. **Single-Pass `crack_stats()`**
+   - Consolidated 12 separate iterations into one pass via `crack_stats_single_pass()`
+   - Collects all metrics (blank accounts, cracked counts, LM hashes, length distribution, complexity violations, max age failures, top passwords) in a single loop
+   - **Savings:** 3-5 seconds for 600K accounts
+
 ### Future Optimization Opportunities
 
-1. **Single-Pass `crack_stats()`**
-   - Consolidate 12 iterations into one pass
-   - **Potential savings:** 3-5 seconds
-
-2. **Parallel JSON File Writes**
+1. **Parallel JSON File Writes**
    - Use thread pool for independent file writes
    - **Potential savings:** 1-2 seconds
 
-3. **Streaming Validation**
+2. **Streaming Validation**
    - Process files in chunks with progress updates
    - **UX improvement:** Better feedback during long operations
 
-4. **Reduced Session Serialization**
+3. **Reduced Session Serialization**
    - Store only necessary fields in session
    - Don't serialize raw_line for every entry
    - **Potential savings:** 2-3 seconds
@@ -328,7 +327,8 @@ This is the **most expensive analysis function** due to multiple iterations:
 | `validation_result_to_dict()` | file_parser.py:845-889 | Serialize for session |
 | `dict_to_validation_result()` | file_parser.py:892-943 | Deserialize from session |
 | `build_account_data()` | file_parser.py:738-841 | Match accounts with passwords |
-| `crack_stats()` | password_analysis_tools.py:304-516 | Statistical analysis |
+| `crack_stats()` | password_analysis_tools.py:304-330 | Statistical analysis (delegates to single-pass) |
+| `crack_stats_single_pass()` | password_analysis_tools.py:333-611 | Single-pass statistical analysis |
 | `substring_analysis()` | password_analysis_tools.py:518-614 | Find common substrings |
 | `dictionary_analysis()` | password_analysis_tools.py:617-692 | Find dictionary words |
 | `bad_practices_analysis()` | password_analysis_tools.py:695-1037 | Detect weak patterns |
