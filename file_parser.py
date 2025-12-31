@@ -394,6 +394,64 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     )
 
 
+def parse_potfile_line_ntlm_only(line_number: int, raw_line: str) -> PotfileEntry:
+    """
+    Fast potfile line parser for NTLM-only potfiles (e.g., master potfile).
+
+    Skips hash type detection entirely since we know all entries are NTLM.
+    This is significantly faster than parse_potfile_line() for large potfiles.
+
+    Args:
+        line_number: 1-based line number in the file
+        raw_line: The raw line content
+
+    Returns:
+        PotfileEntry object with parsed data (assumes all valid entries are NTLM)
+    """
+    result = PotfileEntry(
+        line_number=line_number,
+        raw_line=raw_line
+    )
+
+    stripped = raw_line.strip()
+    if not stripped:
+        result.is_valid = False
+        result.is_ntlm = False
+        return result
+
+    # Skip comment lines
+    if stripped.startswith('#'):
+        result.is_valid = False
+        result.is_ntlm = False
+        result.included = False
+        return result
+
+    # Split only on first colon (password may contain colons)
+    parts = stripped.split(':', 1)
+
+    if len(parts) != 2:
+        result.is_valid = False
+        result.is_ntlm = False
+        return result
+
+    hash_value = parts[0]
+    result.ntlm_hash = hash_value
+    result.password = parts[1]
+
+    # For NTLM-only potfiles, just check if it's a valid 32-char hex hash
+    if len(hash_value) == 32 and all(c in '0123456789abcdefABCDEF' for c in hash_value):
+        result.is_ntlm = True
+        result.is_valid = True
+        result.detected_type = "NTLM"
+        result.detected_mode = 1000
+    else:
+        # Unexpected non-NTLM hash in NTLM-only potfile
+        result.is_ntlm = False
+        result.is_valid = False
+
+    return result
+
+
 def parse_potfile_line(line_number: int, raw_line: str) -> PotfileEntry:
     """
     Parse a single potfile line and identify hash type.
@@ -495,7 +553,7 @@ def parse_potfile_line(line_number: int, raw_line: str) -> PotfileEntry:
     return result
 
 
-def validate_potfile(filepath: str) -> PotfileValidationResult:
+def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidationResult:
     """
     Validate an entire potfile and return detailed results.
 
@@ -503,6 +561,9 @@ def validate_potfile(filepath: str) -> PotfileValidationResult:
 
     Args:
         filepath: Path to the potfile
+        ntlm_only: If True, skip hash type detection (for pre-validated NTLM potfiles
+                   like master potfile). This significantly speeds up validation for
+                   large potfiles by avoiding 99-pattern regex matching per line.
 
     Returns:
         PotfileValidationResult with all parsed entries and summary statistics
@@ -513,9 +574,12 @@ def validate_potfile(filepath: str) -> PotfileValidationResult:
     ntlm_count = 0
     non_ntlm_count = 0
 
+    # Choose parser based on ntlm_only flag
+    parser_fn = parse_potfile_line_ntlm_only if ntlm_only else parse_potfile_line
+
     with open(filepath, 'r', encoding='utf-8') as f:
         for line_num, raw_line in enumerate(f, start=1):
-            parsed = parse_potfile_line(line_num, raw_line)
+            parsed = parser_fn(line_num, raw_line)
             entries.append(parsed)
 
             # Track errors

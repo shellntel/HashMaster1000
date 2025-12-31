@@ -1528,17 +1528,17 @@ def process_validated() -> Response:
             cracked_passwords, custom_keywords
         )
 
-        # Check password reuse (needs original file path)
-        pw_reuse_table = password_analysis_tools.check_pw_reuse(pwdump_path)
+        # Check password reuse using in-memory account_data (avoids re-reading file)
+        pw_reuse_table = password_analysis_tools.check_pw_reuse_from_account_data(account_data)
 
         # Build cracked_hashes lookup from potfile (uses cache for master potfile)
         # Note: cracked_hashes may already be set from the optimized path above
         if cracked_hashes is None:
             # Need to build from potfile_result (non-master potfile case)
             cracked_hashes = build_cracked_hashes_fast(potfile_result)
-        # Ensure blank hash is included for history analysis
+        # Ensure blank hash is included for history analysis (in-place update avoids dict copy)
         if file_parser.BLANK_NTLM_HASH not in cracked_hashes:
-            cracked_hashes = {file_parser.BLANK_NTLM_HASH: "", **cracked_hashes}
+            cracked_hashes[file_parser.BLANK_NTLM_HASH] = ""
 
         # Run password history pattern analysis (for pwdump with _history entries)
         pwdump_lines_data = [
