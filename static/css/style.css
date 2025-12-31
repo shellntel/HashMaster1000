@@ -7472,23 +7472,21 @@ table.dataTable th.dt-center { text-align: center !important; }
 	color: var(--text-secondary, #999);
 }
 
-/* Ensure HIBP table wrapper has position context for centered processing indicator */
-#hibpAllBreachedTable_wrapper {
-	position: relative;
-}
-
+/* HIBP table processing indicator - centered on viewport for visibility */
 #hibpAllBreachedTable_processing {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	transform: translate(-50%, -50%);
-	background: rgba(0, 0, 0, 0.85);
-	color: #fff;
-	padding: 12px 24px;
-	border-radius: 6px;
-	z-index: 100;
-	font-size: 14px;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	position: fixed !important;
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
+	background: rgba(20, 20, 20, 0.95) !important;
+	color: #fff !important;
+	padding: 16px 32px !important;
+	border-radius: 8px !important;
+	z-index: 9999 !important;
+	font-size: 15px !important;
+	font-weight: 500 !important;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+	border: 1px solid rgba(49, 176, 5, 0.3) !important;
 }
 
 /* HIBP Modal Styles */
