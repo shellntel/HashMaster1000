@@ -37,11 +37,15 @@ MAX_WORKERS = int(os.environ.get("HIBP_API_WORKERS", DEFAULT_MAX_WORKERS))
 if MAX_WORKERS != DEFAULT_MAX_WORKERS:
     logger.info(f"HIBP API workers configured via env: {MAX_WORKERS}")
 
-# Local database state (binary search mode - no memory loading required)
+# Local database state
 _local_db_path: str | None = None
 _local_db_file_size: int = 0
 _local_db_estimated_entries: int = 0
 _local_db_ready: bool = False
+
+# Threshold for choosing streaming vs binary search strategy
+# For hash counts above this, streaming merge-join is faster
+STREAMING_THRESHOLD = 1000
 
 
 @dataclass
@@ -188,7 +192,7 @@ def init_local_hibp_database(db_path: str) -> tuple[bool, str, int]:
         _local_db_estimated_entries = estimated_entries
         _local_db_ready = True
 
-        message = f"HIBP database ready: ~{estimated_entries:,} entries ({file_size_gb:.1f} GB) - using binary search"
+        message = f"HIBP database ready: ~{estimated_entries:,} entries ({file_size_gb:.1f} GB)"
         logger.info(message)
 
         return True, message, estimated_entries
@@ -232,14 +236,217 @@ def get_local_db_status() -> dict:
         "path": _local_db_path,
         "hash_count": _local_db_estimated_entries,
         "file_size_gb": round(_local_db_file_size / (1024 ** 3), 2) if _local_db_file_size else 0,
-        "mode": "binary_search",
-        "file_date": file_date
+        "mode": "streaming" if _local_db_estimated_entries > STREAMING_THRESHOLD else "binary_search",
+        "file_date": file_date,
     }
+
+
+# ============================================================================
+# Streaming Merge-Join for Large Batch Lookups
+# ============================================================================
+
+def _streaming_merge_join(
+    db_path: str,
+    sorted_hashes: list[str],
+    progress_callback: Callable[[int, int], None] | None = None
+) -> dict[str, tuple[bool, int]]:
+    """
+    Perform a streaming merge-join between sorted target hashes and the HIBP database.
+
+    This is dramatically faster than binary search for large hash sets because:
+    - Reads the HIBP file sequentially (one pass)
+    - Converts random disk seeks into linear streaming I/O
+    - Works well with OS file caching and disk prefetching
+
+    Args:
+        db_path: Path to the sorted HIBP database file
+        sorted_hashes: List of NTLM hashes to look up (must be sorted, uppercase)
+        progress_callback: Optional callback(checked, total) for progress updates
+
+    Returns:
+        Dict mapping hash -> (found, breach_count)
+    """
+    results: dict[str, tuple[bool, int]] = {}
+    total = len(sorted_hashes)
+
+    if total == 0:
+        return results
+
+    # Initialize all hashes as not found
+    for h in sorted_hashes:
+        results[h] = (False, 0)
+
+    target_idx = 0
+    lines_read = 0
+    progress_interval = max(1, total // 100)  # Update every 1%
+
+    try:
+        with open(db_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                lines_read += 1
+
+                # Early exit if we've found all targets
+                if target_idx >= total:
+                    break
+
+                line = line.strip()
+                if not line or ':' not in line:
+                    continue
+
+                parts = line.split(':', 1)
+                if len(parts) != 2:
+                    continue
+
+                hibp_hash = parts[0].upper()
+
+                # Advance target pointer while targets are less than current HIBP hash
+                while target_idx < total and sorted_hashes[target_idx] < hibp_hash:
+                    target_idx += 1
+
+                    # Progress update
+                    if progress_callback and target_idx % progress_interval == 0:
+                        progress_callback(target_idx, total)
+
+                # Check for match
+                if target_idx < total and sorted_hashes[target_idx] == hibp_hash:
+                    try:
+                        count = int(parts[1])
+                    except ValueError:
+                        count = 1
+                    results[hibp_hash] = (True, count)
+                    target_idx += 1
+
+                    # Progress update
+                    if progress_callback and target_idx % progress_interval == 0:
+                        progress_callback(target_idx, total)
+
+    except Exception as e:
+        logger.error(f"Error during streaming merge-join: {e}")
+
+    # Final progress update
+    if progress_callback:
+        progress_callback(total, total)
+
+    return results
+
+
+# ============================================================================
+# Binary Search for Small Batch Lookups
+# ============================================================================
+
+def _binary_search_hash_with_handle(
+    f, target_hash: str, file_size: int
+) -> tuple[bool, int]:
+    """
+    Perform binary search on the sorted HIBP database file using an open file handle.
+
+    This version reuses an open file handle for better performance during batch lookups.
+
+    Args:
+        f: Open file handle in binary read mode
+        target_hash: The NTLM hash to search for (uppercase)
+        file_size: Size of the file in bytes
+
+    Returns:
+        Tuple of (found, breach_count)
+    """
+    target_hash = target_hash.upper()
+    low = 0
+    high = file_size
+
+    while low < high:
+        mid = (low + high) // 2
+
+        # Seek to mid position
+        f.seek(mid)
+
+        # Skip to start of next line (we might be in the middle of a line)
+        if mid > 0:
+            f.readline()  # Skip partial line
+
+        # Read the current line
+        line = f.readline()
+        if not line:
+            high = mid
+            continue
+
+        # Decode and parse the line
+        try:
+            line_str = line.decode('utf-8', errors='ignore').strip()
+            if not line_str or ':' not in line_str:
+                # Empty or malformed line, adjust search
+                high = mid
+                continue
+
+            parts = line_str.split(':', 1)
+            if len(parts) != 2:
+                high = mid
+                continue
+
+            current_hash = parts[0].upper()
+
+            if current_hash == target_hash:
+                # Found it!
+                try:
+                    count = int(parts[1])
+                    return True, count
+                except ValueError:
+                    return True, 1  # Found but count parse error
+
+            elif current_hash < target_hash:
+                # Target is after current position
+                low = f.tell()
+            else:
+                # Target is before current position
+                high = mid
+
+        except Exception:
+            # Error parsing, adjust search
+            high = mid
+
+    # Final check: read a few lines around the final position
+    f.seek(max(0, low - 100))
+    if low > 0:
+        f.readline()  # Skip partial line
+
+    for _ in range(10):  # Check up to 10 lines
+        line = f.readline()
+        if not line:
+            break
+
+        try:
+            line_str = line.decode('utf-8', errors='ignore').strip()
+            if not line_str or ':' not in line_str:
+                continue
+
+            parts = line_str.split(':', 1)
+            if len(parts) != 2:
+                continue
+
+            current_hash = parts[0].upper()
+            if current_hash == target_hash:
+                try:
+                    count = int(parts[1])
+                    return True, count
+                except ValueError:
+                    return True, 1
+
+            # If we've passed the target hash, stop
+            if current_hash > target_hash:
+                break
+
+        except Exception:
+            continue
+
+    return False, 0
 
 
 def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> tuple[bool, int]:
     """
     Perform binary search on the sorted HIBP database file.
+
+    This wrapper opens/closes the file for each lookup. For batch operations,
+    use _binary_search_hash_with_handle() with a persistent file handle.
 
     Args:
         db_path: Path to the sorted database file
@@ -249,97 +456,8 @@ def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> tuple
     Returns:
         Tuple of (found, breach_count)
     """
-    target_hash = target_hash.upper()
-
     with open(db_path, 'rb') as f:
-        low = 0
-        high = file_size
-
-        while low < high:
-            mid = (low + high) // 2
-
-            # Seek to mid position
-            f.seek(mid)
-
-            # Skip to start of next line (we might be in the middle of a line)
-            if mid > 0:
-                f.readline()  # Skip partial line
-
-            # Read the current line
-            line = f.readline()
-            if not line:
-                high = mid
-                continue
-
-            # Decode and parse the line
-            try:
-                line_str = line.decode('utf-8', errors='ignore').strip()
-                if not line_str or ':' not in line_str:
-                    # Empty or malformed line, adjust search
-                    high = mid
-                    continue
-
-                parts = line_str.split(':', 1)
-                if len(parts) != 2:
-                    high = mid
-                    continue
-
-                current_hash = parts[0].upper()
-
-                if current_hash == target_hash:
-                    # Found it!
-                    try:
-                        count = int(parts[1])
-                        return True, count
-                    except ValueError:
-                        return True, 1  # Found but count parse error
-
-                elif current_hash < target_hash:
-                    # Target is after current position
-                    low = f.tell()
-                else:
-                    # Target is before current position
-                    high = mid
-
-            except Exception:
-                # Error parsing, adjust search
-                high = mid
-
-        # Final check: read a few lines around the final position
-        f.seek(max(0, low - 100))
-        if low > 0:
-            f.readline()  # Skip partial line
-
-        for _ in range(10):  # Check up to 10 lines
-            line = f.readline()
-            if not line:
-                break
-
-            try:
-                line_str = line.decode('utf-8', errors='ignore').strip()
-                if not line_str or ':' not in line_str:
-                    continue
-
-                parts = line_str.split(':', 1)
-                if len(parts) != 2:
-                    continue
-
-                current_hash = parts[0].upper()
-                if current_hash == target_hash:
-                    try:
-                        count = int(parts[1])
-                        return True, count
-                    except ValueError:
-                        return True, 1
-
-                # If we've passed the target hash, stop
-                if current_hash > target_hash:
-                    break
-
-            except Exception:
-                continue
-
-    return False, 0
+        return _binary_search_hash_with_handle(f, target_hash, file_size)
 
 
 def check_hash_local(ntlm_hash: str) -> tuple[bool, int]:
@@ -364,10 +482,16 @@ def check_hashes_local(
     progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """
-    Check multiple NTLM hashes against the local HIBP database using binary search.
+    Check multiple NTLM hashes against the local HIBP database.
 
-    Each lookup requires a few disk seeks (O(log n)), making this efficient even
-    for very large databases without loading them into memory.
+    Automatically selects the best strategy based on hash count:
+    - Small batches (<1000): Binary search with persistent file handle
+    - Large batches (>=1000): Streaming merge-join (single sequential scan)
+
+    The streaming merge-join is dramatically faster for large batches because it:
+    - Reads the HIBP file once, sequentially
+    - Converts random disk seeks into linear I/O
+    - Works well with OS file caching and disk prefetching
 
     Args:
         account_data: List of account dicts with 'ntlm_hash' and 'username' keys
@@ -379,7 +503,7 @@ def check_hashes_local(
     results = HIBPCheckResults()
     start_time = time.time()
 
-    if not _local_db_ready:
+    if not _local_db_ready or not _local_db_path:
         logger.error("Local HIBP database not initialized")
         results.total_errors = len(account_data)
         return results
@@ -388,70 +512,113 @@ def check_hashes_local(
     BLANK_HASH = "31D6CFE0D16AE931B73C59D7E0C089C0"
 
     total = len(account_data)
-    checked = 0
-    # Update progress every 500 items or at 1%, whichever is smaller
-    progress_interval = min(500, max(1, total // 100))
 
-    # Cache results for duplicate hashes to avoid redundant disk seeks
-    hash_cache: dict[str, tuple[bool, int]] = {}
+    # Phase 1: Extract unique hashes and build account mapping
+    hash_to_accounts: dict[str, list[tuple[str, int]]] = {}  # hash -> [(username, index), ...]
+    invalid_accounts: list[tuple[int, str, str]] = []  # (index, username, hash)
+    blank_accounts: list[tuple[int, str]] = []  # (index, username)
 
-    for account in account_data:
+    for idx, account in enumerate(account_data):
         ntlm_hash = account.get("ntlm_hash", "").upper().strip()
         username = account.get("username", "")
 
         if not ntlm_hash or len(ntlm_hash) != 32:
-            results.results.append(HIBPResult(
-                ntlm_hash=ntlm_hash,
-                username=username,
-                found_in_breach=False,
-                error="Invalid hash format"
-            ))
-            results.total_errors += 1
-            results.total_checked += 1
+            invalid_accounts.append((idx, username, ntlm_hash))
             continue
 
-        # Handle blank password hash
         if ntlm_hash == BLANK_HASH:
-            results.results.append(HIBPResult(
-                ntlm_hash=ntlm_hash,
-                username=username,
-                found_in_breach=True,
-                breach_count=999999999
-            ))
-            results.total_found += 1
-            results.total_checked += 1
-            checked += 1
+            blank_accounts.append((idx, username))
             continue
 
-        # Check cache first
-        if ntlm_hash in hash_cache:
-            found, count = hash_cache[ntlm_hash]
-        else:
-            # Binary search lookup
-            found, count = check_hash_local(ntlm_hash)
-            hash_cache[ntlm_hash] = (found, count)
+        if ntlm_hash not in hash_to_accounts:
+            hash_to_accounts[ntlm_hash] = []
+        hash_to_accounts[ntlm_hash].append((username, idx))
 
-        results.results.append(HIBPResult(
+    # Get unique hashes sorted (required for both strategies)
+    unique_hashes = sorted(hash_to_accounts.keys())
+    unique_count = len(unique_hashes)
+
+    # Choose strategy based on unique hash count
+    use_streaming = unique_count >= STREAMING_THRESHOLD
+    strategy_name = "streaming merge-join" if use_streaming else "binary search"
+
+    logger.info(
+        f"HIBP local check: {len(account_data)} accounts -> "
+        f"{unique_count} unique hashes ({strategy_name}) "
+        f"({len(blank_accounts)} blank, {len(invalid_accounts)} invalid)"
+    )
+
+    # Phase 2: Perform lookups using selected strategy
+    if use_streaming:
+        # Streaming merge-join: single sequential scan of HIBP file
+        hash_results = _streaming_merge_join(
+            _local_db_path,
+            unique_hashes,
+            progress_callback
+        )
+    else:
+        # Binary search: good for small batches
+        hash_results: dict[str, tuple[bool, int]] = {}
+        progress_interval = max(1, unique_count // 100)
+
+        with open(_local_db_path, 'rb') as f:
+            for i, ntlm_hash in enumerate(unique_hashes):
+                found, count = _binary_search_hash_with_handle(f, ntlm_hash, _local_db_file_size)
+                hash_results[ntlm_hash] = (found, count)
+
+                if progress_callback and (i % progress_interval == 0 or i == 0):
+                    estimated_progress = int((i / unique_count) * total) if unique_count > 0 else 0
+                    progress_callback(estimated_progress, total)
+
+    # Phase 3: Build results for all accounts
+    results.results = [None] * total  # type: ignore
+
+    # Handle invalid accounts
+    for idx, username, ntlm_hash in invalid_accounts:
+        results.results[idx] = HIBPResult(
             ntlm_hash=ntlm_hash,
             username=username,
-            found_in_breach=found,
-            breach_count=count
-        ))
-
-        if found:
-            results.total_found += 1
+            found_in_breach=False,
+            error="Invalid hash format"
+        )
+        results.total_errors += 1
         results.total_checked += 1
 
-        checked += 1
-        if progress_callback and (checked % progress_interval == 0 or checked == 1):
-            progress_callback(checked, total)
+    # Handle blank accounts
+    for idx, username in blank_accounts:
+        results.results[idx] = HIBPResult(
+            ntlm_hash=BLANK_HASH,
+            username=username,
+            found_in_breach=True,
+            breach_count=999999999
+        )
+        results.total_found += 1
+        results.total_checked += 1
+
+    # Handle normal accounts (map hash results back to all accounts with that hash)
+    for ntlm_hash, accounts in hash_to_accounts.items():
+        found, count = hash_results.get(ntlm_hash, (False, 0))
+        for username, idx in accounts:
+            results.results[idx] = HIBPResult(
+                ntlm_hash=ntlm_hash,
+                username=username,
+                found_in_breach=found,
+                breach_count=count
+            )
+            if found:
+                results.total_found += 1
+            results.total_checked += 1
+
+    # Final progress update
+    if progress_callback:
+        progress_callback(total, total)
 
     results.check_duration_seconds = time.time() - start_time
 
     logger.info(
         f"Local HIBP check complete: {results.total_found}/{results.total_checked} "
         f"found in breaches ({results.found_percentage:.1f}%) "
-        f"in {results.check_duration_seconds:.2f}s (binary search, {len(hash_cache)} unique lookups)"
+        f"in {results.check_duration_seconds:.2f}s ({strategy_name})"
     )
 
     return results

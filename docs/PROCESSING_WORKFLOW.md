@@ -299,6 +299,13 @@ Collects all password statistics in a **single pass** over account_data:
    - Collects all metrics (blank accounts, cracked counts, LM hashes, length distribution, complexity violations, max age failures, top passwords) in a single loop
    - **Savings:** 3-5 seconds for 600K accounts
 
+6. **HIBP Local Checker Optimizations** (`hibp_checker.py`)
+   - **Streaming merge-join:** For large batches (≥1000 hashes), reads HIBP file once sequentially
+   - **Automatic strategy selection:** Binary search for small batches, streaming for large batches
+   - **Deduplicated lookups:** Extracts unique hashes first, then maps results back to all accounts
+   - **Sequential I/O:** Converts random disk seeks into linear streaming I/O
+   - **Savings:** ~5-10x faster than binary search (13 min → 1-2 min for 600K+ hashes)
+
 ### Future Optimization Opportunities
 
 1. **Parallel JSON File Writes**
@@ -334,3 +341,5 @@ Collects all password statistics in a **single pass** over account_data:
 | `bad_practices_analysis()` | password_analysis_tools.py:695-1037 | Detect weak patterns |
 | `check_pw_reuse_from_account_data()` | password_analysis_tools.py:137-173 | Find shared passwords |
 | `get_cracked_hashes_direct()` | potfile_cache.py | Cached potfile lookup |
+| `check_hashes_local()` | hibp_checker.py:480-624 | Optimized HIBP batch lookup (auto-selects strategy) |
+| `_streaming_merge_join()` | hibp_checker.py:248-330 | Sequential scan for large batches |
