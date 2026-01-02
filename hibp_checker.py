@@ -1,17 +1,20 @@
 """
 Have I Been Pwned (HIBP) integration for checking NTLM hashes against the Pwned Passwords database.
 
-Supports two modes:
+Supports three modes:
 1. API Mode: Uses the k-Anonymity model where only the first 5 characters of each hash
    are sent to the HIBP API, preserving privacy while enabling breach detection.
-2. Local Mode: Uses a local copy of the HIBP NTLM database for air-gapped environments
-   or faster lookups. Download from: https://haveibeenpwned.com/Passwords
+2. Local Mode (Text): Uses a local copy of the HIBP NTLM database for air-gapped environments.
+   Uses binary search on the sorted text file. Download from: https://haveibeenpwned.com/Passwords
+3. Local Mode (SQLite): Uses a SQLite database for fastest indexed lookups.
+   Convert from text file using hibp_downloader.convert_text_to_sqlite()
 
 API Documentation: https://haveibeenpwned.com/API/v3#PwnedPasswordsNTLM
 """
 
 import logging
 import os
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from collections.abc import Callable
@@ -37,14 +40,23 @@ MAX_WORKERS = int(os.environ.get("HIBP_API_WORKERS", DEFAULT_MAX_WORKERS))
 if MAX_WORKERS != DEFAULT_MAX_WORKERS:
     logger.info(f"HIBP API workers configured via env: {MAX_WORKERS}")
 
-# Local database state
+# Local database state (text file)
 _local_db_path: str | None = None
 _local_db_file_size: int = 0
 _local_db_estimated_entries: int = 0
 _local_db_ready: bool = False
 
-# Binary search is always used - streaming was found to be extremely slow
+# SQLite database state
+_sqlite_db_path: str | None = None
+_sqlite_db_ready: bool = False
+_sqlite_db_hash_count: int = 0
+
+# Current mode: "sqlite", "text", or None
+_local_db_mode: str | None = None
+
+# Binary search is used for text file mode - streaming was found to be extremely slow
 # due to Python overhead reading billions of lines
+# SQLite mode uses indexed lookups which are faster than binary search
 
 
 @dataclass
@@ -110,18 +122,128 @@ class HIBPCheckResults:
 
 def init_local_hibp_database(db_path: str) -> tuple[bool, str, int]:
     """
-    Initialize the local HIBP database for binary search lookups.
+    Initialize the local HIBP database for lookups.
 
-    This does NOT load the database into memory. Instead, it validates the file
-    and prepares it for binary search lookups. The file must be sorted by hash.
+    Supports both text files (binary search) and SQLite databases (indexed lookup).
+    If a SQLite database exists at db_path.db or db_path with .db extension, it will
+    be preferred over the text file for better performance.
 
     Args:
-        db_path: Path to the pwnedpasswords_ntlm.txt file (sorted by hash)
+        db_path: Path to either:
+            - A pwnedpasswords_ntlm.txt file (sorted by hash)
+            - A pwnedpasswords_ntlm.db SQLite database
 
     Returns:
-        Tuple of (success, message, estimated_entries)
+        Tuple of (success, message, entry_count)
     """
     global _local_db_path, _local_db_file_size, _local_db_estimated_entries, _local_db_ready
+    global _sqlite_db_path, _sqlite_db_ready, _sqlite_db_hash_count, _local_db_mode
+
+    # Check if the path is a SQLite database
+    if db_path.endswith('.db'):
+        return _init_sqlite_database(db_path)
+
+    # Check if a SQLite version exists alongside the text file
+    sqlite_path = os.path.splitext(db_path)[0] + ".db"
+    if os.path.exists(sqlite_path):
+        logger.info(f"Found SQLite database alongside text file, preferring SQLite: {sqlite_path}")
+        return _init_sqlite_database(sqlite_path)
+
+    # Fall back to text file with binary search
+    return _init_text_database(db_path)
+
+
+def _init_sqlite_database(db_path: str) -> tuple[bool, str, int]:
+    """Initialize a SQLite HIBP database."""
+    global _sqlite_db_path, _sqlite_db_ready, _sqlite_db_hash_count, _local_db_mode
+    global _local_db_path, _local_db_ready
+
+    if not os.path.exists(db_path):
+        _sqlite_db_ready = False
+        return False, f"SQLite database not found: {db_path}", 0
+
+    if not os.path.isfile(db_path):
+        _sqlite_db_ready = False
+        return False, f"Path is not a file: {db_path}", 0
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Verify it has the expected table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hashes'")
+        if not cursor.fetchone():
+            conn.close()
+            _sqlite_db_ready = False
+            return False, "SQLite database does not contain 'hashes' table", 0
+
+        # Get row count from metadata table (fastest), sqlite_stat1, or file size estimate
+        # Avoid SELECT COUNT(*) which requires full table scan on 2B+ rows
+        count = 0
+
+        # Method 1: Check metadata table (set during conversion)
+        try:
+            cursor.execute("SELECT value FROM metadata WHERE key='hash_count'")
+            meta_row = cursor.fetchone()
+            if meta_row:
+                count = int(meta_row[0])
+        except Exception:
+            pass  # Table may not exist in older databases
+
+        # Method 2: Check sqlite_stat1 (populated by ANALYZE)
+        if count == 0:
+            try:
+                cursor.execute("SELECT stat FROM sqlite_stat1 WHERE tbl='hashes' AND idx='hashes'")
+                stat_row = cursor.fetchone()
+                if stat_row:
+                    # stat format is "nrow ncol1 ncol2..." - first number is row count
+                    count = int(stat_row[0].split()[0])
+            except Exception:
+                pass
+
+        # Method 3: Fallback to file size estimate
+        if count == 0:
+            file_size = os.path.getsize(db_path)
+            count = file_size // 40  # ~40 bytes per row average
+
+        # Verify we can query it
+        cursor.execute("SELECT hash FROM hashes LIMIT 1")
+        sample = cursor.fetchone()
+        if sample and len(sample[0]) != 32:
+            conn.close()
+            _sqlite_db_ready = False
+            return False, "SQLite database has invalid hash format", 0
+
+        conn.close()
+
+        # Store database info
+        _sqlite_db_path = db_path
+        _sqlite_db_hash_count = count
+        _sqlite_db_ready = True
+        _local_db_mode = "sqlite"
+
+        # Clear text file state
+        _local_db_path = None
+        _local_db_ready = False
+
+        file_size = os.path.getsize(db_path)
+        file_size_gb = file_size / (1024 ** 3)
+
+        message = f"HIBP SQLite database ready: {count:,} hashes ({file_size_gb:.1f} GB)"
+        logger.info(message)
+
+        return True, message, count
+
+    except Exception as e:
+        _sqlite_db_ready = False
+        logger.error(f"Failed to initialize SQLite HIBP database: {e}")
+        return False, f"Failed to initialize SQLite database: {str(e)}", 0
+
+
+def _init_text_database(db_path: str) -> tuple[bool, str, int]:
+    """Initialize a text file HIBP database for binary search."""
+    global _local_db_path, _local_db_file_size, _local_db_estimated_entries, _local_db_ready
+    global _sqlite_db_ready, _local_db_mode
 
     # Validate file exists
     if not os.path.exists(db_path):
@@ -190,8 +312,12 @@ def init_local_hibp_database(db_path: str) -> tuple[bool, str, int]:
         _local_db_file_size = file_size
         _local_db_estimated_entries = estimated_entries
         _local_db_ready = True
+        _local_db_mode = "text"
 
-        message = f"HIBP database ready: ~{estimated_entries:,} entries ({file_size_gb:.1f} GB)"
+        # Clear SQLite state
+        _sqlite_db_ready = False
+
+        message = f"HIBP text database ready: ~{estimated_entries:,} entries ({file_size_gb:.1f} GB, binary search)"
         logger.info(message)
 
         return True, message, estimated_entries
@@ -215,11 +341,35 @@ def get_local_db_status() -> dict:
     Returns:
         Dict with status information
     """
+    from datetime import datetime
+
+    # Determine which mode is active
+    if _sqlite_db_ready and _sqlite_db_path:
+        db_path = _sqlite_db_path
+        hash_count = _sqlite_db_hash_count
+        file_size = os.path.getsize(_sqlite_db_path) if os.path.exists(_sqlite_db_path) else 0
+        mode = "sqlite"
+        loaded = True
+    elif _local_db_ready and _local_db_path:
+        db_path = _local_db_path
+        hash_count = _local_db_estimated_entries
+        file_size = _local_db_file_size
+        mode = "binary_search"
+        loaded = True
+    else:
+        return {
+            "loaded": False,
+            "path": None,
+            "hash_count": 0,
+            "file_size_gb": 0,
+            "mode": None,
+            "file_date": None,
+        }
+
     file_date = None
-    if _local_db_path and os.path.exists(_local_db_path):
+    if db_path and os.path.exists(db_path):
         try:
-            from datetime import datetime
-            stat_info = os.stat(_local_db_path)
+            stat_info = os.stat(db_path)
             # Use birth time (creation time) if available (macOS/Windows)
             # Fall back to modification time on Linux (more meaningful than ctime)
             if hasattr(stat_info, 'st_birthtime'):
@@ -231,11 +381,11 @@ def get_local_db_status() -> dict:
             pass
 
     return {
-        "loaded": _local_db_ready,
-        "path": _local_db_path,
-        "hash_count": _local_db_estimated_entries,
-        "file_size_gb": round(_local_db_file_size / (1024 ** 3), 2) if _local_db_file_size else 0,
-        "mode": "binary_search",
+        "loaded": loaded,
+        "path": db_path,
+        "hash_count": hash_count,
+        "file_size_gb": round(file_size / (1024 ** 3), 2) if file_size else 0,
+        "mode": mode,
         "file_date": file_date,
     }
 
@@ -372,7 +522,9 @@ def _binary_search_hash(db_path: str, target_hash: str, file_size: int) -> tuple
 
 def check_hash_local(ntlm_hash: str) -> tuple[bool, int]:
     """
-    Check a single hash against the local database using binary search.
+    Check a single hash against the local database.
+
+    Uses SQLite if available, otherwise falls back to binary search on text file.
 
     Args:
         ntlm_hash: The NTLM hash to check (case-insensitive)
@@ -380,11 +532,35 @@ def check_hash_local(ntlm_hash: str) -> tuple[bool, int]:
     Returns:
         Tuple of (found_in_breach, breach_count)
     """
-    if not _local_db_ready or not _local_db_path:
+    ntlm_hash = ntlm_hash.upper().strip()
+
+    # Use SQLite if available
+    if _sqlite_db_ready and _sqlite_db_path:
+        return _check_hash_sqlite(ntlm_hash)
+
+    # Fall back to binary search on text file
+    if _local_db_ready and _local_db_path:
+        return _binary_search_hash(_local_db_path, ntlm_hash, _local_db_file_size)
+
+    return False, 0
+
+
+def _check_hash_sqlite(ntlm_hash: str) -> tuple[bool, int]:
+    """Check a single hash against the SQLite database."""
+    try:
+        conn = sqlite3.connect(_sqlite_db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT count FROM hashes WHERE hash = ?", (ntlm_hash,))
+        result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            return True, result[0]
         return False, 0
 
-    ntlm_hash = ntlm_hash.upper().strip()
-    return _binary_search_hash(_local_db_path, ntlm_hash, _local_db_file_size)
+    except Exception as e:
+        logger.error(f"SQLite lookup error: {e}")
+        return False, 0
 
 
 def check_hashes_local(
@@ -392,11 +568,10 @@ def check_hashes_local(
     progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """
-    Check multiple NTLM hashes against the local HIBP database using binary search.
+    Check multiple NTLM hashes against the local HIBP database.
 
-    Uses a persistent file handle and deduplicates hashes before lookup to
-    minimize disk I/O. Binary search is O(log n) per hash, which is much
-    faster than streaming through billions of lines.
+    Uses SQLite if available (fastest), otherwise falls back to binary search
+    on the text file. Deduplicates hashes before lookup to minimize I/O.
 
     Args:
         account_data: List of account dicts with 'ntlm_hash' and 'username' keys
@@ -405,8 +580,195 @@ def check_hashes_local(
     Returns:
         HIBPCheckResults with all results and statistics
     """
+    # Use SQLite if available
+    if _sqlite_db_ready and _sqlite_db_path:
+        return _check_hashes_sqlite(account_data, progress_callback)
+
+    # Fall back to binary search
+    return _check_hashes_binary_search(account_data, progress_callback)
+
+
+def _check_hashes_sqlite(
+    account_data: list[dict],
+    progress_callback: Callable[[int, int], None] | None = None
+) -> HIBPCheckResults:
+    """Check multiple hashes against SQLite database with batch queries."""
+    from timing_stats import get_timing_stats, TimingStats
+
     results = HIBPCheckResults()
     start_time = time.time()
+    timing = get_timing_stats()
+
+    if not _sqlite_db_ready or not _sqlite_db_path:
+        logger.error("SQLite HIBP database not initialized")
+        results.total_errors = len(account_data)
+        return results
+
+    # Blank password hash - handle specially
+    BLANK_HASH = "31D6CFE0D16AE931B73C59D7E0C089C0"
+
+    total = len(account_data)
+
+    # Phase 1: Extract unique hashes and build account mapping
+    hash_to_accounts: dict[str, list[tuple[str, int]]] = {}  # hash -> [(username, index), ...]
+    invalid_accounts: list[tuple[int, str, str]] = []  # (index, username, hash)
+    blank_accounts: list[tuple[int, str]] = []  # (index, username)
+
+    for idx, account in enumerate(account_data):
+        ntlm_hash = account.get("ntlm_hash", "").upper().strip()
+        username = account.get("username", "")
+
+        if not ntlm_hash or len(ntlm_hash) != 32:
+            invalid_accounts.append((idx, username, ntlm_hash))
+            continue
+
+        if ntlm_hash == BLANK_HASH:
+            blank_accounts.append((idx, username))
+            continue
+
+        if ntlm_hash not in hash_to_accounts:
+            hash_to_accounts[ntlm_hash] = []
+        hash_to_accounts[ntlm_hash].append((username, idx))
+
+    unique_hashes = list(hash_to_accounts.keys())
+    unique_count = len(unique_hashes)
+
+    logger.info(
+        f"HIBP SQLite check: {len(account_data)} accounts -> "
+        f"{unique_count} unique hashes "
+        f"({len(blank_accounts)} blank, {len(invalid_accounts)} invalid)"
+    )
+
+    # Phase 2: Batch SQLite lookups (timed separately)
+    lookup_start = time.time()
+    hash_results: dict[str, tuple[bool, int]] = {}
+    batch_size = 1000  # Query 1000 hashes at a time
+    progress_interval = max(1, unique_count // 100)
+
+    try:
+        conn = sqlite3.connect(_sqlite_db_path)
+        cursor = conn.cursor()
+
+        for batch_start in range(0, unique_count, batch_size):
+            batch_end = min(batch_start + batch_size, unique_count)
+            batch_hashes = unique_hashes[batch_start:batch_end]
+
+            # Build parameterized query for batch
+            placeholders = ','.join('?' * len(batch_hashes))
+            cursor.execute(
+                f"SELECT hash, count FROM hashes WHERE hash IN ({placeholders})",
+                batch_hashes
+            )
+
+            # Store results
+            for row in cursor.fetchall():
+                hash_results[row[0]] = (True, row[1])
+
+            # Mark unfound hashes
+            for h in batch_hashes:
+                if h not in hash_results:
+                    hash_results[h] = (False, 0)
+
+            # Progress callback
+            if progress_callback and (batch_end % progress_interval == 0 or batch_end == unique_count):
+                progress_callback(batch_end, unique_count)
+
+        conn.close()
+
+    except Exception as e:
+        logger.error(f"SQLite batch lookup error: {e}")
+        # Mark remaining hashes as errors
+        for h in unique_hashes:
+            if h not in hash_results:
+                hash_results[h] = (False, 0)
+
+    lookup_duration = time.time() - lookup_start
+
+    # Record HIBP lookup timing (based on unique hashes checked)
+    timing.record_sample(
+        TimingStats.HIBP_CHECK,
+        lookup_duration,
+        item_count=total,
+        unique_count=unique_count,
+        mode="sqlite",
+    )
+
+    # Phase 3: Build results for all accounts (timed separately)
+    build_start = time.time()
+    results.results = [None] * total  # type: ignore
+
+    # Handle invalid accounts
+    for idx, username, ntlm_hash in invalid_accounts:
+        results.results[idx] = HIBPResult(
+            ntlm_hash=ntlm_hash,
+            username=username,
+            found_in_breach=False,
+            error="Invalid hash format"
+        )
+        results.total_errors += 1
+        results.total_checked += 1
+
+    # Handle blank accounts
+    for idx, username in blank_accounts:
+        results.results[idx] = HIBPResult(
+            ntlm_hash=BLANK_HASH,
+            username=username,
+            found_in_breach=True,
+            breach_count=999999999
+        )
+        results.total_found += 1
+        results.total_checked += 1
+
+    # Handle normal accounts
+    for ntlm_hash, accounts in hash_to_accounts.items():
+        found, count = hash_results.get(ntlm_hash, (False, 0))
+        for username, idx in accounts:
+            results.results[idx] = HIBPResult(
+                ntlm_hash=ntlm_hash,
+                username=username,
+                found_in_breach=found,
+                breach_count=count
+            )
+            if found:
+                results.total_found += 1
+            results.total_checked += 1
+
+    build_duration = time.time() - build_start
+
+    # Record result building timing
+    timing.record_sample(
+        TimingStats.HIBP_RESULT_BUILD,
+        build_duration,
+        item_count=total,
+        mode="sqlite",
+    )
+
+    # Final progress update
+    if progress_callback:
+        progress_callback(total, total)
+
+    results.check_duration_seconds = time.time() - start_time
+
+    logger.info(
+        f"SQLite HIBP check complete: {results.total_found}/{results.total_checked} "
+        f"found in breaches ({results.found_percentage:.1f}%) "
+        f"in {results.check_duration_seconds:.2f}s "
+        f"(lookup: {lookup_duration:.2f}s, build: {build_duration:.2f}s)"
+    )
+
+    return results
+
+
+def _check_hashes_binary_search(
+    account_data: list[dict],
+    progress_callback: Callable[[int, int], None] | None = None
+) -> HIBPCheckResults:
+    """Check multiple hashes using binary search on text file."""
+    from timing_stats import get_timing_stats, TimingStats
+
+    results = HIBPCheckResults()
+    start_time = time.time()
+    timing = get_timing_stats()
 
     if not _local_db_ready or not _local_db_path:
         logger.error("Local HIBP database not initialized")
@@ -449,7 +811,8 @@ def check_hashes_local(
         f"({len(blank_accounts)} blank, {len(invalid_accounts)} invalid)"
     )
 
-    # Phase 2: Perform binary search lookups with persistent file handle
+    # Phase 2: Perform binary search lookups with persistent file handle (timed)
+    lookup_start = time.time()
     hash_results: dict[str, tuple[bool, int]] = {}
     progress_interval = max(1, unique_count // 100)
 
@@ -461,7 +824,19 @@ def check_hashes_local(
             if progress_callback and (i % progress_interval == 0 or i == unique_count - 1):
                 progress_callback(i + 1, unique_count)
 
-    # Phase 3: Build results for all accounts
+    lookup_duration = time.time() - lookup_start
+
+    # Record HIBP lookup timing
+    timing.record_sample(
+        TimingStats.HIBP_CHECK,
+        lookup_duration,
+        item_count=total,
+        unique_count=unique_count,
+        mode="binary_search",
+    )
+
+    # Phase 3: Build results for all accounts (timed)
+    build_start = time.time()
     results.results = [None] * total  # type: ignore
 
     # Handle invalid accounts
@@ -500,6 +875,16 @@ def check_hashes_local(
                 results.total_found += 1
             results.total_checked += 1
 
+    build_duration = time.time() - build_start
+
+    # Record result building timing
+    timing.record_sample(
+        TimingStats.HIBP_RESULT_BUILD,
+        build_duration,
+        item_count=total,
+        mode="binary_search",
+    )
+
     # Final progress update
     if progress_callback:
         progress_callback(total, total)
@@ -509,7 +894,8 @@ def check_hashes_local(
     logger.info(
         f"Local HIBP check complete: {results.total_found}/{results.total_checked} "
         f"found in breaches ({results.found_percentage:.1f}%) "
-        f"in {results.check_duration_seconds:.2f}s (binary search)"
+        f"in {results.check_duration_seconds:.2f}s "
+        f"(lookup: {lookup_duration:.2f}s, build: {build_duration:.2f}s)"
     )
 
     return results
@@ -730,8 +1116,11 @@ def check_hashes_hibp(
     Returns:
         HIBPCheckResults with all results and statistics
     """
+    from timing_stats import get_timing_stats, TimingStats
+
     results = HIBPCheckResults()
     start_time = time.time()
+    timing = get_timing_stats()
 
     # Deduplicate hashes to minimize API calls
     hash_to_usernames: dict[str, list[str]] = {}
@@ -907,6 +1296,15 @@ def check_hashes_hibp(
                 results.total_errors += 1
 
     results.check_duration_seconds = time.time() - start_time
+
+    # Record API timing
+    timing.record_sample(
+        TimingStats.HIBP_CHECK,
+        results.check_duration_seconds,
+        item_count=len(account_data),
+        unique_count=total_unique,
+        mode="api",
+    )
 
     logger.info(
         f"HIBP check complete: {results.total_found}/{results.total_checked} "

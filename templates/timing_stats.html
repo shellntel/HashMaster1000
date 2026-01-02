@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HM1K - Timing Statistics</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Timing Statistics</h1>
+                <p class="advanced-subtitle">Performance metrics collected during operations</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <a href="/timing/stats" class="advanced-nav-link active">Timing Stats</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Actions -->
+        <div class="timing-actions-row">
+            <button class="timing-refresh-btn" onclick="loadStats()">Refresh</button>
+            <button class="timing-clear-btn" onclick="clearStats()">Clear All Statistics</button>
+        </div>
+
+        <div id="statsContent">
+            <div class="timing-no-data">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/timing')) {
+                exitLink.href = referrer;
+            }
+            // Store current referrer if coming from main app
+            if (document.referrer && !document.referrer.includes('/hidden') && !document.referrer.includes('/api/ai') && !document.referrer.includes('/timing')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        })();
+
+        function formatRate(rate) {
+            if (rate >= 1000000) {
+                return (rate / 1000000).toFixed(1) + 'M/s';
+            } else if (rate >= 1000) {
+                return (rate / 1000).toFixed(1) + 'K/s';
+            } else {
+                return rate.toFixed(0) + '/s';
+            }
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 1) {
+                return (seconds * 1000).toFixed(0) + 'ms';
+            } else if (seconds < 60) {
+                return seconds.toFixed(1) + 's';
+            } else if (seconds < 3600) {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return mins + 'm ' + secs + 's';
+            } else {
+                const hrs = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                return hrs + 'h ' + mins + 'm';
+            }
+        }
+
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleString();
+        }
+
+        function getModeClass(mode) {
+            if (mode === 'sqlite') return 'timing-mode-sqlite';
+            if (mode === 'binary_search') return 'timing-mode-binary_search';
+            if (mode === 'api') return 'timing-mode-api';
+            return '';
+        }
+
+        function getDiskClass(diskType) {
+            if (diskType === 'NVMe') return 'timing-disk-nvme';
+            if (diskType === 'SSD') return 'timing-disk-ssd';
+            if (diskType === 'HDD') return 'timing-disk-hdd';
+            return '';
+        }
+
+        function formatFreq(mhz) {
+            if (mhz >= 1000) {
+                return (mhz / 1000).toFixed(2) + ' GHz';
+            }
+            return mhz.toFixed(0) + ' MHz';
+        }
+
+        function renderSystemCard(sys, title) {
+            if (!sys) return '';
+            return `
+                <div class="timing-system-card">
+                    <h3>${title}${sys.hostname ? `<span class="timing-hostname-badge">${sys.hostname}</span>` : ''}</h3>
+                    <div class="timing-system-grid">
+                        <div class="timing-system-section">
+                            <div class="timing-system-section-title">CPU</div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Model</span>
+                                <span class="timing-system-value" style="font-size: 0.75rem; text-align: right;">${sys.cpu_model || 'unknown'}</span>
+                            </div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Cores</span>
+                                <span class="timing-system-value">${sys.cpu_cores_physical || '?'}c / ${sys.cpu_cores_logical || '?'}t</span>
+                            </div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Frequency</span>
+                                <span class="timing-system-value">${sys.cpu_freq_max_mhz ? formatFreq(sys.cpu_freq_max_mhz) : 'unknown'}</span>
+                            </div>
+                        </div>
+                        <div class="timing-system-section">
+                            <div class="timing-system-section-title">Memory</div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Total</span>
+                                <span class="timing-system-value">${sys.memory_total_gb ? sys.memory_total_gb.toFixed(1) + ' GB' : 'unknown'}</span>
+                            </div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Available</span>
+                                <span class="timing-system-value">${sys.memory_available_gb ? sys.memory_available_gb.toFixed(1) + ' GB' : 'unknown'}</span>
+                            </div>
+                        </div>
+                        <div class="timing-system-section">
+                            <div class="timing-system-section-title">Storage</div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Type</span>
+                                <span class="timing-system-value ${getDiskClass(sys.disk_type)}">${sys.disk_type || 'unknown'}</span>
+                            </div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Free</span>
+                                <span class="timing-system-value">${sys.disk_free_gb ? sys.disk_free_gb.toFixed(0) + ' GB' : 'unknown'}</span>
+                            </div>
+                        </div>
+                        <div class="timing-system-section">
+                            <div class="timing-system-section-title">OS</div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">System</span>
+                                <span class="timing-system-value">${sys.os_name || 'unknown'} ${sys.os_version || ''}</span>
+                            </div>
+                            <div class="timing-system-row">
+                                <span class="timing-system-label">Python</span>
+                                <span class="timing-system-value">${sys.python_version || 'unknown'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/timing/status');
+                const data = await response.json();
+
+                let html = '';
+
+                // Current system info
+                if (data.current_system) {
+                    html += renderSystemCard(data.current_system, 'Current System');
+                }
+
+                html += '<div class="timing-stats-grid">';
+
+                // Operations cards
+                const operations = data.operations || {};
+                const opNames = {
+                    'hibp_check': 'HIBP Hash Lookups',
+                    'hibp_result_build': 'HIBP Result Building',
+                    'potfile_validation': 'Potfile Validation',
+                    'potfile_master_load': 'Master Potfile Load',
+                    'pwdump_validation': 'Pwdump Validation',
+                    'crack_stats': 'Crack Statistics',
+                    'substring_analysis': 'Substring Analysis',
+                    'dictionary_analysis': 'Dictionary Analysis',
+                    'bad_practices': 'Bad Practices Analysis',
+                    'password_reuse': 'Password Reuse Check',
+                    'session_save': 'Session Save',
+                    'report_generation': 'Report Generation',
+                    'ai_report': 'AI Report Generation',
+                    'password_history': 'Password History Analysis',
+                    'pattern_analysis': 'Pattern Analysis',
+                    'length_distribution': 'Length Distribution',
+                    'charset_analysis': 'Character Set Analysis',
+                };
+
+                for (const [key, op] of Object.entries(operations)) {
+                    const name = opNames[key] || key;
+                    html += `
+                        <div class="timing-stats-card">
+                            <h3>${name}</h3>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Samples Collected</span>
+                                <span class="timing-stat-value">${op.sample_count}</span>
+                            </div>
+                    `;
+
+                    // Duration section
+                    if (op.total_duration_seconds > 0) {
+                        html += `
+                            <div class="timing-stat-divider"></div>
+                            <div class="timing-stat-section-label">Duration</div>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Total Time</span>
+                                <span class="timing-stat-value duration">${formatDuration(op.total_duration_seconds)}</span>
+                            </div>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Average</span>
+                                <span class="timing-stat-value duration">${formatDuration(op.avg_duration_seconds)}</span>
+                            </div>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Min / Max</span>
+                                <span class="timing-stat-value duration">${formatDuration(op.min_duration_seconds)} / ${formatDuration(op.max_duration_seconds)}</span>
+                            </div>
+                        `;
+
+                        // Total items processed if available
+                        if (op.total_items_processed > 0) {
+                            html += `
+                                <div class="timing-stat-row">
+                                    <span class="timing-stat-label">Items Processed</span>
+                                    <span class="timing-stat-value">${op.total_items_processed.toLocaleString()}</span>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    // Rate section
+                    html += `
+                        <div class="timing-stat-divider"></div>
+                        <div class="timing-stat-section-label">Throughput</div>
+                        <div class="timing-stat-row">
+                            <span class="timing-stat-label">Median Rate</span>
+                            <span class="timing-stat-value rate">${formatRate(op.median_items_per_second)}</span>
+                        </div>
+                        <div class="timing-stat-row">
+                            <span class="timing-stat-label">Average Rate</span>
+                            <span class="timing-stat-value rate">${formatRate(op.avg_items_per_second)}</span>
+                        </div>
+                        <div class="timing-stat-row">
+                            <span class="timing-stat-label">Min / Max</span>
+                            <span class="timing-stat-value rate">${formatRate(op.min_items_per_second || 0)} / ${formatRate(op.max_items_per_second || 0)}</span>
+                        </div>
+                    `;
+
+                    // Mode-specific rates for HIBP
+                    if (op.mode_rates && Object.keys(op.mode_rates).length > 0) {
+                        html += '<div class="timing-stat-divider"></div>';
+                        html += '<div class="timing-stat-section-label">By Mode</div>';
+                        for (const [mode, rate] of Object.entries(op.mode_rates)) {
+                            const modeDuration = op.mode_durations && op.mode_durations[mode] ? op.mode_durations[mode] : null;
+                            html += `
+                                <div class="timing-stat-row">
+                                    <span class="timing-stat-label">
+                                        <span class="timing-mode-badge ${getModeClass(mode)}">${mode}</span>
+                                    </span>
+                                    <span class="timing-stat-value">
+                                        <span class="rate">${formatRate(rate)}</span>
+                                        ${modeDuration ? `<span style="color: #71717a; margin-left: 8px;">avg:</span> <span class="duration">${formatDuration(modeDuration)}</span>` : ''}
+                                    </span>
+                                </div>
+                            `;
+                        }
+                    }
+
+                    html += '</div>';
+                }
+
+                html += '</div>';
+
+                // Last startup info
+                if (data.last_startup) {
+                    const startup = data.last_startup;
+                    const hostname = startup.system_info?.hostname;
+                    html += `
+                        <div class="timing-stats-card" style="margin-top: 20px;">
+                            <h3>Last Startup${hostname ? `<span class="timing-hostname-badge">${hostname}</span>` : ''}</h3>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Date</span>
+                                <span class="timing-stat-value">${formatDate(startup.timestamp)}</span>
+                            </div>
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Total Time</span>
+                                <span class="timing-stat-value">${formatDuration(startup.total_startup_seconds)}</span>
+                            </div>
+                    `;
+
+                    if (startup.potfile_load_seconds > 0) {
+                        html += `
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">Potfile Load</span>
+                                <span class="timing-stat-value">${formatDuration(startup.potfile_load_seconds)} (${startup.potfile_entries.toLocaleString()} entries)</span>
+                            </div>
+                        `;
+                    }
+
+                    // Only show HIBP Init if it took meaningful time (>= 100ms)
+                    // With metadata optimization, this is typically near 0 and not useful to display
+                    if (startup.hibp_init_seconds >= 0.1) {
+                        html += `
+                            <div class="timing-stat-row">
+                                <span class="timing-stat-label">HIBP Init</span>
+                                <span class="timing-stat-value">
+                                    ${formatDuration(startup.hibp_init_seconds)}
+                                    <span class="timing-mode-badge ${getModeClass(startup.hibp_mode)}">${startup.hibp_mode}</span>
+                                </span>
+                            </div>
+                        `;
+                    }
+
+                    html += '</div>';
+                }
+
+                // Startup history
+                if (data.startup_history && data.startup_history.length > 1) {
+                    html += `
+                        <div class="timing-startup-history">
+                            <h3 style="color: #00d4ff;">Startup History</h3>
+                    `;
+
+                    // Show last 5 (excluding the most recent which is already shown above)
+                    const history = data.startup_history.slice(0, -1).reverse().slice(0, 4);
+                    for (const startup of history) {
+                        const hostname = startup.system_info?.hostname;
+                        html += `
+                            <div class="timing-startup-item">
+                                <span class="timing-startup-date">${formatDate(startup.timestamp)}</span>
+                                ${hostname ? `<span class="timing-hostname-badge">${hostname}</span>` : ''}
+                                <span style="margin-left: 10px;">
+                                    Total: ${formatDuration(startup.total_startup_seconds)}
+                                </span>
+                            </div>
+                        `;
+                    }
+
+                    html += '</div>';
+                }
+
+                if (Object.keys(operations).length === 0 && !data.last_startup) {
+                    html = '<div class="timing-no-data">No timing data collected yet. Run some operations to see statistics.</div>';
+                }
+
+                document.getElementById('statsContent').innerHTML = html;
+
+            } catch (error) {
+                document.getElementById('statsContent').innerHTML = `
+                    <div class="timing-no-data">Error loading statistics: ${error.message}</div>
+                `;
+            }
+        }
+
+        async function clearStats() {
+            if (!confirm('Clear all timing statistics? This cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/timing/clear', { method: 'POST' });
+                const data = await response.json();
+
+                if (data.success) {
+                    loadStats();
+                } else {
+                    alert('Failed to clear: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Load stats on page load
+        loadStats();
+    </script>
+</body>
+</html>

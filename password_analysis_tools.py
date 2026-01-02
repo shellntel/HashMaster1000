@@ -1126,13 +1126,16 @@ def bad_practices_analysis(
         return False
 
     # Build password-to-username mapping if account_entries provided
-    password_to_username: dict[str, str] = {}
+    # Maps password -> list of accounts (same password can be used by multiple users)
+    password_to_usernames: dict[str, list[str]] = {}
     if account_entries:
         for entry in account_entries:
             pw = entry.get("password", "")
             acct = entry.get("account", "")
             if pw and acct:
-                password_to_username[pw] = acct
+                if pw not in password_to_usernames:
+                    password_to_usernames[pw] = []
+                password_to_usernames[pw].append(acct)
 
     # Process each password
     for password in passwords:
@@ -1259,15 +1262,31 @@ def bad_practices_analysis(
                 keyword_lower = keyword.lower()
                 if len(keyword_lower) >= 3 and keyword_lower in pw_lower:
                     results["Company Terms"]["count"] += 1
-                    results["Company Terms"]["examples"][password] = results["Company Terms"]["examples"].get(password, 0) + 1
+                    # Store password with account info if available: {password: {"count": N, "accounts": [...]}}
+                    if password_to_usernames and password in password_to_usernames:
+                        if password not in results["Company Terms"]["examples"]:
+                            results["Company Terms"]["examples"][password] = {"count": 0, "accounts": []}
+                        results["Company Terms"]["examples"][password]["count"] += 1
+                        # Add all accounts that use this password (if not already added)
+                        for acct in password_to_usernames[password]:
+                            if acct not in results["Company Terms"]["examples"][password]["accounts"]:
+                                results["Company Terms"]["examples"][password]["accounts"].append(acct)
+                    else:
+                        # No account info - use simple count format
+                        results["Company Terms"]["examples"][password] = results["Company Terms"]["examples"].get(password, 0) + 1
                     break
 
         # 12. Check for username in password (with leet-speak variations)
-        if password_to_username and password in password_to_username:
-            username = password_to_username[password]
-            if username_in_password(username, password):
-                results["Username in Password"]["count"] += 1
-                results["Username in Password"]["examples"][password] = results["Username in Password"]["examples"].get(password, 0) + 1
+        if password_to_usernames and password in password_to_usernames:
+            # Check each account that uses this password
+            for username in password_to_usernames[password]:
+                if username_in_password(username, password):
+                    results["Username in Password"]["count"] += 1
+                    # Store password with account info: {password: {"count": N, "accounts": [...]}}
+                    if password not in results["Username in Password"]["examples"]:
+                        results["Username in Password"]["examples"][password] = {"count": 0, "accounts": []}
+                    results["Username in Password"]["examples"][password]["count"] += 1
+                    results["Username in Password"]["examples"][password]["accounts"].append(username)
 
     timing.stop_timer(TimingStats.BAD_PRACTICES, item_count=len(passwords))
     return results

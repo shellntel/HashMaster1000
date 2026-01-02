@@ -37,6 +37,8 @@
 				<div class="processing-spinner"></div>
 				<div class="processing-text" id="processingText">Generating Report...</div>
 				<div class="processing-subtext" id="processingSubtext">Analyzing passwords and computing statistics</div>
+				<div class="processing-estimate" id="processingEstimate" style="display: none;"></div>
+				<div class="processing-fun-message" id="processingFunMessage" style="display: none;"></div>
 			</div>
 		</div>
 		<!-- App Header -->
@@ -1383,6 +1385,33 @@
 			</div>
 		</section>
 
+		<!-- Bottom Report Section Navigation -->
+		<nav class="report-nav report-nav-bottom">
+			<div class="report-nav-label">Jump to:</div>
+			<div class="report-nav-buttons">
+				<button class="report-nav-btn" onclick="scrollToSection('statsAndCharts')">Statistics</button>
+				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
+				<button class="report-nav-btn" onclick="scrollToSection('topDictionaryWordsChart')">Dictionary Words</button>
+				<button class="report-nav-btn" onclick="scrollToSection('badPracticesChart')">Bad Practices</button>
+				<button class="report-nav-btn" onclick="scrollToSection('tableSection')">Password Reuse</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
+				<button class="report-nav-btn" id="navBlankPasswordsBottom" onclick="scrollToSection('policyBlankSection')">Blank Passwords</button>
+				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
+				<button class="report-nav-btn" id="navPasswordHistoryBottom" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
+				<button class="report-nav-btn" id="navMaxAgeBottom" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
+				<button class="report-nav-btn" id="navPrivilegedAccountsBottom" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
+				<button class="report-nav-btn" id="navHIBPBottom" onclick="scrollToSection('hibpSection')">Breach Check</button>
+				<button class="report-nav-btn" id="navKerberoastBottom" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
+				<button class="report-nav-btn" id="navASREPBottom" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
+				<button class="report-nav-btn" id="navTrendAnalysisBottom" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
+				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysisBottom" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
+			</div>
+			<button class="report-nav-btn report-nav-btn-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑ Back to Top</button>
+		</nav>
+
 		</div><!-- End report-content -->
 
 		<!-- -------------------- JavaScript Section -------------------- -->
@@ -1549,7 +1578,20 @@
 							progressDetail.textContent = 'Starting HIBP check...';
 						} else if (progress.status === 'running') {
 							if (progress.total > 0) {
-								progressDetail.textContent = `Checking hashes: ${progress.checked.toLocaleString()} / ${progress.total.toLocaleString()} (${progress.percentage}%)`;
+								// Build progress message with time estimate
+								let msg = `Checking hashes: ${progress.checked.toLocaleString()} / ${progress.total.toLocaleString()} (${progress.percentage}%)`;
+
+								// Add time remaining if available
+								if (progress.remaining_formatted && progress.checked > 1000) {
+									msg += ` - ~${progress.remaining_formatted} remaining`;
+								}
+
+								// Add fun processing message
+								if (progress.message) {
+									msg += `<br><span style="color: #71717a; font-size: 0.85em;">${progress.message}</span>`;
+								}
+
+								progressDetail.innerHTML = msg;
 							}
 						} else if (progress.status === 'complete') {
 							// Check complete - fetch and display results
@@ -1994,9 +2036,10 @@
 						kerberoastData = await response.json();
 						if (kerberoastData && kerberoastData.summary && kerberoastData.summary.total_kerberoastable > 0) {
 							displayKerberoastResults(kerberoastData);
-							// Show section and nav button
+							// Show section and nav button (top and bottom)
 							document.getElementById('kerberoastSection').style.display = 'block';
 							document.getElementById('navKerberoast').style.display = 'inline-block';
+							document.getElementById('navKerberoastBottom').style.display = 'inline-block';
 						}
 					}
 				} catch (e) {
@@ -2317,9 +2360,10 @@
 					if (response.ok) {
 						asrepData = await response.json();
 						if (asrepData && asrepData.summary) {
-							// Show section and nav button regardless of whether issues were found
+							// Show section and nav button (top and bottom) regardless of whether issues were found
 							document.getElementById('asrepSection').style.display = 'block';
 							document.getElementById('navASREP').style.display = 'inline-block';
+							document.getElementById('navASREPBottom').style.display = 'inline-block';
 
 							if (asrepData.summary.total_asrep_roastable > 0) {
 								// Show results with vulnerable accounts
@@ -2785,9 +2829,11 @@
 						return;
 					}
 
-					// Show trend analysis section and nav button
+					// Show trend analysis section and nav button (top and bottom)
 					const navBtn = document.getElementById('navTrendAnalysis');
 					if (navBtn) navBtn.style.display = 'inline-block';
+					const navBtnBottom = document.getElementById('navTrendAnalysisBottom');
+					if (navBtnBottom) navBtnBottom.style.display = 'inline-block';
 					const trendSection = document.getElementById('trendAnalysisSection');
 					if (trendSection) trendSection.style.display = 'block';
 
@@ -3539,13 +3585,32 @@
 								Object.entries(data).forEach(([category, info]) => {
 									const count = info.count || 0;
 									const examples = info.examples || {};
-									// Format passwords as "password1 (count); password2 (count)"
+									// Format passwords - handle both formats:
+									// Standard: {password: count}
+									// Username in Password: {password: {count: N, accounts: [...]}}
 									let passwordList = "";
 									if (typeof examples === "object" && examples !== null) {
-										passwordList = Object.entries(examples)
-											.sort((a, b) => b[1] - a[1]) // Sort by count descending
-											.map(([pw, cnt]) => `${pw} (${cnt})`)
-											.join("; ");
+										const entries = Object.entries(examples);
+										if (entries.length > 0) {
+											const firstExample = entries[0][1];
+											// Check if this is the account-aware format
+											if (typeof firstExample === 'object' && firstExample !== null && 'accounts' in firstExample) {
+												// Username in Password format - include account names
+												passwordList = entries
+													.sort((a, b) => b[1].count - a[1].count)
+													.map(([pw, info]) => {
+														const accounts = info.accounts || [];
+														return `${pw} [${accounts.join(', ')}]`;
+													})
+													.join("; ");
+											} else {
+												// Standard format
+												passwordList = entries
+													.sort((a, b) => b[1] - a[1])
+													.map(([pw, cnt]) => `${pw} (${cnt})`)
+													.join("; ");
+											}
+										}
 									}
 									csvContent += `"${category.replace(/"/g, '""')}","${count}","${passwordList.replace(/"/g, '""')}"\n`;
 								});
@@ -4514,55 +4579,8 @@
 				chartInstance.update();
 			}
 
-			// Update the Top Reused Passwords chart dynamically
-			document
-				.getElementById("topPasswordsCount")
-				.addEventListener("change", function () {
-					const count = parseInt(this.value); // Get the selected count
-
-					if (!topPasswordsData || !topPasswordsChartInstance) {
-						console.error("Chart instance or data not available.");
-						return;
-					}
-
-					// Filter the data based on the dropdown value
-					const filteredData = Object.entries(topPasswordsData)
-						.slice(0, count) // Limit data based on the selected count
-						.reduce((obj, [key, value]) => {
-							obj[key] = value;
-							return obj;
-						}, {});
-
-					const isBlurred =
-						topPasswordsChartInstance.options.plugins
-							.labelBlurred || false;
-
-					// Update chart data and labels
-					topPasswordsChartInstance.data.labels = isBlurred
-						? Object.keys(filteredData).map((label) => {
-								const { visible, blur } = formatPassword(label);
-								return `${visible.slice(0, 2)}${"#".repeat(
-									blur.length
-								)}${visible.slice(-2)}`;
-						  })
-						: Object.keys(filteredData);
-
-					topPasswordsChartInstance.data.datasets[0].data =
-						Object.values(filteredData);
-
-					// Redraw the chart
-					topPasswordsChartInstance.update();
-
-					// Update the button label based on the current blur state
-					const button = document.getElementById(
-						"toggleTopPasswordsChart"
-					);
-					if (button) {
-						button.textContent = isBlurred
-							? "Show Passwords"
-							: "Mask Passwords";
-					}
-				});
+			// Note: Top Reused Passwords chart update handler is defined after
+			// the topPasswordsData variable is initialized (see below where fetch occurs)
 
 			// Update the Top Substrings chart dynamically
 			document
@@ -4599,43 +4617,40 @@
 					fetch("pw_dict_words")
 						.then((response) => response.json())
 						.then((data) => {
-							const sortedData = Object.entries(data)
+							// Keep as sorted array to preserve order for numeric-like keys
+							const sortedArray = Object.entries(data)
 								.sort(([, a], [, b]) => b - a) // Sort by value descending
-								.slice(0, count || undefined) // Use full data if "All Results" is selected
-								.reduce((obj, [key, value]) => {
-									obj[key] = value;
-									return obj;
-								}, {});
-							updateChart(
-								topDictionaryWordsChartInstance,
-								sortedData,
-								"English Word",
-								"Count"
-							);
+								.slice(0, count || undefined); // Use full data if "All Results" is selected
+
+							// Update chart directly with array data
+							if (topDictionaryWordsChartInstance && topDictionaryWordsChartInstance.data) {
+								topDictionaryWordsChartInstance.data.labels = sortedArray.map(([key]) => key);
+								topDictionaryWordsChartInstance.data.datasets[0].data = sortedArray.map(([, value]) => value);
+								topDictionaryWordsChartInstance.options.scales.x.title.text = "English Word";
+								topDictionaryWordsChartInstance.options.scales.y.title.text = "Count";
+								topDictionaryWordsChartInstance.update();
+							}
 						})
 						.catch((error) =>
-							console.error("Error loading pw_substrings:", error)
+							console.error("Error loading pw_dict_words:", error)
 						);
 				});
 
-			let topPasswordsData; // Global variable to store fetched data
+			let topPasswordsData; // Global variable to store fetched data (as array of [password, count] pairs)
 
 			// Initial fetch and chart creation
 			fetch("pw_top_passwords")
 				.then((response) => response.json())
 				.then((data) => {
-					// Store the data for reuse
+					// Store the data as a sorted ARRAY to preserve order
+					// (JavaScript objects don't maintain insertion order for numeric-like keys)
 					topPasswordsData = Object.entries(data)
-						.sort(([, a], [, b]) => b - a) // Sort by value descending
-						.reduce((obj, [key, value]) => {
-							obj[key] = value;
-							return obj;
-						}, {});
+						.sort(([, a], [, b]) => b - a); // Sort by value descending
 
 					const ctx = document
 						.getElementById("topPasswordsChart")
 						.getContext("2d");
-					const originalLabels = Object.keys(topPasswordsData); // Store original labels for blurring
+					const originalLabels = topPasswordsData.map(([key]) => key); // Extract labels from array
 					const theme_tp = getCurrentTheme();
 					const colors_theme_tp = themeColors[theme_tp];
 
@@ -4646,7 +4661,7 @@
 							datasets: [
 								{
 									label: "Count",
-									data: Object.values(topPasswordsData),
+									data: topPasswordsData.map(([, value]) => value), // Extract values from array
 									backgroundColor: colors.bar,
 									borderColor: colors.barBorder,
 									borderWidth: 1,
@@ -4740,30 +4755,26 @@
 						return;
 					}
 
-					// Filter the data based on the dropdown value
-					const filteredData = Object.entries(topPasswordsData)
-						.slice(0, count) // Limit data based on the selected count
-						.reduce((obj, [key, value]) => {
-							obj[key] = value;
-							return obj;
-						}, {});
+					// Filter the data based on the dropdown value (topPasswordsData is already a sorted array)
+					const filteredData = topPasswordsData.slice(0, count);
 
 					const isBlurred =
 						topPasswordsChartInstance.options.plugins
 							.labelBlurred || false;
 
-					// Update chart data and labels
+					// Update chart data and labels (extract from array pairs)
+					const filteredLabels = filteredData.map(([key]) => key);
 					topPasswordsChartInstance.data.labels = isBlurred
-						? Object.keys(filteredData).map((label) => {
+						? filteredLabels.map((label) => {
 								const { visible, blur } = formatPassword(label);
 								return `${visible.slice(0, 2)}${"#".repeat(
 									blur.length
 								)}${visible.slice(-2)}`;
 						  })
-						: Object.keys(filteredData);
+						: filteredLabels;
 
 					topPasswordsChartInstance.data.datasets[0].data =
-						Object.values(filteredData);
+						filteredData.map(([, value]) => value);
 
 					// Redraw the chart
 					topPasswordsChartInstance.update();
@@ -4956,12 +4967,11 @@
 					const ctx = document
 						.getElementById("topDictionaryWordsChart")
 						.getContext("2d");
-					const sortedData = Object.entries(data)
-						.sort(([, a], [, b]) => b - a)
-						.reduce((obj, [key, value]) => {
-							obj[key] = value;
-							return obj;
-						}, {});
+					// Keep as sorted array to preserve order for numeric-like keys
+					const sortedArray = Object.entries(data)
+						.sort(([, a], [, b]) => b - a);
+					// Default to top 25 on initial load
+					const initialData = sortedArray.slice(0, 25);
 					const theme_dw = getCurrentTheme();
 					const colors_theme_dw = themeColors[theme_dw];
 
@@ -4969,11 +4979,11 @@
 					topDictionaryWordsChartInstance = new Chart(ctx, {
 						type: "bar",
 						data: {
-							labels: Object.keys(sortedData),
+							labels: initialData.map(([key]) => key),
 							datasets: [
 								{
 									label: "Count",
-									data: Object.values(sortedData),
+									data: initialData.map(([, value]) => value),
 									backgroundColor: colors.bar,
 									borderColor: colors.barBorder,
 									borderWidth: 1,
@@ -5481,9 +5491,10 @@
 						return;
 					}
 
-					// Show the section and nav button
+					// Show the section and nav button (top and bottom)
 					document.getElementById('policyMaxAgeSection').style.display = 'block';
 					document.getElementById('navMaxAge').style.display = 'inline-block';
+					document.getElementById('navMaxAgeBottom').style.display = 'inline-block';
 
 					// Transform JSON data into the structure required for DataTables
 					const transformedData = Object.entries(data).map(
@@ -5555,18 +5566,18 @@
 
 		<!-- Settings Reconfiguration Modal -->
 		<div id="settingsModal" class="session-modal" style="display: none;">
-			<div class="session-modal-content" style="max-width: 700px;">
+			<div class="session-modal-content" style="max-width: 800px; max-height: 90vh; display: flex; flex-direction: column;">
 				<div class="session-modal-header">
 					<h2>Reconfigure Analysis Settings</h2>
 					<button class="session-modal-close" onclick="closeSettingsModal()">&times;</button>
 				</div>
-				<div class="session-modal-body">
-					<p style="color: #9ca3af; margin-bottom: 20px;">
-						Adjust the settings below and regenerate the report. This will re-run the analysis with the new parameters.
+				<div class="session-modal-body" style="overflow-y: auto; flex: 1;">
+					<p style="color: #9ca3af; margin-bottom: 16px; font-size: 13px;">
+						Adjust the settings below and regenerate the report.
 					</p>
 
 					<form id="settingsForm">
-						<div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+						<div class="settings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
 							<!-- Policy Compliance -->
 							<div class="settings-group">
 								<h3 style="color: #e4e4e7; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">Policy Compliance</h3>
@@ -5662,6 +5673,15 @@
 										Ignore Computer Accounts
 									</label>
 								</div>
+								<div class="settings-row" id="historyFilterRow" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: none;">
+									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
+										<input type="checkbox" name="include_history_in_reports" id="settings_include_history_in_reports" />
+										Include Histories in All Sections
+									</label>
+									<p style="color: #6b7280; font-size: 11px; margin-top: 4px; margin-left: 24px;">
+										By default, password histories only appear in the Password History Analysis section.
+									</p>
+								</div>
 							</div>
 
 							<!-- Company Keywords -->
@@ -5691,13 +5711,13 @@
 							</div>
 						</div>
 
-						<div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px;">
-							<button type="button" class="btn btn-secondary" onclick="closeSettingsModal()" style="padding: 10px 20px;">Cancel</button>
-							<button type="submit" class="btn btn-primary" id="regenerateBtn" style="padding: 10px 20px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: none; color: white; border-radius: 6px; cursor: pointer;">
-								Regenerate Report
-							</button>
-						</div>
 					</form>
+				</div>
+				<div class="session-modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; gap: 12px; flex-shrink: 0;">
+					<button type="button" class="btn btn-secondary" onclick="closeSettingsModal()" style="padding: 10px 20px;">Cancel</button>
+					<button type="submit" form="settingsForm" class="btn btn-primary" id="regenerateBtn" style="padding: 10px 20px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border: none; color: white; border-radius: 6px; cursor: pointer;">
+						Regenerate Report
+					</button>
 				</div>
 			</div>
 		</div>
@@ -5708,24 +5728,54 @@
 				document.getElementById('badPracticesModalTitle').textContent = category;
 
 				const listContainer = document.getElementById('badPracticesModalList');
-				// examples is now a dictionary: {password: count, ...}
+				// examples can be:
+				// - Standard format: {password: count, ...}
+				// - Username in Password format: {password: {count: N, accounts: [...]}, ...}
 				if (examples && typeof examples === 'object' && Object.keys(examples).length > 0) {
-					// Sort by count descending
-					const sortedPasswords = Object.entries(examples)
-						.sort((a, b) => b[1] - a[1]);
+					const entries = Object.entries(examples);
+					const firstValue = entries[0][1];
 
-					const uniqueCount = sortedPasswords.length;
-					document.getElementById('badPracticesModalCount').textContent =
-						`${count.toLocaleString()} total occurrence${count !== 1 ? 's' : ''} (${uniqueCount.toLocaleString()} unique password${uniqueCount !== 1 ? 's' : ''})`;
+					// Check if this is the "Username in Password" format with accounts
+					const hasAccountInfo = typeof firstValue === 'object' && firstValue !== null && 'accounts' in firstValue;
 
-					listContainer.innerHTML = '<ul style="list-style: none; padding: 0; margin: 0;">' +
-						sortedPasswords.map(([pw, pwCount]) =>
-							`<li style="padding: 8px 12px; background: #2a2a2a; margin-bottom: 4px; border-radius: 4px; font-family: monospace; color: #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
-								<span>${escapeHtml(pw)}</span>
-								<span style="color: #888; font-size: 12px; margin-left: 12px;">(${pwCount.toLocaleString()})</span>
-							</li>`
-						).join('') +
-						'</ul>';
+					if (hasAccountInfo) {
+						// Username in Password format - show account names
+						const sortedPasswords = entries.sort((a, b) => b[1].count - a[1].count);
+						const uniqueCount = sortedPasswords.length;
+						document.getElementById('badPracticesModalCount').textContent =
+							`${count.toLocaleString()} total occurrence${count !== 1 ? 's' : ''} (${uniqueCount.toLocaleString()} unique password${uniqueCount !== 1 ? 's' : ''})`;
+
+						listContainer.innerHTML = '<ul style="list-style: none; padding: 0; margin: 0;">' +
+							sortedPasswords.map(([pw, info]) => {
+								const accounts = info.accounts || [];
+								const accountsList = accounts.map(a => escapeHtml(a)).join(', ');
+								return `<li style="padding: 10px 12px; background: #2a2a2a; margin-bottom: 4px; border-radius: 4px; font-family: monospace; color: #e0e0e0;">
+									<div style="display: flex; justify-content: space-between; align-items: center;">
+										<span style="color: #10b981; font-weight: 500;">${escapeHtml(pw)}</span>
+										<span style="color: #888; font-size: 12px; margin-left: 12px;">(${info.count.toLocaleString()})</span>
+									</div>
+									<div style="font-size: 11px; color: #9ca3af; margin-top: 4px;">
+										<span style="color: #6b7280;">Account${accounts.length !== 1 ? 's' : ''}:</span> ${accountsList}
+									</div>
+								</li>`;
+							}).join('') +
+							'</ul>';
+					} else {
+						// Standard format - just password: count
+						const sortedPasswords = entries.sort((a, b) => b[1] - a[1]);
+						const uniqueCount = sortedPasswords.length;
+						document.getElementById('badPracticesModalCount').textContent =
+							`${count.toLocaleString()} total occurrence${count !== 1 ? 's' : ''} (${uniqueCount.toLocaleString()} unique password${uniqueCount !== 1 ? 's' : ''})`;
+
+						listContainer.innerHTML = '<ul style="list-style: none; padding: 0; margin: 0;">' +
+							sortedPasswords.map(([pw, pwCount]) =>
+								`<li style="padding: 8px 12px; background: #2a2a2a; margin-bottom: 4px; border-radius: 4px; font-family: monospace; color: #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+									<span>${escapeHtml(pw)}</span>
+									<span style="color: #888; font-size: 12px; margin-left: 12px;">(${pwCount.toLocaleString()})</span>
+								</li>`
+							).join('') +
+							'</ul>';
+					}
 				} else {
 					document.getElementById('badPracticesModalCount').textContent =
 						`${count.toLocaleString()} password${count !== 1 ? 's' : ''} found`;
@@ -5870,14 +5920,17 @@
 
 					const privData = await privResponse.json();
 
-					// Show the navigation button and section
+					// Show the navigation button and section (top and bottom)
 					const navPrivBtn = document.getElementById('navPrivilegedAccounts');
+					const navPrivBtnBottom = document.getElementById('navPrivilegedAccountsBottom');
 					navPrivBtn.style.display = 'inline-block';
+					navPrivBtnBottom.style.display = 'inline-block';
 					document.getElementById('privilegedAccountsSection').style.display = 'block';
 
 					// Make button red if there are cracked privileged accounts
 					if (privData.summary.cracked_privileged > 0) {
 						navPrivBtn.classList.add('report-nav-btn-critical');
+						navPrivBtnBottom.classList.add('report-nav-btn-critical');
 					}
 
 					// Populate privilege statistics
@@ -6131,9 +6184,11 @@
 					// Only show section if there are users with history
 					if (data.users_with_history === 0) return;
 
-					// Show the navigation button and section
+					// Show the navigation button and section (top and bottom)
 					const navBtn = document.getElementById('navPasswordHistory');
+					const navBtnBottom = document.getElementById('navPasswordHistoryBottom');
 					navBtn.style.display = 'inline-block';
+					navBtnBottom.style.display = 'inline-block';
 					document.getElementById('passwordHistorySection').style.display = 'block';
 
 					// Update summary stats
@@ -7784,8 +7839,9 @@
 				// Show the results section
 				resultsSection.style.display = 'block';
 
-				// Show the AI Analysis nav button
+				// Show the AI Analysis nav button (top and bottom)
 				document.getElementById('navAIAnalysis').style.display = 'inline-block';
+				document.getElementById('navAIAnalysisBottom').style.display = 'inline-block';
 
 				// Scroll to the results section (only when explicitly requested, e.g., after analysis completes)
 				if (scrollToResults) {
@@ -8376,6 +8432,17 @@
 					settings.ignore_disabled_accounts === 'true' || settings.ignore_disabled_accounts === true;
 				document.getElementById('settings_ignore_computer_accounts').checked =
 					settings.ignore_computer_accounts === 'true' || settings.ignore_computer_accounts === true;
+
+				// Password History option - show only if there are history entries
+				const historyRow = document.getElementById('historyFilterRow');
+				const historyCheckbox = document.getElementById('settings_include_history_in_reports');
+				if (settings.has_history_data) {
+					historyRow.style.display = 'block';
+					historyCheckbox.checked =
+						settings.include_history_in_reports === 'true' || settings.include_history_in_reports === true;
+				} else {
+					historyRow.style.display = 'none';
+				}
 			}
 
 			// Toggle max age input
@@ -8431,6 +8498,12 @@
 				settings.ignore_blank_passwords = document.getElementById('settings_ignore_blank_passwords').checked ? 'true' : 'false';
 				settings.ignore_disabled_accounts = document.getElementById('settings_ignore_disabled_accounts').checked ? 'true' : 'false';
 				settings.ignore_computer_accounts = document.getElementById('settings_ignore_computer_accounts').checked ? 'true' : 'false';
+
+				// Password history option (only include if the row is visible)
+				const historyRow = document.getElementById('historyFilterRow');
+				if (historyRow && historyRow.style.display !== 'none') {
+					settings.include_history_in_reports = document.getElementById('settings_include_history_in_reports').checked ? 'true' : 'false';
+				}
 
 				try {
 					const response = await fetch('/api/settings/regenerate', {

@@ -142,6 +142,7 @@ class ValidationResult:
     formats_detected: dict[str, int] = field(default_factory=dict)
     error_summary: dict[str, int] = field(default_factory=dict)
     domain_info: DomainInfo | None = None  # Domain statistics for the file
+    validation_time_ms: float = 0.0  # Time taken to validate the file in milliseconds
 
     @property
     def has_fatal_errors(self) -> bool:
@@ -170,6 +171,7 @@ class PotfileValidationResult:
     entries: list[PotfileEntry] = field(default_factory=list)
     error_summary: dict[str, int] = field(default_factory=dict)
     hash_type_summary: dict[str, dict] = field(default_factory=dict)  # Hash types found
+    validation_time_ms: float = 0.0  # Time taken to validate the file in milliseconds
 
     @property
     def processable_entries(self) -> list[PotfileEntry]:
@@ -357,6 +359,9 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     Returns:
         ValidationResult with all parsed lines and summary statistics
     """
+    import time
+    start_time = time.perf_counter()
+
     lines: list[ParsedLine] = []
     formats_detected: dict[str, int] = {f.value: 0 for f in FileFormat}
     error_summary: dict[str, int] = {}
@@ -381,6 +386,8 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     valid_usernames = [l.username for l in lines if l.is_valid and l.username]
     domain_info = analyze_domains(valid_usernames)
 
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
     return ValidationResult(
         filepath=filepath,
         total_lines=len(lines),
@@ -390,7 +397,8 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         lines=lines,
         formats_detected=formats_detected,
         error_summary=error_summary,
-        domain_info=domain_info
+        domain_info=domain_info,
+        validation_time_ms=elapsed_ms
     )
 
 
@@ -568,6 +576,9 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
     Returns:
         PotfileValidationResult with all parsed entries and summary statistics
     """
+    import time
+    start_time = time.perf_counter()
+
     entries: list[PotfileEntry] = []
     error_summary: dict[str, int] = {}
     hash_type_summary: dict[str, dict] = {}
@@ -607,6 +618,8 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
     valid_lines = sum(1 for e in entries if e.is_valid)
     error_lines = sum(1 for e in entries if not e.is_valid)
 
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
     return PotfileValidationResult(
         filepath=filepath,
         total_lines=len(entries),
@@ -616,7 +629,8 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
         non_ntlm_count=non_ntlm_count,
         entries=entries,
         error_summary=error_summary,
-        hash_type_summary=hash_type_summary
+        hash_type_summary=hash_type_summary,
+        validation_time_ms=elapsed_ms
     )
 
 
@@ -777,11 +791,29 @@ def is_computer_account(username: str) -> bool:
     return username.endswith('$')
 
 
+def is_history_account(username: str) -> bool:
+    """
+    Check if an account name represents a password history entry.
+
+    Password history entries from secretsdump have _historyN suffix
+    (e.g., jsmith_history0, jsmith_history1).
+
+    Args:
+        username: The account name to check
+
+    Returns:
+        True if this appears to be a password history entry
+    """
+    import re
+    return bool(re.search(r'_history\d+$', username, re.IGNORECASE))
+
+
 def build_account_data(
     pwdump_result: ValidationResult,
     potfile_result: PotfileValidationResult,
     ignore_disabled: bool = False,
-    ignore_computer_accounts: bool = False
+    ignore_computer_accounts: bool = False,
+    ignore_history_accounts: bool = True
 ) -> dict[str, dict[str, str | int | bool | None]]:
     """
     Build account_data dictionary from validated results.
@@ -794,6 +826,7 @@ def build_account_data(
         potfile_result: Validated potfile results
         ignore_disabled: If True, skip accounts with status=Disabled
         ignore_computer_accounts: If True, skip accounts ending with $
+        ignore_history_accounts: If True (default), skip password history entries (_historyN)
 
     Returns:
         Dictionary mapping account names to account data
@@ -821,6 +854,10 @@ def build_account_data(
         if ignore_disabled and line.status == "Disabled":
             continue
 
+        # Skip password history entries unless explicitly included
+        if ignore_history_accounts and is_history_account(line.username):
+            continue
+
         account_entry: dict[str, str | int | bool | None] = {
             "lm_hash": line.lm_hash,
             "ntlm_hash": line.ntlm_hash,
@@ -845,7 +882,8 @@ def build_account_data_with_cache(
     pwdump_result: ValidationResult,
     cracked_hashes: dict[str, str],
     ignore_disabled: bool = False,
-    ignore_computer_accounts: bool = False
+    ignore_computer_accounts: bool = False,
+    ignore_history_accounts: bool = True
 ) -> dict[str, dict[str, str | int | bool | None]]:
     """
     Build account_data dictionary using a pre-built cracked_hashes lookup.
@@ -859,6 +897,7 @@ def build_account_data_with_cache(
         cracked_hashes: Pre-built hash->password lookup dict from cache
         ignore_disabled: If True, skip accounts with status=Disabled
         ignore_computer_accounts: If True, skip accounts ending with $
+        ignore_history_accounts: If True (default), skip password history entries (_historyN)
 
     Returns:
         Dictionary mapping account names to account data
@@ -882,6 +921,10 @@ def build_account_data_with_cache(
 
         # Skip disabled accounts if requested (only if status info is available)
         if ignore_disabled and line.status == "Disabled":
+            continue
+
+        # Skip password history entries unless explicitly included
+        if ignore_history_accounts and is_history_account(line.username):
             continue
 
         account_entry: dict[str, str | int | bool | None] = {
@@ -925,6 +968,7 @@ def validation_result_to_dict(result: ValidationResult) -> dict:
         "formats_detected": result.formats_detected,
         "error_summary": result.error_summary,
         "domain_info": result.domain_info.to_dict() if result.domain_info else None,
+        "validation_time_ms": result.validation_time_ms,
         "lines": [
             {
                 "line_number": l.line_number,
@@ -1003,7 +1047,8 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
         lines=lines,
         formats_detected=data["formats_detected"],
         error_summary=data["error_summary"],
-        domain_info=domain_info
+        domain_info=domain_info,
+        validation_time_ms=data.get("validation_time_ms", 0.0)
     )
 
 
@@ -1026,6 +1071,7 @@ def potfile_result_to_dict(result: PotfileValidationResult) -> dict:
         "non_ntlm_count": result.non_ntlm_count,
         "error_summary": result.error_summary,
         "hash_type_summary": result.hash_type_summary,
+        "validation_time_ms": result.validation_time_ms,
         "entries": [
             {
                 "line_number": e.line_number,
@@ -1095,7 +1141,8 @@ def dict_to_potfile_result(data: dict) -> PotfileValidationResult:
         non_ntlm_count=data.get("non_ntlm_count", 0),
         entries=entries,
         error_summary=data["error_summary"],
-        hash_type_summary=data.get("hash_type_summary", {})
+        hash_type_summary=data.get("hash_type_summary", {}),
+        validation_time_ms=data.get("validation_time_ms", 0.0)
     )
 
 
@@ -1769,7 +1816,8 @@ def add_to_account_data(
     add_result: ADDValidationResult,
     potfile_result: PotfileValidationResult | None,
     ignore_disabled: bool = False,
-    ignore_computer_accounts: bool = False
+    ignore_computer_accounts: bool = False,
+    include_historical: bool = False
 ) -> tuple[dict, dict]:
     """
     Convert ADD data to account_data format compatible with existing analysis.
@@ -1779,6 +1827,9 @@ def add_to_account_data(
         potfile_result: Validated potfile results (optional)
         ignore_disabled: If True, skip disabled accounts
         ignore_computer_accounts: If True, skip computer accounts
+        include_historical: If True, include historical password hashes in the account_data
+                            for inclusion in substring/dictionary analysis. Historical entries
+                            are added with _historyN suffix to match pwdump format.
 
     Returns:
         Tuple of (account_data, privileged_findings)
@@ -1842,6 +1893,36 @@ def add_to_account_data(
         }
 
         account_data[entry.sam_account_name] = account_entry
+
+        # If include_historical is True, add historical password entries
+        # These are added with _historyN suffix to match pwdump format
+        if include_historical and entry.historical_hashes:
+            for idx, hist_hash in enumerate(entry.historical_hashes):
+                hist_username = f"{entry.sam_account_name}_history{idx}"
+
+                # Check if historical hash is cracked
+                hist_cracked_pw = None
+                if hist_hash and hist_hash in cracked_hashes:
+                    hist_cracked_value = cracked_hashes[hist_hash]
+                    if hist_cracked_value is not None:
+                        hist_cracked_pw = decode_hex_password(hist_cracked_value)
+
+                hist_entry = {
+                    "lm_hash": None,
+                    "ntlm_hash": hist_hash,
+                    "cracked_pw": hist_cracked_pw,
+                    "locked": None,
+                    "disabled": entry.is_disabled,
+                    "last_pw_change": None,
+                    "rid": entry.rid,
+                    "is_privileged": entry.is_privileged,
+                    "privilege_level": entry.privilege_level,
+                    "privilege_groups": entry.privilege_groups,
+                    "member_of": entry.member_of,
+                    "historical_hashes": [],  # Historical entries don't have their own history
+                    "is_historical": True,  # Mark as historical for downstream identification
+                }
+                account_data[hist_username] = hist_entry
 
         # Track privileged account findings
         if entry.is_privileged:

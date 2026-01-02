@@ -1365,9 +1365,9 @@
 
 				// Generic terms to filter out (not useful as keywords)
 				const genericTerms = new Set([
-					'ad', 'adroot', 'root', 'domain', 'intern', 'internal', 'dmz', 'pri', 'secdmz',
+					'ad', 'adroot', 'root', 'domain', 'intern', 'internal', 'dmz', 'lan', 'pri', 'secdmz',
 					'global', 'core', 'group', 'it', 'bpi', 'rpc', 'int', 'testing', 'testing1',
-					'gmail', 'onmicrosoft', 'network'
+					'gmail', 'onmicrosoft', 'network', 'sec', 'sae'
 				]);
 
 				// Extract meaningful terms from a domain name
@@ -1429,8 +1429,11 @@
 
 				// Try to split concatenated words (like BERRYGLOBAL, SUPERFOS, etc.)
 				function splitConcatenatedWords(word) {
-					// Known word patterns to split (common business terms)
+					// Known word patterns to split (common business terms + infrastructure terms)
 					const knownWords = [
+						// Infrastructure terms (checked first to split things like RPCSECDMZ)
+						'SECDMZ', 'DMZ', 'LAN', 'SEC', 'RPC',
+						// Business terms
 						'GLOBAL', 'PLASTICS', 'PLASTIC', 'SYSTEMS', 'GROUP', 'NETWORK', 'POWER', 'FILMS',
 						'PACK', 'PLAST', 'BERRY', 'CLOSURE', 'CLOSURES', 'PRINT', 'DEPT', 'DESIGN',
 						'MARKET', 'ENVASES', 'TEDECO', 'GIZEH', 'BRAMLAGE', 'SUPERFOS', 'SAEPLAST',

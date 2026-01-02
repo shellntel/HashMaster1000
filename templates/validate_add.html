@@ -18,6 +18,8 @@
             <div class="processing-spinner"></div>
             <div class="processing-text" id="processingText">Processing...</div>
             <div class="processing-subtext" id="processingSubtext">This may take a moment</div>
+            <div class="processing-estimate" id="processingEstimate" style="display: none;"></div>
+            <div class="processing-fun-message" id="processingFunMessage" style="display: none;"></div>
         </div>
     </div>
 
@@ -199,7 +201,7 @@
                         <!-- Navigation -->
                         <div class="step-navigation compact">
                             <a href="{{ url_for('clear_and_restart') }}" class="btn btn-secondary">Start Over</a>
-                            <a href="{{ url_for('index', step=3, input_method='add_json') }}" class="btn btn-primary" onclick="showProcessing('Loading Configuration...', 'Preparing analysis options')">Continue to Configuration</a>
+                            <a href="{{ url_for('index', step=3, input_method='add_json') }}" class="btn btn-primary" onclick="showProcessing('Loading Configuration...', 'Preparing analysis options', {showFunMessages: true})">Continue to Configuration</a>
                         </div>
                     </div>
                 </div>
@@ -209,13 +211,56 @@
 
     <!-- Logout handler -->
     <script>
+        // Configuration phase messages for loading overlay
+        const CONFIG_MESSAGES = [
+            "Loading options...",
+            "Preparing analysis settings...",
+            "Setting up filters...",
+            "Initializing configuration...",
+            "Getting things ready...",
+            "Calibrating the flux capacitor...",
+            "Warming up the analysis engine...",
+            "Consulting the password oracle...",
+            "Stretching before the heavy lifting...",
+            "Organizing our digital toolkit...",
+            "Feeding the hamsters that power this...",
+            "Polishing the configuration knobs...",
+            "Summoning the settings wizard...",
+            "Tuning the algorithm guitars...",
+            "Making coffee for the CPU..."
+        ];
+
+        let processingMessageInterval = null;
+        let currentMessageIndex = 0;
+
         // Processing overlay functions
-        function showProcessing(message, subtext) {
+        function showProcessing(message, subtext, options = {}) {
             const overlay = document.getElementById('processingOverlay');
             const textEl = document.getElementById('processingText');
             const subtextEl = document.getElementById('processingSubtext');
+            const funMessageEl = document.getElementById('processingFunMessage');
+
             textEl.textContent = message || 'Processing...';
             subtextEl.textContent = subtext || 'This may take a moment';
+
+            // Show rotating fun messages if requested
+            if (options.showFunMessages && funMessageEl) {
+                funMessageEl.style.display = 'block';
+                currentMessageIndex = 0;
+                funMessageEl.textContent = CONFIG_MESSAGES[currentMessageIndex];
+
+                // Clear any existing interval
+                if (processingMessageInterval) {
+                    clearInterval(processingMessageInterval);
+                }
+
+                // Rotate messages every 3 seconds
+                processingMessageInterval = setInterval(() => {
+                    currentMessageIndex = (currentMessageIndex + 1) % CONFIG_MESSAGES.length;
+                    funMessageEl.textContent = CONFIG_MESSAGES[currentMessageIndex];
+                }, 3000);
+            }
+
             overlay.classList.add('active');
         }
 

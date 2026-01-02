@@ -18,6 +18,8 @@
             <div class="processing-spinner"></div>
             <div class="processing-text" id="processingText">Processing...</div>
             <div class="processing-subtext" id="processingSubtext">This may take a moment</div>
+            <div class="processing-estimate" id="processingEstimate" style="display: none;"></div>
+            <div class="processing-fun-message" id="processingFunMessage" style="display: none;"></div>
         </div>
     </div>
 
@@ -100,30 +102,36 @@
             {% if pwdump %}
             <div class="summary-card">
                 <h3>Pwdump File</h3>
-                <div class="stat success">{{ pwdump.valid_lines }}</div>
+                <div class="stat success">{{ "{:,}".format(pwdump.valid_lines) }}</div>
                 <div class="detail">Valid Lines</div>
+                {% if pwdump.validation_time_ms %}
+                <div class="timing">{{ "%.1f"|format(pwdump.validation_time_ms) }}ms</div>
+                {% endif %}
             </div>
             <div class="summary-card">
                 <h3>Pwdump Warnings</h3>
-                <div class="stat warning">{{ pwdump.warning_lines }}</div>
+                <div class="stat warning">{{ "{:,}".format(pwdump.warning_lines) }}</div>
                 <div class="detail">Lines with Warnings</div>
             </div>
             <div class="summary-card">
                 <h3>Pwdump Errors</h3>
-                <div class="stat error">{{ pwdump.error_lines }}</div>
+                <div class="stat error">{{ "{:,}".format(pwdump.error_lines) }}</div>
                 <div class="detail">Invalid Lines</div>
             </div>
             {% endif %}
             {% if potfile %}
             <div class="summary-card">
                 <h3>Potfile (NTLM)</h3>
-                <div class="stat success">{{ potfile.ntlm_count }}</div>
+                <div class="stat success">{{ "{:,}".format(potfile.ntlm_count) }}</div>
                 <div class="detail">Usable NTLM Hashes</div>
+                {% if potfile.validation_time_ms %}
+                <div class="timing">{{ "%.1f"|format(potfile.validation_time_ms) }}ms</div>
+                {% endif %}
             </div>
             {% if potfile.non_ntlm_count > 0 %}
             <div class="summary-card">
                 <h3>Potfile (Other)</h3>
-                <div class="stat warning">{{ potfile.non_ntlm_count }}</div>
+                <div class="stat warning">{{ "{:,}".format(potfile.non_ntlm_count) }}</div>
                 <div class="detail">Non-NTLM (Ignored)</div>
             </div>
             {% endif %}
@@ -140,17 +148,17 @@
         <div class="validation-summary" style="margin-top: 12px;">
             <div class="summary-card">
                 <h3>Computer Accounts</h3>
-                <div class="stat info">{{ computer_count }}</div>
+                <div class="stat info">{{ "{:,}".format(computer_count) }}</div>
                 <div class="detail">Accounts ending with $</div>
             </div>
             <div class="summary-card">
                 <h3>Blank Passwords</h3>
-                <div class="stat {% if blank_count > 0 %}warning{% else %}success{% endif %}">{{ blank_count }}</div>
+                <div class="stat {% if blank_count > 0 %}warning{% else %}success{% endif %}">{{ "{:,}".format(blank_count) }}</div>
                 <div class="detail">Empty password hash</div>
             </div>
             <div class="summary-card">
                 <h3>Disabled Accounts</h3>
-                <div class="stat info">{{ disabled_count }}</div>
+                <div class="stat info">{{ "{:,}".format(disabled_count) }}</div>
                 <div class="detail">Status = Disabled</div>
             </div>
         </div>
@@ -161,20 +169,20 @@
         <div class="validation-summary" style="margin-top: 12px;">
             <div class="summary-card">
                 <h3>Domains Detected</h3>
-                <div class="stat {% if pwdump.domain_info.domain_count > 1 %}info{% else %}success{% endif %}">{{ pwdump.domain_info.domain_count }}</div>
+                <div class="stat {% if pwdump.domain_info.domain_count > 1 %}info{% else %}success{% endif %}">{{ "{:,}".format(pwdump.domain_info.domain_count) }}</div>
                 <div class="detail">{% if pwdump.domain_info.domain_count > 1 %}Multiple domains found{% else %}Single domain{% endif %}</div>
             </div>
             {% if pwdump.domain_info.accounts_with_domain > 0 %}
             <div class="summary-card">
                 <h3>Accounts with Domain</h3>
-                <div class="stat success">{{ pwdump.domain_info.accounts_with_domain }}</div>
+                <div class="stat success">{{ "{:,}".format(pwdump.domain_info.accounts_with_domain) }}</div>
                 <div class="detail">Domain prefix present</div>
             </div>
             {% endif %}
             {% if pwdump.domain_info.accounts_without_domain > 0 %}
             <div class="summary-card">
                 <h3>Accounts without Domain</h3>
-                <div class="stat warning">{{ pwdump.domain_info.accounts_without_domain }}</div>
+                <div class="stat warning">{{ "{:,}".format(pwdump.domain_info.accounts_without_domain) }}</div>
                 <div class="detail">No domain prefix</div>
             </div>
             {% endif %}
@@ -184,12 +192,12 @@
         {% if pwdump.domain_info.domain_count > 1 %}
         <div class="info-banner" style="margin-top: 12px;">
             <h3>Domains Found</h3>
-            <p>Your dump file contains accounts from {{ pwdump.domain_info.domain_count }} different domains.
+            <p>Your dump file contains accounts from {{ "{:,}".format(pwdump.domain_info.domain_count) }} different domains.
             You can filter the report by domain in the next step.</p>
             <div style="margin-top: 8px;">
                 {% for domain, count in pwdump.domain_info.domains.items() %}
                 <span class="format-badge dcsync" style="margin-right: 8px; margin-bottom: 4px; display: inline-block;">
-                    {{ domain }}: {{ count }} accounts
+                    {{ domain }}: {{ "{:,}".format(count) }} accounts
                 </span>
                 {% endfor %}
             </div>
@@ -220,7 +228,7 @@
         {% if status_coverage < 100 %}
         <div class="status-coverage-warning">
             <h4>Incomplete Status Information ({{ status_coverage }}% coverage)</h4>
-            <p>Only {{ lines_with_status }} of {{ pwdump.valid_lines }} accounts have status information (Enabled/Disabled).
+            <p>Only {{ "{:,}".format(lines_with_status) }} of {{ "{:,}".format(pwdump.valid_lines) }} accounts have status information (Enabled/Disabled).
             Statistics about enabled vs disabled accounts will be less meaningful. For the most accurate analysis,
             use a dcsync-format dump with status information for all accounts.</p>
         </div>
@@ -231,7 +239,7 @@
         {% if potfile and potfile.non_ntlm_count > 0 %}
         <div class="info-banner">
             <h3>Non-NTLM Hashes in Potfile</h3>
-            <p>{{ potfile.non_ntlm_count }} non-NTLM hash(es) will be ignored. {{ potfile.ntlm_count }} NTLM hash(es) will be used for analysis.</p>
+            <p>{{ "{:,}".format(potfile.non_ntlm_count) }} non-NTLM hash(es) will be ignored. {{ "{:,}".format(potfile.ntlm_count) }} NTLM hash(es) will be used for analysis.</p>
 
             {% if potfile.hash_type_summary %}
             <div class="hash-type-summary">
@@ -255,16 +263,16 @@
             <h2>Pwdump File: {{ pwdump.filepath | basename }}</h2>
 
             <div class="format-badges">
-                <span class="format-badge with-status">With Status: {{ pwdump.formats_detected.get('dcsync', 0) }}</span>
-                <span class="format-badge without-status">Without Status: {{ pwdump.formats_detected.get('standard', 0) }}</span>
+                <span class="format-badge with-status">With Status: {{ "{:,}".format(pwdump.formats_detected.get('dcsync', 0)) }}</span>
+                <span class="format-badge without-status">Without Status: {{ "{:,}".format(pwdump.formats_detected.get('standard', 0)) }}</span>
             </div>
 
             {% set enabled_count = pwdump.lines | selectattr('is_valid') | selectattr('status', 'equalto', 'Enabled') | list | length %}
             {% set disabled_count = pwdump.lines | selectattr('is_valid') | selectattr('status', 'equalto', 'Disabled') | list | length %}
             {% if enabled_count > 0 or disabled_count > 0 %}
             <div class="format-badges" style="margin-top: 8px;">
-                <span class="format-badge enabled">Enabled: {{ enabled_count }}</span>
-                <span class="format-badge disabled">Disabled: {{ disabled_count }}</span>
+                <span class="format-badge enabled">Enabled: {{ "{:,}".format(enabled_count) }}</span>
+                <span class="format-badge disabled">Disabled: {{ "{:,}".format(disabled_count) }}</span>
             </div>
             {% endif %}
 
@@ -376,7 +384,7 @@
                             <!-- Step Navigation -->
                             <div class="step-navigation">
                                 <a href="{{ url_for('clear_and_restart') }}" class="btn btn-secondary">Start Over</a>
-                                <a href="{{ url_for('index', step=3) }}" class="btn btn-primary" onclick="showProcessing('Loading Configuration...', 'Preparing analysis options')">Continue to Configuration</a>
+                                <a href="{{ url_for('index', step=3) }}" class="btn btn-primary" onclick="showProcessing('Loading Configuration...', 'Preparing analysis options', {showFunMessages: true})">Continue to Configuration</a>
                             </div>
                         </div><!-- /validation-container -->
                     </div><!-- /step-panel -->
@@ -386,13 +394,56 @@
     </div><!-- /container -->
 
     <script>
+        // Configuration phase messages for loading overlay
+        const CONFIG_MESSAGES = [
+            "Loading options...",
+            "Preparing analysis settings...",
+            "Setting up filters...",
+            "Initializing configuration...",
+            "Getting things ready...",
+            "Calibrating the flux capacitor...",
+            "Warming up the analysis engine...",
+            "Consulting the password oracle...",
+            "Stretching before the heavy lifting...",
+            "Organizing our digital toolkit...",
+            "Feeding the hamsters that power this...",
+            "Polishing the configuration knobs...",
+            "Summoning the settings wizard...",
+            "Tuning the algorithm guitars...",
+            "Making coffee for the CPU..."
+        ];
+
+        let processingMessageInterval = null;
+        let currentMessageIndex = 0;
+
         // Processing overlay functions
-        function showProcessing(message, subtext) {
+        function showProcessing(message, subtext, options = {}) {
             const overlay = document.getElementById('processingOverlay');
             const textEl = document.getElementById('processingText');
             const subtextEl = document.getElementById('processingSubtext');
+            const funMessageEl = document.getElementById('processingFunMessage');
+
             textEl.textContent = message || 'Processing...';
             subtextEl.textContent = subtext || 'This may take a moment';
+
+            // Show rotating fun messages if requested
+            if (options.showFunMessages && funMessageEl) {
+                funMessageEl.style.display = 'block';
+                currentMessageIndex = 0;
+                funMessageEl.textContent = CONFIG_MESSAGES[currentMessageIndex];
+
+                // Clear any existing interval
+                if (processingMessageInterval) {
+                    clearInterval(processingMessageInterval);
+                }
+
+                // Rotate messages every 3 seconds
+                processingMessageInterval = setInterval(() => {
+                    currentMessageIndex = (currentMessageIndex + 1) % CONFIG_MESSAGES.length;
+                    funMessageEl.textContent = CONFIG_MESSAGES[currentMessageIndex];
+                }, 3000);
+            }
+
             overlay.classList.add('active');
         }
 

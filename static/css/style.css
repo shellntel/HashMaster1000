@@ -2138,6 +2138,13 @@ body#reportPage .app-header {
 	color: #aaa;
 }
 
+.summary-card .timing {
+	font-size: 9px;
+	color: #666;
+	margin-top: 4px;
+	font-family: monospace;
+}
+
 .line-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -4950,6 +4957,43 @@ body.print-mode .status-badge.status-disabled {
 	color: #4f46e5;
 }
 
+/* Bottom navigation variant */
+.report-nav-bottom {
+	margin-top: 40px;
+	margin-bottom: 0;
+	border-top: 2px solid #333;
+	padding-top: 20px;
+}
+
+.light-theme .report-nav-bottom {
+	border-top-color: #e5e7eb;
+}
+
+/* Back to Top button */
+.report-nav-btn-top {
+	background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	border-color: #10b981;
+	color: #ffffff;
+	margin-left: auto;
+}
+
+.report-nav-btn-top:hover {
+	background: linear-gradient(135deg, #059669 0%, #047857 100%);
+	border-color: #059669;
+	color: #ffffff;
+}
+
+.light-theme .report-nav-btn-top {
+	background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+	border-color: #10b981;
+	color: #ffffff;
+}
+
+.light-theme .report-nav-btn-top:hover {
+	background: linear-gradient(135deg, #059669 0%, #047857 100%);
+	border-color: #059669;
+}
+
 /* Responsive adjustments for smaller screens */
 @media (max-width: 768px) {
 	.report-nav {
@@ -6833,6 +6877,33 @@ body.loading-on-entry .processing-overlay {
 	font-size: 0.95rem;
 	color: #9ca3af;
 	animation: pulse-fade 1.5s ease-in-out infinite;
+}
+
+.processing-estimate {
+	font-size: 0.9rem;
+	color: #6366f1;
+	margin-top: 12px;
+	font-weight: 500;
+	padding: 8px 16px;
+	background: rgba(99, 102, 241, 0.1);
+	border-radius: 20px;
+	display: inline-block;
+}
+
+.processing-fun-message {
+	font-size: 0.85rem;
+	color: #10b981;
+	margin-top: 16px;
+	font-style: italic;
+	min-height: 1.2em;
+	animation: fade-in-out 3s ease-in-out infinite;
+}
+
+@keyframes fade-in-out {
+	0% { opacity: 0; transform: translateY(5px); }
+	15% { opacity: 1; transform: translateY(0); }
+	85% { opacity: 1; transform: translateY(0); }
+	100% { opacity: 0; transform: translateY(-5px); }
 }
 
 @keyframes pulse-fade {
@@ -9214,7 +9285,6 @@ body:not(.advanced-mode):not(#reportPage) .file-section {
 body:not(.advanced-mode):not(#reportPage) .file-section:hover {
     border-color: rgba(49, 176, 5, 0.2);
     border-left-color: #3a9a3a;
-    transform: translateX(2px);
     box-shadow:
         0 5px 16px rgba(0, 0, 0, 0.3),
         0 0 10px rgba(49, 176, 5, 0.05);
@@ -10444,4 +10514,218 @@ body.matrix-mode .matrix-trigger {
 .matrix-toast.show {
     opacity: 1;
     transform: translateY(0);
+}
+
+/* ============================================================================
+   TIMING STATISTICS PAGE STYLES
+   ============================================================================ */
+
+.timing-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.timing-stats-card {
+    background: rgba(30, 30, 40, 0.8);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.timing-stats-card h3 {
+    color: #00d4ff;
+    margin: 0 0 15px 0;
+    font-size: 1.1rem;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+    padding-bottom: 10px;
+}
+
+.timing-stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.timing-stat-row:last-child {
+    border-bottom: none;
+}
+
+.timing-stat-label {
+    color: #a1a1aa;
+}
+
+.timing-stat-value {
+    color: #4ade80;
+    font-family: monospace;
+}
+
+.timing-stat-value.rate {
+    color: #fbbf24;
+}
+
+.timing-stat-value.duration {
+    color: #22d3ee;
+}
+
+.timing-stat-divider {
+    border-top: 1px solid rgba(0, 212, 255, 0.15);
+    margin: 10px 0;
+}
+
+.timing-stat-section-label {
+    color: #71717a;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    margin-top: 5px;
+}
+
+.timing-mode-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    margin-left: 5px;
+}
+
+.timing-mode-sqlite {
+    background: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+}
+
+.timing-mode-binary_search {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.timing-mode-api {
+    background: rgba(0, 212, 255, 0.2);
+    color: #00d4ff;
+}
+
+.timing-startup-history {
+    margin-top: 20px;
+}
+
+.timing-startup-item {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px 15px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.timing-startup-date {
+    color: #71717a;
+    font-size: 0.8rem;
+}
+
+.timing-clear-btn {
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+.timing-clear-btn:hover {
+    opacity: 0.9;
+}
+
+.timing-no-data {
+    color: #71717a;
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+}
+
+.timing-refresh-btn {
+    background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.timing-refresh-btn:hover {
+    opacity: 0.9;
+}
+
+.timing-system-card {
+    background: rgba(30, 30, 40, 0.8);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.timing-system-card h3 {
+    color: #a855f7;
+    margin: 0 0 15px 0;
+    font-size: 1.1rem;
+    border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+    padding-bottom: 10px;
+}
+
+.timing-system-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.timing-system-section {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 6px;
+}
+
+.timing-system-section-title {
+    color: #a855f7;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.timing-system-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.9rem;
+}
+
+.timing-system-label {
+    color: #71717a;
+}
+
+.timing-system-value {
+    color: #e4e4e7;
+    font-family: monospace;
+}
+
+.timing-disk-nvme { color: #4ade80; }
+.timing-disk-ssd { color: #22d3ee; }
+.timing-disk-hdd { color: #fbbf24; }
+
+.timing-hostname-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+    margin-left: 8px;
+}
+
+.timing-actions-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
 }

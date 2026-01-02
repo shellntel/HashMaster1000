@@ -13,12 +13,18 @@ Total database size is approximately 70-80GB for NTLM hashes.
 
 API Documentation: https://haveibeenpwned.com/API/v3#PwnedPasswords
 Note: There is NO rate limit on the Pwned Passwords API.
+
+SQLite Conversion:
+The downloaded text file can be converted to SQLite for faster indexed lookups.
+Use convert_text_to_sqlite() to convert an existing text file, or
+convert_temp_files_to_sqlite() to convert directly from downloaded temp files.
 """
 
 import asyncio
 import logging
 import os
 import shutil
+import sqlite3
 import time
 import json
 import threading
@@ -664,3 +670,433 @@ def estimate_download() -> dict:
             "creator": "Troy Hunt"
         }
     }
+
+
+# ============================================================================
+# SQLite Conversion Functions
+# ============================================================================
+
+# Global state for SQLite conversion
+_conversion_state: "SQLiteConversionState | None" = None
+_conversion_lock = threading.Lock()
+
+
+@dataclass
+class SQLiteConversionState:
+    """Tracks the state of a SQLite conversion operation."""
+    status: str = "idle"  # idle, converting, complete, error, cancelled
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    # Progress tracking
+    total_lines: int = 0
+    processed_lines: int = 0
+    inserted_rows: int = 0
+
+    # Output info
+    input_path: str | None = None
+    output_path: str | None = None
+    output_size_bytes: int = 0
+
+    # Error tracking
+    error_message: str | None = None
+
+    # Control
+    cancel_requested: bool = False
+
+    @property
+    def progress_percentage(self) -> float:
+        if self.total_lines == 0:
+            return 0.0
+        return round((self.processed_lines / self.total_lines) * 100, 2)
+
+    @property
+    def elapsed_seconds(self) -> float:
+        if not self.started_at:
+            return 0.0
+        end_time = self.completed_at or datetime.now()
+        return (end_time - self.started_at).total_seconds()
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "status": self.status,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "total_lines": self.total_lines,
+            "processed_lines": self.processed_lines,
+            "inserted_rows": self.inserted_rows,
+            "progress_percentage": self.progress_percentage,
+            "input_path": self.input_path,
+            "output_path": self.output_path,
+            "output_size_bytes": self.output_size_bytes,
+            "output_size_gb": round(self.output_size_bytes / (1024**3), 2) if self.output_size_bytes else 0,
+            "elapsed_seconds": round(self.elapsed_seconds, 1),
+            "error_message": self.error_message,
+            "cancel_requested": self.cancel_requested
+        }
+
+
+def get_conversion_status() -> dict:
+    """Get the current SQLite conversion status."""
+    global _conversion_state
+
+    with _conversion_lock:
+        if _conversion_state is None:
+            return {"status": "idle"}
+        return _conversion_state.to_dict()
+
+
+def cancel_conversion() -> bool:
+    """Request cancellation of an active conversion."""
+    global _conversion_state
+
+    with _conversion_lock:
+        if _conversion_state is None or _conversion_state.status != "converting":
+            return False
+        _conversion_state.cancel_requested = True
+        return True
+
+
+def convert_text_to_sqlite(
+    text_file_path: str,
+    db_output_path: str | None = None,
+    batch_size: int = 100000,
+    progress_callback: Callable[[SQLiteConversionState], None] | None = None,
+    skip_vacuum: bool = True
+) -> tuple[bool, str, str | None]:
+    """
+    Convert a HIBP text file to SQLite database.
+
+    The text file should be in the format: HASH:COUNT (one per line)
+
+    Args:
+        text_file_path: Path to the HIBP text file
+        db_output_path: Path for the output SQLite database (default: same location with .db extension)
+        batch_size: Number of rows to insert per transaction (default 100K for performance)
+        progress_callback: Optional callback for progress updates
+        skip_vacuum: Skip VACUUM optimization (default True - VACUUM requires 2x database size in free space)
+
+    Returns:
+        Tuple of (success, message, db_path)
+    """
+    global _conversion_state
+
+    # Validate input file
+    if not os.path.exists(text_file_path):
+        return False, f"Input file not found: {text_file_path}", None
+
+    if not os.path.isfile(text_file_path):
+        return False, f"Path is not a file: {text_file_path}", None
+
+    # Determine output path
+    if db_output_path is None:
+        base_path = os.path.splitext(text_file_path)[0]
+        db_output_path = base_path + ".db"
+
+    # Check if conversion already running
+    with _conversion_lock:
+        if _conversion_state is not None and _conversion_state.status == "converting":
+            return False, "A conversion is already in progress", None
+
+        # Estimate total lines from file size
+        # HIBP NTLM format is HASH:COUNT, averaging ~35 bytes per line
+        # (32-char hash + colon + 1-6 digit count + newline)
+        file_size = os.path.getsize(text_file_path)
+        estimated_lines = file_size // 35
+
+        _conversion_state = SQLiteConversionState(
+            status="converting",
+            started_at=datetime.now(),
+            total_lines=estimated_lines,
+            input_path=text_file_path,
+            output_path=db_output_path
+        )
+        conversion_state = _conversion_state
+
+    temp_db_path = db_output_path + ".converting"
+
+    try:
+        logger.info(f"Starting SQLite conversion: {text_file_path} -> {db_output_path}")
+        logger.info(f"Estimated {estimated_lines:,} entries")
+
+        # Remove temp file if exists
+        if os.path.exists(temp_db_path):
+            os.remove(temp_db_path)
+
+        # Create SQLite database
+        conn = sqlite3.connect(temp_db_path)
+        cursor = conn.cursor()
+
+        # Create table with WITHOUT ROWID for better performance on hash lookups
+        # The hash is the primary key, so lookups are O(log n)
+        cursor.execute("""
+            CREATE TABLE hashes (
+                hash TEXT PRIMARY KEY,
+                count INTEGER NOT NULL
+            ) WITHOUT ROWID
+        """)
+
+        # Create metadata table to store count (avoids slow COUNT(*) at startup)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+        # Process the text file
+        batch = []
+        processed = 0
+        inserted = 0
+        last_progress_update = time.time()
+
+        with open(text_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                # Check for cancellation
+                with _conversion_lock:
+                    if conversion_state.cancel_requested:
+                        conn.close()
+                        if os.path.exists(temp_db_path):
+                            os.remove(temp_db_path)
+                        conversion_state.status = "cancelled"
+                        conversion_state.completed_at = datetime.now()
+                        logger.info("SQLite conversion cancelled by user")
+                        return False, "Conversion cancelled", None
+
+                line = line.strip()
+                if not line or ':' not in line:
+                    processed += 1
+                    continue
+
+                parts = line.split(':', 1)
+                if len(parts) != 2:
+                    processed += 1
+                    continue
+
+                ntlm_hash = parts[0].upper().strip()
+
+                # Validate hash format
+                if len(ntlm_hash) != 32:
+                    processed += 1
+                    continue
+
+                try:
+                    count = int(parts[1].strip())
+                except ValueError:
+                    processed += 1
+                    continue
+
+                batch.append((ntlm_hash, count))
+                processed += 1
+
+                # Insert batch when full
+                if len(batch) >= batch_size:
+                    cursor.executemany("INSERT OR REPLACE INTO hashes (hash, count) VALUES (?, ?)", batch)
+                    conn.commit()
+                    inserted += len(batch)
+                    batch = []
+
+                    # Update progress
+                    with _conversion_lock:
+                        conversion_state.processed_lines = processed
+                        conversion_state.inserted_rows = inserted
+
+                    # Progress callback (rate limited to every 2 seconds)
+                    now = time.time()
+                    if progress_callback and (now - last_progress_update) > 2:
+                        progress_callback(conversion_state)
+                        last_progress_update = now
+
+                    # Log progress every 10M lines
+                    if processed % 10_000_000 == 0:
+                        pct = (processed / estimated_lines) * 100 if estimated_lines else 0
+                        logger.info(f"SQLite conversion progress: {processed:,} lines ({pct:.1f}%)")
+
+        # Insert remaining batch
+        if batch:
+            cursor.executemany("INSERT OR REPLACE INTO hashes (hash, count) VALUES (?, ?)", batch)
+            conn.commit()
+            inserted += len(batch)
+
+        # Update final counts
+        with _conversion_lock:
+            conversion_state.processed_lines = processed
+            conversion_state.inserted_rows = inserted
+
+        # Use inserted count as the row count (avoids slow COUNT(*) on 2B rows)
+        actual_count = inserted
+
+        # Store count in metadata table for fast retrieval at startup
+        cursor.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            ("hash_count", str(actual_count))
+        )
+        cursor.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            ("created_at", datetime.now().isoformat())
+        )
+        conn.commit()
+
+        # Run ANALYZE to populate sqlite_stat1 for fast count lookups
+        # This also helps the query planner make better decisions
+        logger.info("Running ANALYZE for query optimization...")
+        cursor.execute("ANALYZE hashes")
+        conn.commit()
+
+        # Optionally optimize the database
+        # VACUUM requires temporary space roughly equal to database size
+        # For large databases (70GB+), this can fail if disk space is limited
+        if not skip_vacuum:
+            logger.info("Optimizing SQLite database (VACUUM)...")
+            try:
+                cursor.execute("VACUUM")
+            except sqlite3.OperationalError as e:
+                if "disk" in str(e).lower() or "full" in str(e).lower():
+                    logger.warning(f"VACUUM skipped due to disk space: {e}")
+                    logger.warning("Database is still usable, just not optimally compacted")
+                else:
+                    raise
+        else:
+            logger.info("Skipping VACUUM optimization (skip_vacuum=True)")
+
+        conn.close()
+
+        # Move temp file to final location
+        if os.path.exists(db_output_path):
+            os.remove(db_output_path)
+        os.rename(temp_db_path, db_output_path)
+
+        # Get final file size
+        output_size = os.path.getsize(db_output_path)
+
+        with _conversion_lock:
+            conversion_state.status = "complete"
+            conversion_state.completed_at = datetime.now()
+            conversion_state.output_size_bytes = output_size
+            conversion_state.inserted_rows = actual_count
+
+        message = (
+            f"SQLite conversion complete: {actual_count:,} hashes, "
+            f"{output_size / (1024**3):.2f} GB, "
+            f"{conversion_state.elapsed_seconds:.1f}s"
+        )
+        logger.info(message)
+
+        if progress_callback:
+            progress_callback(conversion_state)
+
+        return True, message, db_output_path
+
+    except Exception as e:
+        logger.error(f"SQLite conversion failed: {e}")
+
+        with _conversion_lock:
+            conversion_state.status = "error"
+            conversion_state.error_message = str(e)
+            conversion_state.completed_at = datetime.now()
+
+        # Clean up temp file
+        if os.path.exists(temp_db_path):
+            try:
+                os.remove(temp_db_path)
+            except Exception:
+                pass
+
+        return False, f"Conversion failed: {str(e)}", None
+
+
+def start_conversion_background(
+    text_file_path: str,
+    db_output_path: str | None = None,
+    progress_callback: Callable[[SQLiteConversionState], None] | None = None,
+    skip_vacuum: bool = True
+) -> bool:
+    """
+    Start SQLite conversion in a background thread.
+
+    Args:
+        text_file_path: Path to the HIBP text file
+        db_output_path: Path for the output SQLite database
+        progress_callback: Optional callback for progress updates
+        skip_vacuum: Skip VACUUM optimization (default True - saves disk space)
+
+    Returns:
+        True if conversion started, False if already running
+    """
+    global _conversion_state
+
+    with _conversion_lock:
+        if _conversion_state is not None and _conversion_state.status == "converting":
+            return False
+
+    thread = threading.Thread(
+        target=convert_text_to_sqlite,
+        args=(text_file_path, db_output_path, 100000, progress_callback, skip_vacuum),
+        daemon=True
+    )
+    thread.start()
+
+    return True
+
+
+def get_sqlite_db_info(db_path: str) -> dict | None:
+    """
+    Get information about an existing HIBP SQLite database.
+
+    Args:
+        db_path: Path to the SQLite database
+
+    Returns:
+        Dict with database info, or None if not valid
+    """
+    if not os.path.exists(db_path):
+        return None
+
+    if not os.path.isfile(db_path):
+        return None
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Verify it has the expected table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hashes'")
+        if not cursor.fetchone():
+            conn.close()
+            return None
+
+        # Get row count
+        cursor.execute("SELECT COUNT(*) FROM hashes")
+        count = cursor.fetchone()[0]
+
+        # Get sample hash to verify format
+        cursor.execute("SELECT hash, count FROM hashes LIMIT 1")
+        sample = cursor.fetchone()
+
+        conn.close()
+
+        file_size = os.path.getsize(db_path)
+
+        # Get file modification time
+        stat_info = os.stat(db_path)
+        if hasattr(stat_info, 'st_birthtime'):
+            timestamp = stat_info.st_birthtime
+        else:
+            timestamp = stat_info.st_mtime
+        file_date = datetime.fromtimestamp(timestamp).strftime("%B %d, %Y")
+
+        return {
+            "path": db_path,
+            "hash_count": count,
+            "file_size_bytes": file_size,
+            "file_size_gb": round(file_size / (1024**3), 2),
+            "sample_hash": sample[0][:8] + "..." if sample else None,
+            "sample_count": sample[1] if sample else None,
+            "file_date": file_date,
+            "valid": True
+        }
+
+    except Exception as e:
+        logger.error(f"Error reading SQLite database: {e}")
+        return None

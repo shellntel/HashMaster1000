@@ -5109,8 +5109,10 @@ def get_current_settings() -> Response:
         options["domain_info"] = domain_info_data
 
     # Check if there's password history data available
-    # Look for history entries in pwdump validation or ADD JSON validation
+    # Look for history entries in pwdump validation, ADD JSON validation, or persisted session data
     has_history = False
+
+    # First check Flask session (for fresh analysis)
     pwdump_validation = session.get("pwdump_validation")
     add_validation = session.get("add_validation")
 
@@ -5123,6 +5125,35 @@ def get_current_settings() -> Response:
                 break
     elif add_validation and add_validation.get("total_historical_hashes", 0) > 0:
         has_history = True
+
+    # Also check persisted session data (for loaded sessions)
+    if not has_history:
+        # Check for password history patterns file (indicates history data exists)
+        # This file uses "users_with_history" field for pwdump sessions
+        history_patterns = session_mgr.load_session_data("password_history_patterns.json")
+        if history_patterns and isinstance(history_patterns, dict):
+            if history_patterns.get("users_with_history", 0) > 0 or history_patterns.get("total_history_entries", 0) > 0:
+                has_history = True
+
+        # Also check historical_hash_analysis.json (for ADD JSON sessions)
+        if not has_history:
+            historical_analysis = session_mgr.load_session_data("historical_hash_analysis.json")
+            if historical_analysis and isinstance(historical_analysis, dict):
+                # Check if there's actual history data
+                if historical_analysis.get("total_historical_hashes", 0) > 0:
+                    has_history = True
+
+        # Finally check account_data for history entries (pwdump sessions)
+        if not has_history:
+            account_data = session_mgr.load_session_data("account_data.json")
+            if account_data:
+                import re
+                # Check first 100 entries for _history pattern to avoid scanning entire dataset
+                entries_to_check = list(account_data.keys())[:100] if isinstance(account_data, dict) else [e.get("username", "") for e in account_data[:100]]
+                for username in entries_to_check:
+                    if username and re.search(r'_history\d+$', str(username), re.IGNORECASE):
+                        has_history = True
+                        break
 
     options["has_history_data"] = has_history
 

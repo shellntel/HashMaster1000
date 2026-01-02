@@ -31,6 +31,7 @@
             <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
             <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
             <a href="/hibp/download" class="advanced-nav-link active">HIBP Download</a>
+            <a href="/timing/stats" class="advanced-nav-link">Timing Stats</a>
             <div class="advanced-nav-divider"></div>
             <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
         </nav>
@@ -65,12 +66,21 @@
                     <h3 style="color: #00d4ff; margin: 0 0 10px 0; font-size: 0.95rem;">Download Estimates</h3>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 0.9em;">
                         <div><span style="color: #71717a;">Prefixes:</span> 1,048,576</div>
-                        <div><span style="color: #71717a;">Hashes:</span> ~850M</div>
-                        <div><span style="color: #71717a;">Size:</span> ~70-80 GB</div>
+                        <div><span style="color: #71717a;">Hashes:</span> ~2 billion</div>
+                        <div><span style="color: #71717a;">Size:</span> ~74.5 GB</div>
                         <div><span style="color: #71717a;">Time:</span> 60-120 min</div>
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- Disk Space Warning -->
+        <div class="advanced-banner" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); margin-bottom: 16px;">
+            <span class="advanced-banner-icon" style="color: #fbbf24;">&#9888;</span>
+            <span class="advanced-banner-text" style="color: #fcd34d;">
+                <strong>Disk Space Required:</strong> Download needs ~75 GB, SQLite conversion needs an additional ~85 GB.
+                Total: ~160 GB during conversion. After conversion, you can delete the text file to save ~75 GB.
+            </span>
         </div>
 
         <!-- Download Controls -->
@@ -135,6 +145,84 @@
                 <div style="margin-top: 16px; padding: 14px; background: rgba(0,0,0,0.3); border-radius: 6px;">
                     <strong style="color: #71717a;">Add to .env:</strong>
                     <code id="envLine" class="advanced-code" style="display: block; margin-top: 8px; padding: 10px 14px;"></code>
+                </div>
+            </div>
+        </div>
+
+        <!-- SQLite Conversion Section -->
+        <div class="advanced-section" style="margin-top: 24px;">
+            <div class="advanced-section-content" style="padding: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                    <div>
+                        <h3 style="color: #a855f7; margin: 0 0 4px 0; font-size: 1.1rem;">SQLite Conversion</h3>
+                        <p style="color: #71717a; margin: 0; font-size: 0.85em;">Convert text file to SQLite for faster lookups (~10x faster)</p>
+                    </div>
+                    <div id="sqliteStatus" style="display: flex; align-items: center; gap: 8px;">
+                        <span id="sqliteStatusIcon" style="font-size: 1.2em;"></span>
+                        <span id="sqliteStatusText" style="font-size: 0.9em;"></span>
+                    </div>
+                </div>
+
+                <!-- SQLite Info -->
+                <div id="sqliteInfo" style="display: none; margin-bottom: 14px; padding: 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 6px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 0.9em;">
+                        <div><span style="color: #71717a;">Mode:</span> <span id="sqliteMode" style="color: #a855f7; font-weight: 600;"></span></div>
+                        <div><span style="color: #71717a;">Hashes:</span> <span id="sqliteHashes"></span></div>
+                        <div><span style="color: #71717a;">Size:</span> <span id="sqliteSize"></span></div>
+                    </div>
+                </div>
+
+                <!-- Conversion Controls -->
+                <div id="convertControls">
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <button id="convertBtn" onclick="startConversion()" class="advanced-btn" style="background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%);">
+                            Convert to SQLite
+                        </button>
+                        <button id="cancelConvertBtn" onclick="cancelConversion()" class="advanced-btn advanced-btn-danger" style="display: none;">
+                            Cancel
+                        </button>
+                        <span id="convertHint" style="color: #71717a; font-size: 0.85em;"></span>
+                    </div>
+                </div>
+
+                <!-- Conversion Progress -->
+                <div id="convertProgress" style="display: none; margin-top: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div id="convertProgressStatus" style="font-size: 1em; font-weight: 600; color: #a855f7;">Converting...</div>
+                        <div style="display: flex; gap: 20px; font-size: 0.85em;">
+                            <div><span style="color: #71717a;">Lines:</span> <span id="convertProgressLines" style="color: #e0e0e0;">0</span></div>
+                            <div><span style="color: #71717a;">ETA:</span> <span id="convertProgressEta" style="color: #fbbf24; font-weight: 600;">-</span></div>
+                        </div>
+                    </div>
+                    <div class="advanced-progress" style="height: 6px;">
+                        <div id="convertProgressBar" class="advanced-progress-bar" style="width: 0%; background: linear-gradient(90deg, #9333ea 0%, #a855f7 100%);"></div>
+                    </div>
+                </div>
+
+                <!-- Conversion Complete -->
+                <div id="convertComplete" style="display: none; margin-top: 14px; padding: 12px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.5em; color: #4ade80;">&#10004;</span>
+                        <div>
+                            <strong style="color: #4ade80;">Conversion Complete</strong>
+                            <p id="convertCompleteDetails" style="color: #a0a0a0; margin: 4px 0 0 0; font-size: 0.9em;"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delete Text File Option (shown when SQLite is active and text file exists) -->
+                <div id="deleteTextFileSection" style="display: none; margin-top: 14px; padding: 12px; background: rgba(113, 113, 122, 0.1); border: 1px solid rgba(113, 113, 122, 0.3); border-radius: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: #a1a1aa;">Save Disk Space</strong>
+                            <p style="color: #71717a; margin: 4px 0 0 0; font-size: 0.85em;">
+                                Text file is no longer needed. Delete <span id="textFileSize" style="color: #fbbf24;"></span> to free up space.
+                            </p>
+                        </div>
+                        <button id="deleteTextFileBtn" onclick="deleteTextFile()" class="advanced-btn" style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); font-size: 0.85em; padding: 8px 16px;">
+                            Delete Text File
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -360,6 +448,275 @@
         }
 
         loadStatus();
+
+        // SQLite conversion functions
+        let convertPollInterval = null;
+
+        function updateSqliteUI(data) {
+            const sqliteInfo = document.getElementById('sqliteInfo');
+            const sqliteStatusIcon = document.getElementById('sqliteStatusIcon');
+            const sqliteStatusText = document.getElementById('sqliteStatusText');
+            const convertBtn = document.getElementById('convertBtn');
+            const convertHint = document.getElementById('convertHint');
+            const convertProgress = document.getElementById('convertProgress');
+            const convertComplete = document.getElementById('convertComplete');
+            const cancelConvertBtn = document.getElementById('cancelConvertBtn');
+            const deleteTextFileSection = document.getElementById('deleteTextFileSection');
+
+            // Check if using SQLite mode
+            if (data.local_database.mode === 'sqlite') {
+                sqliteInfo.style.display = 'block';
+                document.getElementById('sqliteMode').textContent = 'SQLite (Indexed)';
+                document.getElementById('sqliteHashes').textContent = formatNumber(data.local_database.hash_count);
+                document.getElementById('sqliteSize').textContent = data.local_database.file_size_gb + ' GB';
+                sqliteStatusIcon.textContent = '✓';
+                sqliteStatusIcon.style.color = '#4ade80';
+                sqliteStatusText.textContent = 'Active';
+                sqliteStatusText.style.color = '#4ade80';
+                convertBtn.style.display = 'none';
+                convertHint.textContent = 'Already using SQLite for optimal performance';
+
+                // Show delete option if text file still exists
+                if (data.text_file_exists && data.text_file_size_gb) {
+                    deleteTextFileSection.style.display = 'block';
+                    document.getElementById('textFileSize').textContent = data.text_file_size_gb + ' GB';
+                } else {
+                    deleteTextFileSection.style.display = 'none';
+                }
+            } else if (data.sqlite_info) {
+                // SQLite exists but not active (shouldn't happen normally)
+                sqliteInfo.style.display = 'block';
+                document.getElementById('sqliteMode').textContent = 'SQLite (Available)';
+                document.getElementById('sqliteHashes').textContent = formatNumber(data.sqlite_info.hash_count);
+                document.getElementById('sqliteSize').textContent = data.sqlite_info.file_size_gb + ' GB';
+                sqliteStatusIcon.textContent = '●';
+                sqliteStatusIcon.style.color = '#fbbf24';
+                sqliteStatusText.textContent = 'Available';
+                sqliteStatusText.style.color = '#fbbf24';
+                convertBtn.style.display = 'none';
+                convertHint.textContent = 'SQLite database exists. Restart app to use it.';
+                deleteTextFileSection.style.display = 'none';
+            } else if (data.text_file_exists) {
+                // Text file exists, can convert
+                sqliteInfo.style.display = 'none';
+                sqliteStatusIcon.textContent = '○';
+                sqliteStatusIcon.style.color = '#71717a';
+                sqliteStatusText.textContent = 'Not Converted';
+                sqliteStatusText.style.color = '#71717a';
+                convertBtn.style.display = 'inline-flex';
+                convertBtn.disabled = false;
+                convertHint.textContent = 'Convert to SQLite for ~10x faster lookups (takes ~1 hour)';
+                deleteTextFileSection.style.display = 'none';
+            } else {
+                // No text file
+                sqliteInfo.style.display = 'none';
+                sqliteStatusIcon.textContent = '○';
+                sqliteStatusIcon.style.color = '#71717a';
+                sqliteStatusText.textContent = 'No Database';
+                sqliteStatusText.style.color = '#71717a';
+                convertBtn.style.display = 'none';
+                convertHint.textContent = 'Download or configure a HIBP text file first';
+                deleteTextFileSection.style.display = 'none';
+            }
+
+            // Handle conversion in progress
+            if (data.conversion_status && data.conversion_status.status === 'converting') {
+                convertBtn.style.display = 'none';
+                cancelConvertBtn.style.display = 'inline-flex';
+                convertProgress.style.display = 'block';
+                convertComplete.style.display = 'none';
+                convertHint.textContent = '';
+                updateConversionProgress(data.conversion_status);
+                startConvertPolling();
+            } else if (data.conversion_status && data.conversion_status.status === 'complete') {
+                convertBtn.style.display = 'none';
+                cancelConvertBtn.style.display = 'none';
+                convertProgress.style.display = 'none';
+                convertComplete.style.display = 'block';
+                document.getElementById('convertCompleteDetails').textContent =
+                    `${formatNumber(data.conversion_status.inserted_rows)} hashes | ${data.conversion_status.output_size_gb} GB | ${formatTime(data.conversion_status.elapsed_seconds)}`;
+                stopConvertPolling();
+                // Reload status to show updated SQLite info
+                setTimeout(loadStatus, 1000);
+            }
+        }
+
+        function updateConversionProgress(status) {
+            document.getElementById('convertProgressStatus').textContent = `Converting: ${status.progress_percentage}%`;
+            document.getElementById('convertProgressBar').style.width = status.progress_percentage + '%';
+            document.getElementById('convertProgressLines').textContent = formatNumber(status.processed_lines) + ' / ' + formatNumber(status.total_lines);
+
+            if (status.elapsed_seconds > 0 && status.progress_percentage > 0) {
+                const totalTime = status.elapsed_seconds / (status.progress_percentage / 100);
+                const remaining = totalTime - status.elapsed_seconds;
+                document.getElementById('convertProgressEta').textContent = formatTime(remaining);
+            } else {
+                document.getElementById('convertProgressEta').textContent = 'calculating...';
+            }
+        }
+
+        async function startConversion() {
+            try {
+                const response = await fetch('/api/hibp/convert/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('convertBtn').style.display = 'none';
+                    document.getElementById('cancelConvertBtn').style.display = 'inline-flex';
+                    document.getElementById('convertProgress').style.display = 'block';
+                    document.getElementById('convertComplete').style.display = 'none';
+                    document.getElementById('convertHint').textContent = '';
+                    startConvertPolling();
+                } else {
+                    alert('Failed to start conversion: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error starting conversion: ' + error.message);
+            }
+        }
+
+        async function cancelConversion() {
+            if (!confirm('Cancel the conversion?')) return;
+
+            try {
+                const response = await fetch('/api/hibp/convert/cancel', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById('convertProgress').style.display = 'none';
+                    document.getElementById('cancelConvertBtn').style.display = 'none';
+                    document.getElementById('convertBtn').style.display = 'inline-flex';
+                    stopConvertPolling();
+                    loadStatus();
+                } else {
+                    alert('Failed to cancel: ' + data.message);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function startConvertPolling() {
+            if (convertPollInterval) clearInterval(convertPollInterval);
+            convertPollInterval = setInterval(pollConvertProgress, 2000);
+            pollConvertProgress();
+        }
+
+        function stopConvertPolling() {
+            if (convertPollInterval) { clearInterval(convertPollInterval); convertPollInterval = null; }
+        }
+
+        async function pollConvertProgress() {
+            try {
+                const response = await fetch('/api/hibp/convert/status');
+                const status = await response.json();
+
+                if (status.status === 'converting') {
+                    updateConversionProgress(status);
+                } else if (status.status === 'complete') {
+                    document.getElementById('convertProgress').style.display = 'none';
+                    document.getElementById('cancelConvertBtn').style.display = 'none';
+                    document.getElementById('convertComplete').style.display = 'block';
+                    document.getElementById('convertCompleteDetails').textContent =
+                        `${formatNumber(status.inserted_rows)} hashes | ${status.output_size_gb} GB | ${formatTime(status.elapsed_seconds)}`;
+                    stopConvertPolling();
+                    loadStatus();
+                } else if (status.status === 'error') {
+                    document.getElementById('convertProgress').style.display = 'none';
+                    document.getElementById('cancelConvertBtn').style.display = 'none';
+                    document.getElementById('convertBtn').style.display = 'inline-flex';
+                    stopConvertPolling();
+                    alert('Conversion failed: ' + (status.error_message || 'Unknown error'));
+                } else if (status.status === 'cancelled') {
+                    document.getElementById('convertProgress').style.display = 'none';
+                    document.getElementById('cancelConvertBtn').style.display = 'none';
+                    document.getElementById('convertBtn').style.display = 'inline-flex';
+                    stopConvertPolling();
+                }
+            } catch (error) {
+                console.error('Convert poll error:', error);
+            }
+        }
+
+        // Update loadStatus to include SQLite info
+        const originalLoadStatus = loadStatus;
+        loadStatus = async function() {
+            try {
+                const response = await fetch('/api/hibp/download/info');
+                const data = await response.json();
+
+                const dbStatus = document.getElementById('dbStatus');
+                const hashCount = document.getElementById('hashCount');
+                const configuredPath = document.getElementById('configuredPath');
+
+                if (data.local_database.loaded) {
+                    const modeLabel = data.local_database.mode === 'sqlite' ? ' (SQLite)' : ' (Text)';
+                    dbStatus.textContent = 'Loaded' + modeLabel;
+                    dbStatus.style.color = '#4ade80';
+                    dbStatus.style.textShadow = '0 0 10px rgba(74, 222, 128, 0.4)';
+                    hashCount.textContent = formatNumber(data.local_database.hash_count);
+                } else {
+                    dbStatus.textContent = 'Not Loaded';
+                    dbStatus.style.color = '#f87171';
+                    dbStatus.style.textShadow = '0 0 10px rgba(248, 113, 113, 0.4)';
+                    hashCount.textContent = '-';
+                }
+
+                configuredPath.textContent = data.configured_path || '(not configured)';
+
+                // Update SQLite UI
+                updateSqliteUI(data);
+
+                if (data.download_status.status !== 'idle') {
+                    updateProgressUI(data.download_status);
+                    if (['starting', 'downloading', 'merging'].includes(data.download_status.status)) {
+                        startPolling();
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load status:', error);
+            }
+        };
+
+        loadStatus();
+
+        // Delete text file function
+        async function deleteTextFile() {
+            if (!confirm('Delete the HIBP text file? This cannot be undone.\n\nThe SQLite database will continue to work for all lookups.')) {
+                return;
+            }
+
+            const btn = document.getElementById('deleteTextFileBtn');
+            btn.disabled = true;
+            btn.textContent = 'Deleting...';
+
+            try {
+                const response = await fetch('/api/hibp/text-file/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('deleteTextFileSection').style.display = 'none';
+                    alert('Text file deleted successfully. ' + data.freed_gb + ' GB freed.');
+                    loadStatus();
+                } else {
+                    alert('Failed to delete: ' + data.message);
+                    btn.disabled = false;
+                    btn.textContent = 'Delete Text File';
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+                btn.disabled = false;
+                btn.textContent = 'Delete Text File';
+            }
+        }
     </script>
 </body>
 </html>
