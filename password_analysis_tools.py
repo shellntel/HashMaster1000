@@ -321,13 +321,17 @@ def crack_stats(
     :param max_pw_age: Maximum password age in days for compliance (requires last_pw_change in account_data).
     :return: A dictionary containing various password cracking statistics and reports.
     """
-    return crack_stats_single_pass(
-        account_data,
-        min_len=min_len,
-        complexity=complexity,
-        ignore_blank_passwords=ignore_blank_passwords,
-        max_pw_age=max_pw_age,
-    )
+    from timing_stats import get_timing_stats, TimingStats
+
+    timing = get_timing_stats()
+    with timing.timer(TimingStats.CRACK_STATS, item_count=len(account_data)):
+        return crack_stats_single_pass(
+            account_data,
+            min_len=min_len,
+            complexity=complexity,
+            ignore_blank_passwords=ignore_blank_passwords,
+            max_pw_age=max_pw_age,
+        )
 
 
 def crack_stats_single_pass(
@@ -649,6 +653,11 @@ def substring_analysis(
     Returns:
     - list of dict: A list of substrings with `substring` and `count` (unique accounts).
     """
+    from timing_stats import get_timing_stats, TimingStats
+
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.SUBSTRING_ANALYSIS)
+
     if min_length < 1:
         raise ValueError("min_length must be >= 1")
     if max_length < min_length:
@@ -714,9 +723,13 @@ def substring_analysis(
             if not should_suppress:
                 non_nested[substr] = acct_set
 
-        return [{"substring": s, "count": len(a)} for s, a in non_nested.items()]
+        result = [{"substring": s, "count": len(a)} for s, a in non_nested.items()]
+        timing.stop_timer(TimingStats.SUBSTRING_ANALYSIS, item_count=len(entries))
+        return result
 
-    return [{"substring": s, "count": len(a)} for s, a in filtered.items()]
+    result = [{"substring": s, "count": len(a)} for s, a in filtered.items()]
+    timing.stop_timer(TimingStats.SUBSTRING_ANALYSIS, item_count=len(entries))
+    return result
 
 
 def dictionary_analysis(
@@ -734,6 +747,10 @@ def dictionary_analysis(
              1. Password-to-matched-words mapping.
              2. Word-to-occurrence-count mapping.
     """
+    from timing_stats import get_timing_stats, TimingStats
+
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.DICTIONARY_ANALYSIS)
 
     # Use cached dictionary for better performance
     all_english_words = _get_english_words()
@@ -794,12 +811,14 @@ def dictionary_analysis(
         for word in matches:
             word_count[word] = word_count.get(word, 0) + 1
 
+    timing.stop_timer(TimingStats.DICTIONARY_ANALYSIS, item_count=len(passwords))
     return password_analysis, word_count
 
 
 def bad_practices_analysis(
     passwords: list[str],
     custom_keywords: list[str] | None = None,
+    account_entries: list[dict[str, str]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
     Analyze passwords for common bad practices and anti-patterns.
@@ -816,11 +835,17 @@ def bad_practices_analysis(
     9. Passwords ending with # or ! (lazy special char)
     10. Leet-speak substitutions (p@ssw0rd, @dm1n, etc.)
     11. Custom keywords (company name, departments, team names, etc.)
+    12. Username in password (including leet-speak variations)
 
     :param passwords: List of passwords to analyze
     :param custom_keywords: Optional list of custom keywords to detect (e.g., company name)
+    :param account_entries: Optional list of dicts with 'account' and 'password' keys for username-in-password detection
     :return: Dictionary with category names as keys, containing counts and example passwords
     """
+    from timing_stats import get_timing_stats, TimingStats
+
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.BAD_PRACTICES)
 
     results: dict[str, dict[str, Any]] = {
         "Password Variants": {"count": 0, "examples": {}},
@@ -838,6 +863,10 @@ def bad_practices_analysis(
     # Add Company Terms category only if keywords were provided
     if custom_keywords:
         results["Company Terms"] = {"count": 0, "examples": {}}
+
+    # Add Username in Password category only if account_entries were provided
+    if account_entries:
+        results["Username in Password"] = {"count": 0, "examples": {}}
 
     # --- Pattern definitions ---
 
@@ -1011,6 +1040,100 @@ def bad_practices_analysis(
         leet_chars = set(leet_map.keys())
         return any(c in leet_chars for c in stripped)
 
+    def extract_username_base(username: str) -> str:
+        """Extract the base username for matching (strip domain prefix and _history suffix)."""
+        # Remove domain prefix (e.g., "DOMAIN\\jsmith" -> "jsmith")
+        if "\\" in username:
+            username = username.split("\\")[-1]
+        # Remove _history suffix (e.g., "jsmith_history0" -> "jsmith")
+        if "_history" in username.lower():
+            username = re.sub(r"_history\d*$", "", username, flags=re.IGNORECASE)
+        return username.lower()
+
+    def username_in_password(username: str, password: str) -> bool:
+        """Check if username (or leet variations) appears in password.
+
+        Detects:
+        - Direct username matches (case-insensitive)
+        - Leet-speak variations of username in password
+        - Password containing deleeted version of username
+        - Username variations (first/last name parts if separated by dots/underscores)
+        - Meaningful substrings from longer usernames (e.g., "admin" from "administrator")
+        """
+        if not username or not password:
+            return False
+
+        username_base = extract_username_base(username)
+        # Require at least 4 chars to avoid false positives on very short names
+        if len(username_base) < 4:
+            return False
+
+        pw_lower = password.lower()
+        pw_deleet = deleet(password)
+
+        # Check 1: Direct username match in password
+        if username_base in pw_lower:
+            return True
+
+        # Check 2: Deleeted password contains username
+        if username_base in pw_deleet:
+            return True
+
+        # Check 3: Deleeted username found in password
+        username_deleet = deleet(username_base)
+        if username_deleet in pw_lower:
+            return True
+
+        # Check 4: Both deleeted
+        if username_deleet in pw_deleet:
+            return True
+
+        # Check 5: Handle usernames with separators (e.g., "john.smith", "john_smith")
+        # Check each part independently
+        parts = re.split(r"[._\-]", username_base)
+        for part in parts:
+            if len(part) >= 4:  # Only check meaningful parts (4+ chars)
+                if part in pw_lower or part in pw_deleet:
+                    return True
+                part_deleet = deleet(part)
+                if part_deleet in pw_lower or part_deleet in pw_deleet:
+                    return True
+
+        # Check 6: For longer usernames, check meaningful substrings
+        # e.g., "administrator" -> check if "admin" appears
+        if len(username_base) >= 6:
+            # Check all substrings of length 4-8 from start of username
+            for sub_len in range(4, min(9, len(username_base))):
+                substring = username_base[:sub_len]
+                substring_deleet = deleet(substring)
+                if substring in pw_lower or substring in pw_deleet:
+                    return True
+                if substring_deleet in pw_lower or substring_deleet in pw_deleet:
+                    return True
+
+        # Check 7: First name or initials + last name patterns
+        # e.g., "jsmith" -> check "smith" and "j"+"smith" variations
+        if len(username_base) >= 5:
+            # Check if last N chars (potential last name) appear in password
+            for name_len in range(4, min(len(username_base), 8)):
+                potential_name = username_base[-name_len:]
+                if potential_name in pw_lower or potential_name in pw_deleet:
+                    # Only flag if there's also some connection to initial
+                    first_char = username_base[0]
+                    if first_char in pw_lower[:3]:  # Initial near start
+                        return True
+
+        return False
+
+    # Build password-to-username mapping if account_entries provided
+    password_to_username: dict[str, str] = {}
+    if account_entries:
+        for entry in account_entries:
+            pw = entry.get("password", "")
+            acct = entry.get("account", "")
+            if pw and acct:
+                password_to_username[pw] = acct
+
     # Process each password
     for password in passwords:
         if not password:  # Skip empty passwords
@@ -1139,4 +1262,12 @@ def bad_practices_analysis(
                     results["Company Terms"]["examples"][password] = results["Company Terms"]["examples"].get(password, 0) + 1
                     break
 
+        # 12. Check for username in password (with leet-speak variations)
+        if password_to_username and password in password_to_username:
+            username = password_to_username[password]
+            if username_in_password(username, password):
+                results["Username in Password"]["count"] += 1
+                results["Username in Password"]["examples"][password] = results["Username in Password"]["examples"].get(password, 0) + 1
+
+    timing.stop_timer(TimingStats.BAD_PRACTICES, item_count=len(passwords))
     return results

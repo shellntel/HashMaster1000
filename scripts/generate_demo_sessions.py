@@ -279,10 +279,11 @@ def generate_session(
         omit_nested=False,
     )
 
-    # Run bad practices analysis
+    # Run bad practices analysis (pass account entries for username-in-password detection)
     bad_practices = password_analysis_tools.bad_practices_analysis(
         cracked_passwords,
         custom_keywords=["demo", "corp", "democorp"],  # Company-related keywords
+        account_entries=account_password_entries,
     )
 
     # Build password reuse table

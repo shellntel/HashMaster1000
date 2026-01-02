@@ -22,6 +22,8 @@
 				<div class="processing-spinner"></div>
 				<div class="processing-text" id="processingText">Processing...</div>
 				<div class="processing-subtext" id="processingSubtext">This may take a moment for large files</div>
+				<div class="processing-estimate" id="processingEstimate" style="display: none;"></div>
+				<div class="processing-fun-message" id="processingFunMessage" style="display: none;"></div>
 			</div>
 		</div>
 
@@ -82,7 +84,7 @@
 					action="{% if initial_step == 3 and input_method == 'add_json' and add_validation %}{{ url_for('process_add_validated') }}{% elif initial_step == 3 and pwdump_validation and potfile_validation %}{{ url_for('process_validated') }}{% else %}{{ url_for('validate_files_endpoint') }}{% endif %}"
 					method="POST"
 					enctype="multipart/form-data"
-					onsubmit="showProcessing('Generating Report...', 'Analyzing passwords and computing statistics')"
+					onsubmit="return handleFormSubmit(event)"
 				>
 					<!-- Step 1: Load Files -->
 					<div class="step-content{% if not initial_step or initial_step == 1 %} active{% endif %}" data-step="1">
@@ -378,20 +380,37 @@
 									{% set blank_count = valid_lines | selectattr('ntlm_hash', 'equalto', '31d6cfe0d16ae931b73c59d7e0c089c0') | list | length %}
 									{% endif %}
 									<div class="option-row filter-option">
-										<label>Ignore Disabled Accounts{% if pwdump_validation %} <span class="filter-count">({{ disabled_count }})</span>{% endif %}</label>
+										<label>Ignore Disabled Accounts{% if pwdump_validation %} <span class="filter-count">({{ "{:,}".format(disabled_count) }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_disabled_accounts" value="false" />
 										<input type="checkbox" name="ignore_disabled_accounts" value="true" />
 									</div>
 									<div class="option-row filter-option">
-										<label>Ignore Computer Accounts{% if pwdump_validation %} <span class="filter-count">({{ computer_count }})</span>{% endif %}</label>
+										<label>Ignore Computer Accounts{% if pwdump_validation %} <span class="filter-count">({{ "{:,}".format(computer_count) }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_computer_accounts" value="false" />
 										<input type="checkbox" name="ignore_computer_accounts" value="true" />
 									</div>
 									<div class="option-row filter-option">
-										<label>Ignore Blank Passwords{% if pwdump_validation %} <span class="filter-count">({{ blank_count }})</span>{% endif %}</label>
+										<label>Ignore Blank Passwords{% if pwdump_validation %} <span class="filter-count">({{ "{:,}".format(blank_count) }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_blank_passwords" value="false" />
 										<input type="checkbox" name="ignore_blank_passwords" value="true" />
 									</div>
+									{% set history_count = 0 %}
+									{% if pwdump_validation %}
+									{% set history_count = pwdump_validation.lines | selectattr('username', 'history_account') | list | length %}
+									{% elif add_validation %}
+									{% set history_count = add_validation.total_historical_hashes|default(0) %}
+									{% endif %}
+									{% if history_count > 0 %}
+									<div class="option-row filter-option" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0, 212, 255, 0.15);">
+										<label>Include Histories in All Sections <span class="filter-count">({{ "{:,}".format(history_count) }})</span></label>
+										<input type="hidden" name="include_history_in_reports" value="false" />
+										<input type="checkbox" name="include_history_in_reports" value="true" />
+									</div>
+									<p style="font-size: 0.75em; color: var(--text-secondary); margin: 4px 0 0 0;">
+										By default, password histories are only analyzed in Password History Pattern Analysis.
+										Check this box to include historical passwords in substring, dictionary, and other analyses.
+									</p>
+									{% endif %}
 								</div>
 							</div>
 
@@ -404,9 +423,9 @@
 									<div class="option-row">
 										<label>Filter by Domain</label>
 										<select name="domain_filter" id="domainFilter" style="padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); flex: 1; min-width: 200px;">
-											<option value="all">All Domains ({{ pwdump_validation.domain_info.total_accounts }} accounts)</option>
+											<option value="all">All Domains ({{ "{:,}".format(pwdump_validation.domain_info.total_accounts) }} accounts)</option>
 											{% for domain, count in pwdump_validation.domain_info.domains.items() %}
-											<option value="{{ domain }}">{{ domain }} ({{ count }} accounts)</option>
+											<option value="{{ domain }}">{{ domain }} ({{ "{:,}".format(count) }} accounts)</option>
 											{% endfor %}
 										</select>
 									</div>
@@ -515,18 +534,202 @@
 		</div>
 
 		<script>
+			// Phase-specific fun messages
+			const VALIDATION_MESSAGES = [
+				"Detecting file format...",
+				"Parsing file contents...",
+				"Checking hash types...",
+				"Looking for account status",
+				"Validating account entries...",
+				"Scanning for anomalies...",
+				"Processing line by line...",
+				"Extracting account data...",
+				"Verifying hash integrity...",
+				"Counting valid entries...",
+				"Almost done parsing..."
+			];
+
+			const CONFIG_MESSAGES = [
+				"Loading options...",
+				"Preparing analysis settings...",
+				"Setting up filters...",
+				"Initializing configuration...",
+				"Getting things ready...",
+				"Calibrating the flux capacitor...",
+				"Warming up the analysis engine...",
+				"Consulting the password oracle...",
+				"Stretching before the heavy lifting...",
+				"Organizing our digital toolkit...",
+				"Feeding the hamsters that power this...",
+				"Polishing the configuration knobs...",
+				"Summoning the settings wizard...",
+				"Tuning the algorithm guitars...",
+				"Making coffee for the CPU..."
+			];
+
+			const REPORT_MESSAGES = [
+				"Crunching the numbers...",
+				"Analyzing password patterns...",
+				"Searching for weak passwords...",
+				"Cross-referencing breach data...",
+				"Building security insights...",
+				"Detecting common patterns...",
+				"Calculating risk metrics...",
+				"Processing hash lookups...",
+				"Mapping password reuse...",
+				"Generating statistics...",
+				"Running deep analysis...",
+				"Checking breach databases...",
+				"Evaluating password strength...",
+				"Identifying security gaps...",
+				"Compiling results...",
+				"Building the report...",
+				"Almost there...",
+				"Finalizing analysis...",
+				"Judging password creativity...",
+				"Counting 'password123' variations...",
+				"Facepalming at pet names...",
+				"Discovering birthday patterns...",
+				"Finding keyboard walks...",
+				"Spotting sports teams...",
+				"Cataloging company names in passwords...",
+				"Shaking head at '123456'...",
+				"Documenting the password hall of shame...",
+				"Teaching passwords some self-respect..."
+			];
+
+			let processingMessageInterval = null;
+			let currentMessageIndex = 0;
+			let currentMessageArray = REPORT_MESSAGES;
+
 			// Processing overlay functions
-			function showProcessing(message, subtext) {
+			function showProcessing(message, subtext, options = {}) {
 				const overlay = document.getElementById('processingOverlay');
 				const textEl = document.getElementById('processingText');
 				const subtextEl = document.getElementById('processingSubtext');
+				const estimateEl = document.getElementById('processingEstimate');
+				const funMessageEl = document.getElementById('processingFunMessage');
+
 				textEl.textContent = message || 'Processing...';
 				subtextEl.textContent = subtext || 'This may take a moment for large files';
+
+				// Show estimated time if provided
+				if (options.estimatedSeconds !== undefined && options.estimatedSeconds > 0) {
+					estimateEl.textContent = 'Estimated time: ' + formatDuration(options.estimatedSeconds);
+					estimateEl.style.display = 'block';
+				} else {
+					estimateEl.style.display = 'none';
+				}
+
+				// Show rotating fun messages for longer operations
+				if (options.showFunMessages) {
+					// Select message array based on phase
+					if (options.phase === 'validation') {
+						currentMessageArray = VALIDATION_MESSAGES;
+					} else if (options.phase === 'config') {
+						currentMessageArray = CONFIG_MESSAGES;
+					} else {
+						currentMessageArray = REPORT_MESSAGES;
+					}
+
+					funMessageEl.style.display = 'block';
+					currentMessageIndex = 0;
+					funMessageEl.textContent = currentMessageArray[currentMessageIndex];
+
+					// Clear any existing interval
+					if (processingMessageInterval) {
+						clearInterval(processingMessageInterval);
+					}
+
+					// Rotate messages every 3 seconds
+					processingMessageInterval = setInterval(() => {
+						currentMessageIndex = (currentMessageIndex + 1) % currentMessageArray.length;
+						funMessageEl.textContent = currentMessageArray[currentMessageIndex];
+					}, 3000);
+				} else {
+					funMessageEl.style.display = 'none';
+				}
+
 				overlay.classList.add('active');
 			}
 
 			function hideProcessing() {
 				document.getElementById('processingOverlay').classList.remove('active');
+				// Clear the message rotation interval
+				if (processingMessageInterval) {
+					clearInterval(processingMessageInterval);
+					processingMessageInterval = null;
+				}
+			}
+
+			// Format duration for display
+			function formatDuration(seconds) {
+				if (seconds === null || seconds === undefined) return 'unknown';
+				if (seconds < 1) return Math.round(seconds * 1000) + 'ms';
+				if (seconds < 60) return seconds.toFixed(1) + 's';
+				if (seconds < 3600) {
+					const mins = Math.floor(seconds / 60);
+					const secs = Math.floor(seconds % 60);
+					return mins + 'm ' + secs + 's';
+				}
+				const hours = Math.floor(seconds / 3600);
+				const mins = Math.floor((seconds % 3600) / 60);
+				return hours + 'h ' + mins + 'm';
+			}
+
+			// Handle form submission with timing estimate
+			async function handleFormSubmit(event) {
+				// Determine which phase we're in based on current step
+				const currentStep = document.querySelector('.step-content.active');
+				const stepNum = currentStep ? parseInt(currentStep.dataset.step) : 1;
+
+				// Default messages
+				let message = 'Processing...';
+				let subtext = 'This may take a moment';
+				let phase = 'validation';
+
+				if (stepNum === 1) {
+					message = 'Validating Files...';
+					subtext = 'Parsing and validating your data files';
+					phase = 'validation';
+				} else if (stepNum === 3) {
+					message = 'Generating Report...';
+					subtext = 'Analyzing passwords and computing statistics';
+					phase = 'report_generation';
+				}
+
+				// Try to get timing estimate
+				let estimatedSeconds = 0;
+				try {
+					// Get account/hash count for estimation
+					let hashCount = 0;
+					{% if initial_step == 3 and pwdump_validation %}
+					hashCount = {{ pwdump_validation.valid_lines|default(0) }};
+					{% elif initial_step == 3 and add_validation %}
+					hashCount = {{ add_validation.total_users|default(0) }};
+					{% endif %}
+
+					if (hashCount > 0 && phase === 'report_generation') {
+						const response = await fetch(`/api/timing/estimate?phase=${phase}&hash_count=${hashCount}`);
+						if (response.ok) {
+							const data = await response.json();
+							if (data.estimated_total_seconds) {
+								estimatedSeconds = data.estimated_total_seconds;
+							}
+						}
+					}
+				} catch (e) {
+					console.log('Could not fetch timing estimate:', e);
+				}
+
+				// Show processing overlay with estimate and fun messages
+				showProcessing(message, subtext, {
+					estimatedSeconds: estimatedSeconds,
+					showFunMessages: phase === 'report_generation',  // Only show fun messages for longer operations
+					phase: 'report'
+				});
+
+				return true; // Allow form submission to proceed
 			}
 
 			// Toggle max password age input when "Never" checkbox is changed
@@ -652,8 +855,11 @@
 					return;
 				}
 
-				// Show processing overlay
-				showProcessing('Validating Files...', 'Parsing and validating your data files');
+				// Show processing overlay with fun messages for user engagement
+				showProcessing('Validating Files...', 'Parsing and validating your data files', {
+					showFunMessages: true,
+					phase: 'validation'
+				});
 
 				// Use appropriate endpoint based on input method
 				if (inputMethod === 'local') {
@@ -670,7 +876,7 @@
 					const data = validationState.pwdump.data;
 					document.getElementById('pwdumpSummaryName').textContent = data.filename;
 					document.getElementById('pwdumpSummaryStats').innerHTML =
-						`<span class="good">${data.valid_lines} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines} errors</span>` : '0 errors'}`;
+						`<span class="good">${data.valid_lines.toLocaleString()} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines.toLocaleString()} errors</span>` : '0 errors'}`;
 					document.getElementById('pwdumpSummaryCard').classList.add('valid');
 				}
 
@@ -678,7 +884,7 @@
 					const data = validationState.potfile.data;
 					document.getElementById('potfileSummaryName').textContent = data.filename;
 					document.getElementById('potfileSummaryStats').innerHTML =
-						`<span class="good">${data.valid_lines} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines} errors</span>` : '0 errors'}`;
+						`<span class="good">${data.valid_lines.toLocaleString()} valid</span> / ${data.error_lines > 0 ? `<span class="bad">${data.error_lines.toLocaleString()} errors</span>` : '0 errors'}`;
 					document.getElementById('potfileSummaryCard').classList.add('valid');
 				}
 			}
@@ -1066,7 +1272,7 @@
 				const filename = pwdumpData.filepath.split('/').pop();
 				document.getElementById('pwdumpSummaryName').textContent = filename;
 				document.getElementById('pwdumpSummaryStats').innerHTML =
-					`<span class="good">${pwdumpData.valid_lines} valid</span> / ${pwdumpData.error_lines > 0 ? `<span class="bad">${pwdumpData.error_lines} errors</span>` : '0 errors'}`;
+					`<span class="good">${pwdumpData.valid_lines.toLocaleString()} valid</span> / ${pwdumpData.error_lines > 0 ? `<span class="bad">${pwdumpData.error_lines.toLocaleString()} errors</span>` : '0 errors'}`;
 				document.getElementById('pwdumpSummaryCard').classList.add('valid');
 
 				// Also set up validationState so form submission works
@@ -1088,7 +1294,7 @@
 				const filename = potfileData.filepath.split('/').pop();
 				document.getElementById('potfileSummaryName').textContent = filename;
 				document.getElementById('potfileSummaryStats').innerHTML =
-					`<span class="good">${potfileData.ntlm_count || potfileData.valid_lines} valid</span> / ${potfileData.error_lines > 0 ? `<span class="bad">${potfileData.error_lines} errors</span>` : '0 errors'}`;
+					`<span class="good">${(potfileData.ntlm_count || potfileData.valid_lines).toLocaleString()} valid</span> / ${potfileData.error_lines > 0 ? `<span class="bad">${potfileData.error_lines.toLocaleString()} errors</span>` : '0 errors'}`;
 				document.getElementById('potfileSummaryCard').classList.add('valid');
 
 				// Also set up validationState so form submission works
@@ -1139,30 +1345,177 @@
 
 			// Show loading overlay for Step 3 while data loads
 			{% if initial_step == 3 %}
-			showProcessing('Loading Configuration...', 'Preparing analysis options');
+			showProcessing('Loading Configuration...', 'Preparing analysis options', {
+				showFunMessages: true,
+				phase: 'config'
+			});
 			{% endif %}
 
 			// Auto-populate Company Name & Terms with domain names and company name
 			{% if initial_step == 3 %}
 			(function() {
-				const autoKeywords = [];
+				const autoKeywords = new Set();
 
-				// Helper function to strip TLD and extract meaningful name
-				function stripTLD(domain) {
-					if (!domain || domain === '(no domain)') return null;
-					const stripped = domain
-						.replace(/\.(com|local|corp|internal|lan|net|org|int|edu|gov|mil|ad|domain)$/i, '')
-						.trim();
-					return (stripped && stripped.length >= 3) ? stripped : null;
+				// TLDs and suffixes to strip (comprehensive list)
+				const tldsToStrip = [
+					'com', 'local', 'corp', 'internal', 'lan', 'net', 'org', 'int', 'edu', 'gov', 'mil',
+					'ad', 'domain', 'pri', 'biz', 'info', 'co', 'uk', 'de', 'fr', 'nl', 'be', 'is', 'no',
+					'pl', 'sk', 'eu', 'network', 'onmicrosoft', 'root', 'dmz', 'intern'
+				];
+
+				// Generic terms to filter out (not useful as keywords)
+				const genericTerms = new Set([
+					'ad', 'adroot', 'root', 'domain', 'intern', 'internal', 'dmz', 'pri', 'secdmz',
+					'global', 'core', 'group', 'it', 'bpi', 'rpc', 'int', 'testing', 'testing1',
+					'gmail', 'onmicrosoft', 'network'
+				]);
+
+				// Extract meaningful terms from a domain name
+				function extractTermsFromDomain(domain) {
+					if (!domain || domain === '(no domain)' || domain === '(No Domain)') return [];
+
+					let terms = [];
+					let working = domain.toUpperCase();
+
+					// Remove all TLD suffixes recursively (handle multi-level like .CO.UK)
+					let changed = true;
+					while (changed) {
+						changed = false;
+						for (const tld of tldsToStrip) {
+							const pattern = new RegExp('\\.' + tld.toUpperCase() + '$', 'i');
+							if (pattern.test(working)) {
+								working = working.replace(pattern, '');
+								changed = true;
+							}
+						}
+					}
+
+					// Split by dots first (subdomain structure)
+					const dotParts = working.split('.').filter(p => p.length >= 3);
+
+					for (const part of dotParts) {
+						// Split by hyphens and underscores
+						const subParts = part.split(/[-_]/).filter(p => p.length >= 3);
+
+						if (subParts.length > 1) {
+							// Multiple parts found - add each meaningful one
+							for (const sp of subParts) {
+								const lower = sp.toLowerCase();
+								if (!genericTerms.has(lower) && sp.length >= 3) {
+									terms.push(sp);
+								}
+							}
+						} else {
+							// Single part - try to detect concatenated words (camelCase or allcaps)
+							const lower = part.toLowerCase();
+							if (!genericTerms.has(lower) && part.length >= 3) {
+								// Check for obvious concatenations (e.g., BERRYGLOBAL -> BERRY, GLOBAL)
+								const splitWords = splitConcatenatedWords(part);
+								if (splitWords.length > 1) {
+									for (const w of splitWords) {
+										if (w.length >= 3 && !genericTerms.has(w.toLowerCase())) {
+											terms.push(w);
+										}
+									}
+								} else {
+									terms.push(part);
+								}
+							}
+						}
+					}
+
+					return terms;
 				}
 
-				// Extract domain names from pwdump (strip TLD like .com, .local, .corp, etc.)
+				// Try to split concatenated words (like BERRYGLOBAL, SUPERFOS, etc.)
+				function splitConcatenatedWords(word) {
+					// Known word patterns to split (common business terms)
+					const knownWords = [
+						'GLOBAL', 'PLASTICS', 'PLASTIC', 'SYSTEMS', 'GROUP', 'NETWORK', 'POWER', 'FILMS',
+						'PACK', 'PLAST', 'BERRY', 'CLOSURE', 'CLOSURES', 'PRINT', 'DEPT', 'DESIGN',
+						'MARKET', 'ENVASES', 'TEDECO', 'GIZEH', 'BRAMLAGE', 'SUPERFOS', 'SAEPLAST',
+						'POLIMOON', 'PROMENS', 'NORDFOLIEN', 'TEMPRA', 'MAGNERA', 'VISQUEEN', 'ASTRAPAK',
+						'COBELPLAST', 'POLYFILMS', 'RICHTERPH', 'PROCESSTECH', 'WAVE', 'GRIP', 'MIRA',
+						'LUEBBERS', 'ZELLER', 'MASSMOULD', 'MAROLLES', 'MOIRANS', 'MONTPONT', 'HALSTEAD',
+						'PLENMELLER', 'OLDDALBY', 'LLANTRISANT', 'KERKRADE', 'CORBY', 'CELLE', 'BEAUTE',
+						'BEBO', 'BEBOPLASTIK', 'BARPLAS', 'GENT', 'LOHNE', 'ROMFILMS', 'JPPLAST', 'JPPSK',
+						'STUDIO', 'BLUE', 'CLOVER', 'BOUXWILLER', 'DIRECTION', 'FROFF', 'CAST', 'ALPRINT',
+						'TRAINING', 'WAREHOUSE', 'RECIBO', 'MOLDES', 'BCN', 'BCS', 'MARKETRASEN',
+						'PETPOWER', 'PLASTIAPE', 'UCPZELLER'
+					];
+
+					// If word matches known patterns, try to find splits
+					const upper = word.toUpperCase();
+
+					// Check if it contains known word boundaries
+					for (const known of knownWords) {
+						if (upper.includes(known) && upper !== known && upper.length > known.length) {
+							const idx = upper.indexOf(known);
+							const before = upper.substring(0, idx);
+							const after = upper.substring(idx + known.length);
+
+							const result = [];
+							if (before.length >= 3) result.push(before);
+							result.push(known);
+							if (after.length >= 3) result.push(after);
+
+							if (result.length > 1) return result;
+						}
+					}
+
+					return [word];
+				}
+
+				// Extract terms from a company name (split multi-word names)
+				function extractTermsFromCompanyName(name) {
+					if (!name || name.length < 3) return [];
+
+					const terms = [];
+
+					// Split by spaces, commas, and common separators
+					const parts = name.split(/[\s,&]+/).filter(p => p.length >= 3);
+
+					for (const part of parts) {
+						// Also handle hyphenated company names
+						const subParts = part.split('-').filter(p => p.length >= 3);
+						for (const sp of subParts) {
+							const lower = sp.toLowerCase();
+							// Filter out common suffixes like Inc, LLC, Ltd, Corp
+							if (!['inc', 'llc', 'ltd', 'corp', 'corporation', 'company', 'co', 'plc', 'gmbh', 'ag', 'sa', 'bv', 'nv'].includes(lower)) {
+								terms.push(sp);
+							}
+						}
+					}
+
+					return terms;
+				}
+
+				// Add term to set (case-insensitive deduplication)
+				function addTerm(term) {
+					if (term && term.length >= 3) {
+						// Store uppercase for consistency
+						const upper = term.toUpperCase();
+						// Check if we already have this term (case-insensitive)
+						let isDupe = false;
+						for (const existing of autoKeywords) {
+							if (existing.toUpperCase() === upper) {
+								isDupe = true;
+								break;
+							}
+						}
+						if (!isDupe) {
+							autoKeywords.add(term);
+						}
+					}
+				}
+
+				// Extract domain names from pwdump
 				{% if pwdump_validation and pwdump_validation.domain_info and pwdump_validation.domain_info.domains %}
 				const domains = {{ pwdump_validation.domain_info.domains | tojson | safe }};
 				for (const domain of Object.keys(domains)) {
-					const stripped = stripTLD(domain);
-					if (stripped && !autoKeywords.includes(stripped)) {
-						autoKeywords.push(stripped);
+					const terms = extractTermsFromDomain(domain);
+					for (const term of terms) {
+						addTerm(term);
 					}
 				}
 				{% endif %}
@@ -1170,35 +1523,41 @@
 				// Extract domain name from ADD JSON domain_policy
 				{% if add_validation and add_validation.domain_policy and add_validation.domain_policy.domain_name %}
 				const addDomain = {{ add_validation.domain_policy.domain_name | tojson | safe }};
-				const strippedAdd = stripTLD(addDomain);
-				if (strippedAdd && !autoKeywords.includes(strippedAdd)) {
-					autoKeywords.push(strippedAdd);
+				const addTerms = extractTermsFromDomain(addDomain);
+				for (const term of addTerms) {
+					addTerm(term);
 				}
 				{% endif %}
 
-				// Add company name from session options (at the beginning)
+				// Add company name from session options (extract individual terms)
 				{% if analysis_options and analysis_options.company_name %}
 				const companyName = {{ analysis_options.company_name | tojson | safe }};
-				if (companyName && companyName.length >= 3 && !autoKeywords.includes(companyName)) {
-					autoKeywords.unshift(companyName);
+				const companyTerms = extractTermsFromCompanyName(companyName);
+				for (const term of companyTerms) {
+					addTerm(term);
 				}
 				{% endif %}
 
+				// Convert Set to Array and sort alphabetically
+				const keywordsArray = Array.from(autoKeywords).sort((a, b) =>
+					a.toLowerCase().localeCompare(b.toLowerCase())
+				);
+
 				// Populate the keywords if we found any
-				if (autoKeywords.length > 0) {
+				if (keywordsArray.length > 0) {
 					const hiddenInput = document.getElementById('customKeywordsHidden');
 					const countSpan = document.getElementById('keywordCount');
 
-					hiddenInput.value = autoKeywords.join('\n');
-					countSpan.textContent = `(${autoKeywords.length} term${autoKeywords.length > 1 ? 's' : ''})`;
+					hiddenInput.value = keywordsArray.join('\n');
+					countSpan.textContent = `(${keywordsArray.length} term${keywordsArray.length > 1 ? 's' : ''})`;
 
 					// Update preview
 					const preview = document.getElementById('keywordPreview');
 					if (preview) {
-						if (autoKeywords.length <= 3) {
-							preview.textContent = autoKeywords.join(', ');
+						if (keywordsArray.length <= 3) {
+							preview.textContent = keywordsArray.join(', ');
 						} else {
-							preview.textContent = autoKeywords.slice(0, 3).join(', ') + '...';
+							preview.textContent = keywordsArray.slice(0, 3).join(', ') + '...';
 						}
 					}
 				}
@@ -1431,6 +1790,15 @@
 				if (fileBrowserState.selectedFile && fileBrowserState.targetInput) {
 					document.getElementById(fileBrowserState.targetInput).value = fileBrowserState.selectedFile;
 					closeFileBrowser();
+
+					// Reset validation state for this file type so user can re-validate
+					// Determine which file type based on the target input
+					if (fileBrowserState.targetInput === 'pwdump_path') {
+						resetValidationState('pwdump', true);
+					} else if (fileBrowserState.targetInput === 'potfile_path') {
+						resetValidationState('potfile', true);
+					}
+
 					updateContinueButton();
 				}
 			}

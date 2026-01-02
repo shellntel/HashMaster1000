@@ -234,6 +234,13 @@ def is_computer_account(username: str | None) -> bool:
     """Jinja test to check if a username is a computer account (ends with $)."""
     return bool(username and username.endswith('$'))
 
+# Custom Jinja test for checking if username is a password history entry (_historyN suffix)
+@app.template_test('history_account')
+def is_history_account(username: str | None) -> bool:
+    """Jinja test to check if a username is a password history entry (ends with _historyN)."""
+    import re
+    return bool(username and re.search(r'_history\d+$', username, re.IGNORECASE))
+
 # Context processor to make global variables available to all templates
 @app.context_processor
 def inject_global_settings() -> dict[str, Any]:
@@ -1369,6 +1376,10 @@ def process_validated() -> Response:
     Accepts options from form data (POST) or falls back to session data.
     Creates a new analysis session to store results.
     """
+    import time as time_module
+    from timing_stats import get_timing_stats
+    report_start_time = time_module.time()
+
     pwdump_data = session.get("pwdump_validation")
     potfile_data = session.get("potfile_validation")
 
@@ -1390,6 +1401,7 @@ def process_validated() -> Response:
             "ignore_disabled_accounts": str(parse_boolean_field("ignore_disabled_accounts")).lower(),
             "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
             "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            "include_history_in_reports": str(parse_boolean_field("include_history_in_reports")).lower(),
             "custom_keywords": request.form.get("custom_keywords", ""),
             "domain_filter": request.form.get("domain_filter", "all"),
             # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
@@ -1416,6 +1428,10 @@ def process_validated() -> Response:
         if MASTER_POTFILE_ENABLED:
             cracked_hashes = get_cracked_hashes_direct(MASTER_POTFILE_PATH)
 
+        # Determine if password history entries should be included in main analysis
+        # Default is to exclude them (only analyze in Password History Pattern Analysis)
+        include_history = options.get("include_history_in_reports", "false") == "true"
+
         if cracked_hashes is not None:
             # Use optimized path - direct cache access
             account_data = file_parser.build_account_data_with_cache(
@@ -1423,6 +1439,7 @@ def process_validated() -> Response:
                 cracked_hashes,
                 ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
                 ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+                ignore_history_accounts=not include_history,
             )
         else:
             # Fall back to standard path for non-master potfiles
@@ -1432,6 +1449,7 @@ def process_validated() -> Response:
                 potfile_result,
                 ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
                 ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+                ignore_history_accounts=not include_history,
             )
 
         # Apply domain filter if specified
@@ -1523,9 +1541,9 @@ def process_validated() -> Response:
                 if keyword:
                     custom_keywords.append(keyword)
 
-        # Run bad practices analysis
+        # Run bad practices analysis (pass account entries for username-in-password detection)
         bad_practices = password_analysis_tools.bad_practices_analysis(
-            cracked_passwords, custom_keywords
+            cracked_passwords, custom_keywords, account_password_entries
         )
 
         # Check password reuse using in-memory account_data (avoids re-reading file)
@@ -1639,7 +1657,17 @@ def process_validated() -> Response:
         session.pop("potfile_path", None)
         session.pop("analysis_options", None)
 
+        # Record timing for report generation
+        report_duration = time_module.time() - report_start_time
+        timing = get_timing_stats()
+        timing.record_sample(
+            operation="report_generation",
+            duration_seconds=report_duration,
+            item_count=total_count
+        )
+
         print(f"\nPassword and hash analysis complete. Session created: {analysis_session.name} ({analysis_session.session_id})\n")
+        print(f"Report generation took {report_duration:.2f}s for {total_count} accounts")
         return cast(FlaskResponse, redirect(url_for("report")))
 
     except Exception as e:
@@ -1694,6 +1722,112 @@ def hidden_pages_index() -> str:
 def hibp_download_page() -> str:
     """HIBP database download management page."""
     return render_template('hibp_download.html')
+
+
+@app.route("/timing/stats")
+@login_required
+def timing_stats_page() -> str:
+    """Timing statistics page."""
+    return render_template('timing_stats.html')
+
+
+@app.route("/api/timing/status")
+@login_required
+def api_timing_status() -> Response:
+    """Get timing statistics status."""
+    from timing_stats import get_timing_stats
+    timing = get_timing_stats()
+    return jsonify(timing.get_status())
+
+
+@app.route("/api/timing/clear", methods=["POST"])
+@login_required
+def api_timing_clear() -> Response:
+    """Clear all timing statistics."""
+    from timing_stats import get_timing_stats
+    timing = get_timing_stats()
+    timing.clear_stats()
+    return jsonify({"success": True})
+
+
+@app.route("/api/timing/estimate")
+@login_required
+def api_timing_estimate() -> Response:
+    """
+    Get time estimates for processing operations.
+
+    Query params:
+        - phase: Operation phase ('report_generation', 'validation', etc.)
+        - hash_count: Number of hashes/accounts to process
+        - account_count: Number of accounts (alternative to hash_count)
+        - cracked_count: Number of cracked passwords
+        - unique_hashes: Number of unique hashes (optional)
+        - hibp_enabled: Whether HIBP check is enabled (true/false)
+        - hibp_mode: HIBP mode (sqlite, binary_search, api)
+    """
+    from timing_stats import get_timing_stats
+
+    timing = get_timing_stats()
+
+    # Support simple phase-based estimation
+    phase = request.args.get('phase')
+    hash_count = request.args.get('hash_count', 0, type=int)
+
+    if phase and hash_count > 0:
+        # Simple operation estimation based on phase
+        operation_map = {
+            'report_generation': 'report_generation',
+            'validation': 'pwdump_validation',
+        }
+        operation = operation_map.get(phase, phase)
+        estimate = timing.estimate_duration(operation, hash_count)
+
+        if estimate:
+            return jsonify({
+                "operation": operation,
+                "item_count": hash_count,
+                "estimated_total_seconds": estimate,
+                "confidence": "medium" if timing._operations.get(operation, None) else "low"
+            })
+        else:
+            # No historical data yet - provide a rough estimate based on typical performance
+            # Rough estimate: ~1000 accounts per second for report generation
+            rough_estimate = hash_count / 1000.0 if hash_count > 0 else 0
+            return jsonify({
+                "operation": operation,
+                "item_count": hash_count,
+                "estimated_total_seconds": max(rough_estimate, 2.0),  # At least 2 seconds
+                "confidence": "low",
+                "note": "Estimate based on default assumptions - no historical data available yet"
+            })
+
+    # Fall back to detailed phase processing estimates
+    account_count = request.args.get('account_count', hash_count, type=int)
+    cracked_count = request.args.get('cracked_count', 0, type=int)
+    unique_hashes = request.args.get('unique_hashes', type=int)
+    hibp_enabled = request.args.get('hibp_enabled', 'false').lower() == 'true'
+    hibp_mode = request.args.get('hibp_mode')
+
+    estimates = timing.estimate_processing_phase(
+        account_count=account_count,
+        cracked_count=cracked_count,
+        hibp_enabled=hibp_enabled,
+        hibp_mode=hibp_mode,
+        unique_hash_count=unique_hashes,
+    )
+
+    return jsonify(estimates)
+
+
+@app.route("/api/timing/systems")
+@login_required
+def api_timing_systems() -> Response:
+    """Get system comparison data across all systems that have run the app."""
+    from timing_stats import get_timing_stats
+
+    timing = get_timing_stats()
+    systems = timing.get_systems_comparison()
+    return jsonify({"systems": systems})
 
 
 # Helper function to load session data with fallback to legacy paths
@@ -1992,6 +2126,7 @@ def hibp_status() -> Response:
         "loaded": local_db_status["loaded"],
         "hash_count": local_db_status["hash_count"],
         "file_date": local_db_status.get("file_date"),
+        "mode": local_db_status.get("mode"),  # "sqlite" or "binary_search"
         "valid": False,
         "message": ""
     }
@@ -2095,6 +2230,10 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
     unique_prefixes = len(set(acct["ntlm_hash"][:5].upper() for acct in account_list
                               if acct.get("ntlm_hash") and len(acct["ntlm_hash"]) >= 5))
 
+    # Track start time for duration estimates
+    import time as _time
+    check_start_time = _time.time()
+
     def save_progress(checked: int, total: int, found: int = 0, status: str = "running"):
         """Save progress to file for frontend polling."""
         try:
@@ -2103,7 +2242,9 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
                 "total": total,
                 "found": found,
                 "percentage": round((checked / total) * 100, 1) if total > 0 else 0,
-                "status": status
+                "status": status,
+                "start_time": check_start_time,
+                "mode": method,
             }
             with open(progress_path, "w") as f:
                 json.dump(progress_data, f)
@@ -2281,6 +2422,8 @@ def hibp_check_hashes() -> Response:
 @login_required
 def hibp_progress() -> Response:
     """Get current HIBP check progress for polling."""
+    from timing_stats import get_timing_stats, get_processing_message, format_duration
+
     session_mgr = get_session_manager()
     session_dir = session_mgr.get_session_dir()
     progress_path = os.path.join(session_dir, "hibp_progress.json")
@@ -2291,6 +2434,32 @@ def hibp_progress() -> Response:
     try:
         with open(progress_path, "r") as f:
             progress = json.load(f)
+
+        # Add time estimate and fun message for running status
+        if progress.get("status") == "running":
+            timing = get_timing_stats()
+            checked = progress.get("checked", 0)
+            total = progress.get("total", 0)
+            mode = progress.get("mode", "sqlite")
+
+            # Calculate elapsed and estimate remaining
+            start_time = progress.get("start_time")
+            if start_time and checked > 0:
+                import time
+                elapsed = time.time() - start_time
+                rate = checked / elapsed if elapsed > 0 else 0
+                remaining = (total - checked) / rate if rate > 0 else 0
+
+                progress["elapsed_seconds"] = round(elapsed, 1)
+                progress["elapsed_formatted"] = format_duration(elapsed)
+                progress["remaining_seconds"] = round(remaining, 1)
+                progress["remaining_formatted"] = format_duration(remaining)
+                progress["rate"] = round(rate, 1)
+
+            # Add a fun processing message
+            message_index = (checked // 10000) % 18 if checked else 0
+            progress["message"] = get_processing_message(message_index)
+
         return jsonify(progress)
     except Exception:
         return jsonify({"status": "idle"})
@@ -2430,7 +2599,7 @@ def hibp_summary() -> Response:
 @login_required
 def hibp_download_info() -> Response:
     """Get information about HIBP database download, including estimates and attribution."""
-    from hibp_downloader import estimate_download, get_download_status
+    from hibp_downloader import estimate_download, get_download_status, get_conversion_status, get_sqlite_db_info
     from hibp_checker import get_local_db_status
 
     # Get current local database status
@@ -2442,15 +2611,47 @@ def hibp_download_info() -> Response:
     # Get any active download status
     download_status = get_download_status()
 
+    # Get conversion status
+    conversion_status = get_conversion_status()
+
     # Default output path
     default_output = os.path.join("data", "pwnedpasswords-ntlm.txt")
+    configured_path = os.environ.get("HIBP_LOCAL_DB_PATH", "")
+
+    # Check for SQLite version of configured path
+    sqlite_info = None
+    text_file_exists = False
+    text_file_size_gb = None
+    text_file_path = None
+    if configured_path:
+        # Check if text file exists (either directly configured or alongside SQLite)
+        if configured_path.endswith('.txt') and os.path.exists(configured_path):
+            text_file_exists = True
+            text_file_path = configured_path
+            text_file_size_gb = round(os.path.getsize(configured_path) / (1024**3), 1)
+        elif configured_path.endswith('.db'):
+            # Check if text file exists alongside SQLite db
+            txt_path = os.path.splitext(configured_path)[0] + ".txt"
+            if os.path.exists(txt_path):
+                text_file_exists = True
+                text_file_path = txt_path
+                text_file_size_gb = round(os.path.getsize(txt_path) / (1024**3), 1)
+
+        sqlite_path = os.path.splitext(configured_path)[0] + ".db"
+        if os.path.exists(sqlite_path):
+            sqlite_info = get_sqlite_db_info(sqlite_path)
 
     return jsonify({
         "local_database": local_db_status,
         "estimates": estimates,
         "download_status": download_status,
+        "conversion_status": conversion_status,
+        "sqlite_info": sqlite_info,
+        "text_file_exists": text_file_exists,
+        "text_file_size_gb": text_file_size_gb,
+        "text_file_path": text_file_path,
         "default_output_path": default_output,
-        "configured_path": os.environ.get("HIBP_LOCAL_DB_PATH", "")
+        "configured_path": configured_path
     })
 
 
@@ -2525,6 +2726,167 @@ def hibp_download_cancel() -> Response:
             "success": False,
             "message": "No active download to cancel"
         }), 400
+
+
+@app.route("/api/hibp/convert/start", methods=["POST"])
+@login_required
+def hibp_convert_start() -> Response:
+    """
+    Start converting a HIBP text file to SQLite database.
+
+    This converts the text file to SQLite for faster indexed lookups.
+    The conversion runs in a background thread.
+
+    Request JSON:
+        - text_file_path: Path to the HIBP text file (required)
+        - db_output_path: Output path for SQLite database (optional, defaults to .db extension)
+
+    Returns immediately with status. Poll /api/hibp/convert/status for progress.
+    """
+    from hibp_downloader import start_conversion_background, get_conversion_status
+
+    data = request.get_json() or {}
+
+    text_file_path = data.get("text_file_path", "").strip()
+
+    if not text_file_path:
+        # Try to use configured HIBP path
+        text_file_path = os.environ.get("HIBP_LOCAL_DB_PATH", "").strip()
+
+    if not text_file_path:
+        return jsonify({
+            "success": False,
+            "message": "No text file path provided. Set text_file_path in request or HIBP_LOCAL_DB_PATH in .env"
+        }), 400
+
+    if not os.path.exists(text_file_path):
+        return jsonify({
+            "success": False,
+            "message": f"Text file not found: {text_file_path}"
+        }), 404
+
+    # Check if already a SQLite database
+    if text_file_path.endswith('.db'):
+        return jsonify({
+            "success": False,
+            "message": "Path is already a SQLite database"
+        }), 400
+
+    db_output_path = data.get("db_output_path")
+    if not db_output_path:
+        # Default: same location with .db extension
+        db_output_path = os.path.splitext(text_file_path)[0] + ".db"
+
+    # Check if output already exists
+    if os.path.exists(db_output_path):
+        return jsonify({
+            "success": False,
+            "message": f"SQLite database already exists: {db_output_path}. Delete it first to reconvert."
+        }), 409
+
+    started = start_conversion_background(text_file_path, db_output_path)
+
+    if started:
+        return jsonify({
+            "success": True,
+            "message": "SQLite conversion started",
+            "input_path": text_file_path,
+            "output_path": db_output_path
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": "A conversion is already in progress"
+        }), 409
+
+
+@app.route("/api/hibp/convert/status")
+@login_required
+def hibp_convert_status() -> Response:
+    """Get the current status of an active or completed SQLite conversion."""
+    from hibp_downloader import get_conversion_status
+
+    return jsonify(get_conversion_status())
+
+
+@app.route("/api/hibp/convert/cancel", methods=["POST"])
+@login_required
+def hibp_convert_cancel() -> Response:
+    """Cancel an active SQLite conversion."""
+    from hibp_downloader import cancel_conversion
+
+    cancelled = cancel_conversion()
+
+    if cancelled:
+        return jsonify({
+            "success": True,
+            "message": "Conversion cancellation requested"
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "message": "No active conversion to cancel"
+        }), 400
+
+
+@app.route("/api/hibp/text-file/delete", methods=["POST"])
+@login_required
+def hibp_delete_text_file() -> Response:
+    """
+    Delete the HIBP text file to save disk space after SQLite conversion.
+
+    Only allows deletion when:
+    - A SQLite database is actively loaded
+    - The text file exists
+    """
+    from hibp_checker import get_local_db_status
+
+    # Get current local database status
+    local_db_status = get_local_db_status()
+
+    # Only allow deletion if SQLite is active
+    if local_db_status.get("mode") != "sqlite":
+        return jsonify({
+            "success": False,
+            "message": "Cannot delete text file: SQLite database is not active. Ensure SQLite conversion is complete and the app has been restarted."
+        }), 400
+
+    # Find the text file path
+    configured_path = os.environ.get("HIBP_LOCAL_DB_PATH", "")
+    text_file_path = None
+
+    if configured_path:
+        if configured_path.endswith('.txt') and os.path.exists(configured_path):
+            text_file_path = configured_path
+        elif configured_path.endswith('.db'):
+            txt_path = os.path.splitext(configured_path)[0] + ".txt"
+            if os.path.exists(txt_path):
+                text_file_path = txt_path
+
+    if not text_file_path or not os.path.exists(text_file_path):
+        return jsonify({
+            "success": False,
+            "message": "Text file not found"
+        }), 404
+
+    # Get file size before deletion
+    file_size_bytes = os.path.getsize(text_file_path)
+    file_size_gb = round(file_size_bytes / (1024**3), 1)
+
+    try:
+        os.remove(text_file_path)
+        return jsonify({
+            "success": True,
+            "message": f"Text file deleted successfully",
+            "freed_bytes": file_size_bytes,
+            "freed_gb": file_size_gb,
+            "deleted_path": text_file_path
+        })
+    except OSError as e:
+        return jsonify({
+            "success": False,
+            "message": f"Failed to delete file: {str(e)}"
+        }), 500
 
 
 def run_automatic_hibp_check(account_data: dict, session_dir: str) -> dict | None:
@@ -2811,6 +3173,10 @@ def process_add_validated() -> Response:
     Process validated ADD JSON with user's configuration.
     Generates standard reports plus privileged account reports.
     """
+    import time as time_module
+    from timing_stats import get_timing_stats
+    report_start_time = time_module.time()
+
     add_data = session.get("add_validation")
     potfile_data = session.get("potfile_validation")
     add_json_path = session.get("add_json_path")
@@ -2836,6 +3202,7 @@ def process_add_validated() -> Response:
             "ignore_disabled_accounts": str(parse_boolean_field("ignore_disabled_accounts")).lower(),
             "ignore_computer_accounts": str(parse_boolean_field("ignore_computer_accounts")).lower(),
             "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
+            "include_history_in_reports": str(parse_boolean_field("include_history_in_reports")).lower(),
             "custom_keywords": request.form.get("custom_keywords", ""),
             # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
             "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
@@ -2852,12 +3219,17 @@ def process_add_validated() -> Response:
         if potfile_data:
             potfile_result = file_parser.dict_to_potfile_result(potfile_data)
 
+        # Determine if historical password entries should be included in main analysis
+        # Default is to exclude them (only analyze in Password History Pattern Analysis)
+        include_history = options.get("include_history_in_reports", "false") == "true"
+
         # Convert ADD data to account_data format
         account_data, privileged_findings = file_parser.add_to_account_data(
             add_result,
             potfile_result,
             ignore_disabled=options.get("ignore_disabled_accounts", "false") == "true",
             ignore_computer_accounts=options.get("ignore_computer_accounts", "false") == "true",
+            include_historical=include_history,
         )
 
         if not account_data:
@@ -2962,9 +3334,9 @@ def process_add_validated() -> Response:
                 if keyword:
                     custom_keywords.append(keyword)
 
-        # Run bad practices analysis
+        # Run bad practices analysis (pass account entries for username-in-password detection)
         bad_practices = password_analysis_tools.bad_practices_analysis(
-            cracked_passwords, custom_keywords
+            cracked_passwords, custom_keywords, account_password_entries
         )
 
         # Create a new session for this analysis
@@ -3130,7 +3502,17 @@ def process_add_validated() -> Response:
         session.pop("potfile_path", None)
         session.pop("analysis_options", None)
 
+        # Record timing for report generation
+        report_duration = time_module.time() - report_start_time
+        timing = get_timing_stats()
+        timing.record_sample(
+            operation="report_generation",
+            duration_seconds=report_duration,
+            item_count=total_count
+        )
+
         print(f"\nADD JSON analysis complete. Session created: {analysis_session.name} ({analysis_session.session_id})\n")
+        print(f"Report generation took {report_duration:.2f}s for {total_count} accounts")
         return cast(FlaskResponse, redirect(url_for("report")))
 
     except Exception as e:
@@ -4726,6 +5108,24 @@ def get_current_settings() -> Response:
     if domain_info_data:
         options["domain_info"] = domain_info_data
 
+    # Check if there's password history data available
+    # Look for history entries in pwdump validation or ADD JSON validation
+    has_history = False
+    pwdump_validation = session.get("pwdump_validation")
+    add_validation = session.get("add_validation")
+
+    if pwdump_validation and pwdump_validation.get("lines"):
+        import re
+        for line in pwdump_validation["lines"]:
+            username = line.get("username", "")
+            if username and re.search(r'_history\d+$', username, re.IGNORECASE):
+                has_history = True
+                break
+    elif add_validation and add_validation.get("total_historical_hashes", 0) > 0:
+        has_history = True
+
+    options["has_history_data"] = has_history
+
     return jsonify(options)
 
 
@@ -4762,17 +5162,20 @@ def regenerate_with_settings() -> Response:
         new_ignore_disabled = new_settings.get("ignore_disabled_accounts", "false")
         new_ignore_computer = new_settings.get("ignore_computer_accounts", "false")
         new_ignore_blank = new_settings.get("ignore_blank_passwords", "false")
+        new_include_history = new_settings.get("include_history_in_reports", "false")
 
         current_options = session.get("analysis_options", {})
         current_domain_filter = current_options.get("domain_filter", "all")
         current_ignore_disabled = current_options.get("ignore_disabled_accounts", "false")
         current_ignore_computer = current_options.get("ignore_computer_accounts", "false")
+        current_include_history = current_options.get("include_history_in_reports", "false")
 
         # Check if any filter that affects account data has changed
         domain_filter_changed = new_domain_filter.lower() != current_domain_filter.lower()
         account_filter_changed = (
             new_ignore_disabled != current_ignore_disabled or
-            new_ignore_computer != current_ignore_computer
+            new_ignore_computer != current_ignore_computer or
+            new_include_history != current_include_history
         )
 
         # If domain or account filter changed, need to rebuild account_data from original validation
@@ -4804,6 +5207,7 @@ def regenerate_with_settings() -> Response:
                         cracked_hashes,
                         ignore_disabled=new_ignore_disabled == "true",
                         ignore_computer_accounts=new_ignore_computer == "true",
+                        ignore_history_accounts=new_include_history != "true",
                     )
                 else:
                     # Fall back to standard path
@@ -4813,6 +5217,7 @@ def regenerate_with_settings() -> Response:
                         potfile_result,
                         ignore_disabled=new_ignore_disabled == "true",
                         ignore_computer_accounts=new_ignore_computer == "true",
+                        ignore_history_accounts=new_include_history != "true",
                     )
 
                 # Apply new domain filter
@@ -4846,6 +5251,7 @@ def regenerate_with_settings() -> Response:
             "ignore_blank_passwords": new_ignore_blank,
             "ignore_disabled_accounts": new_ignore_disabled,
             "ignore_computer_accounts": new_ignore_computer,
+            "include_history_in_reports": new_include_history,
             "domain_filter": new_domain_filter,
         }
         session["analysis_options"] = options
@@ -4902,9 +5308,9 @@ def regenerate_with_settings() -> Response:
                 if keyword and len(keyword) >= 3:
                     custom_keywords.append(keyword)
 
-        # Re-run bad practices analysis
+        # Re-run bad practices analysis (pass account entries for username-in-password detection)
         bad_practices = password_analysis_tools.bad_practices_analysis(
-            cracked_passwords, custom_keywords
+            cracked_passwords, custom_keywords, account_password_entries
         )
 
         # Save updated results to session directory
@@ -5606,6 +6012,13 @@ def delete_comparison_result(comparison_id: str) -> Response:
 
 
 if __name__ == "__main__":
+    import time as _time
+    from timing_stats import get_timing_stats
+    from hibp_checker import get_local_db_status
+
+    timing = get_timing_stats()
+    timing.start_startup_timing()
+
     # Validate libraries and files before starting the app
     validate_libraries()
     validate_files()
@@ -5633,9 +6046,13 @@ if __name__ == "__main__":
     if hibp_local_db_path:
         from hibp_checker import init_local_hibp_database
         print(f"\n--> Checking local HIBP database at: {hibp_local_db_path}")
+        hibp_start = _time.time()
         success, message, estimated_entries = init_local_hibp_database(hibp_local_db_path)
+        hibp_duration = _time.time() - hibp_start
         if success:
-            print(f"--> Local HIBP database ready: ~{estimated_entries:,} hashes (binary search, no memory loading)")
+            db_status = get_local_db_status()
+            timing.record_hibp_init(hibp_duration, db_status.get("mode", "unknown"), estimated_entries)
+            print(f"--> Local HIBP database ready: ~{estimated_entries:,} hashes ({db_status.get('mode', 'unknown')} mode, {hibp_duration:.2f}s)")
         else:
             print(f"--> Warning: Could not initialize local HIBP database: {message}")
     else:
@@ -5644,11 +6061,19 @@ if __name__ == "__main__":
     # Preload master potfile cache at startup for instant first request
     if MASTER_POTFILE_ENABLED and os.path.exists(MASTER_POTFILE_PATH):
         print(f"\n--> Loading master potfile cache: {MASTER_POTFILE_PATH}")
+        potfile_start = _time.time()
         cache = get_master_cache()
         cache.load(MASTER_POTFILE_PATH)
+        potfile_duration = _time.time() - potfile_start
         stats = cache.get_stats()
         if stats:
-            print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes")
+            timing.record_potfile_load(potfile_duration, stats['ntlm_count'])
+            print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes ({potfile_duration:.2f}s)")
+
+    # Record startup completion
+    startup = timing.finish_startup_timing()
+    if startup:
+        print(f"\n--> Startup complete in {startup.total_startup_seconds:.2f}s")
 
     # Start Flask application with threading for better performance
     # Threading allows handling multiple concurrent requests (important for report page)
