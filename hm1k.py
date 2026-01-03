@@ -2163,6 +2163,99 @@ def password_history_summary() -> Response:
     return jsonify(summary)
 
 
+@app.route("/api/password_history/paginated")
+@login_required
+def password_history_paginated() -> Response:
+    """
+    Get paginated password history results for DataTables server-side processing.
+
+    Query parameters (DataTables server-side):
+    - draw: DataTables draw counter
+    - start: Starting record index
+    - length: Number of records to return
+    - search[value]: Global search term
+    - order[0][column]: Column index to sort by
+    - order[0][dir]: Sort direction (asc/desc)
+    """
+    data = _load_session_json("password_history_patterns.json")
+    if data is None:
+        return jsonify({
+            "draw": int(request.args.get("draw", 1)),
+            "recordsTotal": 0,
+            "recordsFiltered": 0,
+            "data": []
+        })
+
+    users = data.get("top_predictable_users", [])
+
+    # Get DataTables parameters
+    draw = int(request.args.get("draw", 1))
+    start = int(request.args.get("start", 0))
+    length = int(request.args.get("length", 10))
+    search_value = request.args.get("search[value]", "").lower()
+    order_column = int(request.args.get("order[0][column]", 1))  # Default: predictability_score
+    order_dir = request.args.get("order[0][dir]", "desc")
+
+    # Column mapping for sorting (0=expand icon, 1=username, 2=score, 3=patterns, 4=evolution)
+    column_map = {
+        0: "username",
+        1: "predictability_score",
+        2: "patterns",
+        3: "full_history"
+    }
+    sort_key = column_map.get(order_column, "predictability_score")
+
+    records_total = len(users)
+
+    # Apply search filter
+    if search_value:
+        filtered_users = []
+        for user in users:
+            username_match = search_value in user.get("username", "").lower()
+            # Search in patterns
+            pattern_match = any(
+                search_value in p.get("type", "").lower()
+                for p in user.get("patterns", [])
+            )
+            # Search in passwords
+            password_match = any(
+                search_value in str(entry.get("password", "")).lower()
+                for entry in user.get("full_history", [])
+                if entry.get("password")
+            )
+            if username_match or pattern_match or password_match:
+                filtered_users.append(user)
+        users = filtered_users
+
+    records_filtered = len(users)
+
+    # Sort results
+    reverse = order_dir == "desc"
+    try:
+        if sort_key == "predictability_score":
+            users.sort(key=lambda x: x.get("predictability_score", 0), reverse=reverse)
+        elif sort_key == "username":
+            users.sort(key=lambda x: x.get("username", "").lower(), reverse=reverse)
+        elif sort_key == "patterns":
+            users.sort(key=lambda x: len(x.get("patterns", [])), reverse=reverse)
+        elif sort_key == "full_history":
+            users.sort(key=lambda x: len(x.get("full_history", [])), reverse=reverse)
+    except (TypeError, AttributeError):
+        pass
+
+    # Paginate
+    paginated = users[start:start + length]
+
+    # Format response for DataTables - send the full user objects
+    # The client-side rendering will format them properly
+    return jsonify({
+        "draw": draw,
+        "recordsTotal": records_total,
+        "recordsFiltered": records_filtered,
+        "data": paginated
+    })
+
+
 # Endpoint for Privileged Accounts (ADD JSON)
 @app.route("/privileged_accounts.json")
 @login_required

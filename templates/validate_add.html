@@ -238,6 +238,8 @@
 
         let processingMessageInterval = null;
         let currentMessageIndex = 0;
+        let processingStartTime = null;
+        const MIN_PROCESSING_DISPLAY_MS = 3000; // Show at least one message rotation
 
         // Processing overlay functions
         function showProcessing(message, subtext, options = {}) {
@@ -268,6 +270,30 @@
             }
 
             overlay.classList.add('active');
+            processingStartTime = Date.now();
+        }
+
+        function hideProcessing() {
+            // Ensure minimum display time for fun messages to cycle
+            if (processingStartTime) {
+                const elapsed = Date.now() - processingStartTime;
+                if (elapsed < MIN_PROCESSING_DISPLAY_MS) {
+                    // Wait for remaining time then hide
+                    setTimeout(() => hideProcessingNow(), MIN_PROCESSING_DISPLAY_MS - elapsed);
+                    return;
+                }
+            }
+            hideProcessingNow();
+        }
+
+        function hideProcessingNow() {
+            document.getElementById('processingOverlay').classList.remove('active');
+            // Clear the message rotation interval
+            if (processingMessageInterval) {
+                clearInterval(processingMessageInterval);
+                processingMessageInterval = null;
+            }
+            processingStartTime = null;
         }
 
         document.getElementById('logoutButton').addEventListener('click', function() {

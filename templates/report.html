@@ -308,8 +308,10 @@
 			>
 				<label for="lengthFilterOption">Filter Results:</label>
 				<select id="lengthFilterOption">
-					<option value="all" selected>Full Scale</option>
+					<option value="common" selected>Common (0-32)</option>
 					<option value="nonZero">Hide Empty</option>
+					<option value="all">Full Scale</option>
+					<option value="log">Log Scale</option>
 				</select>
 			</div>
 			<!-- Add buttons for copying and downloading data -->
@@ -735,6 +737,7 @@
 						Show Passwords
 					</button>
 				</div>
+				<p class="section-description" style="font-style: italic; color: #ff9800;"><strong>Note:</strong> In the Password Evolution column, passwords highlighted in <span style="background-color: rgba(220, 53, 69, 0.3); color: #ff6b6b; padding: 2px 4px; border-radius: 3px;">red</span> indicate exact hash matches (password reuse), while those in <span style="background-color: rgba(255, 193, 7, 0.3); color: #ffc107; padding: 2px 4px; border-radius: 3px;">yellow</span> indicate detected predictable patterns.</p>
 				<table id="predictableUsersTable" class="display" style="width: 100%">
 					<thead>
 						<tr>
@@ -992,17 +995,38 @@
 					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 						<h3 style="margin: 0;">Accounts Found in Breaches</h3>
 						<div style="display: flex; gap: 8px;">
+							<select id="hibpViewMode" onchange="toggleHIBPViewMode()" style="padding: 6px 10px; border-radius: 4px; background: #2a2a2a; color: #fff; border: 1px solid #444;">
+								<option value="account">View by Account</option>
+								<option value="password">View by Password</option>
+							</select>
 							<button id="downloadHIBPCSV" onclick="downloadHIBPCSV()">Download CSV</button>
 							<button id="toggleHIBPBlur" class="toggle-visibility-button" onclick="toggleHIBPBlur()">Show Passwords</button>
 						</div>
 					</div>
 					<p class="warning-text">These accounts have password hashes that appear in known data breaches. The "Times Seen" count indicates how commonly the password is used globally.</p>
+
+					<!-- Account View Table (default) -->
 					<table id="hibpAllBreachedTable" class="display" style="width: 100%">
 						<thead>
 							<tr>
 								<th>Username</th>
 								<th>Status</th>
 								<th>Password</th>
+								<th>Times Seen in Breaches</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+
+					<!-- Password View Table (hidden by default) -->
+					<table id="hibpByPasswordTable" class="display" style="width: 100%; display: none;">
+						<thead>
+							<tr>
+								<th></th>
+								<th>Password</th>
+								<th>Accounts</th>
 								<th>Times Seen in Breaches</th>
 							</tr>
 						</thead>
@@ -1794,7 +1818,7 @@
 					}
 
 					// Initialize with server-side processing
-					loadFullHIBPResults();
+					initHIBPServerSideTable();
 				} else {
 					const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
 					if (allBreachedBody) {
@@ -1864,52 +1888,56 @@
 					</div>
 				`;
 
-				// Show loading placeholder for tables until user expands
-				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
-				if (allBreachedBody && summary.total_found > 0) {
-					allBreachedBody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 20px;">
-						<button class="btn btn-primary" onclick="loadFullHIBPResults()">Load ${summary.total_found.toLocaleString()} Breached Account Details</button>
-					</td></tr>`;
-				}
-			}
-
-			// Load HIBP results with server-side pagination
-			let hibpDataTable = null;
-			async function loadFullHIBPResults() {
-				if (hibpDataTable) return;  // Already initialized
-
-				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
-				if (allBreachedBody) {
-					allBreachedBody.innerHTML = '<tr><td colspan="4" style="text-align:center">Initializing...</td></tr>';
-				}
-
-				// Helper to format password display with blur structure
-				function formatHIBPPasswordForTable(pw) {
-					if (pw === null || pw === undefined) {
-						return '<span class="hibp-password-unknown">(not cracked)</span>';
+				// Auto-load the table with server-side processing
+				if (summary.total_found > 0) {
+					// Destroy existing DataTable if any
+					if (hibpDataTable) {
+						hibpDataTable.destroy();
+						hibpDataTable = null;
 					}
-					if (pw === '') {
-						return '<span class="hibp-password-unknown">(blank)</span>';
-					}
-					// Apply blur structure: show first 2 and last 2, blur middle
-					if (pw.length <= 4) {
-						return `<span class="hibp-password-blurred">${escapeHtml(pw)}</span>`;
-					}
-					const start = escapeHtml(pw.slice(0, 2));
-					const middle = escapeHtml(pw.slice(2, -2));
-					const end = escapeHtml(pw.slice(-2));
-					return `<span class="hibp-password-visible">${start}</span><span class="hibp-password-blurred">${middle}</span><span class="hibp-password-visible">${end}</span>`;
-				}
 
-				// Initialize DataTable with server-side processing
-				if (typeof $.fn.DataTable !== 'undefined') {
-					// Clear existing table body
+					const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
 					if (allBreachedBody) {
 						allBreachedBody.innerHTML = '';
 					}
 
+					// Initialize with server-side processing
+					initHIBPServerSideTable();
+				}
+			}
+
+			// Helper to format password display with blur structure (used by HIBP tables)
+			function formatHIBPPasswordForTable(pw) {
+				if (pw === null || pw === undefined) {
+					return '<span class="hibp-password-unknown">(not cracked)</span>';
+				}
+				if (pw === '') {
+					return '<span class="hibp-password-unknown">(blank)</span>';
+				}
+				// Apply blur structure: show first 2 and last 2, blur middle
+				if (pw.length <= 4) {
+					return `<span class="hibp-password-blurred">${escapeHtml(pw)}</span>`;
+				}
+				const start = escapeHtml(pw.slice(0, 2));
+				const middle = escapeHtml(pw.slice(2, -2));
+				const end = escapeHtml(pw.slice(-2));
+				return `<span class="hibp-password-visible">${start}</span><span class="hibp-password-blurred">${middle}</span><span class="hibp-password-visible">${end}</span>`;
+			}
+
+			// Initialize HIBP table with server-side pagination
+			let hibpDataTable = null;
+			function initHIBPServerSideTable() {
+				if (hibpDataTable) return;  // Already initialized
+
+				const allBreachedBody = document.querySelector('#hibpAllBreachedTable tbody');
+				if (allBreachedBody) {
+					allBreachedBody.innerHTML = '';
+				}
+
+				// Initialize DataTable with server-side processing
+				if (typeof $.fn.DataTable !== 'undefined') {
 					hibpDataTable = $('#hibpAllBreachedTable').DataTable({
-						processing: false,  // Disabled - server-side fetch is fast enough
+						processing: false,
 						serverSide: true,
 						ajax: {
 							url: '/api/hibp/results/paginated?filter=breached',
@@ -1968,6 +1996,165 @@
 					resultsPanel.classList.remove('hibp-tables-unblurred');
 					button.textContent = 'Show Passwords';
 				}
+			}
+
+			// Toggle between Account view and Password view for HIBP results
+			let hibpByPasswordTable = null;
+			let hibpByPasswordDataLoaded = false;
+
+			function toggleHIBPViewMode() {
+				const viewMode = document.getElementById('hibpViewMode').value;
+				const accountTable = document.getElementById('hibpAllBreachedTable');
+				const passwordTable = document.getElementById('hibpByPasswordTable');
+				const accountWrapper = accountTable ? accountTable.closest('.dataTables_wrapper') : null;
+				const passwordWrapper = passwordTable ? passwordTable.closest('.dataTables_wrapper') : null;
+
+				if (viewMode === 'password') {
+					// Show password view, hide account view
+					if (accountWrapper) accountWrapper.style.display = 'none';
+					else if (accountTable) accountTable.style.display = 'none';
+
+					// Initialize password table if not already done
+					if (!hibpByPasswordDataLoaded) {
+						initHIBPByPasswordTable();
+					} else {
+						if (passwordWrapper) passwordWrapper.style.display = '';
+						else if (passwordTable) passwordTable.style.display = '';
+					}
+				} else {
+					// Show account view, hide password view
+					if (accountWrapper) accountWrapper.style.display = '';
+					else if (accountTable) accountTable.style.display = '';
+
+					if (passwordWrapper) passwordWrapper.style.display = 'none';
+					else if (passwordTable) passwordTable.style.display = 'none';
+				}
+			}
+
+			function initHIBPByPasswordTable() {
+				const passwordTable = document.getElementById('hibpByPasswordTable');
+				if (!passwordTable) return;
+
+				// Fetch all HIBP results and group by password
+				fetch('hibp_results.json')
+					.then(response => response.json())
+					.then(data => {
+						const results = data.results || [];
+						const breached = results.filter(r => r.found_in_breach);
+
+						// Group by password (using hash as key for uncracked)
+						const grouped = {};
+						breached.forEach(item => {
+							const key = item.cracked_pw !== null ? item.cracked_pw : `__hash__${item.nt_hash}`;
+							if (!grouped[key]) {
+								grouped[key] = {
+									password: item.cracked_pw,
+									hash: item.nt_hash,
+									breach_count: item.breach_count || 0,
+									accounts: []
+								};
+							}
+							grouped[key].accounts.push({
+								username: item.username,
+								status: item.account_status
+							});
+						});
+
+						// Convert to array and sort by account count descending
+						const groupedArray = Object.values(grouped).sort((a, b) => b.accounts.length - a.accounts.length);
+
+						// Initialize DataTable
+						passwordTable.style.display = '';
+						hibpByPasswordTable = $('#hibpByPasswordTable').DataTable({
+							data: groupedArray,
+							pageLength: 10,
+							lengthMenu: [10, 25, 50, 100],
+							order: [[2, 'desc']],  // Sort by account count
+							language: {
+								search: "Filter:"
+							},
+							columns: [
+								{
+									className: 'dt-control',
+									orderable: false,
+									data: null,
+									defaultContent: '',
+									render: function() {
+										return '<span class="expand-icon" style="cursor:pointer; font-size: 16px;">▶</span>';
+									}
+								},
+								{
+									data: 'password',
+									render: function(data) {
+										return formatHIBPPasswordForTable(data);
+									}
+								},
+								{
+									data: 'accounts',
+									className: 'dt-center',
+									render: function(data) {
+										return data.length.toLocaleString();
+									}
+								},
+								{
+									data: 'breach_count',
+									className: 'dt-center',
+									render: function(data) {
+										return data ? data.toLocaleString() : '0';
+									}
+								}
+							]
+						});
+
+						// Add click handler for expanding rows
+						$('#hibpByPasswordTable tbody').on('click', 'td.dt-control', function() {
+							const tr = $(this).closest('tr');
+							const row = hibpByPasswordTable.row(tr);
+							const icon = $(this).find('.expand-icon');
+
+							if (row.child.isShown()) {
+								// Close the row
+								row.child.hide();
+								tr.removeClass('shown');
+								icon.text('▶');
+							} else {
+								// Open the row
+								const rowData = row.data();
+								row.child(formatAccountsList(rowData.accounts)).show();
+								tr.addClass('shown');
+								icon.text('▼');
+							}
+						});
+
+						hibpByPasswordDataLoaded = true;
+					})
+					.catch(error => {
+						console.error('Error loading HIBP data for password view:', error);
+					});
+			}
+
+			// Format the accounts list for expanded row
+			function formatAccountsList(accounts) {
+				if (!accounts || accounts.length === 0) {
+					return '<div style="padding: 10px;">No accounts</div>';
+				}
+
+				let html = '<div style="padding: 10px 20px; background: rgba(0,0,0,0.2);">';
+				html += '<table class="hibp-accounts-subtable" style="width: 100%; font-size: 13px;">';
+				html += '<thead><tr><th style="text-align: left; padding: 4px 8px;">Username</th><th style="text-align: center; padding: 4px 8px;">Status</th></tr></thead>';
+				html += '<tbody>';
+
+				accounts.forEach(acc => {
+					const statusClass = acc.status === 'enabled' ? 'status-enabled' : (acc.status === 'disabled' ? 'status-disabled' : '');
+					const statusDisplay = acc.status ? acc.status.charAt(0).toUpperCase() + acc.status.slice(1) : 'Unknown';
+					html += `<tr>`;
+					html += `<td style="padding: 4px 8px;">${escapeHtml(acc.username)}</td>`;
+					html += `<td style="text-align: center; padding: 4px 8px;"><span class="${statusClass}">${statusDisplay}</span></td>`;
+					html += `</tr>`;
+				});
+
+				html += '</tbody></table></div>';
+				return html;
 			}
 
 			// Download HIBP results as CSV
@@ -4400,22 +4587,29 @@
 						);
 					}
 
-					const ignoreBlankPasswords = document.querySelector(
-						"#ignore_blank_passwords"
-					)?.checked;
+					// Apply default "Common (0-32)" filter on initial load
+					// Calculate count of passwords with length > 32
+					const over32Count = Object.entries(data)
+						.filter(([key]) => parseInt(key) > 32)
+						.reduce((sum, [, value]) => sum + value, 0);
 
-					// Conditionally filter out 0-length passwords
-					const filteredData = ignoreBlankPasswords
-						? Object.entries(data)
-								.filter(([key]) => key !== "0")
-								.reduce((obj, [key, value]) => {
-									obj[key] = value;
-									return obj;
-								}, {})
-						: data;
+					const filteredData = Object.entries(data)
+						.filter(([key]) => {
+							const len = parseInt(key);
+							return len >= 0 && len <= 32;
+						})
+						.reduce((obj, [key, value]) => {
+							obj[key] = value;
+							return obj;
+						}, {});
+
+					// Add the ">32" bucket if there are any outliers
+					if (over32Count > 0) {
+						filteredData[">32"] = over32Count;
+					}
 
 					console.log(
-						"Filtered password length distribution:",
+						"Filtered password length distribution (Common 0-32 + >32):",
 						filteredData
 					);
 
@@ -4478,7 +4672,9 @@
 											color: colors_theme.text,
 										},
 										ticks: {
-											font: { size: 14 },
+											autoSkip: false,
+											maxRotation: 0,
+											font: { size: 12 },
 											color: colors_theme.text,
 										},
 										grid: {
@@ -4532,22 +4728,72 @@
 						.then((response) => response.json())
 						.then((data) => {
 							let filteredData = data;
+							let useLogScale = false;
+							let useAutoSkip = true; // Default: let Chart.js auto-skip labels
 
-							// If filter option is "nonZero", filter out entries with a value of 0
-							if (filterOption === "nonZero") {
+							// Apply filter based on selected option
+							if (filterOption === "common") {
+								// Common (0-32): Show lengths 0-32 plus a ">32" bucket for outliers
+								const over32Count = Object.entries(data)
+									.filter(([key]) => parseInt(key) > 32)
+									.reduce((sum, [, value]) => sum + value, 0);
+
+								filteredData = Object.entries(data)
+									.filter(([key]) => {
+										const len = parseInt(key);
+										return len >= 0 && len <= 32;
+									})
+									.reduce((obj, [key, value]) => {
+										obj[key] = value;
+										return obj;
+									}, {});
+
+								// Add the ">32" bucket if there are any outliers
+								if (over32Count > 0) {
+									filteredData[">32"] = over32Count;
+								}
+								useAutoSkip = false; // Show all labels for Common view
+							} else if (filterOption === "nonZero") {
+								// Hide Empty: Filter out entries with a value of 0
 								filteredData = Object.entries(data)
 									.filter(([key, value]) => value > 0)
 									.reduce((obj, [key, value]) => {
 										obj[key] = value;
 										return obj;
 									}, {});
+							} else if (filterOption === "log") {
+								// Log Scale: Show all data with logarithmic Y-axis
+								useLogScale = true;
 							}
+							// "all" (Full Scale): use data as-is with linear scale
 
 							// Update the chart with filtered data
 							passwordLengthChartInstance.data.labels =
 								Object.keys(filteredData);
 							passwordLengthChartInstance.data.datasets[0].data =
 								Object.values(filteredData);
+
+							// Update X-axis autoSkip based on view
+							passwordLengthChartInstance.options.scales.x.ticks.autoSkip = useAutoSkip;
+
+							// Update Y-axis scale type (linear vs logarithmic)
+							if (useLogScale) {
+								passwordLengthChartInstance.options.scales.y.type = 'logarithmic';
+								passwordLengthChartInstance.options.scales.y.min = 1;
+								// Custom tick formatter for log scale
+								passwordLengthChartInstance.options.scales.y.ticks.callback = (value) => {
+									if (value === 1 || value === 10 || value === 100 || value === 1000 || value === 10000) {
+										return value.toLocaleString();
+									}
+									return '';
+								};
+							} else {
+								passwordLengthChartInstance.options.scales.y.type = 'linear';
+								passwordLengthChartInstance.options.scales.y.min = 0;
+								passwordLengthChartInstance.options.scales.y.ticks.callback = (value) =>
+									value.toLocaleString();
+							}
+
 							passwordLengthChartInstance.update();
 						})
 						.catch((error) =>
@@ -5090,6 +5336,26 @@
 					const theme_bp = getCurrentTheme();
 					const colors_theme_bp = themeColors[theme_bp];
 
+					// Custom plugin to enforce minimum bar height for clickability
+					const minBarHeightPlugin = {
+						id: 'minBarHeight',
+						beforeDraw: (chart) => {
+							const meta = chart.getDatasetMeta(0);
+							const yScale = chart.scales.y;
+							const minPixelHeight = 10; // Minimum 10px height for clickability
+
+							meta.data.forEach((bar, index) => {
+								const value = chart.data.datasets[0].data[index];
+								if (value > 0) {
+									const barHeight = yScale.bottom - bar.y;
+									if (barHeight < minPixelHeight) {
+										bar.y = yScale.bottom - minPixelHeight;
+									}
+								}
+							});
+						}
+					};
+
 					badPracticesChartInstance = new Chart(ctx, {
 						type: "bar",
 						data: {
@@ -5107,7 +5373,8 @@
 							layout: {
 								padding: { top: 30 },
 							},
-							onClick: (event, elements) => {
+							onClick: (event, elements, chart) => {
+								// First check if clicked on a bar
 								if (elements.length > 0) {
 									const index = elements[0].index;
 									const category = badPracticesChartInstance.data.labels[index];
@@ -5115,10 +5382,48 @@
 									if (info) {
 										openBadPracticesModal(category, info.count, info.examples);
 									}
+									return;
+								}
+
+								// Check if clicked on an x-axis label
+								const xScale = chart.scales.x;
+								const yScale = chart.scales.y;
+								const mouseX = event.x;
+								const mouseY = event.y;
+
+								// Check if click is in the x-axis label area (below the chart)
+								if (mouseY > yScale.bottom && mouseY < yScale.bottom + 60) {
+									// Find which label was clicked based on x position
+									const labels = chart.data.labels;
+									for (let i = 0; i < labels.length; i++) {
+										const labelX = xScale.getPixelForValue(i);
+										const barWidth = xScale.width / labels.length;
+										if (mouseX >= labelX - barWidth/2 && mouseX <= labelX + barWidth/2) {
+											const category = labels[i];
+											const info = badPracticesRawData[category];
+											if (info) {
+												openBadPracticesModal(category, info.count, info.examples);
+											}
+											return;
+										}
+									}
 								}
 							},
-							onHover: (event, elements) => {
-								event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+							onHover: (event, elements, chart) => {
+								const canvas = event.native.target;
+								if (elements.length > 0) {
+									canvas.style.cursor = 'pointer';
+									return;
+								}
+
+								// Check if hovering over x-axis labels
+								const yScale = chart.scales.y;
+								const mouseY = event.y;
+								if (mouseY > yScale.bottom && mouseY < yScale.bottom + 60) {
+									canvas.style.cursor = 'pointer';
+								} else {
+									canvas.style.cursor = 'default';
+								}
 							},
 							plugins: {
 								legend: { display: false },
@@ -5178,7 +5483,7 @@
 								},
 							},
 						},
-						plugins: [ChartDataLabels],
+						plugins: [ChartDataLabels, minBarHeightPlugin],
 					});
 				})
 				.catch((error) =>
@@ -6263,147 +6568,159 @@
 						});
 					}
 
-					// Show button to load full user details if there are predictable users
+					// Initialize server-side DataTable if there are predictable users
 					if (data.predictable_users_count > 0) {
-						const tbody = document.querySelector('#predictableUsersTable tbody');
-						tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px;">
-							<button class="btn-secondary" onclick="loadFullPasswordHistoryData()">Load ${data.predictable_users_count.toLocaleString()} User Details</button>
-						</td></tr>`;
+						initPasswordHistoryServerSideTable();
 					}
 				} catch (e) {
 					// Data not available, that's fine
 				}
 			}
 
-			// Load full password history data when user requests it
-			let passwordHistoryFullLoaded = false;
-			async function loadFullPasswordHistoryData() {
-				if (passwordHistoryFullLoaded) return;
+			// Initialize password history table with server-side processing
+			let passwordHistoryDataTable = null;
+			function initPasswordHistoryServerSideTable() {
+				if (passwordHistoryDataTable) return;
 
 				const tbody = document.querySelector('#predictableUsersTable tbody');
 				if (tbody) {
-					tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Loading user details...</td></tr>';
+					tbody.innerHTML = '';
 				}
 
-				try {
-					const response = await fetch('password_history_patterns.json');
-					if (!response.ok) return;
-
-					const data = await response.json();
-					passwordHistoryFullLoaded = true;
-
-					// Populate the predictable users table
-					populatePredictableUsersTable(data);
-				} catch (e) {
-					if (tbody) {
-						tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Error loading user details</td></tr>';
+				passwordHistoryDataTable = $('#predictableUsersTable').DataTable({
+					processing: false,
+					serverSide: true,
+					ajax: {
+						url: '/api/password_history/paginated',
+						type: 'GET'
+					},
+					pageLength: 5,
+					lengthMenu: [5, 10, 25, 50, 100],
+					order: [[1, 'desc']],  // Sort by predictability score
+					language: {
+						search: "Filter:"
+					},
+					columns: [
+						{
+							data: 'username',
+							render: function(data) {
+								return escapeHtml(data);
+							}
+						},
+						{
+							data: 'predictability_score',
+							className: 'dt-center',
+							render: function(data) {
+								const scorePercent = Math.round(data * 100);
+								const scoreClass = scorePercent >= 70 ? 'critical' : scorePercent >= 40 ? 'high' : 'medium';
+								return `<span class="predictability-score ${scoreClass}">${scorePercent}%</span>`;
+							}
+						},
+						{
+							data: 'patterns',
+							orderable: false,
+							render: function(data) {
+								return formatPatternBadges(data);
+							}
+						},
+						{
+							data: null,
+							orderable: false,
+							render: function(data, type, row) {
+								return formatPasswordEvolution(row);
+							}
+						}
+					],
+					createdRow: function(row, data) {
+						const scorePercent = Math.round(data.predictability_score * 100);
+						if (scorePercent >= 70) {
+							$(row).addClass('cracked-row');
+						} else if (scorePercent >= 40) {
+							$(row).addClass('warning-row');
+						}
+					},
+					drawCallback: function() {
+						// Reapply blur state after redraw
+						if (historyPasswordsVisible) {
+							applyHistoryPasswordVisibility(true);
+						}
 					}
-				}
+				});
 			}
 
-			// Populate the predictable users table with full data
-			function populatePredictableUsersTable(data) {
-				if (!data.top_predictable_users || data.top_predictable_users.length === 0) return;
-				const tbody = document.querySelector('#predictableUsersTable tbody');
-				tbody.innerHTML = data.top_predictable_users.map(user => {
-					// Format patterns - include HIBP exposure as a badge
-					const badges = [];
+			// Format pattern badges for server-side table
+			function formatPatternBadges(patterns) {
+				if (!patterns || patterns.length === 0) return '-';
 
-					// Add detected pattern badges (including hash reuse patterns)
-					const patternStyles = {
-						'consecutive_hash_reuse': { label: 'Consecutive', cssClass: 'consecutive' },
-						'password_reversion': { label: 'Reversion', cssClass: 'reversion' },
-						'base_word_persistence': { label: 'BaseWord', cssClass: 'baseword' },
-						'incrementing_number': { label: 'Number++', cssClass: 'number' },
-						'year_increment': { label: 'Year++', cssClass: 'year' },
-						'season_rotation': { label: 'Season', cssClass: 'season' },
-						'special_char_rotation': { label: 'SpecialChar', cssClass: 'specialchar' },
-						'minimal_changes': { label: 'Minimal', cssClass: 'minimal' },
-						'leet_progression': { label: 'Leet', cssClass: 'leet' }
-					};
+				const patternStyles = {
+					'consecutive_hash_reuse': { label: 'Consecutive', cssClass: 'consecutive' },
+					'password_reversion': { label: 'Reversion', cssClass: 'reversion' },
+					'base_word_persistence': { label: 'BaseWord', cssClass: 'baseword' },
+					'incrementing_number': { label: 'Number++', cssClass: 'number' },
+					'year_increment': { label: 'Year++', cssClass: 'year' },
+					'season_rotation': { label: 'Season', cssClass: 'season' },
+					'special_char_rotation': { label: 'SpecialChar', cssClass: 'specialchar' },
+					'minimal_changes': { label: 'Minimal', cssClass: 'minimal' },
+					'leet_progression': { label: 'Leet', cssClass: 'leet' }
+				};
 
-					user.patterns.forEach(p => {
-						const style = patternStyles[p.type] || { label: p.type, cssClass: '' };
-						badges.push(`<span class="pattern-badge ${style.cssClass}">${style.label}</span>`);
-					});
+				return patterns.map(p => {
+					const style = patternStyles[p.type] || { label: p.type, cssClass: '' };
+					return `<span class="pattern-badge ${style.cssClass}">${style.label}</span>`;
+				}).join(' ');
+			}
 
-					const patternBadges = badges.join(' ');
+			// Format password evolution for server-side table
+			function formatPasswordEvolution(user) {
+				const history = user.full_history || [];
+				if (history.length === 0) return '-';
 
-					// Build set of passwords involved in non-reuse patterns (for orange highlighting)
-					const patternPasswords = new Set();
-					user.patterns.forEach(p => {
-						if (p.type !== 'consecutive_hash_reuse' && p.type !== 'password_reversion') {
-							(p.passwords_involved || []).forEach(pw => patternPasswords.add(pw));
-						}
-					});
-
-					// Format password evolution using full_history
-					const history = user.full_history || [];
-					const hashLabels = {};
-					let hashCounter = 1;
-
-					const passwordEvolutionRows = history.map((entry, idx) => {
-						let displayText;
-						const isInReuseGroup = entry.is_duplicate;
-
-						if (entry.password) {
-							const pw = entry.password;
-							let wrapperClass = '';
-							if (isInReuseGroup) {
-								wrapperClass = 'reuse-highlight';
-							} else if (patternPasswords.has(pw)) {
-								wrapperClass = 'pattern-highlight';
-							}
-							if (pw.length <= 4) {
-								displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-blurred">${escapeHtml(pw)}</span></span>`;
-							} else {
-								const start = pw.slice(0, 2);
-								const middle = pw.slice(2, -2);
-								const end = pw.slice(-2);
-								displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span></span>`;
-							}
-						} else {
-							if (!hashLabels[entry.hash_short]) {
-								hashLabels[entry.hash_short] = `hash${hashCounter}`;
-								hashCounter++;
-							}
-							const label = hashLabels[entry.hash_short];
-							const cssClass = isInReuseGroup ? 'history-pw-uncracked duplicate' : 'history-pw-uncracked';
-							displayText = `<span class="${cssClass}" title="Uncracked hash">${label}</span>`;
-						}
-
-						const arrow = idx > 0 ? '<span class="pw-arrow">→</span> ' : '';
-						return arrow + displayText;
-					});
-
-					const passwordEvolution = passwordEvolutionRows.join('');
-					const scorePercent = Math.round(user.predictability_score * 100);
-					const scoreClass = scorePercent >= 70 ? 'critical' : scorePercent >= 40 ? 'high' : 'medium';
-
-					return `
-						<tr class="${scorePercent >= 70 ? 'cracked-row' : scorePercent >= 40 ? 'warning-row' : ''}">
-							<td>${escapeHtml(user.username)}</td>
-							<td><span class="predictability-score ${scoreClass}">${scorePercent}%</span></td>
-							<td>${patternBadges || '-'}</td>
-							<td class="password-evolution">${passwordEvolution || '-'}</td>
-						</tr>
-					`;
-				}).join('');
-
-				// Initialize DataTable
-				const historyTable = $('#predictableUsersTable').DataTable({
-					pageLength: 5,
-					lengthMenu: [[5, 10, 25, 50, -1], [5, 10, 25, 50, "All"]],
-					order: [[1, 'desc']],
-					columnDefs: [{ orderable: false, targets: [2, 3] }]
-				});
-
-				// Reapply blur state after page change/search/redraw
-				historyTable.on('draw', function() {
-					if (historyPasswordsVisible) {
-						applyHistoryPasswordVisibility(true);
+				// Build set of passwords involved in non-reuse patterns (for yellow highlighting)
+				const patternPasswords = new Set();
+				(user.patterns || []).forEach(p => {
+					if (p.type !== 'consecutive_hash_reuse' && p.type !== 'password_reversion') {
+						(p.passwords_involved || []).forEach(pw => patternPasswords.add(pw));
 					}
 				});
+
+				const hashLabels = {};
+				let hashCounter = 1;
+
+				const passwordEvolutionRows = history.map((entry, idx) => {
+					let displayText;
+					const isInReuseGroup = entry.is_duplicate;
+
+					if (entry.password) {
+						const pw = entry.password;
+						let wrapperClass = '';
+						if (isInReuseGroup) {
+							wrapperClass = 'reuse-highlight';
+						} else if (patternPasswords.has(pw)) {
+							wrapperClass = 'pattern-highlight';
+						}
+						if (pw.length <= 4) {
+							displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-blurred">${escapeHtml(pw)}</span></span>`;
+						} else {
+							const start = pw.slice(0, 2);
+							const middle = pw.slice(2, -2);
+							const end = pw.slice(-2);
+							displayText = `<span class="history-pw-cell ${wrapperClass}" data-full="${escapeHtml(pw)}"><span class="history-pw-visible">${escapeHtml(start)}</span><span class="history-pw-blurred">${escapeHtml(middle)}</span><span class="history-pw-visible">${escapeHtml(end)}</span></span>`;
+						}
+					} else {
+						if (!hashLabels[entry.hash_short]) {
+							hashLabels[entry.hash_short] = `hash${hashCounter}`;
+							hashCounter++;
+						}
+						const label = hashLabels[entry.hash_short];
+						const cssClass = isInReuseGroup ? 'history-pw-uncracked duplicate' : 'history-pw-uncracked';
+						displayText = `<span class="${cssClass}" title="Uncracked hash">${label}</span>`;
+					}
+
+					const arrow = idx > 0 ? '<span class="pw-arrow">→</span> ' : '';
+					return arrow + displayText;
+				});
+
+				return `<div class="password-evolution">${passwordEvolutionRows.join('')}</div>`;
 			}
 
 			// Download password history CSV
