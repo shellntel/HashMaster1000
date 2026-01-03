@@ -364,6 +364,9 @@ def logout() -> Response:
 @app.route("/")
 @login_required
 def index() -> str:
+    import time as time_module
+    from timing_stats import get_timing_stats, TimingStats
+
     # Get step parameter (defaults to 1 if not provided)
     # Step 3 is used when continuing from validation review to configuration
     initial_step = request.args.get("step", 1, type=int)
@@ -375,18 +378,48 @@ def index() -> str:
     potfile_validation = None
     add_validation = None
     analysis_options = None
+
+    # Track timing for Step 3 configuration loading
+    timing = get_timing_stats()
+    config_start = None
+    item_count = 0
+
     if initial_step == 3:
+        config_start = time_module.time()
+        timing.start_timer(TimingStats.CONFIG_LOAD)
+
+        # Load session data (instant - Flask sessions are already in memory)
         pwdump_validation = session.get("pwdump_validation")
         potfile_validation = session.get("potfile_validation")
         add_validation = session.get("add_validation")
         analysis_options = session.get("analysis_options")
 
-    # Get master potfile entry count if enabled
+        # Count items for throughput calculation
+        if pwdump_validation:
+            item_count = pwdump_validation.get("total_lines", 0)
+        elif add_validation:
+            item_count = add_validation.get("total_users", 0)
+
+    # Get master potfile entry count if enabled (this can be slow for large potfiles)
     master_potfile_count = 0
     if MASTER_POTFILE_ENABLED:
+        potfile_count_start = time_module.time()
         master_potfile_count = file_parser.get_potfile_entry_count(MASTER_POTFILE_PATH)
+        potfile_count_duration = time_module.time() - potfile_count_start
 
-    return render_template(
+        # Record master potfile count timing (only for Step 3)
+        if initial_step == 3:
+            timing.record_sample(
+                operation=TimingStats.MASTER_POTFILE_COUNT,
+                duration_seconds=potfile_count_duration,
+                item_count=master_potfile_count
+            )
+
+    # Render template (this is where the heavy work happens for Step 3)
+    if initial_step == 3:
+        render_start = time_module.time()
+
+    result = render_template(
         "index.html",
         initial_step=initial_step,
         input_method=input_method,
@@ -400,6 +433,18 @@ def index() -> str:
         master_potfile_enabled=MASTER_POTFILE_ENABLED,
         master_potfile_count=master_potfile_count,
     )
+
+    # Record Step 3 timing
+    if initial_step == 3 and config_start:
+        render_duration = time_module.time() - render_start
+        timing.record_sample(
+            operation=TimingStats.CONFIG_RENDER,
+            duration_seconds=render_duration,
+            item_count=item_count
+        )
+        timing.stop_timer(TimingStats.CONFIG_LOAD, item_count=item_count)
+
+    return result
 
 
 @app.route("/favicon.ico")
@@ -875,6 +920,12 @@ def validate_files_endpoint() -> Response:
     If there are issues, redirect to validation review page.
     If files are clean, proceed directly to processing.
     """
+    import time as time_module
+    from timing_stats import get_timing_stats, TimingStats
+    timing = get_timing_stats()
+    validation_start = time_module.time()
+    timing.start_timer(TimingStats.VALIDATION_TOTAL)
+
     try:
         # Retrieve file uploads
         pwdump_file = request.files.get("pwdump_file")
@@ -959,12 +1010,28 @@ def validate_files_endpoint() -> Response:
             # Standard pwdump format
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
+            item_count = pwdump_result.total_lines
 
             # Extract hashes for session-optimized potfile filtering
+            hash_extract_start = time_module.time()
             pwdump_hashes = extract_hashes_from_pwdump(pwdump_result)
+            hash_extract_duration = time_module.time() - hash_extract_start
+            timing.record_sample(
+                operation=TimingStats.HASH_EXTRACTION,
+                duration_seconds=hash_extract_duration,
+                item_count=len(pwdump_hashes)
+            )
 
             # Handle master potfile merge if enabled (with session filtering)
+            merge_start = time_module.time()
             final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
+            merge_duration = time_module.time() - merge_start
+            if merge_stats:
+                timing.record_sample(
+                    operation=TimingStats.MASTER_POTFILE_MERGE,
+                    duration_seconds=merge_duration,
+                    item_count=merge_stats.get("total", 0)
+                )
 
             # Store validation results in session
             session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
@@ -992,6 +1059,9 @@ def validate_files_endpoint() -> Response:
                 "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
             }
 
+            # Stop total validation timer
+            timing.stop_timer(TimingStats.VALIDATION_TOTAL, item_count=item_count)
+
             # Redirect to validation review page (Step 2)
             return cast(FlaskResponse, redirect(url_for("validation_review")))
 
@@ -1017,6 +1087,12 @@ def validate_local_files() -> Response:
     Validate local server files and redirect to validation review.
     Similar to validate_files_endpoint but for local file paths instead of uploads.
     """
+    import time as time_module
+    from timing_stats import get_timing_stats, TimingStats
+    timing = get_timing_stats()
+    validation_start = time_module.time()
+    timing.start_timer(TimingStats.VALIDATION_TOTAL)
+
     try:
         pwdump_path = request.form.get("pwdump_path", "").strip()
         potfile_path = request.form.get("potfile_path", "").strip()
@@ -1109,13 +1185,28 @@ def validate_local_files() -> Response:
             # Standard pwdump format
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
             potfile_result = file_parser.validate_potfile(potfile_path)
+            item_count = pwdump_result.total_lines
 
             # Extract hashes for session-optimized potfile filtering
+            hash_extract_start = time_module.time()
             pwdump_hashes = extract_hashes_from_pwdump(pwdump_result)
+            hash_extract_duration = time_module.time() - hash_extract_start
+            timing.record_sample(
+                operation=TimingStats.HASH_EXTRACTION,
+                duration_seconds=hash_extract_duration,
+                item_count=len(pwdump_hashes)
+            )
 
             # Handle master potfile merge if enabled (with session filtering)
             if MASTER_POTFILE_ENABLED:
+                merge_start = time_module.time()
                 final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
+                merge_duration = time_module.time() - merge_start
+                timing.record_sample(
+                    operation=TimingStats.MASTER_POTFILE_MERGE,
+                    duration_seconds=merge_duration,
+                    item_count=merge_stats.get("total", 0) if merge_stats else 0
+                )
                 session["master_potfile_merge"] = merge_stats
             else:
                 final_potfile_result = potfile_result
@@ -1144,6 +1235,9 @@ def validate_local_files() -> Response:
                 "ignore_blank_passwords": str(parse_boolean_field("ignore_blank_passwords")).lower(),
             }
 
+            # Stop total validation timer and redirect
+            timing.stop_timer(TimingStats.VALIDATION_TOTAL, item_count=item_count)
+
             # Redirect to validation review page
             return cast(FlaskResponse, redirect(url_for("validation_review")))
 
@@ -1169,6 +1263,9 @@ def validation_review() -> Response:
     Display validation results and allow user to include/exclude lines.
     Can display results for one or both files.
     """
+    import time as time_module
+    from timing_stats import get_timing_stats, TimingStats
+
     pwdump_data = session.get("pwdump_validation")
     potfile_data = session.get("potfile_validation")
     master_merge_stats = session.get("master_potfile_merge")
@@ -1177,13 +1274,27 @@ def validation_review() -> Response:
     if not pwdump_data and not potfile_data:
         return cast(FlaskResponse, redirect(url_for("index")))
 
-    return make_response(render_template(
+    # Time the template rendering
+    timing = get_timing_stats()
+    render_start = time_module.time()
+
+    result = make_response(render_template(
         "validate.html",
         pwdump=pwdump_data,
         potfile=potfile_data,
         master_potfile_enabled=MASTER_POTFILE_ENABLED,
         master_potfile_merge=master_merge_stats
     ))
+
+    render_duration = time_module.time() - render_start
+    item_count = pwdump_data.get("total_lines", 0) if pwdump_data else 0
+    timing.record_sample(
+        operation=TimingStats.VALIDATION_RENDER,
+        duration_seconds=render_duration,
+        item_count=item_count
+    )
+
+    return result
 
 
 @app.route("/clear_and_restart", methods=["GET", "POST"])

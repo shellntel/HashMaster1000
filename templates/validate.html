@@ -194,7 +194,7 @@
             <h3>Domains Found</h3>
             <p>Your dump file contains accounts from {{ "{:,}".format(pwdump.domain_info.domain_count) }} different domains.
             You can filter the report by domain in the next step.</p>
-            <div style="margin-top: 8px;">
+            <div style="margin-top: 8px; max-height: 280px; overflow-y: auto; padding-right: 8px;">
                 {% for domain, count in pwdump.domain_info.domains.items() %}
                 <span class="format-badge dcsync" style="margin-right: 8px; margin-bottom: 4px; display: inline-block;">
                     {{ domain }}: {{ "{:,}".format(count) }} accounts

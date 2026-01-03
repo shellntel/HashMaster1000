@@ -151,6 +151,12 @@ def check_pw_reuse_from_account_data(
         List of tuples: (ntlm_hash, count, [account_names])
         Only includes hashes shared by 2+ accounts, sorted by count descending.
     """
+    from timing_stats import get_timing_stats, TimingStats
+    import time as time_module
+
+    timing = get_timing_stats()
+    start_time = time_module.time()
+
     ntlm_hashes: dict[str, list[str]] = defaultdict(list)
 
     # Blank NTLM hash should be excluded from reuse analysis
@@ -169,6 +175,14 @@ def check_pw_reuse_from_account_data(
         if len(accounts) > 1
     ]
     reuse_report.sort(key=lambda x: x[1], reverse=True)
+
+    # Record timing
+    duration = time_module.time() - start_time
+    timing.record_sample(
+        operation=TimingStats.PASSWORD_REUSE,
+        duration_seconds=duration,
+        item_count=len(account_data)
+    )
 
     return reuse_report
 
@@ -669,6 +683,10 @@ def substring_analysis(
     # Value: set of account_ids that contain that substring
     substring_accounts: dict[str, set[str]] = {}
 
+    # Phase 1: Build password -> [account_ids] mapping to avoid recomputing
+    # substrings for accounts that share the same password
+    password_to_accounts: dict[str, list[str]] = {}
+
     for row in entries:
         if "account" not in row or "password" not in row:
             raise KeyError('Each entry must include keys "account" and "password"')
@@ -676,9 +694,17 @@ def substring_analysis(
         account_id = row["account"]
         password = row["password"]
 
+        # Normalize password for matching if requested
         match_password = password.lower() if normalize else password
 
-        # Count each substring only once per account/password
+        if match_password not in password_to_accounts:
+            password_to_accounts[match_password] = []
+        password_to_accounts[match_password].append(account_id)
+
+    # Phase 2: For each unique password, compute substrings once and add all
+    # accounts that share this password to the substring's account set
+    for match_password, account_ids in password_to_accounts.items():
+        # Generate all substrings for this unique password
         seen_in_this_password: set[str] = set()
 
         for length in range(min_length, max_length + 1):
@@ -687,10 +713,11 @@ def substring_analysis(
             for i in range(len(match_password) - length + 1):
                 seen_in_this_password.add(match_password[i : i + length])
 
+        # Add all accounts with this password to each substring's set
         for substring in seen_in_this_password:
             if substring not in substring_accounts:
                 substring_accounts[substring] = set()
-            substring_accounts[substring].add(account_id)
+            substring_accounts[substring].update(account_ids)
 
     # Filter by UNIQUE account count threshold
     filtered: dict[str, set[str]] = {

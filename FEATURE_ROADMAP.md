@@ -1154,6 +1154,12 @@ For multi-user and session persistence, consider:
 
 ## Notes & Ideas Backlog
 
+### Performance Optimizations
+
+- **Integer Account ID Mapping for Set Operations**: In functions like `substring_analysis`, store account IDs as integers instead of strings. Map account strings → integer IDs once at the start, store sets of ints instead of sets of strings. This reduces memory footprint and speeds up set operations (add, intersection, subset checks) since integer hashing and comparison is faster than string operations.
+
+### Feature Ideas
+
 - Integration with BloodHound for attack path visualization
 - HIBP API integration to check passwords against breach databases
 - Password policy simulator: "What if we required 14 characters?"

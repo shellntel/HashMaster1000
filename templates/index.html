@@ -23,6 +23,12 @@
 				<div class="processing-text" id="processingText">Processing...</div>
 				<div class="processing-subtext" id="processingSubtext">This may take a moment for large files</div>
 				<div class="processing-estimate" id="processingEstimate" style="display: none;"></div>
+				<div class="processing-progress-container" id="processingProgressContainer">
+					<div class="processing-progress-bar">
+						<div class="processing-progress-fill" id="processingProgressFill"></div>
+					</div>
+					<div class="processing-progress-label" id="processingProgressLabel"></div>
+				</div>
 				<div class="processing-fun-message" id="processingFunMessage" style="display: none;"></div>
 			</div>
 		</div>
@@ -373,12 +379,11 @@
 
 								<div class="option-group">
 									<h3>Account Filtering</h3>
-									{% if pwdump_validation %}
-									{% set valid_lines = pwdump_validation.lines | selectattr('is_valid') | list %}
-									{% set disabled_count = valid_lines | selectattr('status', 'equalto', 'Disabled') | list | length %}
-									{% set computer_count = valid_lines | selectattr('username', 'computer_account') | list | length %}
-									{% set blank_count = valid_lines | selectattr('ntlm_hash', 'equalto', '31d6cfe0d16ae931b73c59d7e0c089c0') | list | length %}
-									{% endif %}
+									{# Use pre-computed counts from server to avoid slow Jinja iteration over 600K+ lines #}
+									{% set disabled_count = pwdump_validation.disabled_count|default(0) if pwdump_validation else 0 %}
+									{% set computer_count = pwdump_validation.computer_count|default(0) if pwdump_validation else 0 %}
+									{% set blank_count = pwdump_validation.blank_count|default(0) if pwdump_validation else 0 %}
+									{% set history_count = pwdump_validation.history_count|default(0) if pwdump_validation else (add_validation.total_historical_hashes|default(0) if add_validation else 0) %}
 									<div class="option-row filter-option">
 										<label>Ignore Disabled Accounts{% if pwdump_validation %} <span class="filter-count">({{ "{:,}".format(disabled_count) }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_disabled_accounts" value="false" />
@@ -394,12 +399,6 @@
 										<input type="hidden" name="ignore_blank_passwords" value="false" />
 										<input type="checkbox" name="ignore_blank_passwords" value="true" />
 									</div>
-									{% set history_count = 0 %}
-									{% if pwdump_validation %}
-									{% set history_count = pwdump_validation.lines | selectattr('username', 'history_account') | list | length %}
-									{% elif add_validation %}
-									{% set history_count = add_validation.total_historical_hashes|default(0) %}
-									{% endif %}
 									{% if history_count > 0 %}
 									<div class="option-row filter-option" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0, 212, 255, 0.15);">
 										<label>Include Histories in All Sections <span class="filter-count">({{ "{:,}".format(history_count) }})</span></label>
@@ -609,16 +608,30 @@
 				const subtextEl = document.getElementById('processingSubtext');
 				const estimateEl = document.getElementById('processingEstimate');
 				const funMessageEl = document.getElementById('processingFunMessage');
+				const progressContainer = document.getElementById('processingProgressContainer');
+				const progressFill = document.getElementById('processingProgressFill');
+				const progressLabel = document.getElementById('processingProgressLabel');
 
 				textEl.textContent = message || 'Processing...';
 				subtextEl.textContent = subtext || 'This may take a moment for large files';
 
-				// Show estimated time if provided
-				if (options.estimatedSeconds !== undefined && options.estimatedSeconds > 0) {
+				// Show estimated time if provided (only for larger datasets)
+				if (options.estimatedSeconds !== undefined && options.estimatedSeconds >= 3) {
 					estimateEl.textContent = 'Estimated time: ' + formatDuration(options.estimatedSeconds);
 					estimateEl.style.display = 'block';
 				} else {
 					estimateEl.style.display = 'none';
+				}
+
+				// Show progress bar for larger datasets
+				if (options.showProgress && options.estimatedSeconds >= 5) {
+					progressContainer.classList.add('active');
+					progressFill.classList.add('indeterminate');
+					progressFill.style.width = '30%';
+					progressLabel.textContent = options.progressLabel || 'Processing...';
+				} else {
+					progressContainer.classList.remove('active');
+					progressFill.classList.remove('indeterminate');
 				}
 
 				// Show rotating fun messages for longer operations
@@ -653,12 +666,33 @@
 				overlay.classList.add('active');
 			}
 
+			// Update progress bar (for operations that support it)
+			function updateProgress(percent, label) {
+				const progressFill = document.getElementById('processingProgressFill');
+				const progressLabel = document.getElementById('processingProgressLabel');
+				if (progressFill) {
+					progressFill.classList.remove('indeterminate');
+					progressFill.style.width = Math.min(percent, 100) + '%';
+				}
+				if (progressLabel && label) {
+					progressLabel.textContent = label;
+				}
+			}
+
 			function hideProcessing() {
 				document.getElementById('processingOverlay').classList.remove('active');
 				// Clear the message rotation interval
 				if (processingMessageInterval) {
 					clearInterval(processingMessageInterval);
 					processingMessageInterval = null;
+				}
+				// Reset progress bar
+				const progressContainer = document.getElementById('processingProgressContainer');
+				const progressFill = document.getElementById('processingProgressFill');
+				if (progressContainer) progressContainer.classList.remove('active');
+				if (progressFill) {
+					progressFill.classList.remove('indeterminate');
+					progressFill.style.width = '0%';
 				}
 			}
 
@@ -687,6 +721,7 @@
 				let message = 'Processing...';
 				let subtext = 'This may take a moment';
 				let phase = 'validation';
+				let hashCount = 0;
 
 				if (stepNum === 1) {
 					message = 'Validating Files...';
@@ -696,20 +731,18 @@
 					message = 'Generating Report...';
 					subtext = 'Analyzing passwords and computing statistics';
 					phase = 'report_generation';
-				}
-
-				// Try to get timing estimate
-				let estimatedSeconds = 0;
-				try {
-					// Get account/hash count for estimation
-					let hashCount = 0;
+					// Get hash count for estimation
 					{% if initial_step == 3 and pwdump_validation %}
 					hashCount = {{ pwdump_validation.valid_lines|default(0) }};
 					{% elif initial_step == 3 and add_validation %}
 					hashCount = {{ add_validation.total_users|default(0) }};
 					{% endif %}
+				}
 
-					if (hashCount > 0 && phase === 'report_generation') {
+				// Try to get timing estimate
+				let estimatedSeconds = 0;
+				try {
+					if (hashCount > 0) {
 						const response = await fetch(`/api/timing/estimate?phase=${phase}&hash_count=${hashCount}`);
 						if (response.ok) {
 							const data = await response.json();
@@ -722,11 +755,14 @@
 					console.log('Could not fetch timing estimate:', e);
 				}
 
-				// Show processing overlay with estimate and fun messages
+				// Show processing overlay with estimate, progress bar, and fun messages
+				// Progress bar and estimates shown only for larger operations (estimated >= 5 seconds)
 				showProcessing(message, subtext, {
 					estimatedSeconds: estimatedSeconds,
-					showFunMessages: phase === 'report_generation',  // Only show fun messages for longer operations
-					phase: 'report'
+					showFunMessages: estimatedSeconds >= 5 || phase === 'report_generation',
+					showProgress: estimatedSeconds >= 5,
+					progressLabel: phase === 'validation' ? 'Validating files...' : 'Analyzing passwords...',
+					phase: phase === 'validation' ? 'validation' : 'report'
 				});
 
 				return true; // Allow form submission to proceed
@@ -989,20 +1025,20 @@
 						} else {
 							domainDisplay = data.domain_name || 'Unknown';
 						}
-						statusMessage = `${data.valid_lines} users (${domainDisplay})`;
+						statusMessage = `${data.valid_lines.toLocaleString()} users (${domainDisplay})`;
 						hasWarnings = data.error_lines > 0;
 						if (data.tier0_count > 0 || data.elevated_count > 0) {
-							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;
+							statusMessage += ` [${data.tier0_count.toLocaleString()} T0, ${data.elevated_count.toLocaleString()} elev]`;
 						}
 					} else {
 						// Standard pwdump format
 						hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
-						statusMessage = `${data.valid_lines} valid`;
+						statusMessage = `${data.valid_lines.toLocaleString()} valid`;
 						if (data.error_lines > 0) {
-							statusMessage += `, ${data.error_lines} errors`;
+							statusMessage += `, ${data.error_lines.toLocaleString()} errors`;
 						}
 						if (data.warning_lines > 0) {
-							statusMessage += `, ${data.warning_lines} warnings`;
+							statusMessage += `, ${data.warning_lines.toLocaleString()} warnings`;
 						}
 					}
 
@@ -1105,20 +1141,20 @@
 						} else {
 							domainDisplay = data.domain_name || 'Unknown';
 						}
-						statusMessage = `${data.valid_lines} users (${domainDisplay})`;
+						statusMessage = `${data.valid_lines.toLocaleString()} users (${domainDisplay})`;
 						hasWarnings = data.error_lines > 0;
 						if (data.tier0_count > 0 || data.elevated_count > 0) {
-							statusMessage += ` [${data.tier0_count} T0, ${data.elevated_count} elev]`;
+							statusMessage += ` [${data.tier0_count.toLocaleString()} T0, ${data.elevated_count.toLocaleString()} elev]`;
 						}
 					} else {
 						// Standard pwdump format
 						hasWarnings = data.warning_lines > 0 || data.error_lines > 0 || (data.non_ntlm_count || 0) > 0;
-						statusMessage = `${data.valid_lines} valid`;
+						statusMessage = `${data.valid_lines.toLocaleString()} valid`;
 						if (data.error_lines > 0) {
-							statusMessage += `, ${data.error_lines} errors`;
+							statusMessage += `, ${data.error_lines.toLocaleString()} errors`;
 						}
 						if (data.warning_lines > 0) {
-							statusMessage += `, ${data.warning_lines} warnings`;
+							statusMessage += `, ${data.warning_lines.toLocaleString()} warnings`;
 						}
 					}
 
@@ -1319,7 +1355,7 @@
 				// Update pwdump summary card with ADD JSON info
 				document.getElementById('pwdumpSummaryName').textContent = filename;
 				document.getElementById('pwdumpSummaryStats').innerHTML =
-					`<span class="good">${addData.valid_users} users</span> (${addData.tier0_count} tier0, ${addData.elevated_count} elevated)`;
+					`<span class="good">${addData.valid_users.toLocaleString()} users</span> (${addData.tier0_count.toLocaleString()} tier0, ${addData.elevated_count.toLocaleString()} elevated)`;
 				document.getElementById('pwdumpSummaryCard').classList.add('valid');
 				document.querySelector('#pwdumpSummaryCard h4').textContent = 'ADD JSON: ' + domainName;
 
@@ -1329,7 +1365,7 @@
 				const potFilename = potData.filepath.split('/').pop();
 				document.getElementById('potfileSummaryName').textContent = potFilename;
 				document.getElementById('potfileSummaryStats').innerHTML =
-					`<span class="good">${potData.ntlm_count || potData.valid_lines} NTLM hashes</span>`;
+					`<span class="good">${(potData.ntlm_count || potData.valid_lines).toLocaleString()} NTLM hashes</span>`;
 				document.getElementById('potfileSummaryCard').classList.add('valid');
 				{% endif %}
 

@@ -143,6 +143,11 @@ class ValidationResult:
     error_summary: dict[str, int] = field(default_factory=dict)
     domain_info: DomainInfo | None = None  # Domain statistics for the file
     validation_time_ms: float = 0.0  # Time taken to validate the file in milliseconds
+    # Pre-computed filter counts (to avoid slow template iteration)
+    disabled_count: int = 0  # Count of disabled accounts
+    computer_count: int = 0  # Count of computer accounts (ending in $)
+    blank_count: int = 0  # Count of accounts with blank NTLM hash
+    history_count: int = 0  # Count of history entries (_history suffix)
 
     @property
     def has_fatal_errors(self) -> bool:
@@ -360,7 +365,11 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         ValidationResult with all parsed lines and summary statistics
     """
     import time
+    from timing_stats import get_timing_stats, TimingStats
+
     start_time = time.perf_counter()
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.PWDUMP_VALIDATION)
 
     lines: list[ParsedLine] = []
     formats_detected: dict[str, int] = {f.value: 0 for f in FileFormat}
@@ -386,7 +395,18 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     valid_usernames = [l.username for l in lines if l.is_valid and l.username]
     domain_info = analyze_domains(valid_usernames)
 
+    # Pre-compute filter counts for Step 3 configuration page
+    # This avoids slow Jinja template iteration over 600K+ lines
+    valid_line_list = [l for l in lines if l.is_valid]
+    disabled_count = sum(1 for l in valid_line_list if l.status == "Disabled")
+    computer_count = sum(1 for l in valid_line_list if l.username and l.username.endswith('$'))
+    blank_count = sum(1 for l in valid_line_list if l.ntlm_hash == BLANK_NTLM_HASH)
+    history_count = sum(1 for l in valid_line_list if l.username and '_history' in l.username.lower())
+
     elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+    # Record timing statistics
+    timing.stop_timer(TimingStats.PWDUMP_VALIDATION, item_count=len(lines))
 
     return ValidationResult(
         filepath=filepath,
@@ -398,7 +418,11 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         formats_detected=formats_detected,
         error_summary=error_summary,
         domain_info=domain_info,
-        validation_time_ms=elapsed_ms
+        validation_time_ms=elapsed_ms,
+        disabled_count=disabled_count,
+        computer_count=computer_count,
+        blank_count=blank_count,
+        history_count=history_count
     )
 
 
@@ -577,7 +601,11 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
         PotfileValidationResult with all parsed entries and summary statistics
     """
     import time
+    from timing_stats import get_timing_stats, TimingStats
+
     start_time = time.perf_counter()
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.POTFILE_VALIDATION)
 
     entries: list[PotfileEntry] = []
     error_summary: dict[str, int] = {}
@@ -619,6 +647,9 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
     error_lines = sum(1 for e in entries if not e.is_valid)
 
     elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+    # Record timing statistics
+    timing.stop_timer(TimingStats.POTFILE_VALIDATION, item_count=len(entries))
 
     return PotfileValidationResult(
         filepath=filepath,
@@ -831,6 +862,10 @@ def build_account_data(
     Returns:
         Dictionary mapping account names to account data
     """
+    from timing_stats import get_timing_stats, TimingStats
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.ACCOUNT_DATA_BUILD)
+
     # Build hash->password lookup from potfile
     cracked_hashes: dict[str, str] = {BLANK_NTLM_HASH: ""}  # Blank password
     for entry in potfile_result.entries:
@@ -875,6 +910,7 @@ def build_account_data(
 
         account_data[line.username] = account_entry
 
+    timing.stop_timer(TimingStats.ACCOUNT_DATA_BUILD, item_count=len(account_data))
     return account_data
 
 
@@ -969,6 +1005,10 @@ def validation_result_to_dict(result: ValidationResult) -> dict:
         "error_summary": result.error_summary,
         "domain_info": result.domain_info.to_dict() if result.domain_info else None,
         "validation_time_ms": result.validation_time_ms,
+        "disabled_count": result.disabled_count,
+        "computer_count": result.computer_count,
+        "blank_count": result.blank_count,
+        "history_count": result.history_count,
         "lines": [
             {
                 "line_number": l.line_number,
@@ -1048,7 +1088,11 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
         formats_detected=data["formats_detected"],
         error_summary=data["error_summary"],
         domain_info=domain_info,
-        validation_time_ms=data.get("validation_time_ms", 0.0)
+        validation_time_ms=data.get("validation_time_ms", 0.0),
+        disabled_count=data.get("disabled_count", 0),
+        computer_count=data.get("computer_count", 0),
+        blank_count=data.get("blank_count", 0),
+        history_count=data.get("history_count", 0)
     )
 
 
@@ -1577,6 +1621,11 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
     Returns:
         ADDValidationResult with domain policy and all user entries
     """
+    from timing_stats import get_timing_stats, TimingStats
+
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.ADD_VALIDATION)
+
     entries: list[ADDAccountEntry] = []
     errors: list[ValidationError] = []
     domain_policy: DomainPolicy | None = None
@@ -1597,6 +1646,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             code=ADDErrorCode.INVALID_JSON,
             message=f"Invalid JSON: {str(e)}"
         ))
+        timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=0)
         return ADDValidationResult(
             filepath=filepath,
             domain_policy=None,
@@ -1615,6 +1665,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             code=ADDErrorCode.INVALID_JSON,
             message=f"Error reading file: {str(e)}"
         ))
+        timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=0)
         return ADDValidationResult(
             filepath=filepath,
             domain_policy=None,
@@ -1672,6 +1723,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             code=ADDErrorCode.EMPTY_USERS,
             message="No users found in ADD JSON file"
         ))
+        timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=0)
         return ADDValidationResult(
             filepath=filepath,
             domain_policy=domain_policy,
@@ -1794,6 +1846,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
         else:
             error_users += 1
 
+    timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=len(entries))
     return ADDValidationResult(
         filepath=filepath,
         domain_policy=domain_policy,
@@ -1836,6 +1889,10 @@ def add_to_account_data(
         - account_data: Standard format for HashMaster1000 analysis
         - privileged_findings: Enhanced data for privileged account report
     """
+    from timing_stats import get_timing_stats, TimingStats
+    timing = get_timing_stats()
+    timing.start_timer(TimingStats.ACCOUNT_DATA_BUILD)
+
     # Build hash->password lookup from potfile
     cracked_hashes: dict[str, str] = {BLANK_NTLM_HASH: ""}
     if potfile_result:
@@ -1948,6 +2005,7 @@ def add_to_account_data(
                 if cracked_pw is not None:
                     privileged_findings["summary"]["cracked_privileged"] += 1
 
+    timing.stop_timer(TimingStats.ACCOUNT_DATA_BUILD, item_count=len(account_data))
     return account_data, privileged_findings
 
 

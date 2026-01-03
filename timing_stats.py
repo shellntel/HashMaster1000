@@ -547,6 +547,45 @@ class TimingStats:
     PASSWORD_HISTORY = "password_history"
     SESSION_SAVE = "session_save"  # Saving session files
     REPORT_RENDER = "report_render"  # Rendering report page
+    # Step 2 Validation additional operations
+    HASH_EXTRACTION = "hash_extraction"  # Extracting hashes from pwdump for filtering
+    MASTER_POTFILE_MERGE = "master_potfile_merge"  # Merging/filtering master potfile
+    VALIDATION_RENDER = "validation_render"  # Rendering validate.html template
+    VALIDATION_TOTAL = "validation_total"  # Total validation flow time
+    # Step 3 Configuration operations
+    MASTER_POTFILE_COUNT = "master_potfile_count"  # Counting entries in master potfile
+    CONFIG_RENDER = "config_render"  # Rendering configuration template
+    CONFIG_LOAD = "config_load"  # Total config page load time
+
+    # Operation metadata: step number and display name
+    # Steps: 1=Input, 2=Validation, 3=Configuration, 4=Report
+    # is_total=True marks aggregate timings that include sub-operations
+    OPERATION_METADATA: dict[str, dict[str, Any]] = {
+        "pwdump_validation": {"step": 2, "name": "Pwdump Validation", "order": 1},
+        "potfile_validation": {"step": 2, "name": "Potfile Validation", "order": 2},
+        "potfile_master_load": {"step": 2, "name": "Master Potfile Load", "order": 3},
+        "add_validation": {"step": 2, "name": "ADD JSON Validation", "order": 4},
+        "hash_extraction": {"step": 2, "name": "Hash Extraction", "order": 5},
+        "master_potfile_merge": {"step": 2, "name": "Master Potfile Merge", "order": 6},
+        "validation_render": {"step": 2, "name": "Validation Page Render", "order": 7},
+        "validation_total": {"step": 2, "name": "Total Validation Time", "order": 99, "is_total": True},
+        # Step 3 Configuration
+        "master_potfile_count": {"step": 3, "name": "Master Potfile Count", "order": 10},
+        "config_render": {"step": 3, "name": "Template Rendering", "order": 11},
+        "config_load": {"step": 3, "name": "Total Config Load", "order": 99, "is_total": True},
+        # Step 4 Report
+        "hibp_check": {"step": 4, "name": "HIBP Hash Lookups", "order": 20},
+        "hibp_result_build": {"step": 4, "name": "HIBP Result Building", "order": 21},
+        "crack_stats": {"step": 4, "name": "Crack Statistics", "order": 22},
+        "substring_analysis": {"step": 4, "name": "Substring Analysis", "order": 23},
+        "dictionary_analysis": {"step": 4, "name": "Dictionary Analysis", "order": 24},
+        "bad_practices": {"step": 4, "name": "Bad Practices Analysis", "order": 25},
+        "password_reuse": {"step": 4, "name": "Password Reuse Check", "order": 26},
+        "password_history": {"step": 4, "name": "Password History Analysis", "order": 27},
+        "session_save": {"step": 4, "name": "Session Save", "order": 28},
+        "report_render": {"step": 4, "name": "Report Rendering", "order": 29},
+        "report_generation": {"step": 4, "name": "Total Report Time", "order": 99, "is_total": True},
+    }
 
     def __new__(cls) -> "TimingStats":
         if cls._instance is None:
@@ -915,8 +954,17 @@ class TimingStats:
             "current_system": collect_system_info().to_dict(),
         }
 
-        # Add operation summaries
+        # Add operation summaries with metadata
         for name, stats in self._operations.items():
+            # Get metadata for this operation
+            metadata = self.OPERATION_METADATA.get(name, {"step": 0, "name": name, "order": 99})
+
+            # Get last 3 durations from samples
+            last_3_durations = []
+            if stats.samples:
+                recent_samples = stats.samples[-3:]
+                last_3_durations = [round(s.duration_seconds, 4) for s in recent_samples]
+
             status["operations"][name] = {
                 "sample_count": stats.sample_count,
                 "avg_items_per_second": round(stats.avg_items_per_second, 2),
@@ -934,6 +982,12 @@ class TimingStats:
                 "mode_durations": {
                     k: round(v, 4) for k, v in stats.mode_durations.items()
                 },
+                # New fields for enhanced display
+                "step": metadata["step"],
+                "display_name": metadata["name"],
+                "order": metadata["order"],
+                "last_3_durations": last_3_durations,
+                "is_total": metadata.get("is_total", False),
             }
 
         # Last startup info

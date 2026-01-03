@@ -928,6 +928,12 @@ def analyze_password_history(
     Returns:
         HistoryAnalysisResult with aggregate statistics and findings
     """
+    from timing_stats import get_timing_stats, TimingStats
+    import time as time_module
+
+    timing = get_timing_stats()
+    start_time = time_module.time()
+
     if cracked_hashes is None:
         cracked_hashes = {}
 
@@ -989,6 +995,15 @@ def analyze_password_history(
         reverse=True
     )
     result.top_predictable_users = [u for u in sorted_users if u.predictability_score > 0]
+
+    # Record timing
+    duration = time_module.time() - start_time
+    item_count = len(pwdump_data) if pwdump_data else (len(add_data) if add_data else 0)
+    timing.record_sample(
+        operation=TimingStats.PASSWORD_HISTORY,
+        duration_seconds=duration,
+        item_count=item_count
+    )
 
     return result
 
