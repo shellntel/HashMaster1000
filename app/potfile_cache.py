@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from file_parser import PotfileValidationResult, PotfileEntry
+    from app.file_parser import PotfileValidationResult, PotfileEntry
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,7 @@ class PotfileCache:
         Returns:
             PotfileValidationResult compatible with rest of the application
         """
-        from file_parser import PotfileValidationResult, PotfileEntry
+        from app.file_parser import PotfileValidationResult, PotfileEntry
 
         cache = self.load(filepath)
 
@@ -324,7 +324,7 @@ class PotfileCache:
         Returns:
             PotfileValidationResult with only relevant entries
         """
-        from file_parser import PotfileValidationResult, PotfileEntry
+        from app.file_parser import PotfileValidationResult, PotfileEntry
 
         cache = self.load(filepath)
 
@@ -405,7 +405,7 @@ def build_cracked_hashes_fast(
     Returns:
         Dict mapping uppercase NTLM hash to password
     """
-    from file_parser import BLANK_NTLM_HASH
+    from app.file_parser import BLANK_NTLM_HASH
 
     # Determine which path to check against cache
     check_path = master_potfile_path or getattr(potfile_result, 'filepath', None)
@@ -448,7 +448,7 @@ def get_cracked_hashes_direct(master_potfile_path: str) -> dict[str, str] | None
         Dict mapping NTLM hash (lowercase) to password, or None if not cached.
         Also includes BLANK_NTLM_HASH for empty password detection.
     """
-    from file_parser import BLANK_NTLM_HASH
+    from app.file_parser import BLANK_NTLM_HASH
 
     cache = get_master_cache()
     stats = cache.get_stats()

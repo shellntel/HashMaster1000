@@ -593,7 +593,7 @@ def _check_hashes_sqlite(
     progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """Check multiple hashes against SQLite database with batch queries."""
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     results = HIBPCheckResults()
     start_time = time.time()
@@ -764,7 +764,7 @@ def _check_hashes_binary_search(
     progress_callback: Callable[[int, int], None] | None = None
 ) -> HIBPCheckResults:
     """Check multiple hashes using binary search on text file."""
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     results = HIBPCheckResults()
     start_time = time.time()
@@ -1116,7 +1116,7 @@ def check_hashes_hibp(
     Returns:
         HIBPCheckResults with all results and statistics
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     results = HIBPCheckResults()
     start_time = time.time()

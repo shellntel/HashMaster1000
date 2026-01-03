@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from session_manager import SessionManager, SessionMetadata
+from app.session_manager import SessionManager, SessionMetadata
 
 
 @dataclass

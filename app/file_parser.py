@@ -17,8 +17,8 @@ from enum import Enum
 from typing import Any
 import json
 
-from hash_types import identify_hash_type, get_most_likely_type, is_ntlm_hash, HashType
-from domain_utils import extract_domain_from_username, analyze_domains, DomainInfo, NO_DOMAIN
+from app.hash_types import identify_hash_type, get_most_likely_type, is_ntlm_hash, HashType
+from app.domain_utils import extract_domain_from_username, analyze_domains, DomainInfo, NO_DOMAIN
 
 
 # Constants
@@ -365,7 +365,7 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         ValidationResult with all parsed lines and summary statistics
     """
     import time
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     start_time = time.perf_counter()
     timing = get_timing_stats()
@@ -601,7 +601,7 @@ def validate_potfile(filepath: str, ntlm_only: bool = False) -> PotfileValidatio
         PotfileValidationResult with all parsed entries and summary statistics
     """
     import time
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     start_time = time.perf_counter()
     timing = get_timing_stats()
@@ -862,7 +862,7 @@ def build_account_data(
     Returns:
         Dictionary mapping account names to account data
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     timing = get_timing_stats()
     timing.start_timer(TimingStats.ACCOUNT_DATA_BUILD)
 
@@ -1621,7 +1621,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
     Returns:
         ADDValidationResult with domain policy and all user entries
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     timing = get_timing_stats()
     timing.start_timer(TimingStats.ADD_VALIDATION)
@@ -1889,7 +1889,7 @@ def add_to_account_data(
         - account_data: Standard format for HashMaster1000 analysis
         - privileged_findings: Enhanced data for privileged account report
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     timing = get_timing_stats()
     timing.start_timer(TimingStats.ACCOUNT_DATA_BUILD)
 

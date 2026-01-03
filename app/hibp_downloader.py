@@ -55,6 +55,10 @@ DEFAULT_OUTPUT_FILENAME = "pwnedpasswords-ntlm.txt"
 _active_download: "HIBPDownloadState | None" = None
 _download_lock = threading.Lock()
 
+# Cache for SQLite database info to avoid expensive COUNT(*) queries
+# Key: db_path, Value: (mtime, info_dict)
+_sqlite_info_cache: dict[str, tuple[float, dict]] = {}
+
 
 @dataclass
 class HIBPDownloadState:
@@ -1044,19 +1048,40 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
     """
     Get information about an existing HIBP SQLite database.
 
+    Uses caching to avoid expensive COUNT(*) queries on subsequent calls.
+    Cache is invalidated if the file modification time changes.
+
     Args:
         db_path: Path to the SQLite database
 
     Returns:
         Dict with database info, or None if not valid
     """
+    global _sqlite_info_cache
+
     if not os.path.exists(db_path):
+        # Remove from cache if file no longer exists
+        _sqlite_info_cache.pop(db_path, None)
         return None
 
     if not os.path.isfile(db_path):
         return None
 
     try:
+        # Get current modification time
+        current_mtime = os.path.getmtime(db_path)
+
+        # Check cache
+        if db_path in _sqlite_info_cache:
+            cached_mtime, cached_info = _sqlite_info_cache[db_path]
+            if cached_mtime == current_mtime:
+                # Cache hit - return cached info
+                logger.debug(f"HIBP SQLite info cache hit for {db_path}")
+                return cached_info
+
+        # Cache miss or stale - need to query database
+        logger.info(f"Querying HIBP SQLite database info (this may take a moment)...")
+
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -1066,7 +1091,7 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             conn.close()
             return None
 
-        # Get row count
+        # Get row count - this is the expensive query (~2 billion rows)
         cursor.execute("SELECT COUNT(*) FROM hashes")
         count = cursor.fetchone()[0]
 
@@ -1078,7 +1103,7 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
 
         file_size = os.path.getsize(db_path)
 
-        # Get file modification time
+        # Get file modification time for display
         stat_info = os.stat(db_path)
         if hasattr(stat_info, 'st_birthtime'):
             timestamp = stat_info.st_birthtime
@@ -1086,7 +1111,7 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             timestamp = stat_info.st_mtime
         file_date = datetime.fromtimestamp(timestamp).strftime("%B %d, %Y")
 
-        return {
+        info = {
             "path": db_path,
             "hash_count": count,
             "file_size_bytes": file_size,
@@ -1096,6 +1121,12 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             "file_date": file_date,
             "valid": True
         }
+
+        # Cache the result
+        _sqlite_info_cache[db_path] = (current_mtime, info)
+        logger.info(f"Cached HIBP SQLite info: {count:,} hashes")
+
+        return info
 
     except Exception as e:
         logger.error(f"Error reading SQLite database: {e}")

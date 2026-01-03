@@ -928,7 +928,7 @@ def analyze_password_history(
     Returns:
         HistoryAnalysisResult with aggregate statistics and findings
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     import time as time_module
 
     timing = get_timing_stats()

@@ -9,7 +9,12 @@ import json
 import time
 from typing import Any
 
-from password_analysis_tools import crack_stats, crack_stats_single_pass
+import sys
+import os
+# Add parent directory to path for app imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.password_analysis_tools import crack_stats, crack_stats_single_pass
 
 
 def create_test_account_data() -> dict[str, dict[str, Any]]:

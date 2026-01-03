@@ -151,7 +151,7 @@ def check_pw_reuse_from_account_data(
         List of tuples: (ntlm_hash, count, [account_names])
         Only includes hashes shared by 2+ accounts, sorted by count descending.
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     import time as time_module
 
     timing = get_timing_stats()
@@ -335,7 +335,7 @@ def crack_stats(
     :param max_pw_age: Maximum password age in days for compliance (requires last_pw_change in account_data).
     :return: A dictionary containing various password cracking statistics and reports.
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     timing = get_timing_stats()
     with timing.timer(TimingStats.CRACK_STATS, item_count=len(account_data)):
@@ -667,7 +667,7 @@ def substring_analysis(
     Returns:
     - list of dict: A list of substrings with `substring` and `count` (unique accounts).
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     timing = get_timing_stats()
     timing.start_timer(TimingStats.SUBSTRING_ANALYSIS)
@@ -774,7 +774,7 @@ def dictionary_analysis(
              1. Password-to-matched-words mapping.
              2. Word-to-occurrence-count mapping.
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     timing = get_timing_stats()
     timing.start_timer(TimingStats.DICTIONARY_ANALYSIS)
@@ -869,7 +869,7 @@ def bad_practices_analysis(
     :param account_entries: Optional list of dicts with 'account' and 'password' keys for username-in-password detection
     :return: Dictionary with category names as keys, containing counts and example passwords
     """
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     timing = get_timing_stats()
     timing.start_timer(TimingStats.BAD_PRACTICES)

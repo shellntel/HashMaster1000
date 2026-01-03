@@ -36,15 +36,15 @@ from flask_session import Session
 from datetime import datetime, timedelta
 from typing import Any, cast
 # Import file parser module for validation
-import file_parser
+from app import file_parser
 # Import session manager for multi-session support
-from session_manager import get_session_manager, SessionMetadata
+from app.session_manager import get_session_manager, SessionMetadata
 # Import domain utilities for domain filtering
-from domain_utils import filter_accounts_by_domain, detect_cross_domain_password_reuse
+from app.domain_utils import filter_accounts_by_domain, detect_cross_domain_password_reuse
 # Import password history analysis module
-import password_history
+from app import password_history
 # Import potfile cache for efficient master potfile operations
-from potfile_cache import get_master_cache, build_cracked_hashes_fast, get_cracked_hashes_direct
+from app.potfile_cache import get_master_cache, build_cracked_hashes_fast, get_cracked_hashes_direct
 
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
@@ -365,7 +365,7 @@ def logout() -> Response:
 @login_required
 def index() -> str:
     import time as time_module
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     # Get step parameter (defaults to 1 if not provided)
     # Step 3 is used when continuing from validation review to configuration
@@ -456,292 +456,12 @@ def favicon() -> Response:
 
 @app.route("/readme")
 def readme() -> Response:
-    return send_file("readme.md", mimetype="text/markdown")
+    return send_file("README.md", mimetype="text/markdown")
 
 
 @app.route("/LICENSE")
 def license() -> Response:
     return send_file("LICENSE", mimetype="text/markdown")
-
-
-@app.route("/upload", methods=["POST"])
-@login_required
-def upload_files() -> Response:
-    try:
-        # Retrieve file uploads
-        pwdump_file = request.files.get("pwdump_file")
-        potfile = request.files.get("potfile")
-
-        if not pwdump_file or not potfile:
-            logging.error("Missing file uploads.")
-            return Response(
-                render_template(
-                    "message.html",
-                    message="Valid pwdump and potfile (both) uploads are required.",
-                    message_type="error-message",
-                    status_code=400,
-                    referrer="Start",
-                    referrer_url=url_for("index"),
-                ),
-                status=400,
-            )
-
-        pwdump_path = os.path.join(app.config["UPLOAD_FOLDER"], pwdump_file.filename)
-        potfile_path = os.path.join(app.config["UPLOAD_FOLDER"], potfile.filename)
-
-        # Save pwdump and potfile files to the upload folder for validation
-        try:
-            pwdump_file.save(pwdump_path)
-            potfile.save(potfile_path)
-        except Exception as e:
-            return Response(
-                render_template(
-                    "message.html",
-                    message=f"Error saving files: {e}",
-                    status_code=500,
-                    referrer="Start",
-                    referrer_url=url_for("index"),
-                ),
-                status=500,
-            )
-
-        # Validate pwdump file
-        if not validate_pwdump_file(pwdump_path):
-            logging.error(f"Invalid pwdump file: {pwdump_path}")
-            os.remove(pwdump_path)
-            os.remove(potfile_path)
-            return Response(
-                render_template(
-                    "message.html",
-                    message="The uploaded pwdump file is invalid. Please upload a valid pwdump file.",
-                    message_type="error-message",
-                    status_code=400,
-                    referrer="Start",
-                    referrer_url=url_for("index"),
-                ),
-                status=400,
-            )
-
-        # Validate potfile
-        if not validate_potfile(potfile_path):
-            logging.error(f"Invalid potfile: {potfile_path}")
-            os.remove(pwdump_path)
-            os.remove(potfile_path)
-            return Response(
-                render_template(
-                    "message.html",
-                    message="The uploaded potfile is invalid. Please upload a valid potfile.",
-                    message_type="error-message",
-                    status_code=400,
-                    referrer="Start",
-                    referrer_url=url_for("index"),
-                ),
-                status=400,
-            )
-
-        # Collect form data for options
-        options: Dict[str, Union[str, bool]] = {
-            "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
-            "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
-            "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
-            "substring_min_len": request.form.get("substring_min_len", "4"),
-            "substring_max_len": request.form.get("substring_max_len", "20"),
-            "substring_freq_threshold": request.form.get(
-                "substring_freq_threshold", "5"
-            ),
-            "substring_disp_nest": parse_boolean_field("substring_disp_nest"),
-            "substring_normalize": parse_boolean_field("substring_normalize"),
-            "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
-            "dictionary_disp_nest": parse_boolean_field("dictionary_disp_nest"),
-            "ignore_blank_passwords": parse_boolean_field("ignore_blank_passwords"),
-        }
-
-        # Prepare command-line arguments
-        cmd_args = [
-            sys.executable,
-            "HashMaster1000.py",
-            pwdump_path,
-            potfile_path,
-            "--policy_min_pw_len",
-            str(options["policy_min_pw_len"]),
-            "--policy_max_pw_age",
-            str(options["policy_max_pw_age"]),
-            "--policy_complexity_req",
-            str(options["policy_complexity_req"]),
-            "--substring_min_len",
-            str(options["substring_min_len"]),
-            "--substring_max_len",
-            str(options["substring_max_len"]),
-            "--substring_freq_threshold",
-            str(options["substring_freq_threshold"]),
-            "--substring_disp_nest",
-            str(options["substring_disp_nest"]).lower(),
-            "--substring_normalize",
-            str(options["substring_normalize"]).lower(),
-            "--dictionary_min_len",
-            str(options["dictionary_min_len"]),
-            "--dictionary_disp_nest",
-            str(options["dictionary_disp_nest"]).lower(),
-            "--ignore_blank_passwords",
-            str(options["ignore_blank_passwords"]).lower(),
-        ]
-        print(f"\nStep 1: Parse inputs")
-        print(f"Running command: {cmd_args}")
-
-        # Execute the script with command-line arguments
-        result = subprocess.run(cmd_args, capture_output=True, text=True, check=True)
-        print("\nHashMaster1000.py ran with the following messages:")
-        print(result.stdout)
-        print(
-            f"\nPassword and hash analysis complete.\n\nStep 3: Load Report Charts and Tables\n"
-        )
-        return cast(FlaskResponse, redirect(url_for("report")))
-
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error executing HashMaster1000.py: {e.stderr}")
-        return Response(
-            render_template(
-                "message.html",
-                message="Error processing files. Please check your input files.",
-                message_type="error-message",
-                status_code=500,
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            status=500,
-        )
-
-    except Exception as e:
-        logging.error(f"Unexpected error during upload: {e}")
-        return Response(
-            render_template(
-                "message.html",
-                message="An unexpected error occurred. Please try again later.",
-                message_type="error-message",
-                status_code=500,
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            status=500,
-        )
-
-
-@app.route("/local_files", methods=["POST"])
-@login_required
-def local_files() -> FlaskResponse:
-    pwdump_path = request.form["pwdump_path"]
-    potfile_path = request.form["potfile_path"]
-
-    # Check if the provided paths are valid files
-    if not os.path.isfile(pwdump_path) or not os.path.isfile(potfile_path):
-        return make_response(
-            render_template(
-                "message.html",
-                message=f"One or both file paths are invalid. Please check and try again.\n"
-                f"pwdump_path={pwdump_path}\n"
-                f"potfile_path={potfile_path}",
-                message_type="error-message",
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            400,  # Status code for bad request
-        )
-
-    # Validate pwdump file
-    if not validate_pwdump_file(pwdump_path):
-        return make_response(
-            render_template(
-                "message.html",
-                message="The provided pwdump file is invalid. Please provide a valid pwdump file.",
-                message_type="error-message",
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            400,
-        )
-
-    # Validate potfile
-    if not validate_potfile(potfile_path):
-        return make_response(
-            render_template(
-                "message.html",
-                message="The provided potfile is invalid. Please provide a valid potfile.",
-                message_type="error-message",
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            400,
-        )
-
-    # Collect form data for options
-    options = {
-        "policy_min_pw_len": request.form.get("policy_min_pw_len", "12"),
-        "policy_max_pw_age": request.form.get("policy_max_pw_age", "90"),
-        "policy_complexity_req": request.form.get("policy_complexity_req", "3"),
-        "substring_min_len": request.form.get("substring_min_len", "4"),
-        "substring_max_len": request.form.get("substring_max_len", "20"),
-        "substring_freq_threshold": request.form.get("substring_freq_threshold", "5"),
-        "substring_disp_nest": parse_boolean_field("substring_disp_nest"),
-        "substring_normalize": parse_boolean_field("substring_normalize"),
-        "dictionary_min_len": request.form.get("dictionary_min_len", "4"),
-        "dictionary_disp_nest": parse_boolean_field("dictionary_disp_nest"),
-        "ignore_blank_passwords": parse_boolean_field("ignore_blank_passwords"),
-    }
-
-    # Prepare command-line arguments
-    cmd_args = [
-        sys.executable,
-        "HashMaster1000.py",
-        pwdump_path,
-        potfile_path,
-        "--policy_min_pw_len",
-        str(options["policy_min_pw_len"]),
-        "--policy_max_pw_age",
-        str(options["policy_max_pw_age"]),
-        "--policy_complexity_req",
-        str(options["policy_complexity_req"]),
-        "--substring_min_len",
-        str(options["substring_min_len"]),
-        "--substring_max_len",
-        str(options["substring_max_len"]),
-        "--substring_freq_threshold",
-        str(options["substring_freq_threshold"]),
-        "--substring_disp_nest",
-        str(options["substring_disp_nest"]).lower(),
-        "--substring_normalize",
-        str(options["substring_normalize"]).lower(),
-        "--dictionary_min_len",
-        str(options["dictionary_min_len"]),
-        "--dictionary_disp_nest",
-        str(options["dictionary_disp_nest"]).lower(),
-        "--ignore_blank_passwords",
-        str(options["ignore_blank_passwords"]).lower(),
-    ]
-
-    print(f"\nStep 1: Parse inputs")
-    print(f"Running command: {cmd_args}")
-
-    # Execute the script with command-line arguments
-    try:
-        result = subprocess.run(cmd_args, check=True)
-        print("\nHashMaster1000.py ran with the following messages:")
-        print(result.stdout)
-        print(
-            f"\nPassword and hash analysis complete.\n\nStep 3: Load Report Charts and Tables\n"
-        )
-    except subprocess.CalledProcessError as e:
-        return make_response(
-            render_template(
-                "message.html",
-                message=f"Error processing files: {e.stderr}",
-                message_type="error-message",
-                referrer="Start",
-                referrer_url=url_for("index"),
-            ),
-            500,  # Status code for server error
-        )
-
-    return cast(FlaskResponse, redirect(url_for("report")))
 
 
 # ============================================================================
@@ -921,7 +641,7 @@ def validate_files_endpoint() -> Response:
     If files are clean, proceed directly to processing.
     """
     import time as time_module
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     timing = get_timing_stats()
     validation_start = time_module.time()
     timing.start_timer(TimingStats.VALIDATION_TOTAL)
@@ -1088,7 +808,7 @@ def validate_local_files() -> Response:
     Similar to validate_files_endpoint but for local file paths instead of uploads.
     """
     import time as time_module
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
     timing = get_timing_stats()
     validation_start = time_module.time()
     timing.start_timer(TimingStats.VALIDATION_TOTAL)
@@ -1264,7 +984,7 @@ def validation_review() -> Response:
     Can display results for one or both files.
     """
     import time as time_module
-    from timing_stats import get_timing_stats, TimingStats
+    from app.timing_stats import get_timing_stats, TimingStats
 
     pwdump_data = session.get("pwdump_validation")
     potfile_data = session.get("potfile_validation")
@@ -1488,7 +1208,7 @@ def process_validated() -> Response:
     Creates a new analysis session to store results.
     """
     import time as time_module
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
     report_start_time = time_module.time()
 
     pwdump_data = session.get("pwdump_validation")
@@ -1583,7 +1303,7 @@ def process_validated() -> Response:
             )
 
         # Import analysis tools
-        import password_analysis_tools
+        from app import password_analysis_tools
 
         # Run analysis
         stats_report = password_analysis_tools.crack_stats(
@@ -1814,7 +1534,7 @@ def sessions_page() -> str:
 @login_required
 def hidden_pages_index() -> str:
     """Index page for hidden/development pages and tools."""
-    from ollama_tools import test_all_servers, get_ollama_config
+    from app.ollama_tools import test_all_servers, get_ollama_config
 
     # Get Ollama status for display
     config = get_ollama_config()
@@ -1846,7 +1566,7 @@ def timing_stats_page() -> str:
 @login_required
 def api_timing_status() -> Response:
     """Get timing statistics status."""
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
     timing = get_timing_stats()
     return jsonify(timing.get_status())
 
@@ -1855,7 +1575,7 @@ def api_timing_status() -> Response:
 @login_required
 def api_timing_clear() -> Response:
     """Clear all timing statistics."""
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
     timing = get_timing_stats()
     timing.clear_stats()
     return jsonify({"success": True})
@@ -1876,7 +1596,7 @@ def api_timing_estimate() -> Response:
         - hibp_enabled: Whether HIBP check is enabled (true/false)
         - hibp_mode: HIBP mode (sqlite, binary_search, api)
     """
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
 
     timing = get_timing_stats()
 
@@ -1934,7 +1654,7 @@ def api_timing_estimate() -> Response:
 @login_required
 def api_timing_systems() -> Response:
     """Get system comparison data across all systems that have run the app."""
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
 
     timing = get_timing_stats()
     systems = timing.get_systems_comparison()
@@ -2313,7 +2033,7 @@ def hibp_status() -> Response:
     - API availability
     - Recommended check method
     """
-    from hibp_checker import (
+    from app.hibp_checker import (
         get_local_db_status,
         validate_local_db_path,
         load_local_hibp_database,
@@ -2381,7 +2101,7 @@ def hibp_load_local_db() -> Response:
 
     This can take a while for large databases (typically 20-60 seconds for the full HIBP NTLM database).
     """
-    from hibp_checker import load_local_hibp_database
+    from app.hibp_checker import load_local_hibp_database
 
     local_db_path = os.environ.get("HIBP_LOCAL_DB_PATH", "").strip()
 
@@ -2407,7 +2127,7 @@ def hibp_load_local_db() -> Response:
 @login_required
 def hibp_test_connection() -> Response:
     """Test connectivity to the HIBP Pwned Passwords API."""
-    from hibp_checker import test_hibp_connection
+    from app.hibp_checker import test_hibp_connection
 
     success, message = test_hibp_connection()
     return jsonify({
@@ -2425,7 +2145,7 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
     This function runs the actual HIBP check and saves results to files.
     It's designed to be called from a background thread.
     """
-    from hibp_checker import check_hashes_hibp, check_hashes_local
+    from app.hibp_checker import check_hashes_hibp, check_hashes_local
 
     progress_path = os.path.join(session_dir, "hibp_progress.json")
     hibp_results_path = os.path.join(session_dir, "hibp_results.json")
@@ -2525,7 +2245,7 @@ def hibp_check_hashes() -> Response:
         JSON with status "started" immediately, or error if validation fails
     """
     import threading
-    from hibp_checker import get_local_db_status
+    from app.hibp_checker import get_local_db_status
 
     data = request.get_json() or {}
 
@@ -2626,7 +2346,7 @@ def hibp_check_hashes() -> Response:
 @login_required
 def hibp_progress() -> Response:
     """Get current HIBP check progress for polling."""
-    from timing_stats import get_timing_stats, get_processing_message, format_duration
+    from app.timing_stats import get_timing_stats, get_processing_message, format_duration
 
     session_mgr = get_session_manager()
     session_dir = session_mgr.get_session_dir()
@@ -2803,8 +2523,8 @@ def hibp_summary() -> Response:
 @login_required
 def hibp_download_info() -> Response:
     """Get information about HIBP database download, including estimates and attribution."""
-    from hibp_downloader import estimate_download, get_download_status, get_conversion_status, get_sqlite_db_info
-    from hibp_checker import get_local_db_status
+    from app.hibp_downloader import estimate_download, get_download_status, get_conversion_status, get_sqlite_db_info
+    from app.hibp_checker import get_local_db_status
 
     # Get current local database status
     local_db_status = get_local_db_status()
@@ -2875,7 +2595,7 @@ def hibp_download_start() -> Response:
 
     Returns immediately with status. Poll /api/hibp/download/status for progress.
     """
-    from hibp_downloader import start_download
+    from app.hibp_downloader import start_download
 
     data = request.get_json() or {}
 
@@ -2907,7 +2627,7 @@ def hibp_download_start() -> Response:
 @login_required
 def hibp_download_status() -> Response:
     """Get the current status of an active or completed HIBP download."""
-    from hibp_downloader import get_download_status
+    from app.hibp_downloader import get_download_status
 
     return jsonify(get_download_status())
 
@@ -2916,7 +2636,7 @@ def hibp_download_status() -> Response:
 @login_required
 def hibp_download_cancel() -> Response:
     """Cancel an active HIBP database download."""
-    from hibp_downloader import cancel_download
+    from app.hibp_downloader import cancel_download
 
     cancelled = cancel_download()
 
@@ -2947,7 +2667,7 @@ def hibp_convert_start() -> Response:
 
     Returns immediately with status. Poll /api/hibp/convert/status for progress.
     """
-    from hibp_downloader import start_conversion_background, get_conversion_status
+    from app.hibp_downloader import start_conversion_background, get_conversion_status
 
     data = request.get_json() or {}
 
@@ -3008,7 +2728,7 @@ def hibp_convert_start() -> Response:
 @login_required
 def hibp_convert_status() -> Response:
     """Get the current status of an active or completed SQLite conversion."""
-    from hibp_downloader import get_conversion_status
+    from app.hibp_downloader import get_conversion_status
 
     return jsonify(get_conversion_status())
 
@@ -3017,7 +2737,7 @@ def hibp_convert_status() -> Response:
 @login_required
 def hibp_convert_cancel() -> Response:
     """Cancel an active SQLite conversion."""
-    from hibp_downloader import cancel_conversion
+    from app.hibp_downloader import cancel_conversion
 
     cancelled = cancel_conversion()
 
@@ -3043,7 +2763,7 @@ def hibp_delete_text_file() -> Response:
     - A SQLite database is actively loaded
     - The text file exists
     """
-    from hibp_checker import get_local_db_status
+    from app.hibp_checker import get_local_db_status
 
     # Get current local database status
     local_db_status = get_local_db_status()
@@ -3101,7 +2821,7 @@ def run_automatic_hibp_check(account_data: dict, session_dir: str) -> dict | Non
     user consent (since no data leaves the system). Returns the results dict or None
     if no local database is available.
     """
-    from hibp_checker import check_hashes_local, get_local_db_status
+    from app.hibp_checker import check_hashes_local, get_local_db_status
 
     local_db_status = get_local_db_status()
     if not local_db_status["loaded"]:
@@ -3378,7 +3098,7 @@ def process_add_validated() -> Response:
     Generates standard reports plus privileged account reports.
     """
     import time as time_module
-    from timing_stats import get_timing_stats
+    from app.timing_stats import get_timing_stats
     report_start_time = time_module.time()
 
     add_data = session.get("add_validation")
@@ -3470,7 +3190,7 @@ def process_add_validated() -> Response:
         password_sharing = file_parser.detect_privilege_password_sharing(add_result, cracked_hashes)
 
         # Import analysis tools
-        import password_analysis_tools
+        from app import password_analysis_tools
 
         # Run standard analysis
         stats_report = password_analysis_tools.crack_stats(
@@ -3616,7 +3336,7 @@ def process_add_validated() -> Response:
         # Run Kerberoast exposure analysis if raw user data is available
         if add_result.raw_users:
             try:
-                import kerberoast_analysis
+                from app import kerberoast_analysis
 
                 # Build cracked accounts dict for Kerberoast analysis
                 kerberoast_cracked = {
@@ -3658,7 +3378,7 @@ def process_add_validated() -> Response:
 
             # Run AS-REP roasting exposure analysis
             try:
-                import asrep_analysis
+                from app import asrep_analysis
 
                 # Reuse the cracked accounts and reuse clusters from Kerberoast analysis
                 asrep_report = asrep_analysis.analyze_asrep_exposure(
@@ -3814,7 +3534,7 @@ def browse_directory() -> Response:
 @login_required
 def ai_status() -> Response:
     """Check Ollama AI integration status."""
-    from ollama_tools import test_ollama_connection, get_ollama_config
+    from app.ollama_tools import test_ollama_connection, get_ollama_config
 
     config = get_ollama_config()
     result = test_ollama_connection()
@@ -3826,7 +3546,7 @@ def ai_status() -> Response:
 @login_required
 def ai_models() -> Response:
     """Get list of available models from Ollama server."""
-    from ollama_tools import OllamaClient, get_ollama_config
+    from app.ollama_tools import OllamaClient, get_ollama_config
 
     # Get server_id from query params to support multi-server setup
     server_id = request.args.get("server_id")
@@ -3845,7 +3565,7 @@ def ai_models() -> Response:
 @login_required
 def ai_library_models() -> Response:
     """Get list of popular models available to pull from Ollama library."""
-    from ollama_tools import get_available_library_models
+    from app.ollama_tools import get_available_library_models
 
     models = get_available_library_models()
     return jsonify({"models": models})
@@ -3855,7 +3575,7 @@ def ai_library_models() -> Response:
 @login_required
 def ai_presets() -> Response:
     """Get analysis preset configurations."""
-    from ollama_tools import get_analysis_presets
+    from app.ollama_tools import get_analysis_presets
 
     presets = get_analysis_presets()
     return jsonify({"presets": presets})
@@ -3865,7 +3585,7 @@ def ai_presets() -> Response:
 @login_required
 def ai_pull_model() -> Response:
     """Pull (download) a model from Ollama library."""
-    from ollama_tools import pull_model, get_ollama_config
+    from app.ollama_tools import pull_model, get_ollama_config
 
     data = request.get_json() or {}
     server_id = data.get("server_id")  # Optional - defaults to primary server
@@ -3889,7 +3609,7 @@ def ai_pull_model() -> Response:
 @login_required
 def ai_delete_model() -> Response:
     """Delete a model from the Ollama server."""
-    from ollama_tools import delete_model, get_ollama_config
+    from app.ollama_tools import delete_model, get_ollama_config
 
     data = request.get_json() or {}
     server_id = data.get("server_id")  # Optional - defaults to primary server
@@ -3914,7 +3634,7 @@ def ai_delete_model() -> Response:
 def ai_generate() -> Response:
     """Send a prompt to the Ollama server."""
     import time
-    from ollama_tools import OllamaClient, get_ollama_config
+    from app.ollama_tools import OllamaClient, get_ollama_config
 
     data = request.get_json()
     if not data or "prompt" not in data:
@@ -3961,7 +3681,7 @@ def ai_generate() -> Response:
 @login_required
 def ai_executive_summary() -> Response:
     """Generate an executive summary from session data."""
-    from ollama_tools import PasswordAnalysisAI, get_ollama_config
+    from app.ollama_tools import PasswordAnalysisAI, get_ollama_config
 
     config = get_ollama_config()
     if not config.enabled:
@@ -3995,7 +3715,7 @@ def ai_executive_summary() -> Response:
 @login_required
 def ai_analyze_patterns() -> Response:
     """Generate natural language pattern analysis."""
-    from ollama_tools import PasswordAnalysisAI, get_ollama_config
+    from app.ollama_tools import PasswordAnalysisAI, get_ollama_config
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4025,7 +3745,7 @@ def ai_analyze_patterns() -> Response:
 @login_required
 def ai_cluster_passwords() -> Response:
     """Categorize passwords by semantic meaning."""
-    from ollama_tools import PasswordAnalysisAI, get_ollama_config
+    from app.ollama_tools import PasswordAnalysisAI, get_ollama_config
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4063,7 +3783,7 @@ def ai_cluster_passwords() -> Response:
 @login_required
 def ai_attack_strategy() -> Response:
     """Generate attack strategy recommendations."""
-    from ollama_tools import PasswordAnalysisAI, get_ollama_config
+    from app.ollama_tools import PasswordAnalysisAI, get_ollama_config
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4097,7 +3817,7 @@ def ai_attack_strategy() -> Response:
 @login_required
 def ai_list_servers() -> Response:
     """Get all configured Ollama servers and their status."""
-    from ollama_tools import test_all_servers
+    from app.ollama_tools import test_all_servers
     return jsonify(test_all_servers())
 
 
@@ -4105,7 +3825,7 @@ def ai_list_servers() -> Response:
 @login_required
 def ai_server_status(server_id: str) -> Response:
     """Get detailed status of a specific Ollama server including running models."""
-    from ollama_tools import test_ollama_connection, get_server_by_id, get_ollama_config, OllamaClient
+    from app.ollama_tools import test_ollama_connection, get_server_by_id, get_ollama_config, OllamaClient
 
     server = get_server_by_id(server_id)
     if not server:
@@ -4140,7 +3860,7 @@ def ai_server_status(server_id: str) -> Response:
 @login_required
 def ai_report_sections() -> Response:
     """Get all AI report section configurations."""
-    from ollama_tools import get_ai_report_sections
+    from app.ollama_tools import get_ai_report_sections
     return jsonify({"sections": get_ai_report_sections()})
 
 
@@ -4157,7 +3877,7 @@ def ai_report_analyze_section(section_id: str) -> Response:
     - data: Dictionary containing section-specific data
     """
     import time
-    from ollama_tools import AIReportAnalyzer, get_ollama_config, get_ai_report_sections, get_server_by_id, OllamaClient
+    from app.ollama_tools import AIReportAnalyzer, get_ollama_config, get_ai_report_sections, get_server_by_id, OllamaClient
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4175,7 +3895,7 @@ def ai_report_analyze_section(section_id: str) -> Response:
 
     # If no data provided, load it automatically (fallback)
     if not data:
-        from ollama_tools import get_ai_data_loader
+        from app.ollama_tools import get_ai_data_loader
         session_mgr = get_session_manager()
         session_dir = session_mgr.get_session_dir()
         loader = get_ai_data_loader(session_dir)
@@ -4313,7 +4033,7 @@ def ai_pipeline_stream() -> Response:
     import time
     import glob
     from flask import Response, stream_with_context
-    from ollama_tools import (
+    from app.ollama_tools import (
         AIPipelineRunner, get_ollama_config, OllamaClient,
         get_ai_data_loader, get_phase_config, AIReportAnalyzer,
         get_ai_report_sections
@@ -5073,7 +4793,7 @@ def analyze_session_trends() -> Response:
     Returns trend comparison with metrics, changes, and chart data.
     """
     try:
-        from trend_analysis import TrendAnalyzer
+        from app.trend_analysis import TrendAnalyzer
 
         data = request.get_json() or {}
         session_ids = data.get("session_ids", [])
@@ -5492,7 +5212,7 @@ def regenerate_with_settings() -> Response:
         session["analysis_options"] = options
 
         # Import analysis tools
-        import password_analysis_tools
+        from app import password_analysis_tools
 
         # Re-run analysis with new settings
         stats_report = password_analysis_tools.crack_stats(
@@ -5725,8 +5445,8 @@ def aaia_clear_results() -> Response:
 @login_required
 def aaia_get_config() -> Response:
     """Get AAIA configuration with section recommendations and available servers/models."""
-    from ollama_tools import test_all_servers, OllamaClient, get_ollama_config
-    from ollama_prompts import AI_REPORT_SECTIONS
+    from app.ollama_tools import test_all_servers, OllamaClient, get_ollama_config
+    from app.ollama_prompts import AI_REPORT_SECTIONS
 
     # Get all servers and their status
     servers_data = test_all_servers()
@@ -5834,7 +5554,7 @@ def ai_report_get_output(filename: str) -> Response:
 @login_required
 def ai_report_data_summary() -> Response:
     """Get summary of available analysis data for AI reports."""
-    from ollama_tools import get_ai_data_loader
+    from app.ollama_tools import get_ai_data_loader
 
     session_mgr = get_session_manager()
     session_dir = session_mgr.get_session_dir()
@@ -5852,7 +5572,7 @@ def ai_report_section_data(section_id: str) -> Response:
     Returns the data that would be sent to the AI for this section,
     loaded from the /data JSON files.
     """
-    from ollama_tools import get_ai_data_loader, get_ai_report_sections
+    from app.ollama_tools import get_ai_data_loader, get_ai_report_sections
 
     sections = get_ai_report_sections()
     if section_id not in sections:
@@ -5890,7 +5610,7 @@ def ai_report_all_section_data() -> Response:
 
     Useful for initializing the test page with real data.
     """
-    from ollama_tools import get_ai_data_loader, get_ai_report_sections
+    from app.ollama_tools import get_ai_data_loader, get_ai_report_sections
 
     session_mgr = get_session_manager()
     session_dir = session_mgr.get_session_dir()
@@ -5926,8 +5646,8 @@ def ai_report_section_prompt(section_id: str) -> Response:
     Returns the prompt template with data filled in, so users can see
     exactly what will be sent to the AI.
     """
-    from ollama_tools import get_ai_data_loader, get_ai_report_sections
-    from ollama_prompts import (
+    from app.ollama_tools import get_ai_data_loader, get_ai_report_sections
+    from app.ollama_prompts import (
         SYSTEM_PROMPT, WEAK_HABITS_PROMPT, COMPANY_INTEL_PROMPT,
         USER_BEHAVIOR_PROMPT, RISK_ASSESSMENT_PROMPT, RECOMMENDATIONS_PROMPT,
         EXECUTIVE_SUMMARY_PROMPT
@@ -5992,7 +5712,7 @@ def ai_report_section_prompt(section_id: str) -> Response:
 @login_required
 def ai_report_test_page() -> str:
     """AI Report Analysis test page for experimenting with report sections."""
-    from ollama_tools import test_all_servers, get_ai_report_sections, get_ai_data_loader
+    from app.ollama_tools import test_all_servers, get_ai_report_sections, get_ai_data_loader
 
     # Get all server statuses
     servers_status = test_all_servers()
@@ -6031,7 +5751,7 @@ def ai_report_test_page() -> str:
 @login_required
 def ai_servers_manage_page() -> str:
     """Multi-server Ollama management page - connectivity testing and model management."""
-    from ollama_tools import test_all_servers, get_available_library_models
+    from app.ollama_tools import test_all_servers, get_available_library_models
 
     # Get all server statuses
     servers_status = test_all_servers()
@@ -6063,7 +5783,7 @@ def ai_servers_manage_page() -> str:
 @login_required
 def ai_benchmark_page() -> str:
     """AI Benchmark Suite - comprehensive model benchmarking and comparison."""
-    from ollama_tools import test_all_servers, get_ai_report_sections
+    from app.ollama_tools import test_all_servers, get_ai_report_sections
 
     # Get all server statuses
     servers_status = test_all_servers()
@@ -6248,8 +5968,8 @@ def delete_comparison_result(comparison_id: str) -> Response:
 
 if __name__ == "__main__":
     import time as _time
-    from timing_stats import get_timing_stats
-    from hibp_checker import get_local_db_status
+    from app.timing_stats import get_timing_stats
+    from app.hibp_checker import get_local_db_status
 
     timing = get_timing_stats()
     timing.start_startup_timing()
@@ -6279,7 +5999,7 @@ if __name__ == "__main__":
     # Initialize local HIBP database if configured (uses binary search - no memory loading)
     hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
     if hibp_local_db_path:
-        from hibp_checker import init_local_hibp_database
+        from app.hibp_checker import init_local_hibp_database
         print(f"\n--> Checking local HIBP database at: {hibp_local_db_path}")
         hibp_start = _time.time()
         success, message, estimated_entries = init_local_hibp_database(hibp_local_db_path)

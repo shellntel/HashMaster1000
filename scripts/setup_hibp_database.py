@@ -32,12 +32,12 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from hibp_downloader import (
+from app.hibp_downloader import (
     convert_text_to_sqlite,
     get_sqlite_db_info,
     SQLiteConversionState,
 )
-from hibp_checker import (
+from app.hibp_checker import (
     validate_local_db_path,
     get_local_db_status,
     init_local_hibp_database,

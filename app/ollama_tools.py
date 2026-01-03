@@ -19,7 +19,7 @@ from typing import Optional, Dict, List, Any, Callable, Tuple
 from dataclasses import dataclass, field
 import re
 
-from ollama_prompts import (
+from app.ollama_prompts import (
     SYSTEM_PROMPT,
     EXECUTIVE_SUMMARY_PROMPT,
     PATTERN_DESCRIPTION_PROMPT,
@@ -1198,7 +1198,7 @@ class AIReportAnalyzer:
         - completion_tokens: Number of tokens in the response
         - total_tokens: Total tokens used
         """
-        from ollama_prompts import (
+        from app.ollama_prompts import (
             SYSTEM_PROMPT, WEAK_HABITS_PROMPT, COMPANY_INTEL_PROMPT,
             USER_BEHAVIOR_PROMPT, RECOMMENDATIONS_PROMPT
         )

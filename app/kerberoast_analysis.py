@@ -28,7 +28,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from service_account import (
+from app.service_account import (
     ServiceAccountInfo,
     identify_service_account,
     get_kerberoastable_accounts,
