@@ -616,23 +616,34 @@ def _get_cpu_model(os_name: str) -> str:
 
 
 def _detect_disk_type(os_name: str) -> str:
-    """Detect disk type (SSD/HDD/NVMe) - platform-specific."""
+    """Detect disk type (SSD/HDD/NVMe) for the drive where the app is running."""
     import subprocess
 
     try:
         if os_name == "Linux":
-            # Try to detect if root disk is SSD/NVMe
+            # Get the device for the current working directory
+            cwd = os.getcwd()
             result = subprocess.run(
-                ["lsblk", "-d", "-o", "NAME,ROTA", "-n"],
+                ["df", cwd],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
-                for line in result.stdout.strip().split("\n"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        name, rotational = parts[0], parts[1]
-                        # Check if this is the root device
-                        if name.startswith("nvme"):
+                lines = result.stdout.strip().split("\n")
+                if len(lines) >= 2:
+                    # Get device from df output (e.g., /dev/nvme0n1p2)
+                    device = lines[1].split()[0]
+                    # Extract base device name (nvme0n1, sda, etc.)
+                    device_name = os.path.basename(device)
+                    # Remove partition number
+                    import re
+                    base_device = re.sub(r'p?\d+$', '', device_name)
+
+                    # Check rotational status for this specific device
+                    rotational_path = f"/sys/block/{base_device}/queue/rotational"
+                    if os.path.exists(rotational_path):
+                        with open(rotational_path) as f:
+                            rotational = f.read().strip()
+                        if base_device.startswith("nvme"):
                             return "NVMe"
                         elif rotational == "0":
                             return "SSD"
@@ -653,17 +664,67 @@ def _detect_disk_type(os_name: str) -> str:
                 elif "rotational" in output or "hdd" in output:
                     return "HDD"
         elif os_name == "Windows":
-            # Windows: use wmic to check disk type
+            # Windows: Use PowerShell to get disk type for the drive where app is running
+            # First, get the drive letter of the current working directory
+            cwd = os.getcwd()
+            drive_letter = os.path.splitdrive(cwd)[0].rstrip(':')
+
+            # Use PowerShell to get the physical disk type for this drive
+            # This maps: Drive Letter -> Partition -> Disk -> PhysicalDisk
+            ps_command = f'''
+            $driveLetter = "{drive_letter}"
+            $partition = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue
+            if ($partition) {{
+                $disk = Get-Disk -Number $partition.DiskNumber -ErrorAction SilentlyContinue
+                if ($disk) {{
+                    $physDisk = Get-PhysicalDisk | Where-Object {{ $_.DeviceId -eq $disk.Number }} | Select-Object -First 1
+                    if ($physDisk) {{
+                        $physDisk.MediaType
+                    }} else {{
+                        # Fallback: check disk bus type for NVMe
+                        if ($disk.BusType -eq "NVMe") {{ "NVMe" }}
+                        else {{ $disk.MediaType }}
+                    }}
+                }}
+            }}
+            '''
+
             result = subprocess.run(
-                ["wmic", "diskdrive", "get", "MediaType", "/value"],
-                capture_output=True, text=True, shell=True
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
+
             if result.returncode == 0:
-                output = result.stdout.lower()
-                if "solid state" in output or "ssd" in output:
+                output = result.stdout.strip().lower()
+                if "nvme" in output:
+                    return "NVMe"
+                elif "ssd" in output or "solid state" in output:
                     return "SSD"
-                elif "fixed hard disk" in output:
+                elif "hdd" in output or "unspecified" in output:
+                    # "Unspecified" often means HDD, but let's check bus type as backup
                     return "HDD"
+                elif output:
+                    # Got some output but didn't match - log it for debugging
+                    logger.debug(f"Windows disk MediaType: '{output}'")
+
+            # Fallback: try to detect NVMe by checking if any NVMe controller exists for this disk
+            ps_nvme_check = f'''
+            $driveLetter = "{drive_letter}"
+            $partition = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue
+            if ($partition) {{
+                $disk = Get-Disk -Number $partition.DiskNumber -ErrorAction SilentlyContinue
+                if ($disk -and $disk.BusType -eq "NVMe") {{ "NVMe" }}
+            }}
+            '''
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_nvme_check],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            if result.returncode == 0 and "nvme" in result.stdout.strip().lower():
+                return "NVMe"
+
     except Exception as e:
         logger.debug(f"Could not detect disk type: {e}")
 
