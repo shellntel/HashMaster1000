@@ -313,7 +313,7 @@ class SystemInfo:
 
 
 def collect_system_info() -> SystemInfo:
-    """Collect current system information."""
+    """Collect current system information (cross-platform)."""
     import platform
     import socket
     import sys
@@ -326,7 +326,7 @@ def collect_system_info() -> SystemInfo:
     info.hostname = socket.gethostname()
     info.python_version = sys.version.split()[0]
 
-    # Try to get detailed CPU/memory/disk info
+    # Try to get detailed CPU/memory/disk info using psutil (cross-platform)
     try:
         import psutil
 
@@ -344,109 +344,284 @@ def collect_system_info() -> SystemInfo:
         info.memory_total_gb = round(mem.total / (1024**3), 2)
         info.memory_available_gb = round(mem.available / (1024**3), 2)
 
-        # Disk
-        disk = psutil.disk_usage('/')
-        info.disk_total_gb = round(disk.total / (1024**3), 2)
-        info.disk_free_gb = round(disk.free / (1024**3), 2)
+        # Disk - use appropriate root path per platform
+        disk_path = 'C:\\' if info.os_name == 'Windows' else '/'
+        try:
+            disk = psutil.disk_usage(disk_path)
+            info.disk_total_gb = round(disk.total / (1024**3), 2)
+            info.disk_free_gb = round(disk.free / (1024**3), 2)
+        except Exception:
+            pass
 
     except ImportError:
         logger.debug("psutil not available, using fallback methods")
         info.cpu_cores_logical = os.cpu_count() or 0
 
-        # Fallback for Linux: read from /proc and df
+        # Platform-specific fallbacks when psutil is not available
         if info.os_name == "Linux":
-            try:
-                # Memory from /proc/meminfo
-                with open("/proc/meminfo", "r") as f:
-                    for line in f:
-                        if line.startswith("MemTotal:"):
-                            kb = int(line.split()[1])
-                            info.memory_total_gb = round(kb / (1024**2), 2)
-                        elif line.startswith("MemAvailable:"):
-                            kb = int(line.split()[1])
-                            info.memory_available_gb = round(kb / (1024**2), 2)
-            except Exception:
-                pass
-
-            try:
-                # CPU cores from /proc/cpuinfo
-                physical_ids = set()
-                with open("/proc/cpuinfo", "r") as f:
-                    for line in f:
-                        if line.startswith("physical id"):
-                            physical_ids.add(line.split(":")[1].strip())
-                        elif line.startswith("cpu cores"):
-                            cores = int(line.split(":")[1].strip())
-                            info.cpu_cores_physical = len(physical_ids) * cores if physical_ids else cores
-                            break
-                # Fallback: assume physical = logical / 2 for hyper-threaded
-                if info.cpu_cores_physical == 0 and info.cpu_cores_logical > 0:
-                    info.cpu_cores_physical = info.cpu_cores_logical // 2 or 1
-            except Exception:
-                pass
-
-            try:
-                # CPU frequency from /proc/cpuinfo or /sys
-                with open("/proc/cpuinfo", "r") as f:
-                    for line in f:
-                        if line.startswith("cpu MHz"):
-                            info.cpu_freq_mhz = float(line.split(":")[1].strip())
-                            break
-
-                # Try to get max frequency from sysfs
-                try:
-                    with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", "r") as f:
-                        khz = int(f.read().strip())
-                        info.cpu_freq_max_mhz = khz / 1000
-                except Exception:
-                    info.cpu_freq_max_mhz = info.cpu_freq_mhz
-            except Exception:
-                pass
-
-            try:
-                # Disk from df command
-                import subprocess
-                result = subprocess.run(
-                    ["df", "-B1", "/"],
-                    capture_output=True, text=True
-                )
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split("\n")
-                    if len(lines) >= 2:
-                        parts = lines[1].split()
-                        if len(parts) >= 4:
-                            info.disk_total_gb = round(int(parts[1]) / (1024**3), 2)
-                            info.disk_free_gb = round(int(parts[3]) / (1024**3), 2)
-            except Exception:
-                pass
+            _collect_linux_info_fallback(info)
+        elif info.os_name == "Windows":
+            _collect_windows_info_fallback(info)
+        elif info.os_name == "Darwin":
+            _collect_macos_info_fallback(info)
 
     # CPU model (platform-specific)
+    if not info.cpu_model:
+        info.cpu_model = _get_cpu_model(info.os_name)
+
+    # Disk type detection
+    if not info.disk_type:
+        info.disk_type = _detect_disk_type(info.os_name)
+
+    return info
+
+
+def _collect_linux_info_fallback(info: SystemInfo) -> None:
+    """Collect system info on Linux without psutil."""
     try:
-        if info.os_name == "Linux":
+        # Memory from /proc/meminfo
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    info.memory_total_gb = round(kb / (1024**2), 2)
+                elif line.startswith("MemAvailable:"):
+                    kb = int(line.split()[1])
+                    info.memory_available_gb = round(kb / (1024**2), 2)
+    except Exception:
+        pass
+
+    try:
+        # CPU cores from /proc/cpuinfo
+        physical_ids = set()
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if line.startswith("physical id"):
+                    physical_ids.add(line.split(":")[1].strip())
+                elif line.startswith("cpu cores"):
+                    cores = int(line.split(":")[1].strip())
+                    info.cpu_cores_physical = len(physical_ids) * cores if physical_ids else cores
+                    break
+        # Fallback: assume physical = logical / 2 for hyper-threaded
+        if info.cpu_cores_physical == 0 and info.cpu_cores_logical > 0:
+            info.cpu_cores_physical = info.cpu_cores_logical // 2 or 1
+    except Exception:
+        pass
+
+    try:
+        # CPU frequency from /proc/cpuinfo or /sys
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if line.startswith("cpu MHz"):
+                    info.cpu_freq_mhz = float(line.split(":")[1].strip())
+                    break
+
+        # Try to get max frequency from sysfs
+        try:
+            with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq", "r") as f:
+                khz = int(f.read().strip())
+                info.cpu_freq_max_mhz = khz / 1000
+        except Exception:
+            info.cpu_freq_max_mhz = info.cpu_freq_mhz
+    except Exception:
+        pass
+
+    try:
+        # Disk from df command
+        import subprocess
+        result = subprocess.run(
+            ["df", "-B1", "/"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if len(parts) >= 4:
+                    info.disk_total_gb = round(int(parts[1]) / (1024**3), 2)
+                    info.disk_free_gb = round(int(parts[3]) / (1024**3), 2)
+    except Exception:
+        pass
+
+
+def _collect_windows_info_fallback(info: SystemInfo) -> None:
+    """Collect system info on Windows without psutil."""
+    import subprocess
+
+    # Physical cores - Windows doesn't expose this easily without psutil
+    # Assume physical = logical / 2 for hyper-threaded CPUs
+    if info.cpu_cores_logical > 0:
+        info.cpu_cores_physical = info.cpu_cores_logical // 2 or 1
+
+    try:
+        # Memory using wmic
+        result = subprocess.run(
+            ["wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value"],
+            capture_output=True, text=True, shell=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.startswith("TotalPhysicalMemory="):
+                    bytes_val = int(line.split("=")[1].strip())
+                    info.memory_total_gb = round(bytes_val / (1024**3), 2)
+                    break
+    except Exception:
+        pass
+
+    try:
+        # Available memory using wmic
+        result = subprocess.run(
+            ["wmic", "OS", "get", "FreePhysicalMemory", "/value"],
+            capture_output=True, text=True, shell=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.startswith("FreePhysicalMemory="):
+                    kb = int(line.split("=")[1].strip())
+                    info.memory_available_gb = round(kb / (1024**2), 2)
+                    break
+    except Exception:
+        pass
+
+    try:
+        # Disk space using wmic
+        result = subprocess.run(
+            ["wmic", "logicaldisk", "where", "DeviceID='C:'", "get", "Size,FreeSpace", "/value"],
+            capture_output=True, text=True, shell=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if line.startswith("Size="):
+                    try:
+                        bytes_val = int(line.split("=")[1].strip())
+                        info.disk_total_gb = round(bytes_val / (1024**3), 2)
+                    except ValueError:
+                        pass
+                elif line.startswith("FreeSpace="):
+                    try:
+                        bytes_val = int(line.split("=")[1].strip())
+                        info.disk_free_gb = round(bytes_val / (1024**3), 2)
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+
+
+def _collect_macos_info_fallback(info: SystemInfo) -> None:
+    """Collect system info on macOS without psutil."""
+    import subprocess
+
+    try:
+        # Physical and logical cores
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.physicalcpu"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            info.cpu_cores_physical = int(result.stdout.strip())
+    except Exception:
+        pass
+
+    try:
+        # Memory
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            bytes_val = int(result.stdout.strip())
+            info.memory_total_gb = round(bytes_val / (1024**3), 2)
+    except Exception:
+        pass
+
+    try:
+        # Available memory using vm_stat
+        result = subprocess.run(
+            ["vm_stat"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            # Parse vm_stat output - pages are 4096 bytes on most Macs
+            page_size = 4096
+            free_pages = 0
+            inactive_pages = 0
+            for line in result.stdout.split("\n"):
+                if "Pages free:" in line:
+                    free_pages = int(line.split(":")[1].strip().rstrip("."))
+                elif "Pages inactive:" in line:
+                    inactive_pages = int(line.split(":")[1].strip().rstrip("."))
+            # Available = free + inactive (simplified)
+            available_bytes = (free_pages + inactive_pages) * page_size
+            info.memory_available_gb = round(available_bytes / (1024**3), 2)
+    except Exception:
+        pass
+
+    try:
+        # Disk space using df
+        result = subprocess.run(
+            ["df", "-b", "/"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if len(parts) >= 4:
+                    # df -b gives 512-byte blocks on macOS
+                    info.disk_total_gb = round(int(parts[1]) * 512 / (1024**3), 2)
+                    info.disk_free_gb = round(int(parts[3]) * 512 / (1024**3), 2)
+    except Exception:
+        pass
+
+    try:
+        # CPU frequency
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.cpufrequency_max"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            hz = int(result.stdout.strip())
+            info.cpu_freq_max_mhz = hz / 1_000_000
+            info.cpu_freq_mhz = info.cpu_freq_max_mhz
+    except Exception:
+        pass
+
+
+def _get_cpu_model(os_name: str) -> str:
+    """Get CPU model string (platform-specific)."""
+    import platform
+    import subprocess
+
+    try:
+        if os_name == "Linux":
             with open("/proc/cpuinfo", "r") as f:
                 for line in f:
                     if line.startswith("model name"):
-                        info.cpu_model = line.split(":")[1].strip()
-                        break
-        elif info.os_name == "Darwin":  # macOS
-            import subprocess
+                        return line.split(":")[1].strip()
+        elif os_name == "Darwin":  # macOS
             result = subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
                 capture_output=True, text=True
             )
             if result.returncode == 0:
-                info.cpu_model = result.stdout.strip()
-        elif info.os_name == "Windows":
-            info.cpu_model = platform.processor()
+                return result.stdout.strip()
+        elif os_name == "Windows":
+            # platform.processor() returns full CPU name on Windows
+            return platform.processor() or "unknown"
     except Exception as e:
         logger.debug(f"Could not get CPU model: {e}")
-        info.cpu_model = platform.processor() or "unknown"
 
-    # Disk type detection (Linux)
+    return platform.processor() or "unknown"
+
+
+def _detect_disk_type(os_name: str) -> str:
+    """Detect disk type (SSD/HDD/NVMe) - platform-specific."""
+    import subprocess
+
     try:
-        if info.os_name == "Linux":
+        if os_name == "Linux":
             # Try to detect if root disk is SSD/NVMe
-            import subprocess
             result = subprocess.run(
                 ["lsblk", "-d", "-o", "NAME,ROTA", "-n"],
                 capture_output=True, text=True
@@ -458,21 +633,41 @@ def collect_system_info() -> SystemInfo:
                         name, rotational = parts[0], parts[1]
                         # Check if this is the root device
                         if name.startswith("nvme"):
-                            info.disk_type = "NVMe"
-                            break
+                            return "NVMe"
                         elif rotational == "0":
-                            info.disk_type = "SSD"
+                            return "SSD"
                         else:
-                            info.disk_type = "HDD"
-            if not info.disk_type:
-                info.disk_type = "unknown"
-        else:
-            info.disk_type = "unknown"
+                            return "HDD"
+        elif os_name == "Darwin":
+            # macOS: check if using SSD
+            result = subprocess.run(
+                ["system_profiler", "SPStorageDataType"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                output = result.stdout.lower()
+                if "solid state" in output or "ssd" in output:
+                    return "SSD"
+                elif "nvme" in output:
+                    return "NVMe"
+                elif "rotational" in output or "hdd" in output:
+                    return "HDD"
+        elif os_name == "Windows":
+            # Windows: use wmic to check disk type
+            result = subprocess.run(
+                ["wmic", "diskdrive", "get", "MediaType", "/value"],
+                capture_output=True, text=True, shell=True
+            )
+            if result.returncode == 0:
+                output = result.stdout.lower()
+                if "solid state" in output or "ssd" in output:
+                    return "SSD"
+                elif "fixed hard disk" in output:
+                    return "HDD"
     except Exception as e:
         logger.debug(f"Could not detect disk type: {e}")
-        info.disk_type = "unknown"
 
-    return info
+    return "unknown"
 
 
 @dataclass

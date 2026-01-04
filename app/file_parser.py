@@ -685,10 +685,24 @@ def merge_potfile_entries(
         Tuple of (entries_added, entries_skipped_duplicate, total_in_master)
     """
     import os
-    import fcntl
+    import sys
     import logging
 
     logger = logging.getLogger(__name__)
+
+    # Platform-appropriate file locking
+    if sys.platform == 'win32':
+        import msvcrt
+        def _lock_file(f):
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        def _unlock_file(f):
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        def _lock_file(f):
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        def _unlock_file(f):
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     # Filter to only valid, included NTLM entries
     ntlm_entries = [
@@ -729,7 +743,7 @@ def merge_potfile_entries(
         try:
             with open(master_path, 'a', encoding='utf-8') as f:
                 # Use file locking to prevent race conditions
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                _lock_file(f)
                 try:
                     for entry in ntlm_entries:
                         hash_upper = entry.ntlm_hash.upper()
@@ -742,7 +756,7 @@ def merge_potfile_entries(
                         else:
                             entries_skipped += 1
                 finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    _unlock_file(f)
         except Exception as e:
             logger.error(f"Error writing to master potfile: {e}")
             raise
