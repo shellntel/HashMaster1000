@@ -50,6 +50,9 @@
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
 				{% endif %}
+				{% if multi_user_enabled and current_user.can_manage_users %}
+				<a href="{{ url_for('users_list') }}" class="header-btn" title="User Management"><span class="btn-icon">&#128101;</span>Users</a>
+				{% endif %}
 				<a href="{{ url_for('sessions_page') }}" class="header-btn" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
 				<button type="button" class="header-btn help helpButton"><span class="btn-icon">?</span>Help</button>
 				<button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>

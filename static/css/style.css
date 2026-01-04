@@ -10931,3 +10931,280 @@ body.matrix-mode .matrix-trigger {
     font-size: 0.8rem;
     margin-bottom: 12px;
 }
+
+/* =============================================================================
+   User Management Styles
+   ============================================================================= */
+
+.users-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.users-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.users-toolbar h2 {
+    color: var(--accent);
+    margin: 0;
+}
+
+.users-info {
+    background: rgba(0, 255, 128, 0.1);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+}
+
+.users-info p {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.users-table-container {
+    background: var(--card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.users-table th,
+.users-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.users-table th {
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.users-table tr:hover {
+    background: rgba(0, 255, 128, 0.05);
+}
+
+.users-table .no-users {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px;
+}
+
+.user-username {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.user-created {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.user-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.role-badge.role-admin {
+    background: rgba(255, 165, 0, 0.2);
+    color: #ffa500;
+    border: 1px solid #ffa500;
+}
+
+.role-badge.role-user {
+    background: rgba(100, 149, 237, 0.2);
+    color: #6495ed;
+    border: 1px solid #6495ed;
+}
+
+.status-yes, .status-ok {
+    color: var(--accent);
+}
+
+.status-no {
+    color: var(--text-muted);
+}
+
+.status-pending {
+    color: #ffa500;
+}
+
+/* User Form Styles */
+.user-form-container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 30px;
+    border: 1px solid var(--border);
+}
+
+.user-form-container h2 {
+    color: var(--accent);
+    margin: 0 0 24px 0;
+    font-size: 1.5rem;
+}
+
+.user-form .form-group {
+    margin-bottom: 20px;
+}
+
+.user-form label {
+    display: block;
+    color: var(--text);
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+
+.user-form input[type="text"],
+.user-form input[type="password"],
+.user-form select {
+    width: 100%;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.user-form input:focus,
+.user-form select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 255, 128, 0.2);
+}
+
+.user-form input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.user-form small {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 4px;
+}
+
+.user-form .checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.user-form .checkbox-group input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.user-form .form-info {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 16px;
+    margin: 20px 0;
+}
+
+.user-form .form-info p {
+    margin: 4px 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.user-form .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+.form-error {
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid #f44;
+    color: #f88;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+/* Login page extensions for change password */
+.login-notice {
+    background: rgba(255, 165, 0, 0.2);
+    border: 1px solid #ffa500;
+    color: #ffa500;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.login-error {
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid #f44;
+    color: #f88;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.login-link {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.login-link:hover {
+    text-decoration: underline;
+}
+
+/* Modal improvements for user management */
+.modal-note {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-top: 12px;
+}
+
+.modal-warning {
+    color: #f88;
+    font-size: 0.9rem;
+}
+
+/* Button variants */
+.btn-warning {
+    background: rgba(255, 165, 0, 0.2);
+    color: #ffa500;
+    border: 1px solid #ffa500;
+}
+
+.btn-warning:hover {
+    background: rgba(255, 165, 0, 0.3);
+}

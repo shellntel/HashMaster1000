@@ -65,8 +65,16 @@ DEFAULT_ADD_JSON_PATH = os.getenv("DEFAULT_ADD_JSON_PATH", "")
 MASTER_POTFILE_ENABLED = os.getenv("MASTER_POTFILE_ENABLED", "false").lower() == "true"
 MASTER_POTFILE_PATH = os.getenv("MASTER_POTFILE_PATH", "data/master.potfile")
 
-# Advanced Options (experimental tools) configuration
+# Advanced Options (experimental tools) configuration - DEPRECATED, use roles instead
+# Kept for backwards compatibility, will be removed in future version
 ADVANCED_OPTIONS_ENABLED = os.getenv("ADVANCED_OPTIONS_ENABLED", "false").lower() == "true"
+
+# Multi-user mode configuration
+MULTI_USER_ENABLED = os.getenv("MULTI_USER_ENABLED", "false").lower() == "true"
+MULTI_USER_FILE = os.getenv("MULTI_USER_FILE", "data/users.json")
+
+# Master potfile access for regular users (only applies when MULTI_USER_ENABLED)
+MASTER_POTFILE_USER_ACCESS = os.getenv("MASTER_POTFILE_USER_ACCESS", "true").lower() == "true"
 
 # Local file browser security - allowed paths (comma-separated)
 LOCAL_FILE_ALLOWED_PATHS = [
@@ -201,14 +209,65 @@ def is_allowed_path(path: str) -> bool:
 
 
 class User(UserMixin):
-    def __init__(self, username: str, password_hash: str | None = None):
+    def __init__(
+        self,
+        username: str,
+        password_hash: str | None = None,
+        role: str = "superadmin",
+        can_view_passwords: bool = True,
+        force_password_change: bool = False,
+    ):
         self.username = username
         self.password_hash = password_hash
+        self._role = role
+        self._can_view_passwords = can_view_passwords
+        self._force_password_change = force_password_change
 
     @property
     def id(self) -> str:
         # Use username as the unique identifier
         return self.username
+
+    @property
+    def role(self) -> str:
+        """Get user role. In single-user mode, always returns 'superadmin'."""
+        if not MULTI_USER_ENABLED:
+            return "superadmin"
+        return self._role
+
+    @property
+    def can_view_passwords(self) -> bool:
+        """Check if user can view clear-text passwords."""
+        if not MULTI_USER_ENABLED:
+            return True
+        return self._can_view_passwords
+
+    @property
+    def force_password_change(self) -> bool:
+        """Check if user must change password on next action."""
+        if not MULTI_USER_ENABLED:
+            return False
+        return self._force_password_change
+
+    @property
+    def is_superadmin(self) -> bool:
+        """Check if user is a superadmin."""
+        return self.role == "superadmin"
+
+    @property
+    def is_admin(self) -> bool:
+        """Check if user is an admin or superadmin."""
+        return self.role in ("admin", "superadmin")
+
+    @property
+    def can_access_advanced(self) -> bool:
+        """Check if user can access advanced pages."""
+        return self.is_admin
+
+    @property
+    def can_manage_users(self) -> bool:
+        """Check if user can manage other users."""
+        return self.is_superadmin
 
 
 # Function to properly handle boolean arguments
@@ -281,8 +340,17 @@ def is_history_account(username: str | None) -> bool:
 @app.context_processor
 def inject_global_settings() -> dict[str, Any]:
     """Inject global settings into all templates."""
+    # Determine if advanced options should be shown
+    # In single-user mode: use the env flag (backwards compatibility)
+    # In multi-user mode: based on user role
+    if MULTI_USER_ENABLED and current_user.is_authenticated:
+        show_advanced = current_user.can_access_advanced
+    else:
+        show_advanced = ADVANCED_OPTIONS_ENABLED
+
     return {
-        'advanced_options_enabled': ADVANCED_OPTIONS_ENABLED
+        'advanced_options_enabled': show_advanced,
+        'multi_user_enabled': MULTI_USER_ENABLED,
     }
 
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(
@@ -345,9 +413,30 @@ login_manager.login_message = (
 
 @login_manager.user_loader
 def load_user(user_id: str) -> User | None:
-    # Return the admin user if the ID matches
+    """Load user by ID (username)."""
+    # Always check superadmin from .env first
     if user_id == ADMIN_USERNAME:
-        return User(username=ADMIN_USERNAME)
+        return User(
+            username=ADMIN_USERNAME,
+            role="superadmin",
+            can_view_passwords=True,
+            force_password_change=False,
+        )
+
+    # In multi-user mode, also check the user store
+    if MULTI_USER_ENABLED:
+        from app.user_store import get_user_store
+        user_store = get_user_store()
+        user_data = user_store.get_user(user_id)
+        if user_data:
+            return User(
+                username=user_data.username,
+                password_hash=user_data.password_hash,
+                role=user_data.role,
+                can_view_passwords=user_data.can_view_passwords,
+                force_password_change=user_data.force_password_change,
+            )
+
     return None
 
 
@@ -368,6 +457,9 @@ def unauthorized() -> Response | str:
 @limiter.limit("10 per minute", methods=["POST"])  # Rate limit login attempts by IP
 def login() -> FlaskResponse:
     if current_user.is_authenticated:  # If already logged in, redirect to index
+        # Check if user needs to change password
+        if current_user.force_password_change:
+            return cast(FlaskResponse, redirect(url_for("change_password")))
         return cast(FlaskResponse, redirect(url_for("index")))
 
     if request.method == "POST":
@@ -388,13 +480,42 @@ def login() -> FlaskResponse:
                 ),
             )
 
-        # Authenticate against the .env credentials
+        # Try to authenticate
+        authenticated_user = None
+
+        # Check superadmin from .env first
         if username == ADMIN_USERNAME and bcrypt.checkpw(
             password.encode("utf-8"), ADMIN_PASSWORD_HASH.encode("utf-8")
         ):
+            authenticated_user = User(
+                username=ADMIN_USERNAME,
+                password_hash=ADMIN_PASSWORD_HASH,
+                role="superadmin",
+                can_view_passwords=True,
+                force_password_change=False,
+            )
 
-            user = User(username=ADMIN_USERNAME, password_hash=ADMIN_PASSWORD_HASH)
-            login_user(user)
+        # In multi-user mode, also check user store
+        elif MULTI_USER_ENABLED:
+            from app.user_store import get_user_store
+            user_store = get_user_store()
+            if user_store.verify_password(username.lower(), password):
+                user_data = user_store.get_user(username.lower())
+                if user_data:
+                    authenticated_user = User(
+                        username=user_data.username,
+                        password_hash=user_data.password_hash,
+                        role=user_data.role,
+                        can_view_passwords=user_data.can_view_passwords,
+                        force_password_change=user_data.force_password_change,
+                    )
+
+        if authenticated_user:
+            login_user(authenticated_user)
+
+            # Check if password change is required
+            if authenticated_user.force_password_change:
+                return cast(FlaskResponse, redirect(url_for("change_password")))
 
             # Redirect to the 'next' parameter or index (with open redirect protection)
             next_page = request.args.get("next")
@@ -428,6 +549,302 @@ def login() -> FlaskResponse:
 def logout() -> Response:
     logout_user()
     return cast(FlaskResponse, redirect(url_for("login")))
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password() -> FlaskResponse:
+    """Allow user to change their password."""
+    # Superadmin from .env cannot change password here
+    if current_user.username == ADMIN_USERNAME:
+        return make_response(
+            render_template(
+                "message.html",
+                message="Superadmin password can only be changed in the .env file.",
+                message_type="error-message",
+                status_code=403,
+                referrer="Home",
+                referrer_url=url_for("index"),
+            )
+        )
+
+    if not MULTI_USER_ENABLED:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "").strip()
+        new_password = request.form.get("new_password", "").strip()
+        confirm_password = request.form.get("confirm_password", "").strip()
+
+        # Validate inputs
+        if not current_password or not new_password or not confirm_password:
+            return make_response(
+                render_template(
+                    "change_password.html",
+                    error="All fields are required.",
+                    force_change=current_user.force_password_change,
+                )
+            )
+
+        if new_password != confirm_password:
+            return make_response(
+                render_template(
+                    "change_password.html",
+                    error="New passwords do not match.",
+                    force_change=current_user.force_password_change,
+                )
+            )
+
+        if len(new_password) < 8:
+            return make_response(
+                render_template(
+                    "change_password.html",
+                    error="Password must be at least 8 characters.",
+                    force_change=current_user.force_password_change,
+                )
+            )
+
+        # Verify current password
+        from app.user_store import get_user_store
+        user_store = get_user_store()
+        if not user_store.verify_password(current_user.username, current_password):
+            return make_response(
+                render_template(
+                    "change_password.html",
+                    error="Current password is incorrect.",
+                    force_change=current_user.force_password_change,
+                )
+            )
+
+        # Change password
+        success, message = user_store.change_password(current_user.username, new_password)
+        if success:
+            return cast(FlaskResponse, redirect(url_for("index")))
+        else:
+            return make_response(
+                render_template(
+                    "change_password.html",
+                    error=message,
+                    force_change=current_user.force_password_change,
+                )
+            )
+
+    # GET request - show form
+    return make_response(
+        render_template(
+            "change_password.html",
+            force_change=current_user.force_password_change,
+        )
+    )
+
+
+# =============================================================================
+# User Management Routes (Multi-User Mode Only)
+# =============================================================================
+
+@app.route("/users")
+@login_required
+def users_list() -> FlaskResponse:
+    """List all users (superadmin only)."""
+    if not MULTI_USER_ENABLED:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    if not current_user.can_manage_users:
+        return make_response(
+            render_template(
+                "message.html",
+                message="Access Denied: You do not have permission to manage users.",
+                message_type="error-message",
+                status_code=403,
+                referrer="Home",
+                referrer_url=url_for("index"),
+            )
+        )
+
+    from app.user_store import get_user_store
+    user_store = get_user_store()
+    users = user_store.list_users()
+
+    return make_response(
+        render_template(
+            "users.html",
+            users=users,
+            superadmin_username=ADMIN_USERNAME,
+        )
+    )
+
+
+@app.route("/users/create", methods=["GET", "POST"])
+@login_required
+def users_create() -> FlaskResponse:
+    """Create a new user (superadmin only)."""
+    if not MULTI_USER_ENABLED:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    if not current_user.can_manage_users:
+        return make_response(
+            render_template(
+                "message.html",
+                message="Access Denied: You do not have permission to create users.",
+                message_type="error-message",
+                status_code=403,
+                referrer="Home",
+                referrer_url=url_for("index"),
+            )
+        )
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+        role = request.form.get("role", "user")
+        can_view_passwords = request.form.get("can_view_passwords") == "on"
+
+        from app.user_store import get_user_store
+        user_store = get_user_store()
+
+        # Prevent creating user with superadmin username
+        if username.lower() == ADMIN_USERNAME.lower():
+            return make_response(
+                render_template(
+                    "users_create.html",
+                    error="Cannot create user with the superadmin username.",
+                )
+            )
+
+        success, message = user_store.create_user(
+            username=username,
+            password=password,
+            role=role,
+            can_view_passwords=can_view_passwords,
+            created_by=current_user.username,
+        )
+
+        if success:
+            return cast(FlaskResponse, redirect(url_for("users_list")))
+        else:
+            return make_response(
+                render_template(
+                    "users_create.html",
+                    error=message,
+                    username=username,
+                    role=role,
+                    can_view_passwords=can_view_passwords,
+                )
+            )
+
+    # GET request - show form
+    return make_response(render_template("users_create.html"))
+
+
+@app.route("/users/<username>/edit", methods=["GET", "POST"])
+@login_required
+def users_edit(username: str) -> FlaskResponse:
+    """Edit a user (superadmin only)."""
+    if not MULTI_USER_ENABLED:
+        return cast(FlaskResponse, redirect(url_for("index")))
+
+    if not current_user.can_manage_users:
+        return make_response(
+            render_template(
+                "message.html",
+                message="Access Denied: You do not have permission to edit users.",
+                message_type="error-message",
+                status_code=403,
+                referrer="Home",
+                referrer_url=url_for("index"),
+            )
+        )
+
+    from app.user_store import get_user_store
+    user_store = get_user_store()
+    user_data = user_store.get_user(username)
+
+    if not user_data:
+        return make_response(
+            render_template(
+                "message.html",
+                message=f"User '{username}' not found.",
+                message_type="error-message",
+                status_code=404,
+                referrer="Users",
+                referrer_url=url_for("users_list"),
+            )
+        )
+
+    if request.method == "POST":
+        role = request.form.get("role", "user")
+        can_view_passwords = request.form.get("can_view_passwords") == "on"
+
+        success, message = user_store.update_user(
+            username=username,
+            role=role,
+            can_view_passwords=can_view_passwords,
+        )
+
+        if success:
+            return cast(FlaskResponse, redirect(url_for("users_list")))
+        else:
+            return make_response(
+                render_template(
+                    "users_edit.html",
+                    user=user_data,
+                    error=message,
+                )
+            )
+
+    # GET request - show form
+    return make_response(render_template("users_edit.html", user=user_data))
+
+
+@app.route("/users/<username>/reset-password", methods=["POST"])
+@login_required
+def users_reset_password(username: str) -> FlaskResponse:
+    """Reset a user's password (superadmin only)."""
+    if not MULTI_USER_ENABLED:
+        return jsonify({"error": "Multi-user mode is not enabled"}), 400
+
+    if not current_user.can_manage_users:
+        return jsonify({"error": "Access denied"}), 403
+
+    new_password = request.form.get("new_password", "").strip()
+    if not new_password:
+        return jsonify({"error": "Password is required"}), 400
+
+    from app.user_store import get_user_store
+    user_store = get_user_store()
+
+    # Change password and force password change on next login
+    success, message = user_store.change_password(username, new_password)
+    if success:
+        # Force password change on next login
+        user_store.update_user(username, force_password_change=True)
+        return jsonify({"success": True, "message": "Password reset successfully"})
+    else:
+        return jsonify({"error": message}), 400
+
+
+@app.route("/users/<username>/delete", methods=["POST"])
+@login_required
+def users_delete(username: str) -> FlaskResponse:
+    """Delete a user (superadmin only)."""
+    if not MULTI_USER_ENABLED:
+        return jsonify({"error": "Multi-user mode is not enabled"}), 400
+
+    if not current_user.can_manage_users:
+        return jsonify({"error": "Access denied"}), 403
+
+    # Prevent deleting superadmin
+    if username.lower() == ADMIN_USERNAME.lower():
+        return jsonify({"error": "Cannot delete the superadmin user"}), 400
+
+    from app.user_store import get_user_store
+    user_store = get_user_store()
+
+    success, message = user_store.delete_user(username)
+    if success:
+        return jsonify({"success": True, "message": message})
+    else:
+        return jsonify({"error": message}), 400
 
 
 @app.route("/")

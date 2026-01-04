@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Create User - Hash Master 1000</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/matrix.js') }}" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <h1 class="brand-name">Hash Master 1000</h1>
+            <span class="brand-tagline">Create User</span>
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('users_list') }}" class="header-btn"><span class="btn-icon">&#8592;</span>Back to Users</a>
+        </div>
+    </header>
+
+    <div class="users-page">
+        <div class="user-form-container">
+            <h2>Create New User</h2>
+
+            {% if error %}
+            <div class="form-error">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form action="{{ url_for('users_create') }}" method="POST" class="user-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        placeholder="Enter username"
+                        value="{{ username if username else '' }}"
+                        required
+                        pattern="[a-zA-Z0-9_-]+"
+                        minlength="2"
+                        maxlength="50"
+                    />
+                    <small>Letters, numbers, underscores, and hyphens only. 2-50 characters.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Temporary Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Enter temporary password"
+                        required
+                        minlength="8"
+                    />
+                    <small>Minimum 8 characters. User will be required to change on first login.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="role">Role</label>
+                    <select id="role" name="role">
+                        <option value="user" {{ 'selected' if role == 'user' else '' }}>User - Basic access, own sessions only</option>
+                        <option value="admin" {{ 'selected' if role == 'admin' else '' }}>Admin - Full access, advanced pages</option>
+                    </select>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input
+                            type="checkbox"
+                            name="can_view_passwords"
+                            {{ 'checked' if can_view_passwords else '' }}
+                        />
+                        Can view clear-text passwords
+                    </label>
+                    <small>If unchecked, passwords will be masked in reports.</small>
+                </div>
+
+                <div class="form-actions">
+                    <a href="{{ url_for('users_list') }}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

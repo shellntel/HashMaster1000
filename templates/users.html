@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>User Management - Hash Master 1000</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/matrix.js') }}" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="app-header">
+        <div class="brand">
+            <h1 class="brand-name">Hash Master 1000</h1>
+            <span class="brand-tagline">User Management</span>
+        </div>
+        <div class="header-actions">
+            <a href="{{ url_for('index') }}" class="header-btn"><span class="btn-icon">&#8592;</span>Back</a>
+            <button id="logoutButton" class="header-btn logout icon-btn" title="Logout" onclick="logout()"><span class="btn-icon">&#9211;</span></button>
+        </div>
+    </header>
+
+    <div class="users-page">
+        <div class="users-toolbar">
+            <div class="toolbar-left">
+                <h2>Users</h2>
+            </div>
+            <div class="toolbar-right">
+                <a href="{{ url_for('users_create') }}" class="btn btn-primary">
+                    <span>+</span> Create User
+                </a>
+            </div>
+        </div>
+
+        <div class="users-info">
+            <p>The superadmin account (<strong>{{ superadmin_username }}</strong>) is configured in the .env file and cannot be edited here.</p>
+        </div>
+
+        <div class="users-table-container">
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Can View Passwords</th>
+                        <th>Password Change Required</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if users %}
+                        {% for user in users %}
+                        <tr>
+                            <td class="user-username">{{ user.username }}</td>
+                            <td>
+                                <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
+                            </td>
+                            <td>
+                                {% if user.can_view_passwords %}
+                                <span class="status-yes">Yes</span>
+                                {% else %}
+                                <span class="status-no">No</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if user.force_password_change %}
+                                <span class="status-pending">Yes</span>
+                                {% else %}
+                                <span class="status-ok">No</span>
+                                {% endif %}
+                            </td>
+                            <td class="user-created">{{ user.created_at[:10] if user.created_at else 'N/A' }}</td>
+                            <td class="user-actions">
+                                <a href="{{ url_for('users_edit', username=user.username) }}" class="btn btn-small btn-secondary" title="Edit user">Edit</a>
+                                <button class="btn btn-small btn-warning" onclick="resetPassword('{{ user.username }}')" title="Reset password">Reset PW</button>
+                                <button class="btn btn-small btn-danger" onclick="deleteUser('{{ user.username }}')" title="Delete user">Delete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="no-users">No users created yet. Click "Create User" to add one.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div id="resetPasswordModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Reset Password</h3>
+                <button class="modal-close" onclick="closeResetModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Enter a new temporary password for <strong id="resetUsername"></strong>:</p>
+                <input type="password" id="newPasswordInput" placeholder="New password (min 8 characters)" minlength="8">
+                <p class="modal-note">The user will be required to change this password on next login.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeResetModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitResetPassword()">Reset Password</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Confirm Delete</h3>
+                <button class="modal-close" onclick="closeDeleteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete user <strong id="deleteUsername"></strong>?</p>
+                <p class="modal-warning">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="confirmDelete()">Delete User</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+        function getHeaders(contentType = 'application/x-www-form-urlencoded') {
+            const headers = { 'X-CSRFToken': csrfToken };
+            if (contentType) headers['Content-Type'] = contentType;
+            return headers;
+        }
+
+        function logout() {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ url_for("logout") }}';
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = csrfToken;
+            form.appendChild(csrfInput);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        let currentResetUsername = '';
+        let currentDeleteUsername = '';
+
+        function resetPassword(username) {
+            currentResetUsername = username;
+            document.getElementById('resetUsername').textContent = username;
+            document.getElementById('newPasswordInput').value = '';
+            document.getElementById('resetPasswordModal').style.display = 'flex';
+        }
+
+        function closeResetModal() {
+            document.getElementById('resetPasswordModal').style.display = 'none';
+            currentResetUsername = '';
+        }
+
+        function submitResetPassword() {
+            const newPassword = document.getElementById('newPasswordInput').value;
+            if (!newPassword || newPassword.length < 8) {
+                alert('Password must be at least 8 characters');
+                return;
+            }
+
+            fetch(`/users/${currentResetUsername}/reset-password`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: `new_password=${encodeURIComponent(newPassword)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Password reset successfully');
+                    closeResetModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                alert('Error resetting password: ' + error);
+            });
+        }
+
+        function deleteUser(username) {
+            currentDeleteUsername = username;
+            document.getElementById('deleteUsername').textContent = username;
+            document.getElementById('deleteModal').style.display = 'flex';
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+            currentDeleteUsername = '';
+        }
+
+        function confirmDelete() {
+            fetch(`/users/${currentDeleteUsername}/delete`, {
+                method: 'POST',
+                headers: getHeaders()
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    closeDeleteModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                alert('Error deleting user: ' + error);
+            });
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
