@@ -17,6 +17,7 @@ import time
 import requests
 from typing import Optional, Dict, List, Any, Callable, Tuple
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 
 from app.ollama_prompts import (
@@ -110,6 +111,13 @@ class PipelineProgress:
 
 # Multi-server configuration
 # Servers are loaded from environment variables with fallback to defaults
+
+# Server status cache (90-minute TTL)
+_server_status_cache: Dict[str, Any] = {}
+_server_status_cache_time: float = 0
+SERVER_STATUS_CACHE_TTL = 90 * 60  # 90 minutes in seconds
+
+
 def get_ollama_servers() -> List[OllamaServer]:
     """Get list of configured Ollama servers."""
     servers = []
@@ -2232,7 +2240,8 @@ def test_ollama_connection(host: Optional[str] = None, server_id: Optional[str] 
     }
 
     try:
-        response = requests.get(f"{config.host}/api/tags", timeout=5)
+        # Use short timeout for connectivity check - 2s is enough to detect reachability
+        response = requests.get(f"{config.host}/api/tags", timeout=2)
         if response.status_code == 200:
             result["reachable"] = True
             data = response.json()
@@ -2245,22 +2254,46 @@ def test_ollama_connection(host: Optional[str] = None, server_id: Optional[str] 
     return result
 
 
-def test_all_servers() -> Dict[str, Any]:
+def test_all_servers(use_cache: bool = True, force_refresh: bool = False) -> Dict[str, Any]:
     """
-    Test connection to all configured Ollama servers.
+    Test connection to all configured Ollama servers concurrently.
+
+    Uses ThreadPoolExecutor to test all servers in parallel, reducing
+    total wait time from (5s × num_servers) to ~2s total.
+
+    Results are cached for 90 minutes to avoid repeated slow checks on page loads.
+
+    Args:
+        use_cache: If True, return cached results if available and not expired
+        force_refresh: If True, ignore cache and always test servers
 
     Returns:
         Dictionary with status for each server
     """
+    global _server_status_cache, _server_status_cache_time
+
+    # Check cache first (unless force_refresh)
+    if use_cache and not force_refresh and _server_status_cache:
+        cache_age = time.time() - _server_status_cache_time
+        if cache_age < SERVER_STATUS_CACHE_TTL:
+            # Return cached results with cache metadata
+            cached_result = _server_status_cache.copy()
+            cached_result["from_cache"] = True
+            cached_result["cache_age_seconds"] = int(cache_age)
+            return cached_result
+
     servers = get_ollama_servers()
     results = {
         "servers": [],
-        "any_available": False
+        "any_available": False,
+        "from_cache": False,
+        "cache_age_seconds": 0
     }
 
-    for server in servers:
+    def test_server(server: OllamaServer) -> Dict[str, Any]:
+        """Test a single server and return its info."""
         status = test_ollama_connection(host=server.host)
-        server_info = {
+        return {
             "id": server.id,
             "name": server.name,
             "host": server.host,
@@ -2270,11 +2303,56 @@ def test_all_servers() -> Dict[str, Any]:
             "available_models": status["available_models"],
             "error": status.get("error")
         }
-        results["servers"].append(server_info)
-        if status["reachable"]:
-            results["any_available"] = True
+
+    # Test all servers concurrently
+    with ThreadPoolExecutor(max_workers=len(servers)) as executor:
+        future_to_server = {executor.submit(test_server, server): server for server in servers}
+
+        for future in as_completed(future_to_server):
+            server_info = future.result()
+            results["servers"].append(server_info)
+            if server_info["reachable"]:
+                results["any_available"] = True
+
+    # Sort servers by their original order (id-based)
+    server_order = {s.id: i for i, s in enumerate(servers)}
+    results["servers"].sort(key=lambda x: server_order.get(x["id"], 999))
+
+    # Update cache
+    _server_status_cache = {
+        "servers": results["servers"],
+        "any_available": results["any_available"]
+    }
+    _server_status_cache_time = time.time()
 
     return results
+
+
+def invalidate_server_cache() -> None:
+    """Invalidate the server status cache, forcing a refresh on next check."""
+    global _server_status_cache, _server_status_cache_time
+    _server_status_cache = {}
+    _server_status_cache_time = 0
+
+
+def get_cached_server_status() -> Optional[Dict[str, Any]]:
+    """
+    Get cached server status without triggering a refresh.
+
+    Returns:
+        Cached server status if available and not expired, None otherwise
+    """
+    if not _server_status_cache:
+        return None
+
+    cache_age = time.time() - _server_status_cache_time
+    if cache_age >= SERVER_STATUS_CACHE_TTL:
+        return None
+
+    result = _server_status_cache.copy()
+    result["from_cache"] = True
+    result["cache_age_seconds"] = int(cache_age)
+    return result
 
 
 def quick_generate(prompt: str, host: Optional[str] = None) -> Optional[str]:

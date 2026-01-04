@@ -171,25 +171,35 @@
                 <h2 class="advanced-section-title">System Status</h2>
             </div>
             <div class="advanced-section-content">
-                <div class="advanced-status-grid">
+                <div class="advanced-status-grid" id="serverStatusGrid">
                     <div class="advanced-status-card">
                         <div class="advanced-status-label">Ollama Integration</div>
                         <div class="advanced-status-value {% if ollama_enabled %}advanced-status-online{% else %}advanced-status-offline{% endif %}">
                             {% if ollama_enabled %}Enabled{% else %}Disabled{% endif %}
                         </div>
                     </div>
-                    {% for server in servers %}
-                    <div class="advanced-status-card">
-                        <div class="advanced-status-label">{{ server.name or server.id or 'Server' }}</div>
-                        <div class="advanced-status-value {% if server.reachable %}advanced-status-online{% else %}advanced-status-offline{% endif %}">
-                            {% if server.reachable %}
-                                Online — {{ server.available_models|length }} models
-                            {% else %}
-                                Offline
-                            {% endif %}
+                    {% if servers %}
+                        {% for server in servers %}
+                        <div class="advanced-status-card server-status-card" data-server-id="{{ server.id }}">
+                            <div class="advanced-status-label">{{ server.name or server.id or 'Server' }}</div>
+                            <div class="advanced-status-value {% if server.reachable %}advanced-status-online{% else %}advanced-status-offline{% endif %}">
+                                {% if server.reachable %}
+                                    Online — {{ server.available_models|length }} models
+                                {% else %}
+                                    Offline
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
-                    {% endfor %}
+                        {% endfor %}
+                    {% elif ollama_enabled %}
+                        <!-- Placeholder shown while loading server status -->
+                        <div class="advanced-status-card server-status-placeholder">
+                            <div class="advanced-status-label">AI Servers</div>
+                            <div class="advanced-status-value" style="color: #71717a;">
+                                Checking...
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -203,11 +213,73 @@
             if (referrer && !referrer.includes('/hidden')) {
                 exitLink.href = referrer;
             }
-            // Store current referrer if coming from main app
-            if (document.referrer && !document.referrer.includes('/hidden') && !document.referrer.includes('/api/ai')) {
+            // Store current referrer if coming from main app (not from Advanced Mode pages)
+            if (document.referrer &&
+                !document.referrer.includes('/hidden') &&
+                !document.referrer.includes('/api/ai') &&
+                !document.referrer.includes('/hibp/') &&
+                !document.referrer.includes('/timing/')) {
                 sessionStorage.setItem('advancedModeReferrer', document.referrer);
             }
         })();
+
+        // Async server status loading
+        const ollamaEnabled = {{ 'true' if ollama_enabled else 'false' }};
+        const serversFromCache = {{ 'true' if servers_from_cache else 'false' }};
+
+        function updateServerStatusUI(servers) {
+            const grid = document.getElementById('serverStatusGrid');
+            if (!grid) return;
+
+            // Remove placeholder if exists
+            const placeholder = grid.querySelector('.server-status-placeholder');
+            if (placeholder) {
+                placeholder.remove();
+            }
+
+            // Remove existing server cards (keep the Ollama Integration card)
+            grid.querySelectorAll('.server-status-card').forEach(card => card.remove());
+
+            // Add server status cards
+            servers.forEach(server => {
+                const card = document.createElement('div');
+                card.className = 'advanced-status-card server-status-card';
+                card.dataset.serverId = server.id;
+
+                const isOnline = server.reachable;
+                const modelCount = server.available_models ? server.available_models.length : 0;
+
+                card.innerHTML = `
+                    <div class="advanced-status-label">${server.name || server.id || 'Server'}</div>
+                    <div class="advanced-status-value ${isOnline ? 'advanced-status-online' : 'advanced-status-offline'}">
+                        ${isOnline ? `Online — ${modelCount} models` : 'Offline'}
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function loadServerStatus() {
+            if (!ollamaEnabled) return;
+
+            try {
+                const response = await fetch('/api/ai/servers');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.servers) {
+                        updateServerStatusUI(data.servers);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load server status:', error);
+            }
+        }
+
+        // Load server status in background if not from cache
+        if (ollamaEnabled && !serversFromCache) {
+            // Load immediately in background
+            loadServerStatus();
+        }
     </script>
 </body>
 </html>

@@ -6857,11 +6857,28 @@
 				}
 			}
 
+			// Prefetch server status in background (called when AAIA modal opens)
+			// This warms the cache so loadAAIAConfig() in step 2 is instant
+			let aaiaPrefetchPromise = null;
+			function prefetchServerStatus() {
+				if (!aaiaPrefetchPromise) {
+					aaiaPrefetchPromise = fetch('/api/ai/servers')
+						.then(response => response.ok ? response.json() : null)
+						.catch(err => {
+							console.log('Server prefetch failed:', err);
+							return null;
+						});
+				}
+				return aaiaPrefetchPromise;
+			}
+
 			// Open the AAIA modal
 			async function openAAIAModal() {
 				document.getElementById('aaiaModal').style.display = 'flex';
 				// Reset to step 1
 				aaiaGoToStep(1);
+				// Prefetch server status in background while user reads disclaimer
+				prefetchServerStatus();
 			}
 
 			// Navigate between modal steps

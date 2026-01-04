@@ -2093,17 +2093,21 @@ def sessions_page() -> str:
 @login_required
 def hidden_pages_index() -> str:
     """Index page for hidden/development pages and tools."""
-    from app.ollama_tools import test_all_servers, get_ollama_config
+    from app.ollama_tools import get_ollama_config, get_cached_server_status
 
-    # Get Ollama status for display
+    # Get Ollama config (instant - no network calls)
     config = get_ollama_config()
     ollama_enabled = config.enabled if config else False
-    servers_status = test_all_servers() if ollama_enabled else {"servers": []}
+
+    # Use cached server status if available (instant), otherwise JS will fetch async
+    cached_status = get_cached_server_status() if ollama_enabled else None
+    servers = cached_status.get("servers", []) if cached_status else []
 
     return render_template(
         'hidden_index.html',
         ollama_enabled=ollama_enabled,
-        servers=servers_status.get("servers", [])
+        servers=servers,
+        servers_from_cache=cached_status is not None
     )
 
 
@@ -6028,8 +6032,8 @@ def aaia_get_config() -> Response:
     from app.ollama_tools import test_all_servers, OllamaClient, get_ollama_config
     from app.ollama_prompts import AI_REPORT_SECTIONS
 
-    # Get all servers and their status
-    servers_data = test_all_servers()
+    # Get all servers and their status (use cache for fast response)
+    servers_data = test_all_servers(use_cache=True)
     online_servers = [s for s in servers_data.get("servers", []) if s.get("reachable")]
 
     # Get models, running status, and version for each online server
@@ -6294,8 +6298,8 @@ def ai_report_test_page() -> str:
     """AI Report Analysis test page for experimenting with report sections."""
     from app.ollama_tools import test_all_servers, get_ai_report_sections, get_ai_data_loader
 
-    # Get all server statuses
-    servers_status = test_all_servers()
+    # Get all server statuses (uses 90-min cache for fast page loads)
+    servers_status = test_all_servers(use_cache=True)
     sections = get_ai_report_sections()
 
     # Check if real analysis data is available
@@ -6333,8 +6337,8 @@ def ai_servers_manage_page() -> str:
     """Multi-server Ollama management page - connectivity testing and model management."""
     from app.ollama_tools import test_all_servers, get_available_library_models
 
-    # Get all server statuses
-    servers_status = test_all_servers()
+    # Get all server statuses (uses 90-min cache for fast page loads)
+    servers_status = test_all_servers(use_cache=True)
     library_models = get_available_library_models()
 
     # Sort models for each server
@@ -6365,8 +6369,8 @@ def ai_benchmark_page() -> str:
     """AI Benchmark Suite - comprehensive model benchmarking and comparison."""
     from app.ollama_tools import test_all_servers, get_ai_report_sections
 
-    # Get all server statuses
-    servers_status = test_all_servers()
+    # Get all server statuses (use cache for fast page load)
+    servers_status = test_all_servers(use_cache=True)
     sections = get_ai_report_sections()
 
     # Check if production data exists
