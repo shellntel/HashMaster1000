@@ -23,6 +23,7 @@ from flask import (
 )
 from flask.wrappers import Response as FlaskResponse
 from urllib.parse import urlparse
+from werkzeug.utils import secure_filename
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -692,8 +693,9 @@ def validate_files_endpoint() -> Response:
                 status=400,
             )
 
-        pwdump_path = os.path.join(app.config["UPLOAD_FOLDER"], pwdump_file.filename)
-        potfile_path = os.path.join(app.config["UPLOAD_FOLDER"], potfile.filename)
+        # Use secure_filename to prevent path traversal attacks
+        pwdump_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(pwdump_file.filename))
+        potfile_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(potfile.filename))
 
         # Save files
         try:
@@ -1106,7 +1108,7 @@ def validate_single_file() -> Response:
             return jsonify({"error": "Missing file_type or file"}), 400
 
         # Save file (keep it for potential validation review)
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{file_type}_{uploaded_file.filename}")
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{file_type}_{secure_filename(uploaded_file.filename)}")
         uploaded_file.save(file_path)
 
         if file_type == "pwdump":
