@@ -323,6 +323,18 @@ def collect_system_info() -> SystemInfo:
     # OS info
     info.os_name = platform.system()
     info.os_version = platform.release()
+
+    # Windows 11 detection: Windows 11 reports as "10" but has build >= 22000
+    if info.os_name == "Windows" and info.os_version == "10":
+        try:
+            # platform.version() returns something like "10.0.22631" (build number)
+            version_str = platform.version()
+            build_number = int(version_str.split('.')[-1])
+            if build_number >= 22000:
+                info.os_version = "11"
+        except (ValueError, IndexError):
+            pass
+
     info.hostname = socket.gethostname()
     info.python_version = sys.version.split()[0]
 
