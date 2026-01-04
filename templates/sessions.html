@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Session Manager - Hash Master 1000</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/matrix.js') }}" defer></script>
@@ -126,6 +127,20 @@
     </div>
 
     <script>
+        // CSRF token for AJAX requests
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+        // Helper function to get headers with CSRF token
+        function getHeaders(contentType = 'application/json') {
+            const headers = {
+                'X-CSRFToken': csrfToken
+            };
+            if (contentType) {
+                headers['Content-Type'] = contentType;
+            }
+            return headers;
+        }
+
         // State
         let allSessions = [];
         let filteredSessions = [];
@@ -420,7 +435,7 @@
             try {
                 const response = await fetch(`/api/sessions/${sessionId}/switch`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: getHeaders()
                 });
 
                 const data = await response.json();
@@ -465,7 +480,10 @@
 
             try {
                 for (const sessionId of deleteTarget.ids) {
-                    await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                    await fetch(`/api/sessions/${sessionId}`, {
+                        method: 'DELETE',
+                        headers: { 'X-CSRFToken': csrfToken }
+                    });
                 }
 
                 closeDeleteModal();
@@ -505,7 +523,10 @@
 
         async function logout() {
             try {
-                await fetch('/logout', { method: 'POST' });
+                await fetch('/logout', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
                 window.location.href = '/';
             } catch (error) {
                 console.error('Logout error:', error);

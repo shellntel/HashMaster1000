@@ -1,6 +1,7 @@
 Flask
 Flask-Session
 flask-login
+Flask-WTF
 bcrypt
 english-words
 python-dotenv

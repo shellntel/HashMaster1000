@@ -3,6 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="csrf-token" content="{{ csrf_token() }}">
 		<title>Password & Hash Analyzer + Reporter</title>
 		<link
 			rel="stylesheet"
@@ -92,6 +93,7 @@
 					enctype="multipart/form-data"
 					onsubmit="return handleFormSubmit(event)"
 				>
+					<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 					<!-- Step 1: Load Files -->
 					<div class="step-content{% if not initial_step or initial_step == 1 %} active{% endif %}" data-step="1">
 						<div class="step-panel">
@@ -474,7 +476,7 @@
 			<!-- Help Modal -->
 			<div id="helpModal" style="display: none">
 				<div class="content">
-					<button id="closeHelp">&times;</button>
+					<button id="closeHelp" class="modal-close">&times;</button>
 					<div id="helpText"></div>
 				</div>
 			</div>
@@ -533,6 +535,20 @@
 		</div>
 
 		<script>
+			// CSRF token for AJAX requests
+			const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+			// Helper function to get headers with CSRF token
+			function getHeaders(contentType = 'application/json') {
+				const headers = {
+					'X-CSRFToken': csrfToken
+				};
+				if (contentType) {
+					headers['Content-Type'] = contentType;
+				}
+				return headers;
+			}
+
 			// Phase-specific fun messages
 			const VALIDATION_MESSAGES = [
 				"Detecting file format...",
@@ -997,8 +1013,11 @@
 				updateFileStatus(fileType, 'pending', 'Validating...');
 
 				try {
+					// Add CSRF token to form data (multipart form doesn't use JSON headers)
+					formData.append('csrf_token', csrfToken);
 					const response = await fetch('/validate_single', {
 						method: 'POST',
+						headers: { 'X-CSRFToken': csrfToken },
 						body: formData
 					});
 
@@ -1110,7 +1129,7 @@
 				try {
 					const response = await fetch('/validate_single_local', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({
 							file_type: fileType,
 							file_path: filePath
@@ -1306,7 +1325,10 @@
 			// Logout button
 			document.getElementById('logoutButton').addEventListener('click', async () => {
 				try {
-					const response = await fetch('/logout', { method: 'POST' });
+					const response = await fetch('/logout', {
+						method: 'POST',
+						headers: { 'X-CSRFToken': csrfToken }
+					});
 					if (response.ok) {
 						window.location.href = '/';
 					}
@@ -1671,7 +1693,7 @@
 				try {
 					const response = await fetch('/browse_directory', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({ path: path })
 					});
 
@@ -2021,7 +2043,7 @@
 				try {
 					const response = await fetch(`/api/sessions/${sessionId}/switch`, {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' }
+						headers: getHeaders()
 					});
 
 					const data = await response.json();

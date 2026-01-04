@@ -32,6 +32,7 @@ from flask_login import (
     current_user,
 )
 from flask_session import Session
+from flask_wtf.csrf import CSRFProtect
 # werkzeug.security not used - using bcrypt directly for password verification
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -63,6 +64,12 @@ MASTER_POTFILE_PATH = os.getenv("MASTER_POTFILE_PATH", "data/master.potfile")
 
 # Advanced Options (experimental tools) configuration
 ADVANCED_OPTIONS_ENABLED = os.getenv("ADVANCED_OPTIONS_ENABLED", "false").lower() == "true"
+
+# Local file browser security - allowed paths (comma-separated)
+LOCAL_FILE_ALLOWED_PATHS = [
+    p.strip() for p in os.getenv("LOCAL_FILE_ALLOWED_PATHS", "/home/").split(",")
+    if p.strip()
+]
 
 
 def validate_libraries() -> None:
@@ -173,6 +180,23 @@ def is_safe_redirect_url(target: str) -> bool:
     return not parsed.netloc and not parsed.scheme
 
 
+def is_allowed_path(path: str) -> bool:
+    """
+    Check if the given path is within allowed directories for local file access.
+    Uses LOCAL_FILE_ALLOWED_PATHS from .env to determine allowed directories.
+
+    Security: This restricts local file browsing to configured directories only,
+    preventing access to sensitive system files like /etc/passwd, /etc/shadow, etc.
+    """
+    try:
+        # Resolve to absolute path, following symlinks to prevent traversal attacks
+        abs_path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
+        # Check if path starts with any allowed prefix
+        return any(abs_path.startswith(allowed) for allowed in LOCAL_FILE_ALLOWED_PATHS)
+    except Exception:
+        return False
+
+
 class User(UserMixin):
     def __init__(self, username: str, password_hash: str | None = None):
         self.username = username
@@ -261,6 +285,9 @@ app.config["SESSION_TYPE"] = "filesystem"
 app.config["SESSION_FILE_DIR"] = "flask_session"
 app.config["SESSION_PERMANENT"] = True
 Session(app)
+
+# Initialize CSRF protection
+csrf = CSRFProtect(app)
 
 # Ensure the upload and data folders exists
 if not os.path.exists(app.config["UPLOAD_FOLDER"]):
@@ -806,6 +833,8 @@ def validate_local_files() -> Response:
     """
     Validate local server files and redirect to validation review.
     Similar to validate_files_endpoint but for local file paths instead of uploads.
+
+    Security: Access is restricted to paths under /home/ only.
     """
     import time as time_module
     from app.timing_stats import get_timing_stats, TimingStats
@@ -828,6 +857,33 @@ def validate_local_files() -> Response:
                     referrer_url=url_for("index"),
                 ),
                 status=400,
+            )
+
+        # Security: Validate that paths are within allowed directories
+        if not is_allowed_path(pwdump_path):
+            return Response(
+                render_template(
+                    "message.html",
+                    message="Access denied. File access is restricted to /home/ directories only.",
+                    message_type="error-message",
+                    status_code=403,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=403,
+            )
+
+        if not is_allowed_path(potfile_path):
+            return Response(
+                render_template(
+                    "message.html",
+                    message="Access denied. File access is restricted to /home/ directories only.",
+                    message_type="error-message",
+                    status_code=403,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=403,
             )
 
         # Check if files exist
@@ -2920,6 +2976,8 @@ def validate_single_local_file() -> Response:
     """
     AJAX endpoint to validate a single local file (pwdump or potfile) by path.
     Returns validation results as JSON for display in the UI.
+
+    Security: Access is restricted to paths under /home/ only.
     """
     try:
         data = request.get_json()
@@ -2928,6 +2986,10 @@ def validate_single_local_file() -> Response:
 
         if not file_type or not file_path:
             return jsonify({"error": "Missing file_type or file_path"}), 400
+
+        # Security: Validate that path is within allowed directories
+        if not is_allowed_path(file_path):
+            return jsonify({"error": "Access denied. File access is restricted to /home/ directories only."}), 403
 
         # Check if file exists
         if not os.path.isfile(file_path):
@@ -3462,15 +3524,27 @@ def browse_directory() -> Response:
     """
     AJAX endpoint to browse server directories for file selection.
     Returns list of directories and files in the requested path.
+
+    Security: Access is restricted to paths configured in LOCAL_FILE_ALLOWED_PATHS.
     """
     data = request.get_json()
     path = data.get("path", ".")
 
+    # Default to first allowed path if no path or root path provided
+    default_path = LOCAL_FILE_ALLOWED_PATHS[0] if LOCAL_FILE_ALLOWED_PATHS else "/home/"
+    if not path or path in (".", "/", "~"):
+        path = default_path
+
     # Resolve to absolute path
     try:
-        abs_path = os.path.abspath(os.path.expanduser(path))
+        abs_path = os.path.realpath(os.path.abspath(os.path.expanduser(path)))
     except Exception:
         return jsonify({"error": "Invalid path"}), 400
+
+    # Security: Only allow access to configured paths
+    if not is_allowed_path(abs_path):
+        allowed_str = ", ".join(LOCAL_FILE_ALLOWED_PATHS)
+        return jsonify({"error": f"Access denied. File browsing is restricted to: {allowed_str}"}), 403
 
     # Check if path exists and is a directory
     if not os.path.exists(abs_path):
@@ -3481,9 +3555,9 @@ def browse_directory() -> Response:
 
     try:
         entries = []
-        # Add parent directory option (except for root)
+        # Add parent directory option (except for /home/ which is the boundary)
         parent = os.path.dirname(abs_path)
-        if parent != abs_path:  # Not at root
+        if parent != abs_path and is_allowed_path(parent):
             entries.append({
                 "name": "..",
                 "path": parent,

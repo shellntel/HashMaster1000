@@ -9640,8 +9640,8 @@ body#reportPage.dark-theme section:hover {
 }
 
 /* Enhanced report buttons - dark theme */
-/* Exclude: nav buttons, header buttons, settings/download/aaia action buttons */
-body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close),
+/* Exclude: nav buttons, header buttons, settings/download/aaia action buttons, modal close buttons */
+body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close),
 body#reportPage.dark-theme .btn:not(.report-nav-btn) {
     background: linear-gradient(180deg, #2a8a2a 0%, #247824 50%, #1e6a1e 100%);
     border: 1px solid rgba(49, 176, 5, 0.25);
@@ -9651,7 +9651,7 @@ body#reportPage.dark-theme .btn:not(.report-nav-btn) {
     transition: all 0.3s ease;
 }
 
-body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close):hover,
+body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close):hover,
 body#reportPage.dark-theme .btn:not(.report-nav-btn):hover {
     background: linear-gradient(180deg, #3a9a3a 0%, #2a8a2a 50%, #247824 100%);
     box-shadow:
@@ -10840,4 +10840,94 @@ body.matrix-mode .matrix-trigger {
     color: #e4e4e7;
     font-size: 1.1rem;
     font-weight: 500;
+}
+
+/* ==================== VALIDATION PAGE COMPACT STYLES ==================== */
+/* Compact validation summary cards for Step 2 */
+.validation-summary {
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.validation-summary .summary-card {
+    padding: 10px 14px;
+    min-width: 140px;
+}
+.validation-summary .summary-card h3 {
+    font-size: 0.7rem;
+    margin-bottom: 2px;
+}
+.validation-summary .summary-card .stat {
+    font-size: 1.4rem;
+    line-height: 1.2;
+}
+.validation-summary .summary-card .detail {
+    font-size: 0.65rem;
+}
+.validation-summary .summary-card .timing {
+    font-size: 0.6rem;
+    margin-top: 2px;
+}
+
+/* Compact info banners and warnings on validation page */
+.validation-container .info-banner,
+.validation-container .warning-banner,
+.validation-container .status-coverage-warning {
+    padding: 10px 14px;
+    margin-top: 8px;
+}
+.validation-container .info-banner h3,
+.validation-container .warning-banner h3 {
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+}
+.validation-container .info-banner p,
+.validation-container .warning-banner p,
+.validation-container .status-coverage-warning p {
+    font-size: 0.75rem;
+    margin-bottom: 4px;
+}
+
+/* Limit Domains Found section height */
+.domains-scroll-container {
+    max-height: 100px;
+    overflow-y: auto;
+}
+.validation-container .info-banner .format-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    margin-right: 4px;
+    margin-bottom: 3px;
+}
+
+/* Compact status coverage warning */
+.validation-container .status-coverage-warning h4 {
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+}
+
+/* Compact file section on validation page */
+.validation-container .file-section {
+    margin-top: 10px;
+    padding: 12px;
+}
+.validation-container .file-section h2 {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+}
+.validation-container .format-badges {
+    gap: 6px;
+}
+.validation-container .format-badges .format-badge {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+}
+
+/* Compact step panel on validation page */
+.validation-container .step-panel h2 {
+    font-size: 1.1rem;
+    margin-bottom: 6px;
+}
+.validation-container .step-panel .step-description {
+    font-size: 0.8rem;
+    margin-bottom: 12px;
 }

@@ -21,6 +21,7 @@
 
 		<!-- Login Form -->
 		<form action="{{ url_for('login') }}" method="POST" class="login-form">
+			<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 			<div class="login-input-group">
 				<label for="username">Username</label>
 				<input

@@ -3,6 +3,7 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="csrf-token" content="{{ csrf_token() }}">
 		<title>Password and Hash Analysis Report</title>
 		<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
@@ -59,6 +60,7 @@
 				<button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('clear_and_restart') }}'"><span class="btn-icon">↩</span>Start Over</button>
 				<button type="button" id="themeToggle" class="header-btn theme icon-btn" title="Switch to Print View"><span class="btn-icon">☀</span></button>
 				<form action="/logout" method="post" style="display: inline; margin: 0;">
+					<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 					<button type="submit" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
 				</form>
 			</div>
@@ -1440,6 +1442,20 @@
 
 		<!-- -------------------- JavaScript Section -------------------- -->
 		<script>
+			// ==================== CSRF TOKEN ====================
+			const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+			// Helper function to get headers with CSRF token
+			function getHeaders(contentType = 'application/json') {
+				const headers = {
+					'X-CSRFToken': csrfToken
+				};
+				if (contentType) {
+					headers['Content-Type'] = contentType;
+				}
+				return headers;
+			}
+
 			// ==================== NAVIGATION ====================
 			// Scroll to a section smoothly
 			function scrollToSection(sectionId) {
@@ -1680,7 +1696,7 @@
 				try {
 					const response = await fetch('/api/hibp/check', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({ method: 'local' }),
 						credentials: 'same-origin'
 					});
@@ -1717,7 +1733,7 @@
 				try {
 					const response = await fetch('/api/hibp/check', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({ method: 'api', consent: true }),
 						credentials: 'same-origin'
 					});
@@ -3133,7 +3149,7 @@
 				try {
 					const response = await fetch('/api/sessions/trend-analysis', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({ session_ids: sessionIds })
 					});
 
@@ -8548,7 +8564,8 @@
 			async function switchSession(sessionId) {
 				try {
 					const response = await fetch(`/api/sessions/${sessionId}/switch`, {
-						method: 'POST'
+						method: 'POST',
+						headers: { 'X-CSRFToken': csrfToken }
 					});
 
 					if (response.ok) {
@@ -8596,7 +8613,7 @@
 				try {
 					const response = await fetch('/api/sessions/migrate-legacy', {
 						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
+						headers: getHeaders(),
 						body: JSON.stringify({ name: name })
 					});
 
@@ -8825,9 +8842,7 @@
 				try {
 					const response = await fetch('/api/settings/regenerate', {
 						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json',
-						},
+						headers: getHeaders(),
 						body: JSON.stringify(settings),
 						credentials: 'same-origin'
 					});

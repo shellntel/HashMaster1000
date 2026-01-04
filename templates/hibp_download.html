@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>HM1K - HIBP Database Download</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
@@ -229,6 +230,20 @@
     </div>
 
     <script>
+        // CSRF token for AJAX requests
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+        // Helper function to get headers with CSRF token
+        function getHeaders(contentType = 'application/json') {
+            const headers = {
+                'X-CSRFToken': csrfToken
+            };
+            if (contentType) {
+                headers['Content-Type'] = contentType;
+            }
+            return headers;
+        }
+
         // Store the referrer for "Exit Advanced Mode" link
         (function() {
             const exitLink = document.querySelector('.exit-link');
@@ -318,7 +333,7 @@
             try {
                 const response = await fetch('/api/hibp/download/start', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getHeaders(),
                     body: JSON.stringify({
                         output_dir: outputDir,
                         output_filename: outputFilename,
@@ -346,7 +361,10 @@
             if (!confirm('Cancel the download?')) return;
 
             try {
-                const response = await fetch('/api/hibp/download/cancel', { method: 'POST' });
+                const response = await fetch('/api/hibp/download/cancel', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
                 const data = await response.json();
                 if (!data.success) alert('Failed to cancel: ' + data.message);
             } catch (error) {
@@ -559,7 +577,7 @@
             try {
                 const response = await fetch('/api/hibp/convert/start', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getHeaders(),
                     body: JSON.stringify({})
                 });
 
@@ -584,7 +602,10 @@
             if (!confirm('Cancel the conversion?')) return;
 
             try {
-                const response = await fetch('/api/hibp/convert/cancel', { method: 'POST' });
+                const response = await fetch('/api/hibp/convert/cancel', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
                 const data = await response.json();
                 if (data.success) {
                     document.getElementById('convertProgress').style.display = 'none';
@@ -697,7 +718,7 @@
             try {
                 const response = await fetch('/api/hibp/text-file/delete', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: getHeaders()
                 });
 
                 const data = await response.json();
