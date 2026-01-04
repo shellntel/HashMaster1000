@@ -19,6 +19,7 @@ flask_session/
 .vscode/
 *.swp
 *.swo
+CLAUDE.md
 
 # OS
 .DS_Store
