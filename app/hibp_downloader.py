@@ -401,6 +401,83 @@ async def _run_download_async(
                 pass
 
 
+def _merge_prefix_files(temp_dir: str, output_path: str, total_prefixes: int) -> int:
+    """
+    Merge all prefix files into a single output file.
+
+    Optimized for both Windows and Linux:
+    - Uses large buffer sizes for better I/O performance
+    - Batches writes to reduce syscall overhead
+    - Uses binary mode with explicit encoding for consistency
+
+    Args:
+        temp_dir: Directory containing prefix files (00000.txt to FFFFF.txt)
+        output_path: Path for the merged output file
+        total_prefixes: Number of prefix files to merge
+
+    Returns:
+        Total number of hashes merged
+    """
+    import sys
+
+    merged_hashes = 0
+
+    # Use large buffer sizes for better I/O performance
+    # 16MB buffer significantly improves Windows performance
+    # Linux also benefits but less dramatically
+    write_buffer_size = 16 * 1024 * 1024  # 16MB
+    read_buffer_size = 1 * 1024 * 1024    # 1MB per input file
+
+    # Batch lines in memory before writing to reduce syscalls
+    # This is especially important on Windows where each write() can be expensive
+    write_batch: list[str] = []
+    write_batch_size = 0
+    max_batch_bytes = 8 * 1024 * 1024  # Flush every 8MB of data
+
+    # Open output file with explicit large buffer
+    with open(output_path, "w", encoding="utf-8", buffering=write_buffer_size) as outfile:
+        for i in range(total_prefixes):
+            prefix = f"{i:05X}"
+            prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+
+            if os.path.exists(prefix_file):
+                # Read entire file at once - these files are ~80KB each
+                try:
+                    with open(prefix_file, "r", encoding="utf-8", buffering=read_buffer_size) as infile:
+                        content = infile.read()
+
+                    if content:
+                        # Count lines (hashes) in this file
+                        line_count = content.count('\n')
+                        if content and not content.endswith('\n'):
+                            line_count += 1
+                        merged_hashes += line_count
+
+                        # Add to write batch
+                        write_batch.append(content)
+                        write_batch_size += len(content)
+
+                        # Flush batch when it gets large enough
+                        if write_batch_size >= max_batch_bytes:
+                            outfile.write(''.join(write_batch))
+                            write_batch = []
+                            write_batch_size = 0
+
+                except Exception as e:
+                    logger.warning(f"Error reading prefix file {prefix}: {e}")
+
+            # Log progress every 10000 prefixes
+            if (i + 1) % 10000 == 0:
+                pct = ((i + 1) / total_prefixes) * 100
+                logger.info(f"Merge progress: {i + 1:,}/{total_prefixes:,} ({pct:.1f}%) - {merged_hashes:,} hashes")
+
+        # Write any remaining batched content
+        if write_batch:
+            outfile.write(''.join(write_batch))
+
+    return merged_hashes
+
+
 async def _merge_files_async(
     output_dir: str,
     output_filename: str,
@@ -417,22 +494,7 @@ async def _merge_files_async(
 
     logger.info(f"Merging {TOTAL_PREFIXES:,} prefix files into {output_path}...")
 
-    merged_hashes = 0
-
-    with open(temp_output, "w", encoding="utf-8") as outfile:
-        for i in range(TOTAL_PREFIXES):
-            prefix = f"{i:05X}"
-            prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
-
-            if os.path.exists(prefix_file):
-                with open(prefix_file, "r", encoding="utf-8") as infile:
-                    for line in infile:
-                        outfile.write(line)
-                        merged_hashes += 1
-
-            if (i + 1) % 10000 == 0:
-                pct = ((i + 1) / TOTAL_PREFIXES) * 100
-                logger.info(f"Merge progress: {i + 1:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%)")
+    merged_hashes = _merge_prefix_files(temp_dir, temp_output, TOTAL_PREFIXES)
 
     if os.path.exists(output_path):
         os.remove(output_path)
@@ -594,22 +656,7 @@ def _run_download_sync(
         logger.info(f"Merging {TOTAL_PREFIXES:,} prefix files into {output_path}...")
 
         temp_output = output_path + ".downloading"
-        merged_hashes = 0
-
-        with open(temp_output, "w", encoding="utf-8") as outfile:
-            for i in range(TOTAL_PREFIXES):
-                prefix = f"{i:05X}"
-                prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
-
-                if os.path.exists(prefix_file):
-                    with open(prefix_file, "r", encoding="utf-8") as infile:
-                        for line in infile:
-                            outfile.write(line)
-                            merged_hashes += 1
-
-                if (i + 1) % 10000 == 0:
-                    pct = ((i + 1) / TOTAL_PREFIXES) * 100
-                    logger.info(f"Merge progress: {i + 1:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%)")
+        merged_hashes = _merge_prefix_files(temp_dir, temp_output, TOTAL_PREFIXES)
 
         if os.path.exists(output_path):
             os.remove(output_path)
