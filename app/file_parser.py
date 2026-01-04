@@ -689,20 +689,7 @@ def merge_potfile_entries(
     import logging
 
     logger = logging.getLogger(__name__)
-
-    # Platform-appropriate file locking
-    if sys.platform == 'win32':
-        import msvcrt
-        def _lock_file(f):
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
-        def _unlock_file(f):
-            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-        def _lock_file(f):
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        def _unlock_file(f):
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    is_windows = sys.platform == 'win32'
 
     # Filter to only valid, included NTLM entries
     ntlm_entries = [
@@ -719,9 +706,12 @@ def merge_potfile_entries(
     if master_dir and not os.path.exists(master_dir):
         os.makedirs(master_dir, exist_ok=True)
 
+    # Track if file exists (for Windows locking workaround)
+    file_exists = os.path.exists(master_path)
+
     # Read existing hashes from master (if it exists)
     existing_hashes: set[str] = set()
-    if os.path.exists(master_path):
+    if file_exists:
         try:
             with open(master_path, 'r', encoding='utf-8', errors='replace') as f:
                 for line in f:
@@ -742,8 +732,19 @@ def merge_potfile_entries(
     if ntlm_entries:
         try:
             with open(master_path, 'a', encoding='utf-8') as f:
-                # Use file locking to prevent race conditions
-                _lock_file(f)
+                # Windows msvcrt.locking() can't lock an empty file (no bytes to lock)
+                # On Unix, fcntl.flock() works on empty files
+                # Skip locking only when file was just created (empty)
+                use_locking = not is_windows or file_exists
+
+                if use_locking:
+                    if is_windows:
+                        import msvcrt
+                        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
                 try:
                     for entry in ntlm_entries:
                         hash_upper = entry.ntlm_hash.upper()
@@ -756,7 +757,13 @@ def merge_potfile_entries(
                         else:
                             entries_skipped += 1
                 finally:
-                    _unlock_file(f)
+                    if use_locking:
+                        if is_windows:
+                            import msvcrt
+                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except Exception as e:
             logger.error(f"Error writing to master potfile: {e}")
             raise

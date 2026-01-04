@@ -167,21 +167,20 @@ class PotfileCache:
             Tuple of (entries_added, entries_skipped, total_in_master)
         """
         # Import platform-appropriate file locking
+        # Note: Windows msvcrt.locking() requires the file to have content to lock,
+        # so we skip locking when creating a new empty file
         import sys
-        if sys.platform == 'win32':
-            import msvcrt
-            def lock_file(f):
-                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
-            def unlock_file(f):
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            def lock_file(f):
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            def unlock_file(f):
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        is_windows = sys.platform == 'win32'
 
         with self._lock:
+            # Ensure directory exists FIRST (before any file operations)
+            master_dir = os.path.dirname(filepath)
+            if master_dir and not os.path.exists(master_dir):
+                os.makedirs(master_dir, exist_ok=True)
+
+            # Track if file exists (for Windows locking workaround)
+            file_exists = os.path.exists(filepath)
+
             # Ensure cache is loaded
             cache = self.load(filepath)
             existing_hashes = cache.hash_to_password
@@ -197,11 +196,6 @@ class PotfileCache:
 
             if not ntlm_entries:
                 return (0, 0, len(existing_hashes))
-
-            # Ensure directory exists
-            master_dir = os.path.dirname(filepath)
-            if master_dir and not os.path.exists(master_dir):
-                os.makedirs(master_dir, exist_ok=True)
 
             entries_added = 0
             entries_skipped = 0
@@ -221,12 +215,30 @@ class PotfileCache:
             if new_hashes:
                 try:
                     with open(filepath, 'a', encoding='utf-8') as f:
-                        lock_file(f)
+                        # Windows msvcrt.locking() can't lock an empty file (no bytes to lock)
+                        # On Unix, fcntl.flock() works on empty files
+                        # Skip locking only when file was just created (empty)
+                        use_locking = not is_windows or file_exists
+
+                        if use_locking:
+                            if is_windows:
+                                import msvcrt
+                                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                            else:
+                                import fcntl
+                                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
                         try:
                             for hash_val, password in new_hashes.items():
                                 f.write(f"{hash_val}:{password}\n")
                         finally:
-                            unlock_file(f)
+                            if use_locking:
+                                if is_windows:
+                                    import msvcrt
+                                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                                else:
+                                    import fcntl
+                                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
                     # Update cache in-memory (avoid file re-read)
                     existing_hashes.update(new_hashes)
