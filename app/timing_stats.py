@@ -373,6 +373,10 @@ def collect_system_info() -> SystemInfo:
     if not info.disk_type:
         info.disk_type = _detect_disk_type(info.os_name)
 
+    # Windows-specific supplements (psutil often returns incomplete data)
+    if info.os_name == "Windows":
+        _supplement_windows_info(info)
+
     return info
 
 
@@ -506,6 +510,50 @@ def _collect_windows_info_fallback(info: SystemInfo) -> None:
                         pass
     except Exception:
         pass
+
+
+def _supplement_windows_info(info: SystemInfo) -> None:
+    """Supplement Windows system info when psutil returns incomplete data."""
+    import subprocess
+
+    # Get CPU frequency if not already set (psutil often fails for AMD CPUs)
+    if info.cpu_freq_mhz == 0 or info.cpu_freq_max_mhz == 0:
+        try:
+            # Use PowerShell to get CPU max clock speed from WMI
+            ps_command = '''
+            Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1 -ExpandProperty MaxClockSpeed
+            '''
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                freq_mhz = float(result.stdout.strip())
+                if freq_mhz > 0:
+                    info.cpu_freq_max_mhz = freq_mhz
+                    if info.cpu_freq_mhz == 0:
+                        info.cpu_freq_mhz = freq_mhz
+        except Exception as e:
+            logger.debug(f"Could not get Windows CPU frequency: {e}")
+
+    # Get physical core count if not set correctly
+    if info.cpu_cores_physical == 0 or info.cpu_cores_physical == info.cpu_cores_logical // 2:
+        try:
+            ps_command = '''
+            Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1 -ExpandProperty NumberOfCores
+            '''
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                cores = int(result.stdout.strip())
+                if cores > 0:
+                    info.cpu_cores_physical = cores
+        except Exception as e:
+            logger.debug(f"Could not get Windows physical core count: {e}")
 
 
 def _collect_macos_info_fallback(info: SystemInfo) -> None:
@@ -669,21 +717,35 @@ def _detect_disk_type(os_name: str) -> str:
             cwd = os.getcwd()
             drive_letter = os.path.splitdrive(cwd)[0].rstrip(':')
 
-            # Use PowerShell to get the physical disk type for this drive
-            # This maps: Drive Letter -> Partition -> Disk -> PhysicalDisk
+            # Use PowerShell to get disk info - check BusType first (most reliable for NVMe),
+            # then MediaType from PhysicalDisk
             ps_command = f'''
             $driveLetter = "{drive_letter}"
             $partition = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue
             if ($partition) {{
                 $disk = Get-Disk -Number $partition.DiskNumber -ErrorAction SilentlyContinue
                 if ($disk) {{
-                    $physDisk = Get-PhysicalDisk | Where-Object {{ $_.DeviceId -eq $disk.Number }} | Select-Object -First 1
-                    if ($physDisk) {{
-                        $physDisk.MediaType
+                    # Check BusType first - most reliable for NVMe detection
+                    if ($disk.BusType -eq "NVMe") {{
+                        "NVMe"
                     }} else {{
-                        # Fallback: check disk bus type for NVMe
-                        if ($disk.BusType -eq "NVMe") {{ "NVMe" }}
-                        else {{ $disk.MediaType }}
+                        # Try to get MediaType from PhysicalDisk
+                        $physDisk = Get-PhysicalDisk | Where-Object {{ $_.DeviceId -eq $disk.Number }} | Select-Object -First 1
+                        if ($physDisk -and $physDisk.MediaType) {{
+                            $physDisk.MediaType
+                        }} else {{
+                            # Fallback: check if it's an SSD based on no seek penalty
+                            $diskNum = $disk.Number
+                            $seekPenalty = (Get-PhysicalDisk | Where-Object {{ $_.DeviceId -eq $diskNum }}).MediaType
+                            if ($seekPenalty -eq "SSD") {{ "SSD" }}
+                            elseif ($disk.BusType -eq "SATA" -or $disk.BusType -eq "RAID") {{
+                                # SATA/RAID could be SSD or HDD - check model name for hints
+                                $model = $disk.Model.ToLower()
+                                if ($model -match "ssd|solid|nvme") {{ "SSD" }}
+                                else {{ "Unknown" }}
+                            }}
+                            else {{ "Unknown" }}
+                        }}
                     }}
                 }}
             }}
@@ -696,34 +758,36 @@ def _detect_disk_type(os_name: str) -> str:
             )
 
             if result.returncode == 0:
-                output = result.stdout.strip().lower()
-                if "nvme" in output:
+                output = result.stdout.strip()
+                output_lower = output.lower()
+                if "nvme" in output_lower:
                     return "NVMe"
-                elif "ssd" in output or "solid state" in output:
+                elif output_lower == "ssd" or "solid state" in output_lower:
                     return "SSD"
-                elif "hdd" in output or "unspecified" in output:
-                    # "Unspecified" often means HDD, but let's check bus type as backup
+                elif output_lower == "hdd":
                     return "HDD"
-                elif output:
-                    # Got some output but didn't match - log it for debugging
+                elif output_lower and output_lower != "unknown" and output_lower != "unspecified":
+                    # Got some output but didn't match known types - log it
                     logger.debug(f"Windows disk MediaType: '{output}'")
 
-            # Fallback: try to detect NVMe by checking if any NVMe controller exists for this disk
-            ps_nvme_check = f'''
+            # Secondary fallback: just check BusType directly
+            ps_bustype_check = f'''
             $driveLetter = "{drive_letter}"
             $partition = Get-Partition -DriveLetter $driveLetter -ErrorAction SilentlyContinue
             if ($partition) {{
                 $disk = Get-Disk -Number $partition.DiskNumber -ErrorAction SilentlyContinue
-                if ($disk -and $disk.BusType -eq "NVMe") {{ "NVMe" }}
+                if ($disk) {{ $disk.BusType }}
             }}
             '''
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps_nvme_check],
+                ["powershell", "-NoProfile", "-Command", ps_bustype_check],
                 capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
-            if result.returncode == 0 and "nvme" in result.stdout.strip().lower():
-                return "NVMe"
+            if result.returncode == 0:
+                bustype = result.stdout.strip().lower()
+                if bustype == "nvme":
+                    return "NVMe"
 
     except Exception as e:
         logger.debug(f"Could not detect disk type: {e}")
