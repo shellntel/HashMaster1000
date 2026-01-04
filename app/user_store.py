@@ -18,11 +18,25 @@ The superadmin account is always defined in .env and never stored in users.json.
 
 import json
 import os
-import fcntl
+import sys
 import bcrypt
 from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, asdict
+
+# Platform-appropriate file locking
+if sys.platform == 'win32':
+    import msvcrt
+    def _lock_file(f, exclusive=True):
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK if exclusive else msvcrt.LK_NBLCK, 1)
+    def _unlock_file(f):
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+    def _lock_file(f, exclusive=True):
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+    def _unlock_file(f):
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 # Default path for user store
@@ -85,14 +99,14 @@ class UserStore:
 
         try:
             with open(self.path, "r") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                _lock_file(f, exclusive=False)
                 try:
                     content = f.read()
                     if not content.strip():
                         return {}
                     return json.loads(content)
                 finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    _unlock_file(f)
         except (json.JSONDecodeError, IOError) as e:
             # Log error but return empty dict to allow superadmin fallback
             print(f"Warning: Could not read user store: {e}")
@@ -106,14 +120,15 @@ class UserStore:
         try:
             # Write to temp file first
             with open(temp_path, "w") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                _lock_file(f, exclusive=True)
                 try:
                     json.dump(data, f, indent=2)
                 finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    _unlock_file(f)
 
-            # Set restrictive permissions (owner read/write only)
-            os.chmod(temp_path, 0o600)
+            # Set restrictive permissions (owner read/write only) - Unix only
+            if sys.platform != 'win32':
+                os.chmod(temp_path, 0o600)
 
             # Backup existing file if it exists
             if os.path.exists(self.path):

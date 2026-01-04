@@ -166,7 +166,20 @@ class PotfileCache:
         Returns:
             Tuple of (entries_added, entries_skipped, total_in_master)
         """
-        import fcntl
+        # Import platform-appropriate file locking
+        import sys
+        if sys.platform == 'win32':
+            import msvcrt
+            def lock_file(f):
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            def unlock_file(f):
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            def lock_file(f):
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            def unlock_file(f):
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
         with self._lock:
             # Ensure cache is loaded
@@ -208,12 +221,12 @@ class PotfileCache:
             if new_hashes:
                 try:
                     with open(filepath, 'a', encoding='utf-8') as f:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                        lock_file(f)
                         try:
                             for hash_val, password in new_hashes.items():
                                 f.write(f"{hash_val}:{password}\n")
                         finally:
-                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                            unlock_file(f)
 
                     # Update cache in-memory (avoid file re-read)
                     existing_hashes.update(new_hashes)
