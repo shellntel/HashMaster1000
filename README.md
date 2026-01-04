@@ -1,4 +1,6 @@
-# **Hash Master 1000** Documentation
+# **Hash Master 1000**
+
+**Windows Active Directory password audit and hash analysis tool for pentest and security assessments.** Analyze NTLM hashes from pwdump/secretsdump output and Hashcat potfiles to generate comprehensive reports on password security, policy compliance, reuse patterns, and breach exposure via HIBP integration.
 
 ---
 
@@ -22,8 +24,9 @@
 16. [AS-REP Exposure Analysis](#as-rep-exposure-analysis)
 17. [Historical Trend Analysis](#historical-trend-analysis)
 18. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
-19. [Environment Configuration](#environment-configuration)
-20. [Licensing](#licensing)
+19. [Advanced Mode](#advanced-mode)
+20. [Environment Configuration](#environment-configuration)
+21. [Licensing](#licensing)
 
 ---
 
@@ -33,9 +36,9 @@ Hash Master 1000 is intended as an **ad hoc tool** for password and hash analysi
 
 If production use is required:
 
--   Replace the default Flask server with a robust web server
--   Use a valid TLS certificate
--   Configure appropriate firewall rules to restrict access
+- Replace the default Flask server with a robust web server
+- Use a valid TLS certificate
+- Configure appropriate firewall rules to restrict access
 
 The authors assume no responsibility for improper or insecure deployments.
 
@@ -43,29 +46,29 @@ The authors assume no responsibility for improper or insecure deployments.
 
 ## **Introduction**
 
-**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes data from a `pwdump6` file and a `Hashcat potfile` to generate comprehensive reports for penetration testers, auditors and cyber-security professionals. 
+**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes data from a `pwdump6` file and a `Hashcat potfile` to generate comprehensive reports for penetration testers, auditors and cyber-security professionals.
 Learn more: https://blog.shellntel.com/p/hash-master-1000
 
 ### **Features**
 
--   4-step guided wizard workflow with file validation
--   Password policy compliance checks (length, complexity)
--   Analysis of weak or reused passwords
--   Detection of common/reused dictionary words and substrings
--   Bad Practices Report with 11 detection categories (clickable bars show matching passwords)
--   Company Name & Terms detection for organization-specific keyword matching
--   Visualization of cracking statistics with interactive charts
--   Support for mixed hash type potfiles (auto-detects and filters NTLM)
--   Built-in file browser for local server files
--   Account status awareness (Enabled/Disabled) from DCSync format
--   Export options: PNG clipboard, SVG download, CSV download, JSON data
--   **Session Management**: Save, restore, and compare multiple analysis sessions
--   **ADD JSON Format (Preferred)**: Import rich Active Directory data from [SynerComm Audit Tool](https://github.com/shellntel/SynerCommAuditTool) with group memberships, privileged account detection, and historical password analysis
--   **Have I Been Pwned (HIBP) Integration**: Check password hashes against the HIBP breach database using k-Anonymity (privacy-preserving)
--   **Kerberoast Exposure Analysis**: Automated identification and risk scoring of service accounts vulnerable to Kerberoasting attacks
--   **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
--   **Historical Trend Analysis**: Track password security improvements across multiple assessment sessions with visual trend charts
--   **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama models with 3-phase pipeline
+- 4-step guided wizard workflow with file validation
+- Password policy compliance checks (length, complexity)
+- Analysis of weak or reused passwords
+- Detection of common/reused dictionary words and substrings
+- Bad Practices Report with 11 detection categories (clickable bars show matching passwords)
+- Company Name & Terms detection for organization-specific keyword matching
+- Visualization of cracking statistics with interactive charts
+- Support for mixed hash type potfiles (auto-detects and filters NTLM)
+- Built-in file browser for local server files
+- Account status awareness (Enabled/Disabled) from DCSync format
+- Export options: PNG clipboard, SVG download, CSV download, JSON data
+- **Session Management**: Save, restore, and compare multiple analysis sessions
+- **ADD JSON Format (Preferred)**: Import rich Active Directory data from [SynerComm Audit Tool](https://github.com/shellntel/SynerCommAuditTool) with group memberships, privileged account detection, and historical password analysis
+- **Have I Been Pwned (HIBP) Integration**: Check password hashes against the HIBP breach database using k-Anonymity (privacy-preserving)
+- **Kerberoast Exposure Analysis**: Automated identification and risk scoring of service accounts vulnerable to Kerberoasting attacks
+- **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
+- **Historical Trend Analysis**: Track password security improvements across multiple assessment sessions with visual trend charts
+- **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama models with 3-phase pipeline
 
 ---
 
@@ -123,8 +126,8 @@ hm1k/
 
 ### **Requirements**
 
--   **Python Version:** 3.10+
--   **Python dependencies:** See `requirements.txt`
+- **Python Version:** 3.10+
+- **Python dependencies:** See `requirements.txt`
 
 ### **Deployment**
 
@@ -207,11 +210,13 @@ python -m venv .venv
 Activate the virtual environment:
 
 **PowerShell:**
+
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
 **Command Prompt:**
+
 ```cmd
 .venv\Scripts\activate.bat
 ```
@@ -241,6 +246,7 @@ https://localhost:8443
 Accept the self-signed certificate warning in your browser to proceed.
 
 **First-time startup:** The application automatically handles initial setup:
+
 - Generates a SECRET_KEY if not present in the `.env` file
 - Creates a self-signed SSL certificate (`cert.pem` and `key.pem`) if missing
 - Copies `env.example` to `.env` if no `.env` file exists
@@ -251,8 +257,8 @@ Accept the self-signed certificate warning in your browser to proceed.
 
 Despite the security disclaimer above, it's important to prevent unauthorized users from easily accessing sensitive data. `Flask-Login` requires users to have a valid login in order to access any of the protected routes/endpoints. The weak default password used by the app is a humorous reminder that complex != secure and to always change your default passwords. :grin:
 
--   Username: `admin`
--   Password: `Winter2025##`
+- Username: `admin`
+- Password: `Winter2025##`
 
 If you wish to change the username or password, either can be edited in the .env file. The default credentials below allow users to login as `admin` with the password `Winter2025##`. To change the password, bcrypt the password and paste the hash into the .env file.
 
@@ -272,49 +278,53 @@ Hash Master 1000 uses a guided 4-step wizard workflow to ensure data quality bef
 
 The first step focuses on loading your source files. You have two options:
 
--   **Upload Files**: Upload pwdump and potfile directly through the browser
--   **Use Local Server Files**: Specify paths to files already on the server using the built-in file browser
+- **Upload Files**: Upload pwdump and potfile directly through the browser
+- **Use Local Server Files**: Specify paths to files already on the server using the built-in file browser
 
 For local server files, click the **Browse** button to open a file browser that lets you navigate the server's filesystem and select files. You can also manually enter file paths if you know them.
 
 Each file must be validated before proceeding. Click the "Validate" button next to each file to check for formatting issues. The interface shows:
--   A visual status indicator (pending, valid, warning, or error)
--   Validation statistics (valid entries, warnings, errors)
--   Format detection (Standard vs DCSync format for pwdump files)
--   Hash type detection (NTLM vs non-NTLM for potfiles)
+
+- A visual status indicator (pending, valid, warning, or error)
+- Validation statistics (valid entries, warnings, errors)
+- Format detection (Standard vs DCSync format for pwdump files)
+- Hash type detection (NTLM vs non-NTLM for potfiles)
 
 Both files must pass validation before you can continue to Step 2.
 
 ### **Step 2: Validation Review**
 
 After initial validation, you're taken to a dedicated validation review page where you can:
--   See detailed statistics about your files (valid lines, warnings, errors)
--   Review any problematic lines with specific error messages
--   Choose to include or exclude specific lines from analysis
--   See hash type breakdown for potfiles (NTLM hashes are used, others are ignored)
--   View status coverage for pwdump files (what percentage have Enabled/Disabled status)
+
+- See detailed statistics about your files (valid lines, warnings, errors)
+- Review any problematic lines with specific error messages
+- Choose to include or exclude specific lines from analysis
+- See hash type breakdown for potfiles (NTLM hashes are used, others are ignored)
+- View status coverage for pwdump files (what percentage have Enabled/Disabled status)
 
 This step ensures you have full control over what data is processed before analysis begins.
 
 ### **Step 3: Configure Analysis**
 
 Configure the analysis options for your report:
--   Substring analysis options (min/max length, frequency threshold)
--   Dictionary word analysis options
--   Password policy compliance settings (min length, complexity requirements)
--   Account filtering options (ignore disabled accounts, ignore computer accounts)
--   Blank password handling
+
+- Substring analysis options (min/max length, frequency threshold)
+- Dictionary word analysis options
+- Password policy compliance settings (min length, complexity requirements)
+- Account filtering options (ignore disabled accounts, ignore computer accounts)
+- Blank password handling
 
 Click "Generate Report" to process your files with the selected options.
 
 ### **Step 4: View Report**
 
 The final step displays the comprehensive analysis report with statistics, charts, and detailed findings. From the report page, you can:
--   View all analysis results
--   Copy charts to clipboard as PNG
--   Download charts as SVG or CSV
--   Download all JSON data files
--   Start over with new files
+
+- View all analysis results
+- Copy charts to clipboard as PNG
+- Download charts as SVG or CSV
+- Download all JSON data files
+- Start over with new files
 
 ---
 
@@ -322,21 +332,21 @@ The final step displays the comprehensive analysis report with statistics, chart
 
 ### **1. ADD JSON Format (Preferred)**
 
-The preferred hash and domain input format is ADD JSON, generated with the [Active Directory Dumper (ADD)](https://github.com/shellntel/ActiveDirectoryDumper) tool from #_shelltel. This format provides rich Active Directory metadata that enables domain based analysis features not available with standard pwdump formatted hashes from the Volume Shadow Copy Service (VSS) or DCSync extraction.
+The preferred hash and domain input format is ADD JSON, generated with the [Active Directory Dumper (ADD)](https://github.com/shellntel/ActiveDirectoryDumper) tool from #\_shelltel. This format provides rich Active Directory metadata that enables domain based analysis features not available with standard pwdump formatted hashes from the Volume Shadow Copy Service (VSS) or DCSync extraction.
 
--   Filename: `hm_domainoutput.json`
--   Source: [Active Directory Dumper](https://github.com/shellntel/ActiveDirectoryDumpter)
+- Filename: `hm_domainoutput.json`
+- Source: [Active Directory Dumper](https://github.com/shellntel/ActiveDirectoryDumpter)
 
 #### **Why Use ADD JSON?**
 
 ADD JSON includes comprehensive Active Directory data that enables:
 
--   **Domain Password Policy**: Automatically imports the domain's password policy settings (min length, max age, history, lockout) for compliance checking
--   **Group Memberships**: Full group membership data for each user
--   **Privileged Account Detection**: Automatically identifies Tier 0 (Domain Admins, Enterprise Admins, Schema Admins, RID 500/502) and Elevated (Backup Operators, Account Operators, Server Operators) accounts
--   **Historical Password Hashes**: Analyzes previous passwords to detect password reuse violations
--   **Password Sharing Detection**: Alerts when privileged accounts share passwords with standard user accounts
--   **Account Status**: Enabled/Disabled status for accurate reporting
+- **Domain Password Policy**: Automatically imports the domain's password policy settings (min length, max age, history, lockout) for compliance checking
+- **Group Memberships**: Full group membership data for each user
+- **Privileged Account Detection**: Automatically identifies Tier 0 (Domain Admins, Enterprise Admins, Schema Admins, RID 500/502) and Elevated (Backup Operators, Account Operators, Server Operators) accounts
+- **Historical Password Hashes**: Analyzes previous passwords to detect password reuse violations
+- **Password Sharing Detection**: Alerts when privileged accounts share passwords with standard user accounts
+- **Account Status**: Enabled/Disabled status for accurate reporting
 
 #### **ADD JSON Structure**
 
@@ -374,32 +384,36 @@ When using ADD JSON input, the report includes these additional sections:
 If you don't have ADD JSON output, Hash Master 1000 also supports traditional pwdump formats:
 
 #### **Standard pwdump Format**
--   Extension: `.txt` or `.ntds`
--   Format: `{username}:{user_id}:{LM_hash}:{NTLM_hash}:{SID}:{comment}:{home_directory}`
--   Example: `jdoe:1001:aad3b435b51404eeaad3b435b51404ee:fc525c9683e8fe067095ba2ddc971889:::`
+
+- Extension: `.txt` or `.ntds`
+- Format: `{username}:{user_id}:{LM_hash}:{NTLM_hash}:{SID}:{comment}:{home_directory}`
+- Example: `jdoe:1001:aad3b435b51404eeaad3b435b51404ee:fc525c9683e8fe067095ba2ddc971889:::`
 
 #### **DCSync Format (Recommended for pwdump)**
--   Extension: `.txt` or `.ntds`
--   Format: `{username}:{RID}:{LM_hash}:{NTLM_hash}:::: (status=Enabled|Disabled)`
--   Example: `DOMAIN\jdoe:1001:aad3b435b51404eeaad3b435b51404ee:fc525c9683e8fe067095ba2ddc971889::: (status=Enabled)`
+
+- Extension: `.txt` or `.ntds`
+- Format: `{username}:{RID}:{LM_hash}:{NTLM_hash}:::: (status=Enabled|Disabled)`
+- Example: `DOMAIN\jdoe:1001:aad3b435b51404eeaad3b435b51404ee:fc525c9683e8fe067095ba2ddc971889::: (status=Enabled)`
 
 The DCSync format includes account status information (Enabled/Disabled), which enables more accurate reporting. When status information is available, the report can show:
--   Breakdown of enabled vs disabled accounts
--   Cracked statistics filtered by account status
--   More meaningful security recommendations
+
+- Breakdown of enabled vs disabled accounts
+- Cracked statistics filtered by account status
+- More meaningful security recommendations
 
 **Note:** Both formats can be mixed in the same file. Hash Master 1000 automatically detects the format of each line.
 
 ### **3. Hashcat Potfile**
 
--   Extension: `.txt`, `.potfile`, or `.pot`
--   Format: `{NTLM_hash}:{password}` or `{hash_with_mode}:{password}`
--   Example: `66c4b0305e317b7ee0c90f7d370c885a:Password123#`
+- Extension: `.txt`, `.potfile`, or `.pot`
+- Format: `{NTLM_hash}:{password}` or `{hash_with_mode}:{password}`
+- Example: `66c4b0305e317b7ee0c90f7d370c885a:Password123#`
 
 **Mixed Hash Type Support:** Potfiles may contain multiple hash types from different cracking sessions. Hash Master 1000 automatically detects and categorizes each hash type:
--   NTLM hashes (32-character hex) are used for analysis
--   Non-NTLM hashes (SHA1, MD5, bcrypt, etc.) are detected and ignored
--   A summary of hash types is shown during validation
+
+- NTLM hashes (32-character hex) are used for analysis
+- Non-NTLM hashes (SHA1, MD5, bcrypt, etc.) are detected and ignored
+- A summary of hash types is shown during validation
 
 This allows you to use your main potfile without needing to filter out non-NTLM entries first.
 
@@ -407,21 +421,22 @@ This allows you to use your main potfile without needing to filter out non-NTLM 
 
 ### **File Requirements**
 
--   Each file must have one properly formatted entry per line
--   Empty lines and comment lines (starting with `#`) are automatically skipped
--   Files are validated before processing to catch formatting issues early
--   **Your pwdump file must not contain duplicate account names, especially with different hashes**
+- Each file must have one properly formatted entry per line
+- Empty lines and comment lines (starting with `#`) are automatically skipped
+- Files are validated before processing to catch formatting issues early
+- **Your pwdump file must not contain duplicate account names, especially with different hashes**
 
 ### **Upload vs Local Server Files**
 
 The Step 1 interface provides a toggle between two input methods:
 
--   **Upload Files**: Browse and upload files directly from your computer through the browser
--   **Use Local Server Files**: Select files already on the server using the built-in file browser
+- **Upload Files**: Browse and upload files directly from your computer through the browser
+- **Use Local Server Files**: Select files already on the server using the built-in file browser
 
 When using local server files, you can either:
--   Click the **Browse** button to open a file browser modal that lets you navigate the server's filesystem
--   Manually type or paste the full path to the file
+
+- Click the **Browse** button to open a file browser modal that lets you navigate the server's filesystem
+- Manually type or paste the full path to the file
 
 The file browser shows directories and files, their sizes, and allows easy navigation with ".." to go to parent directories.
 
@@ -442,33 +457,34 @@ Before processing, Hash Master 1000 validates both input files to ensure data qu
 
 ### **Pwdump Validation Checks**
 
--   **Field Count**: Must have exactly 7 colon-separated fields
--   **Username**: Must not be empty
--   **NTLM Hash**: Must be exactly 32 hexadecimal characters
--   **LM Hash**: Validated if present (warnings for malformed LM hashes)
--   **Format Detection**: Automatically identifies Standard vs DCSync format
+- **Field Count**: Must have exactly 7 colon-separated fields
+- **Username**: Must not be empty
+- **NTLM Hash**: Must be exactly 32 hexadecimal characters
+- **LM Hash**: Validated if present (warnings for malformed LM hashes)
+- **Format Detection**: Automatically identifies Standard vs DCSync format
 
 ### **Potfile Validation Checks**
 
--   **Format**: Must be `hash:password` format
--   **Hash Type Detection**: Automatically identifies hash types (NTLM, SHA1, MD5, bcrypt, etc.)
--   **NTLM Filtering**: Only NTLM hashes (32-character hex) are used; others are flagged as "ignored"
--   **Password**: Must be present (hash-only lines are flagged)
--   **Hash Type Summary**: Shows breakdown of all hash types found in the file
+- **Format**: Must be `hash:password` format
+- **Hash Type Detection**: Automatically identifies hash types (NTLM, SHA1, MD5, bcrypt, etc.)
+- **NTLM Filtering**: Only NTLM hashes (32-character hex) are used; others are flagged as "ignored"
+- **Password**: Must be present (hash-only lines are flagged)
+- **Hash Type Summary**: Shows breakdown of all hash types found in the file
 
 ### **Error Severity Levels**
 
--   **Fatal**: Line cannot be processed (wrong field count, invalid hash, missing username)
--   **Warning**: Line can be processed but may have issues (malformed LM hash, empty line)
--   **Info**: Informational (comment lines, format detection)
+- **Fatal**: Line cannot be processed (wrong field count, invalid hash, missing username)
+- **Warning**: Line can be processed but may have issues (malformed LM hash, empty line)
+- **Info**: Informational (comment lines, format detection)
 
 ### **Validation Review Page**
 
 If issues are found, you'll be directed to a validation review page where you can:
--   See all problematic lines with detailed error messages
--   Choose to include or exclude specific lines from analysis
--   Review the raw line content to diagnose issues
--   Proceed with only the valid entries
+
+- See all problematic lines with detailed error messages
+- Choose to include or exclude specific lines from analysis
+- Review the raw line content to diagnose issues
+- Proceed with only the valid entries
 
 ---
 
@@ -488,26 +504,26 @@ Note: The default settings should work for most basic use cases. Only the pwdump
 
 Substing analysis refers to identifying repeating strings of characters within passwords. The longer the repeating string of characters, the more likely that it's a common string (or perhaps word) used within the organization to make passowrds. Any intentional use of a string that exists in multiple passwords is insecure. Substring analysis enhances the more traditional discovery of English dictionary words by discovering any repeating strings, not just words.
 
--   **Min Substring Length**: Smallest substring length to analyze (# of characters). In a large dataset with many cracked passwords, a longer minumum length is suggested to reduce the number of matches/results. Use this setting along with the Substring Frequency Threshold setting to tune the report output.
--   **Max Substring Length**: Largest substring length to analyze (# of characters).
--   **Substring Freq Threshold**: Minimum frequency required (# of hits). This sets how many account passwords must contain the string to be considered significant enough to be included in the report. This allows the analysis to be tuned to the size of the job. A dataset with thousands of cracked passwords is likely to identify more repeating strings, expecially if used with a low Min Substring Length setting.
--   **Suppress Nested Substrings**: Whether to display substrings within larger substrings. It's common to find repeating strings within larger repeating strings and there may be use cases where you want to analyze both. This is especially useful if you intend to download the CSV or JSON file for offline analysis.
--   **Analyze Substrings in Lowercase**: Normalizes passwords to lowercase before analysis. Normalizing to lowercase is standard for dictionary word analysis, but may not be ideal for substring analysis.
+- **Min Substring Length**: Smallest substring length to analyze (# of characters). In a large dataset with many cracked passwords, a longer minumum length is suggested to reduce the number of matches/results. Use this setting along with the Substring Frequency Threshold setting to tune the report output.
+- **Max Substring Length**: Largest substring length to analyze (# of characters).
+- **Substring Freq Threshold**: Minimum frequency required (# of hits). This sets how many account passwords must contain the string to be considered significant enough to be included in the report. This allows the analysis to be tuned to the size of the job. A dataset with thousands of cracked passwords is likely to identify more repeating strings, expecially if used with a low Min Substring Length setting.
+- **Suppress Nested Substrings**: Whether to display substrings within larger substrings. It's common to find repeating strings within larger repeating strings and there may be use cases where you want to analyze both. This is especially useful if you intend to download the CSV or JSON file for offline analysis.
+- **Analyze Substrings in Lowercase**: Normalizes passwords to lowercase before analysis. Normalizing to lowercase is standard for dictionary word analysis, but may not be ideal for substring analysis.
 
 #### **Dictionary Word Analysis**
 
 Dictionary analysis is just as you'd expect, Hash Master 1000 searches each password to see if it contains words from the English language dictionary. Dictionary Word Analysis uses Python's nltk as the list of English words.
 
--   **Min Word Length**: Minimum word length to include in the analysis. Use caution including words shorter than 4 characters without Suppressing Display Nested Words as you'll likely find many nested words.
--   **Suppress Nested Words**: Select whether to display words within words. For example, the password `Summertime123` includes the words: `summertime`, `summer`, `time`, `sum`, `time`, `me`. Suppressing the nested words would result in only the largest words being reported.
+- **Min Word Length**: Minimum word length to include in the analysis. Use caution including words shorter than 4 characters without Suppressing Display Nested Words as you'll likely find many nested words.
+- **Suppress Nested Words**: Select whether to display words within words. For example, the password `Summertime123` includes the words: `summertime`, `summer`, `time`, `sum`, `time`, `me`. Suppressing the nested words would result in only the largest words being reported.
 
 #### **Password Policy Compliance**
 
 The Policy Compliance configurable settings allow the report to be customized to show violations of the effective Group Policy (or local password policy).
 
--   **Min Password Length**: Minimum length required for a compliant password.
--   **Max Password Age**: Maximum allowable days since last password change (feature coming soon).
--   **Complexity Requirement**: Passwords must meet specific complexity rules (uppercase, lowercase, digit, and special character). Microsoft typically requires 3 out of 4 categories to be complex, but certain implemenations may require all 4 categories. While there is rumor of a 5th complexity category being added, selecting 5 today should cause all cracked passwords to be reported.
+- **Min Password Length**: Minimum length required for a compliant password.
+- **Max Password Age**: Maximum allowable days since last password change (feature coming soon).
+- **Complexity Requirement**: Passwords must meet specific complexity rules (uppercase, lowercase, digit, and special character). Microsoft typically requires 3 out of 4 categories to be complex, but certain implemenations may require all 4 categories. While there is rumor of a 5th complexity category being added, selecting 5 today should cause all cracked passwords to be reported.
 
 #### **Company Name & Terms**
 
@@ -515,10 +531,10 @@ This feature allows you to detect organization-specific terms in cracked passwor
 
 Click the **Configure** button to open a modal where you can enter custom keywords:
 
--   Enter one term per line
--   Terms must be at least 3 characters long (supports short acronyms)
--   Matching is case-insensitive
--   Examples: company name, stock ticker, department names, product names, building names
+- Enter one term per line
+- Terms must be at least 3 characters long (supports short acronyms)
+- Matching is case-insensitive
+- Examples: company name, stock ticker, department names, product names, building names
 
 When configured, a "Company Terms" category appears in the Bad Practices Report chart. Clicking on the bar shows all matching passwords with their occurrence counts.
 
@@ -526,7 +542,7 @@ When configured, a "Company Terms" category appears in the Bad Practices Report 
 
 This advanced option should be used with care as it will affect nearly all calculations performed. Selecting this option causes all blank passwords to be considered uncracked during analysis.
 
--   **Do Not Treat Blank Passwords As Cracked**: Allows reports to be generated with blank passwords being calculated as uncracked rather than cracked. Use with caution!
+- **Do Not Treat Blank Passwords As Cracked**: Allows reports to be generated with blank passwords being calculated as uncracked rather than cracked. Use with caution!
 
 ---
 
@@ -534,11 +550,11 @@ This advanced option should be used with care as it will affect nearly all calcu
 
 The HTML report includes:
 
--   Cracked accounts and hash statistics
--   Password length distribution charts
--   Reused passwords and substrings
--   Password policy compliance violations
--   Accounts with blank passwords
+- Cracked accounts and hash statistics
+- Password length distribution charts
+- Reused passwords and substrings
+- Password policy compliance violations
+- Accounts with blank passwords
 
 ![Sample Report](static/images/sample-report.png)
 
@@ -548,34 +564,35 @@ The generated HTML report includes the following sections:
 
 Provides a high-level overview:
 
--   Total accounts analyzed
--   Number and percentage of cracked accounts and hashes
--   Shortest, longest, and average password lengths
--   Number of LANMan hashes
--   Number of blank passwords
+- Total accounts analyzed
+- Number and percentage of cracked accounts and hashes
+- Shortest, longest, and average password lengths
+- Number of LANMan hashes
+- Number of blank passwords
 
 ### **Charts**
 
--   **Cracked Accounts Pie Chart**: Shows cracked vs. uncracked accounts.
--   **Cracked Hashes Pie Chart**: Compares cracked and uncracked hashes.
--   **Password Length Distribution**: Visualizes the distribution of cracked password lengths.
--   **Top Reused Cracked Passwords**: Highlights commonly reused passwords.
--   **Top Substrings Used**: Displays the most frequent substrings within passwords.
--   **Top Dictionary Words**: Identifies frequent dictionary words found in cracked passwords.
--   **Bad Practices Report**: Interactive bar chart showing passwords matching common bad practice patterns including:
-    -   Password Variants (password, p@ssw0rd, passwd, etc.)
-    -   Season + Year combinations (Summer2024, Winter2023, etc.)
-    -   Keyboard walks (qwerty, asdf, 123456, etc.)
-    -   Common weak bases (letmein, welcome, admin, etc.)
-    -   Top common passwords
-    -   Sequential/repeated characters
-    -   Bible verses
-    -   Sports teams/mascots
-    -   Passwords ending with # or !
-    -   Leet-speak substitutions
-    -   Company Terms (when configured)
+- **Cracked Accounts Pie Chart**: Shows cracked vs. uncracked accounts.
+- **Cracked Hashes Pie Chart**: Compares cracked and uncracked hashes.
+- **Password Length Distribution**: Visualizes the distribution of cracked password lengths.
+- **Top Reused Cracked Passwords**: Highlights commonly reused passwords.
+- **Top Substrings Used**: Displays the most frequent substrings within passwords.
+- **Top Dictionary Words**: Identifies frequent dictionary words found in cracked passwords.
+- **Bad Practices Report**: Interactive bar chart showing passwords matching common bad practice patterns including:
 
-    **Click on any bar** to see all matching passwords with their occurrence counts in a scrollable modal.
+  - Password Variants (password, p@ssw0rd, passwd, etc.)
+  - Season + Year combinations (Summer2024, Winter2023, etc.)
+  - Keyboard walks (qwerty, asdf, 123456, etc.)
+  - Common weak bases (letmein, welcome, admin, etc.)
+  - Top common passwords
+  - Sequential/repeated characters
+  - Bible verses
+  - Sports teams/mascots
+  - Passwords ending with # or !
+  - Leet-speak substitutions
+  - Company Terms (when configured)
+
+  **Click on any bar** to see all matching passwords with their occurrence counts in a scrollable modal.
 
 **Note**: All charts can be copied to the clipboard as PNG, downloaded as SVG, or downloaded as CSV, using the buttons below each chart.
 
@@ -619,6 +636,7 @@ Accounts marked as "Not Cracked" may indicate that LM hash cracking was missed d
 ### **1. Using pwdump**
 
 Standard pwdump extraction:
+
 ```bash
 pwdump > hashes.txt
 ```
@@ -626,11 +644,13 @@ pwdump > hashes.txt
 ### **2. Impacket SecretsDump**
 
 Basic extraction:
+
 ```bash
 secretsdump.py -just-dc SAMDOMAIN/user:password@dc_ip
 ```
 
 **To get DCSync format with account status** (recommended):
+
 ```bash
 secretsdump.py -just-dc -user-status SAMDOMAIN/user:password@dc_ip
 ```
@@ -651,15 +671,16 @@ Hash Master 1000 supports multiple analysis sessions, allowing you to save, rest
 
 ### **Session Features**
 
--   **Named Sessions**: Give each analysis a descriptive name for easy identification
--   **Session Persistence**: Sessions are automatically saved and can be restored later
--   **Session Switching**: Quickly switch between different analyses from the report page
--   **Duplicate Detection**: When uploading files, the system detects if you already have a session with the same data
--   **Session Isolation**: Each session stores its own data files, AAIA results, and debug output
+- **Named Sessions**: Give each analysis a descriptive name for easy identification
+- **Session Persistence**: Sessions are automatically saved and can be restored later
+- **Session Switching**: Quickly switch between different analyses from the report page
+- **Duplicate Detection**: When uploading files, the system detects if you already have a session with the same data
+- **Session Isolation**: Each session stores its own data files, AAIA results, and debug output
 
 ### **Session Storage**
 
 Sessions are stored in `data/sessions/<session_id>/` with the following structure:
+
 ```
 data/sessions/<session_id>/
 ├── account_data.json          # Raw account/password data
@@ -695,20 +716,20 @@ The HIBP integration uses the **k-Anonymity** model to protect your data:
 
 ### **Understanding Results**
 
-| Column | Meaning |
-|--------|---------|
-| **Username** | The account name |
-| **Password** | The cracked password (blurred by default for privacy) |
+| Column                     | Meaning                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| **Username**               | The account name                                                                        |
+| **Password**               | The cracked password (blurred by default for privacy)                                   |
 | **Times Seen in Breaches** | How many times this password hash has appeared across all breaches in the HIBP database |
 
 A password appearing millions of times (e.g., 52,000,000+) indicates it's extremely common globally - passwords like "password", "123456", "admin" have counts in the millions. Even a count of 1 means the password was found in at least one breach.
 
 ### **Privacy Features**
 
--   **Blur Toggle**: Passwords are blurred by default; click "Show Passwords" to reveal
--   **Blank Password Skip**: Accounts with blank passwords are automatically excluded (no point checking those)
--   **k-Anonymity**: The HIBP API never sees your full hashes
--   **Consent Required**: Users must explicitly consent before any external API calls
+- **Blur Toggle**: Passwords are blurred by default; click "Show Passwords" to reveal
+- **Blank Password Skip**: Accounts with blank passwords are automatically excluded (no point checking those)
+- **k-Anonymity**: The HIBP API never sees your full hashes
+- **Consent Required**: Users must explicitly consent before any external API calls
 
 ### **Future: Local Database Support**
 
@@ -738,46 +759,46 @@ When ADD JSON data is processed, Hash Master 1000 automatically:
 
 The following fields from the ADD JSON export enable Kerberoast analysis:
 
-| Field | Purpose |
-|-------|---------|
-| `ServicePrincipalNames` | Array of SPNs - identifies Kerberoastable accounts |
-| `RawUACValue` | Integer bitmask for UserAccountControl flags |
-| `adminCount` | "1" indicates protected/privileged account |
-| `supportedEncryptionTypes` | Kerberos encryption types bitmask |
-| `allowedToDelegateTo` | Constrained delegation targets (SPNs) |
-| `PwdLastSet` | Password age calculation |
+| Field                      | Purpose                                            |
+| -------------------------- | -------------------------------------------------- |
+| `ServicePrincipalNames`    | Array of SPNs - identifies Kerberoastable accounts |
+| `RawUACValue`              | Integer bitmask for UserAccountControl flags       |
+| `adminCount`               | "1" indicates protected/privileged account         |
+| `supportedEncryptionTypes` | Kerberos encryption types bitmask                  |
+| `allowedToDelegateTo`      | Constrained delegation targets (SPNs)              |
+| `PwdLastSet`               | Password age calculation                           |
 
 ### **Risk Factor Scoring**
 
 Each service account is evaluated against these security factors:
 
-| Risk Factor | Points | Description |
-|------------|--------|-------------|
-| **SPN Present** | +10 | Base score for any Kerberoastable account |
-| **Cracked Password** | +40 | Password was cracked during assessment |
-| **HIBP Exposed** | +35 | Password hash found in breach databases |
-| **Privileged (adminCount=1)** | +30 | Account is a protected/privileged AD account |
-| **AS-REP Roastable** | +25 | DONT_REQ_PREAUTH flag set (no pre-auth required) |
-| **Delegation Enabled** | +25 | Unconstrained delegation configured |
-| **Password Age >3 Years** | +20 | Password not changed in over 3 years |
-| **Reused Password Cluster** | +20 | Password shared with other accounts |
-| **Constrained Delegation** | +15 | Has allowedToDelegateTo entries |
-| **Password Never Expires** | +15 | DONT_EXPIRE_PASSWORD flag set |
-| **Weak Encryption (DES)** | +15 | DES encryption types enabled |
-| **Password Age >1 Year** | +10 | Password not changed in over 1 year |
-| **Weak Encryption (RC4)** | +10 | RC4_HMAC encryption supported |
-| **Account Disabled** | -50 | Risk reduction for disabled accounts |
+| Risk Factor                   | Points | Description                                      |
+| ----------------------------- | ------ | ------------------------------------------------ |
+| **SPN Present**               | +10    | Base score for any Kerberoastable account        |
+| **Cracked Password**          | +40    | Password was cracked during assessment           |
+| **HIBP Exposed**              | +35    | Password hash found in breach databases          |
+| **Privileged (adminCount=1)** | +30    | Account is a protected/privileged AD account     |
+| **AS-REP Roastable**          | +25    | DONT_REQ_PREAUTH flag set (no pre-auth required) |
+| **Delegation Enabled**        | +25    | Unconstrained delegation configured              |
+| **Password Age >3 Years**     | +20    | Password not changed in over 3 years             |
+| **Reused Password Cluster**   | +20    | Password shared with other accounts              |
+| **Constrained Delegation**    | +15    | Has allowedToDelegateTo entries                  |
+| **Password Never Expires**    | +15    | DONT_EXPIRE_PASSWORD flag set                    |
+| **Weak Encryption (DES)**     | +15    | DES encryption types enabled                     |
+| **Password Age >1 Year**      | +10    | Password not changed in over 1 year              |
+| **Weak Encryption (RC4)**     | +10    | RC4_HMAC encryption supported                    |
+| **Account Disabled**          | -50    | Risk reduction for disabled accounts             |
 
 ### **Risk Categories**
 
 Accounts are categorized by their total risk score:
 
-| Category | Score Range | Priority |
-|----------|-------------|----------|
-| **Critical** | 70+ | Immediate remediation required |
-| **High** | 50-69 | High priority remediation |
-| **Medium** | 30-49 | Scheduled remediation |
-| **Low** | 10-29 | Monitor and review |
+| Category     | Score Range | Priority                       |
+| ------------ | ----------- | ------------------------------ |
+| **Critical** | 70+         | Immediate remediation required |
+| **High**     | 50-69       | High priority remediation      |
+| **Medium**   | 30-49       | Scheduled remediation          |
+| **Low**      | 10-29       | Monitor and review             |
 
 ### **Example Report Output**
 
@@ -899,14 +920,14 @@ Sessions are grouped by company name, allowing you to compare metrics across qua
 
 ### **Tracked Metrics**
 
-| Metric | Description | Goal |
-|--------|-------------|------|
-| **Crack Rate** | Percentage of passwords cracked | Lower is better |
-| **Password Reuse Rate** | Accounts sharing passwords | Lower is better |
-| **Policy Violations** | Min length + complexity + blank passwords | Lower is better |
-| **Bad Practices** | Total bad password pattern detections | Lower is better |
-| **Total Accounts** | Number of accounts analyzed | Context metric |
-| **HIBP Exposed** | Accounts with breached passwords | Lower is better |
+| Metric                  | Description                               | Goal            |
+| ----------------------- | ----------------------------------------- | --------------- |
+| **Crack Rate**          | Percentage of passwords cracked           | Lower is better |
+| **Password Reuse Rate** | Accounts sharing passwords                | Lower is better |
+| **Policy Violations**   | Min length + complexity + blank passwords | Lower is better |
+| **Bad Practices**       | Total bad password pattern detections     | Lower is better |
+| **Total Accounts**      | Number of accounts analyzed               | Context metric  |
+| **HIBP Exposed**        | Accounts with breached passwords          | Lower is better |
 
 ### **Trend Charts**
 
@@ -947,6 +968,7 @@ Hash Master 1000 includes an optional AI-powered analysis feature that generates
 > **⚠️ Experimental Feature Disclaimer**
 >
 > AAIA is an **experimental feature** that uses large language models (LLMs) to generate analysis. While the pipeline includes anti-hallucination safeguards, AI-generated content may contain:
+>
 > - **Inaccuracies or hallucinations** - fabricated statistics, patterns, or recommendations
 > - **Misinterpretations** - incorrect conclusions drawn from the data
 > - **Inconsistencies** - varying quality depending on the model used
@@ -955,19 +977,19 @@ Hash Master 1000 includes an optional AI-powered analysis feature that generates
 
 ### **Requirements**
 
--   **Ollama Server**: Local or remote Ollama instance
--   **Recommended Models**: `deepseek-r1:671b` (reasoning), `llama3.1:70b` (fast)
--   **Configuration**: Set `OLLAMA_ENABLED=true` in `.env`
+- **Ollama Server**: Local or remote Ollama instance
+- **Recommended Models**: `deepseek-r1:671b` (reasoning), `llama3.1:70b` (fast)
+- **Configuration**: Set `OLLAMA_ENABLED=true` in `.env`
 
 ### **3-Phase Pipeline**
 
 AAIA uses a sophisticated 3-phase pipeline to ensure accurate, well-formatted output:
 
-| Phase | Purpose | Model |
-|-------|---------|-------|
-| **Phase 1: Analysis** | Generate initial insights from raw data | Section-specific |
+| Phase                   | Purpose                                            | Model                  |
+| ----------------------- | -------------------------------------------------- | ---------------------- |
+| **Phase 1: Analysis**   | Generate initial insights from raw data            | Section-specific       |
 | **Phase 2: Validation** | Fact-check against evidence, remove hallucinations | Dynamic (Tier-0 gated) |
-| **Phase 3: Formatting** | Polish for executive presentation | llama3.1:70b |
+| **Phase 3: Formatting** | Polish for executive presentation                  | llama3.1:70b           |
 
 ### **Report Sections**
 
@@ -981,14 +1003,16 @@ AAIA generates four analysis sections:
 ### **Anti-Hallucination Measures**
 
 The pipeline includes multiple safeguards against AI hallucination:
--   Password whitelist validation ensures all examples exist in actual data
--   Tier-0 gating skips validation for clean content, routes complex issues to reasoning models
--   Explicit prompts warn models not to invent passwords or statistics
--   Validation flags content for human review when confidence is low
+
+- Password whitelist validation ensures all examples exist in actual data
+- Tier-0 gating skips validation for clean content, routes complex issues to reasoning models
+- Explicit prompts warn models not to invent passwords or statistics
+- Validation flags content for human review when confidence is low
 
 ### **Configuration**
 
 Add these to your `.env` file:
+
 ```bash
 OLLAMA_ENABLED=true
 OLLAMA_HOST=http://localhost:11434
@@ -999,11 +1023,61 @@ For detailed prompt documentation, see `docs/PROMPTS.md`.
 
 ---
 
+## **Advanced Mode**
+
+Advanced Mode provides access to development tools, diagnostics, and system configuration utilities. These pages are intended for power users and administrators who need deeper access to system internals.
+
+### **Enabling Advanced Mode**
+
+**Single-user mode**: Set in your `.env` file:
+
+```bash
+ADVANCED_OPTIONS_ENABLED="true"
+```
+
+**Multi-user mode**: Advanced Mode is controlled by user roles instead of the environment variable:
+
+- **superadmin** and **admin** roles automatically have access
+- **user** role does not have access to Advanced Mode
+
+When enabled, an "Advanced" button appears in the application header.
+
+### **Available Tools**
+
+| Tool                         | Path                     | Description                                                                                                                          |
+| ---------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **HIBP Database Download**   | `/hibp/download`         | Download the full Have I Been Pwned NTLM database (~16GB, 850M+ hashes) for offline breach checking. Supports resume if interrupted. |
+| **Ollama Server Management** | `/api/ai/servers/manage` | Multi-server connectivity testing and model management. View, pull, and delete models across all configured Ollama servers.          |
+| **AI Report Lab**            | `/api/ai/report/test`    | Testing environment for AI report sections with prompt preview, temperature tuning, and output comparison.                           |
+| **Benchmark Suite**          | `/api/ai/benchmark`      | Comprehensive model benchmarking with quick tests, production prompts, and full matrix performance analysis.                         |
+| **Timing Statistics**        | `/timing/stats`          | Performance metrics for key operations including startup times, HIBP lookups, validation speeds, and system information.             |
+
+### **API Endpoints**
+
+Advanced Mode also exposes diagnostic API endpoints:
+
+| Endpoint                  | Description                                    |
+| ------------------------- | ---------------------------------------------- |
+| `/api/ai/status`          | Ollama connection status and available models  |
+| `/api/ai/servers`         | List all configured Ollama servers with status |
+| `/api/ai/report/sections` | AI report section configurations               |
+| `/api/ai/report/data`     | Available analysis data summary                |
+| `/api/ai/report/outputs`  | Saved AI test outputs from Report Lab          |
+| `/api/ai/aaia/config`     | AAIA configuration with server status          |
+| `/api/hibp/download/info` | HIBP database status and download progress     |
+
+### **Accessing Advanced Mode**
+
+Navigate to `/hidden` or click the "Advanced" button in the header when enabled. The Advanced Mode index page provides quick access to all tools and shows real-time status of configured Ollama servers.
+
+---
+
 ## **Environment Configuration**
 
 Hash Master 1000 uses a `.env` file for configuration. Copy `env.example` to `.env` and customize:
 
 ### **Core Settings**
+
 ```bash
 SECRET_KEY="your-secret-key-here"
 ADMIN_USERNAME="admin"
@@ -1015,6 +1089,7 @@ ADMIN_PASSWORD_HASH="your-bcrypt-hash-here"
 Pre-populate the file input fields for faster testing. Use the appropriate path format for your operating system:
 
 **Linux/macOS:**
+
 ```bash
 DEFAULT_PWDUMP_PATH="/home/user/hashes/domain.ntds"
 DEFAULT_POTFILE_PATH="/home/user/hashcat/hashcat.potfile"
@@ -1022,6 +1097,7 @@ DEFAULT_ADD_JSON_PATH="/home/user/data/domain.json"
 ```
 
 **Windows:**
+
 ```bash
 DEFAULT_PWDUMP_PATH="C:\\Users\\user\\hashes\\domain.ntds"
 DEFAULT_POTFILE_PATH="C:\\Users\\user\\hashcat\\hashcat.potfile"
@@ -1031,6 +1107,7 @@ DEFAULT_ADD_JSON_PATH="C:\\Users\\user\\data\\domain.json"
 > **Note:** On Windows, use double backslashes (`\\`) or forward slashes (`/`) in paths.
 
 ### **Ollama AI Integration**
+
 ```bash
 OLLAMA_ENABLED="true"
 OLLAMA_HOST="http://localhost:11434"
@@ -1041,6 +1118,7 @@ AI_PIPELINE_DEBUG="false"
 ### **Multiple Ollama Servers**
 
 Configure up to 3 Ollama servers for load distribution:
+
 ```bash
 # Primary Server
 OLLAMA_HOST="http://localhost:11434"
@@ -1067,7 +1145,7 @@ https://www.synercomm.com/password-security-substring-analysis/
 
 This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)**. This allows for free use and modification, provided:
 
--   Commercial use is prohibited.
--   Attribution to the original author is maintained.
+- Commercial use is prohibited.
+- Attribution to the original author is maintained.
 
 For more information, see the [LICENSE](LICENSE) file.
