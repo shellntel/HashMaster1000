@@ -11,7 +11,7 @@ for HashMaster1000. It can:
 
 Usage:
     # Convert existing text file to SQLite
-    python setup_hibp_database.py --convert /path/to/pwnedpasswords_ntlm.txt
+    python setup_hibp_database.py --convert /path/to/pwnedpasswords-ntlm.txt
 
     # Download and convert to SQLite (full setup)
     python setup_hibp_database.py --download --output-dir /path/to/data
@@ -278,11 +278,11 @@ def main() -> int:
         epilog="""
 Examples:
   # Convert existing text file to SQLite (recommended)
-  python setup_hibp_database.py --convert /path/to/pwnedpasswords_ntlm.txt
+  python setup_hibp_database.py --convert /path/to/pwnedpasswords-ntlm.txt
 
   # Check database status
-  python setup_hibp_database.py --status /path/to/pwnedpasswords_ntlm.txt
-  python setup_hibp_database.py --status /path/to/pwnedpasswords_ntlm.db
+  python setup_hibp_database.py --status /path/to/pwnedpasswords-ntlm.txt
+  python setup_hibp_database.py --status /path/to/pwnedpasswords-ntlm.db
 
   # Convert with custom output path
   python setup_hibp_database.py --convert input.txt --output /data/hibp.db

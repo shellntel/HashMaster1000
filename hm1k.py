@@ -50,6 +50,49 @@ from app import password_history
 # Import potfile cache for efficient master potfile operations
 from app.potfile_cache import get_master_cache, build_cracked_hashes_fast, get_cracked_hashes_direct
 
+# Helper function to ensure SECRET_KEY exists in .env file
+def _ensure_secret_key() -> None:
+    """
+    Checks if SECRET_KEY is set in the .env file.
+    If not, generates a new one and appends it to the .env file.
+    """
+    import secrets
+
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
+    # First, check if .env file exists and contains SECRET_KEY
+    secret_key_exists = False
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    # Check for SECRET_KEY= that's not commented out
+                    stripped = line.strip()
+                    if stripped.startswith("SECRET_KEY=") and not stripped.startswith("#"):
+                        # Check if it has a value (not just SECRET_KEY= or SECRET_KEY="")
+                        value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                        if value and value != "your-secret-key-here":
+                            secret_key_exists = True
+                            break
+        except IOError:
+            pass
+
+    if not secret_key_exists:
+        # Generate a new secret key
+        new_key = secrets.token_hex(32)
+        print(f"\n--> No SECRET_KEY found in .env file. Generating new key...")
+
+        try:
+            # Append to .env file (create if doesn't exist)
+            with open(env_path, "a", encoding="utf-8") as f:
+                f.write(f'\nSECRET_KEY="{new_key}"\n')
+            print(f"--> SECRET_KEY has been added to {env_path}")
+        except IOError as e:
+            raise ValueError(f"Could not write SECRET_KEY to .env file: {e}")
+
+# Ensure SECRET_KEY exists before loading environment
+_ensure_secret_key()
+
 # Load environment variables at module level so they're available for route handlers
 # Use override=True to ensure .env file values take precedence over any cached env vars
 load_dotenv(override=True)
@@ -309,11 +352,11 @@ def validate_potfile(filepath: str) -> bool:
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # Validate and set SECRET_KEY immediately - required for WSGI imports
+# The _ensure_secret_key() function should have already generated one if missing
 _secret_key = os.getenv("SECRET_KEY")
 if not _secret_key:
     raise ValueError(
-        "Environment variable SECRET_KEY must be set in the .env file. "
-        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        "SECRET_KEY could not be loaded. Check that your .env file exists and is readable."
     )
 app.secret_key = _secret_key
 
@@ -5023,11 +5066,16 @@ def ai_pipeline_stream() -> Response:
                 yield send_step_complete("phase3", section_id, elapsed, phase3_prompt_tokens, phase3_completion_tokens, phase3_total_tokens)
 
             # Save results to aaia_results.json
+            # Include all fields needed by displayAAIAResults for proper reload
             aaia_output = {
                 "results": {
                     section_id: {
                         "content": data.get("content", ""),
-                        "time": str(round(sum(data.get("timing", {}).values()), 1)) + "s"
+                        "time": str(round(sum(data.get("timing", {}).values()), 1)) + "s",
+                        "needs_human_review": data.get("needs_human_review", False),
+                        "validation_confidence": data.get("validation_confidence", 1.0),
+                        "validation_issues": data.get("validation_issues", 0),
+                        "timing": data.get("timing", {})
                     }
                     for section_id, data in results.items()
                 },
@@ -5039,9 +5087,7 @@ def ai_pipeline_stream() -> Response:
                     "sections": {
                         section_id: {
                             "model": all_phase1_results.get(section_id, {}).get("model", ""),
-                            "needs_human_review": data.get("needs_human_review", False),
-                            "validation_confidence": data.get("validation_confidence", 1.0),
-                            "timing": data.get("timing", {})
+                            "server": server_id
                         }
                         for section_id, data in results.items()
                     }
@@ -6527,7 +6573,11 @@ if __name__ == "__main__":
     hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
     if hibp_local_db_path:
         from app.hibp_checker import init_local_hibp_database
+        # Normalize path for cross-platform compatibility
+        hibp_local_db_path = os.path.normpath(hibp_local_db_path)
         print(f"\n--> Checking local HIBP database at: {hibp_local_db_path}")
+        if not os.path.exists(hibp_local_db_path):
+            print(f"--> Warning: File does not exist: {hibp_local_db_path}")
         hibp_start = _time.time()
         success, message, estimated_entries = init_local_hibp_database(hibp_local_db_path)
         hibp_duration = _time.time() - hibp_start
@@ -6541,16 +6591,24 @@ if __name__ == "__main__":
         print("\n--> No local HIBP database configured (HIBP_LOCAL_DB_PATH not set)")
 
     # Preload master potfile cache at startup for instant first request
-    if MASTER_POTFILE_ENABLED and os.path.exists(MASTER_POTFILE_PATH):
-        print(f"\n--> Loading master potfile cache: {MASTER_POTFILE_PATH}")
-        potfile_start = _time.time()
-        cache = get_master_cache()
-        cache.load(MASTER_POTFILE_PATH)
-        potfile_duration = _time.time() - potfile_start
-        stats = cache.get_stats()
-        if stats:
-            timing.record_potfile_load(potfile_duration, stats['ntlm_count'])
-            print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes ({potfile_duration:.2f}s)")
+    if MASTER_POTFILE_ENABLED:
+        print(f"\n--> Master potfile enabled, checking: {MASTER_POTFILE_PATH}")
+        # Normalize path for cross-platform compatibility
+        master_path_normalized = os.path.normpath(MASTER_POTFILE_PATH)
+        if os.path.exists(master_path_normalized):
+            print(f"--> Loading master potfile cache: {master_path_normalized}")
+            potfile_start = _time.time()
+            cache = get_master_cache()
+            cache.load(master_path_normalized)
+            potfile_duration = _time.time() - potfile_start
+            stats = cache.get_stats()
+            if stats:
+                timing.record_potfile_load(potfile_duration, stats['ntlm_count'])
+                print(f"--> Master potfile cache ready: {stats['ntlm_count']:,} hashes ({potfile_duration:.2f}s)")
+        else:
+            print(f"--> Warning: Master potfile not found at: {master_path_normalized}")
+    else:
+        print("\n--> Master potfile disabled (MASTER_POTFILE_ENABLED not set to true)")
 
     # Record startup completion
     startup = timing.finish_startup_timing()

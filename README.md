@@ -158,31 +158,92 @@ docker compose down
 
 #### <u>**Virtual Environment** native Python</u>
 
-Prerequisites: Install `python-env`
+The application runs on both Linux/macOS and Windows. Follow the instructions for your operating system below.
 
-Set up a virtual environment for project isolation
+##### **Linux / macOS**
 
-```bash
-python3 -m venv hm1k
-```
+Prerequisites: Python 3.10+ with `venv` module (usually included with Python).
 
-Activate the virtual environment
+Set up a virtual environment for project isolation:
 
 ```bash
-source hm1k/bin/activate
+python3 -m venv .venv
 ```
 
-Install dependencies
+Activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run application
+Run the application:
 
 ```bash
 python3 hm1k.py
 ```
+
+##### **Windows**
+
+Prerequisites: Python 3.10+ from [python.org](https://www.python.org/downloads/windows/). During installation, ensure you check "Add Python to PATH".
+
+Open PowerShell or Command Prompt and navigate to the project directory:
+
+```powershell
+cd C:\path\to\hm1k
+```
+
+Set up a virtual environment for project isolation:
+
+```powershell
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+**PowerShell:**
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**Command Prompt:**
+```cmd
+.venv\Scripts\activate.bat
+```
+
+> **Note:** If you get an execution policy error in PowerShell, run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+Install dependencies:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Run the application:
+
+```powershell
+python hm1k.py
+```
+
+##### **Accessing the Application**
+
+Once running, the application is available at:
+
+```
+https://localhost:8443
+```
+
+Accept the self-signed certificate warning in your browser to proceed.
+
+**First-time startup:** The application automatically handles initial setup:
+- Generates a SECRET_KEY if not present in the `.env` file
+- Creates a self-signed SSL certificate (`cert.pem` and `key.pem`) if missing
+- Copies `env.example` to `.env` if no `.env` file exists
 
 ---
 
@@ -951,12 +1012,23 @@ ADMIN_PASSWORD_HASH="your-bcrypt-hash-here"
 
 ### **Default File Paths (Optional)**
 
-Pre-populate the file input fields for faster testing:
+Pre-populate the file input fields for faster testing. Use the appropriate path format for your operating system:
+
+**Linux/macOS:**
 ```bash
-DEFAULT_PWDUMP_PATH="/path/to/default.ntds"
-DEFAULT_POTFILE_PATH="/path/to/hashcat.potfile"
-DEFAULT_ADD_JSON_PATH="/path/to/domain.json"
+DEFAULT_PWDUMP_PATH="/home/user/hashes/domain.ntds"
+DEFAULT_POTFILE_PATH="/home/user/hashcat/hashcat.potfile"
+DEFAULT_ADD_JSON_PATH="/home/user/data/domain.json"
 ```
+
+**Windows:**
+```bash
+DEFAULT_PWDUMP_PATH="C:\\Users\\user\\hashes\\domain.ntds"
+DEFAULT_POTFILE_PATH="C:\\Users\\user\\hashcat\\hashcat.potfile"
+DEFAULT_ADD_JSON_PATH="C:\\Users\\user\\data\\domain.json"
+```
+
+> **Note:** On Windows, use double backslashes (`\\`) or forward slashes (`/`) in paths.
 
 ### **Ollama AI Integration**
 ```bash

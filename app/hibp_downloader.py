@@ -59,6 +59,126 @@ _download_lock = threading.Lock()
 # Key: db_path, Value: (mtime, info_dict)
 _sqlite_info_cache: dict[str, tuple[float, dict]] = {}
 
+# Resume state filename
+RESUME_STATE_FILENAME = ".hibp_download_state.json"
+
+
+def _get_resume_state_path(output_dir: str) -> str:
+    """Get path to resume state file."""
+    return os.path.join(output_dir, RESUME_STATE_FILENAME)
+
+
+def _save_resume_state(
+    output_dir: str,
+    completed_prefixes: set[str],
+    total_hashes: int,
+    failed_prefixes: int
+) -> None:
+    """Save download progress for resume capability."""
+    state_path = _get_resume_state_path(output_dir)
+    state = {
+        "version": 1,
+        "completed_prefixes": list(completed_prefixes),
+        "total_hashes": total_hashes,
+        "failed_prefixes": failed_prefixes,
+        "last_saved": datetime.now().isoformat()
+    }
+    try:
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logger.warning(f"Could not save resume state: {e}")
+
+
+def _load_resume_state(output_dir: str, temp_dir: str) -> tuple[set[str], int, int]:
+    """
+    Load download progress from resume state file.
+
+    Also verifies that the temp files still exist for each completed prefix.
+
+    Returns:
+        Tuple of (completed_prefixes_set, total_hashes, failed_prefixes)
+    """
+    state_path = _get_resume_state_path(output_dir)
+
+    if not os.path.exists(state_path):
+        return set(), 0, 0
+
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+
+        if state.get("version") != 1:
+            logger.warning("Resume state version mismatch, starting fresh")
+            return set(), 0, 0
+
+        completed_list = state.get("completed_prefixes", [])
+        total_hashes = state.get("total_hashes", 0)
+        failed_prefixes = state.get("failed_prefixes", 0)
+
+        # Verify that temp files still exist for completed prefixes
+        verified_completed = set()
+        for prefix in completed_list:
+            prefix_file = os.path.join(temp_dir, f"{prefix}.txt")
+            if os.path.exists(prefix_file):
+                verified_completed.add(prefix)
+
+        # Adjust hash count if some files are missing
+        if len(verified_completed) < len(completed_list):
+            missing = len(completed_list) - len(verified_completed)
+            logger.warning(f"Resume: {missing} prefix files missing, will re-download")
+            # Estimate hash reduction (average ~800 hashes per prefix)
+            total_hashes = max(0, total_hashes - (missing * 800))
+
+        logger.info(f"Resume: Found {len(verified_completed):,} previously downloaded prefixes")
+        return verified_completed, total_hashes, failed_prefixes
+
+    except Exception as e:
+        logger.warning(f"Could not load resume state: {e}")
+        return set(), 0, 0
+
+
+def _clear_resume_state(output_dir: str) -> None:
+    """Clear the resume state file after successful completion."""
+    state_path = _get_resume_state_path(output_dir)
+    try:
+        if os.path.exists(state_path):
+            os.remove(state_path)
+    except Exception as e:
+        logger.warning(f"Could not clear resume state: {e}")
+
+
+def check_resumable_download(output_dir: str = DEFAULT_OUTPUT_DIR) -> dict:
+    """
+    Check if there's a resumable download in progress.
+
+    Returns:
+        Dictionary with resume info, or empty dict if no resumable download
+    """
+    temp_dir = os.path.join(output_dir, ".hibp_download_temp")
+    state_path = _get_resume_state_path(output_dir)
+
+    if not os.path.exists(state_path) or not os.path.exists(temp_dir):
+        return {}
+
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+
+        completed_count = len(state.get("completed_prefixes", []))
+        remaining = TOTAL_PREFIXES - completed_count
+
+        return {
+            "resumable": True,
+            "completed_prefixes": completed_count,
+            "remaining_prefixes": remaining,
+            "total_hashes": state.get("total_hashes", 0),
+            "progress_percentage": round((completed_count / TOTAL_PREFIXES) * 100, 2),
+            "last_saved": state.get("last_saved")
+        }
+    except Exception:
+        return {}
+
 
 @dataclass
 class HIBPDownloadState:
@@ -281,6 +401,8 @@ async def _run_download_async(
 ):
     """
     Run the download using async I/O for maximum throughput.
+
+    Supports resuming interrupted downloads by tracking completed prefixes.
     """
     global _active_download
 
@@ -296,10 +418,19 @@ async def _run_download_async(
             download_state.status = "downloading"
             download_state.output_path = output_path
 
-        # Generate all prefixes
-        prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
+        # Load resume state if available
+        completed_prefixes_set, total_hashes, failed = _load_resume_state(output_dir, temp_dir)
+        is_resume = len(completed_prefixes_set) > 0
 
-        logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} concurrent connections (async)")
+        # Generate list of prefixes that still need to be downloaded
+        all_prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
+        prefixes_to_download = [p for p in all_prefixes if p not in completed_prefixes_set]
+
+        if is_resume:
+            logger.info(f"Resuming HIBP download: {len(prefixes_to_download):,} remaining prefixes")
+        else:
+            logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} concurrent connections (async)")
+
         logger.info(f"Temp directory: {temp_dir}")
 
         # Use semaphore to limit concurrent connections
@@ -313,26 +444,32 @@ async def _run_download_async(
             enable_cleanup_closed=True
         )
 
-        completed = 0
-        failed = 0
-        total_hashes = 0
+        # Track progress - start with resumed counts
+        completed = len(completed_prefixes_set)
+        save_interval = 5000  # Save state every 5000 prefixes
+        last_save_count = completed
+
+        with _download_lock:
+            download_state.completed_prefixes = completed
+            download_state.total_hashes = total_hashes
+            download_state.failed_prefixes = failed
 
         async with aiohttp.ClientSession(connector=connector) as session:
             # Process in batches to avoid overwhelming memory with tasks
             batch_size = parallelism * 10  # Process 10x parallelism at a time
 
-            for batch_start in range(0, TOTAL_PREFIXES, batch_size):
-                # Check for cancellation
+            for batch_start in range(0, len(prefixes_to_download), batch_size):
+                # Check for cancellation - save state before exiting
                 with _download_lock:
                     if download_state.cancel_requested:
+                        _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
                         download_state.status = "cancelled"
                         download_state.completed_at = datetime.now()
-                        logger.info("HIBP download cancelled by user")
-                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        logger.info(f"HIBP download cancelled - progress saved ({completed:,} prefixes)")
                         return
 
-                batch_end = min(batch_start + batch_size, TOTAL_PREFIXES)
-                batch_prefixes = prefixes[batch_start:batch_end]
+                batch_end = min(batch_start + batch_size, len(prefixes_to_download))
+                batch_prefixes = prefixes_to_download[batch_start:batch_end]
 
                 # Create tasks for this batch
                 tasks = [
@@ -358,6 +495,7 @@ async def _run_download_async(
                                 download_state.last_error = f"Prefix {prefix}: {error}"
                         else:
                             total_hashes += hash_count
+                            completed_prefixes_set.add(prefix)
 
                     completed += 1
 
@@ -366,33 +504,51 @@ async def _run_download_async(
                     download_state.completed_prefixes = completed
                     download_state.total_hashes = total_hashes
 
+                # Save resume state periodically
+                if completed - last_save_count >= save_interval:
+                    _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
+                    last_save_count = completed
+
                 # Log progress
                 pct = (completed / TOTAL_PREFIXES) * 100
-                if completed == batch_size or completed % 10000 < batch_size:
+                if batch_start == 0 or completed % 10000 < batch_size:
                     logger.info(f"HIBP download progress: {completed:,}/{TOTAL_PREFIXES:,} ({pct:.1f}%) - {total_hashes:,} hashes")
 
                 if progress_callback:
                     progress_callback(download_state)
+
+        # Final save before merge
+        _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
 
         # Check for cancellation before merging
         with _download_lock:
             if download_state.cancel_requested:
                 download_state.status = "cancelled"
                 download_state.completed_at = datetime.now()
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.info(f"HIBP download cancelled - progress saved ({completed:,} prefixes)")
                 return
 
         # Merge files
         await _merge_files_async(output_dir, output_filename, temp_dir, download_state, progress_callback)
 
+        # Clear resume state after successful completion
+        _clear_resume_state(output_dir)
+
     except Exception as e:
         logger.error(f"HIBP download failed: {e}")
+        # Save progress on error so it can be resumed
+        try:
+            _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
+            logger.info(f"Progress saved for resume ({len(completed_prefixes_set):,} prefixes)")
+        except Exception:
+            pass
+
         with _download_lock:
             download_state.status = "error"
             download_state.error_message = str(e)
             download_state.completed_at = datetime.now()
 
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        # Don't delete temp files on error - they can be used for resume
         temp_output = os.path.join(output_dir, output_filename + ".downloading")
         if os.path.exists(temp_output):
             try:
@@ -531,6 +687,8 @@ def _run_download_sync(
     """
     Fallback synchronous download using requests + ThreadPoolExecutor.
     Used when aiohttp is not available.
+
+    Supports resuming interrupted downloads by tracking completed prefixes.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -548,13 +706,29 @@ def _run_download_sync(
             download_state.status = "downloading"
             download_state.output_path = output_path
 
-        prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
+        # Load resume state if available
+        completed_prefixes_set, total_hashes, failed = _load_resume_state(output_dir, temp_dir)
+        is_resume = len(completed_prefixes_set) > 0
 
-        completed = 0
-        failed = 0
-        total_hashes = 0
+        # Generate list of prefixes that still need to be downloaded
+        all_prefixes = [f"{i:05X}" for i in range(TOTAL_PREFIXES)]
+        prefixes_to_download = [p for p in all_prefixes if p not in completed_prefixes_set]
 
-        logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads (sync fallback)")
+        # Track progress - start with resumed counts
+        completed = len(completed_prefixes_set)
+        save_interval = 5000  # Save state every 5000 prefixes
+        last_save_count = completed
+
+        with _download_lock:
+            download_state.completed_prefixes = completed
+            download_state.total_hashes = total_hashes
+            download_state.failed_prefixes = failed
+
+        if is_resume:
+            logger.info(f"Resuming HIBP download: {len(prefixes_to_download):,} remaining prefixes (sync fallback)")
+        else:
+            logger.info(f"Starting HIBP download: {TOTAL_PREFIXES:,} prefixes with {parallelism} threads (sync fallback)")
+
         logger.info(f"Temp directory: {temp_dir}")
 
         def fetch_prefix_sync(prefix: str) -> tuple[str, int, str | None]:
@@ -599,16 +773,17 @@ def _run_download_sync(
         with ThreadPoolExecutor(max_workers=parallelism) as executor:
             future_to_prefix = {
                 executor.submit(fetch_prefix_sync, prefix): prefix
-                for prefix in prefixes
+                for prefix in prefixes_to_download
             }
 
             for future in as_completed(future_to_prefix):
+                # Check for cancellation - save state before exiting
                 with _download_lock:
                     if download_state.cancel_requested:
+                        _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
                         download_state.status = "cancelled"
                         download_state.completed_at = datetime.now()
-                        logger.info("HIBP download cancelled by user")
-                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        logger.info(f"HIBP download cancelled - progress saved ({completed:,} prefixes)")
                         return
 
                 prefix = future_to_prefix[future]
@@ -622,12 +797,18 @@ def _run_download_sync(
                             download_state.last_error = f"Prefix {prefix}: {error}"
                     else:
                         total_hashes += hash_count
+                        completed_prefixes_set.add(prefix)
 
                     completed += 1
 
                     with _download_lock:
                         download_state.completed_prefixes = completed
                         download_state.total_hashes = total_hashes
+
+                    # Save resume state periodically
+                    if completed - last_save_count >= save_interval:
+                        _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
+                        last_save_count = completed
 
                     if completed == 1 or completed % 1000 == 0:
                         pct = (completed / TOTAL_PREFIXES) * 100
@@ -642,11 +823,14 @@ def _run_download_sync(
                         download_state.failed_prefixes = failed
                         download_state.last_error = f"Prefix {prefix}: {str(e)}"
 
+        # Final save before merge
+        _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
+
         with _download_lock:
             if download_state.cancel_requested:
                 download_state.status = "cancelled"
                 download_state.completed_at = datetime.now()
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.info(f"HIBP download cancelled - progress saved ({completed:,} prefixes)")
                 return
 
         # Merge files
@@ -664,6 +848,9 @@ def _run_download_sync(
 
         logger.info("Cleaning up temporary files...")
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+        # Clear resume state after successful completion
+        _clear_resume_state(output_dir)
 
         file_size = os.path.getsize(output_path)
 
@@ -684,12 +871,19 @@ def _run_download_sync(
 
     except Exception as e:
         logger.error(f"HIBP download failed: {e}")
+        # Save progress on error so it can be resumed
+        try:
+            _save_resume_state(output_dir, completed_prefixes_set, total_hashes, failed)
+            logger.info(f"Progress saved for resume ({len(completed_prefixes_set):,} prefixes)")
+        except Exception:
+            pass
+
         with _download_lock:
             download_state.status = "error"
             download_state.error_message = str(e)
             download_state.completed_at = datetime.now()
 
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        # Don't delete temp files on error - they can be used for resume
         temp_output = os.path.join(output_dir, output_filename + ".downloading")
         if os.path.exists(temp_output):
             try:

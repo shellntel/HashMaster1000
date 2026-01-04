@@ -130,8 +130,8 @@ def init_local_hibp_database(db_path: str) -> tuple[bool, str, int]:
 
     Args:
         db_path: Path to either:
-            - A pwnedpasswords_ntlm.txt file (sorted by hash)
-            - A pwnedpasswords_ntlm.db SQLite database
+            - A pwnedpasswords-ntlm.txt file (sorted by hash)
+            - A pwnedpasswords-ntlm.db SQLite database
 
     Returns:
         Tuple of (success, message, entry_count)
