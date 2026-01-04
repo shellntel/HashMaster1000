@@ -247,6 +247,15 @@ def validate_potfile(filepath: str) -> bool:
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
+# Validate and set SECRET_KEY immediately - required for WSGI imports
+_secret_key = os.getenv("SECRET_KEY")
+if not _secret_key:
+    raise ValueError(
+        "Environment variable SECRET_KEY must be set in the .env file. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+app.secret_key = _secret_key
+
 # Custom Jinja filter for basename
 @app.template_filter('basename')
 def basename_filter(path: str | None) -> str:
@@ -6054,14 +6063,7 @@ if __name__ == "__main__":
     validate_libraries()
     validate_files()
 
-    # Validate required environment variables
-    secret_key = os.getenv("SECRET_KEY")
-    if not secret_key:
-        raise ValueError(
-            "Environment variable SECRET_KEY must be set in the .env file."
-        )
-    app.secret_key = secret_key
-
+    # Validate required environment variables (SECRET_KEY already validated at module level)
     if not ADMIN_USERNAME:
         raise ValueError(
             "Environment variable ADMIN_USERNAME must be set in a local .env file."
