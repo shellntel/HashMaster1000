@@ -34,6 +34,8 @@ from flask_login import (
 )
 from flask_session import Session
 from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 # werkzeug.security not used - using bcrypt directly for password verification
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -299,6 +301,31 @@ Session(app)
 # Initialize CSRF protection
 csrf = CSRFProtect(app)
 
+# Initialize rate limiter for brute force protection
+# Uses in-memory storage by default (resets on app restart)
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],  # No global limits, only per-route
+    storage_uri="memory://",
+)
+
+
+@app.errorhandler(429)
+def ratelimit_handler(e: Exception) -> tuple[str, int]:
+    """Handle rate limit exceeded errors."""
+    client_ip = request.remote_addr or "unknown"
+    logging.warning(f"Rate limit exceeded: ip={client_ip} path={request.path}")
+    return render_template(
+        "message.html",
+        message="Too many login attempts. Please wait a minute before trying again.",
+        message_type="error-message",
+        status_code=429,
+        referrer="Login",
+        referrer_url=url_for("login"),
+    ), 429
+
+
 # Ensure the upload and data folders exists
 if not os.path.exists(app.config["UPLOAD_FOLDER"]):
     os.makedirs(app.config["UPLOAD_FOLDER"])
@@ -338,6 +365,7 @@ def unauthorized() -> Response | str:
 
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("10 per minute", methods=["POST"])  # Rate limit login attempts by IP
 def login() -> FlaskResponse:
     if current_user.is_authenticated:  # If already logged in, redirect to index
         return cast(FlaskResponse, redirect(url_for("index")))
@@ -345,6 +373,7 @@ def login() -> FlaskResponse:
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
+        client_ip = request.remote_addr or "unknown"
 
         # Input validation
         if not username or not password:
@@ -357,7 +386,6 @@ def login() -> FlaskResponse:
                     referrer="Login",
                     referrer_url=url_for("login"),
                 ),
-                # status=400, # Removed because it doesn't fit the make_response class
             )
 
         # Authenticate against the .env credentials
@@ -374,7 +402,12 @@ def login() -> FlaskResponse:
                 return cast(FlaskResponse, redirect(next_page))
             return cast(FlaskResponse, redirect(url_for("index")))
 
-        # If authentication fails
+        # Authentication failed - log attempt and add delay
+        logging.warning(
+            f"Failed login attempt: username='{username}' ip={client_ip}"
+        )
+        time.sleep(1)  # 1 second delay to slow down brute force attacks
+
         return make_response(
             render_template(
                 "message.html",
@@ -384,7 +417,6 @@ def login() -> FlaskResponse:
                 referrer="Login",
                 referrer_url=url_for("login"),
             ),
-            # status=401, # Not allowed in make_response class
         )
 
     # Render the login page for GET requests

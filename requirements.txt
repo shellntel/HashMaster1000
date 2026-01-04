@@ -1,4 +1,5 @@
 Flask
+Flask-Limiter
 Flask-Session
 flask-login
 Flask-WTF
