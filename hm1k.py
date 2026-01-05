@@ -4619,8 +4619,10 @@ def ai_pipeline_stream() -> Response:
         get_ai_data_loader, get_phase_config, AIReportAnalyzer,
         get_ai_report_sections
     )
-    from app.spi_analyzer import SPIAnalyzer, results_to_dict
-    from app.spi_prompts import get_all_category_keys, get_category_display_name
+    from app.spi_analyzer import SPIAnalyzer, results_to_dict as spi_results_to_dict
+    from app.spi_prompts import get_all_category_keys as get_spi_category_keys, get_category_display_name as get_spi_category_name
+    from app.company_intel_analyzer import CIAnalyzer, results_to_dict as ci_results_to_dict
+    from app.company_intel_prompts import get_all_category_keys as get_ci_category_keys, get_category_display_name as get_ci_category_name
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4633,12 +4635,22 @@ def ai_pipeline_stream() -> Response:
 
     # Determine sections to process
     all_sections = get_ai_report_sections()
+
+    # Filter to only enabled sections
+    enabled_sections = [
+        s for s in ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+        if s in all_sections and all_sections[s].get("enabled", True)
+    ]
+
     if sections_param == "all":
-        sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+        sections = enabled_sections
     else:
-        sections = [s.strip() for s in sections_param.split(",") if s.strip() in all_sections and s.strip() != "full-report"]
+        sections = [s.strip() for s in sections_param.split(",")
+                    if s.strip() in all_sections
+                    and s.strip() != "full-report"
+                    and all_sections[s.strip()].get("enabled", True)]
         if not sections:
-            sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+            sections = enabled_sections
 
     def generate():
         """Generator that yields SSE events as pipeline progresses."""
@@ -4841,7 +4853,7 @@ def ai_pipeline_stream() -> Response:
                             sampling_note=sampling_note
                         )
 
-                        category_keys = get_all_category_keys()
+                        category_keys = get_spi_category_keys()
                         total_spi_time = 0
                         total_spi_tokens = 0
                         total_prompt_tokens = 0
@@ -4850,7 +4862,7 @@ def ai_pipeline_stream() -> Response:
                         phase1_temp = phase_config.get("phase1", {}).get("temperature", 0.2)
 
                         for i, category_key in enumerate(category_keys):
-                            category_name = get_category_display_name(category_key)
+                            category_name = get_spi_category_name(category_key)
                             # Use substep progress to avoid incrementing step counter for each category
                             yield send_substep_progress("phase1", section_id, f"Analyzing {category_name} ({i+1}/{len(category_keys)})...")
 
@@ -4883,7 +4895,7 @@ def ai_pipeline_stream() -> Response:
                         spi_html = spi_analyzer.format_report_html(spi_result)
 
                         # Store SPI results for later use
-                        spi_results[section_id] = results_to_dict(spi_result)
+                        spi_results[section_id] = spi_results_to_dict(spi_result)
 
                         all_phase1_results[section_id] = {
                             "content": spi_html,
@@ -4905,6 +4917,111 @@ def ai_pipeline_stream() -> Response:
                         yield send_step_complete(
                             "phase1", section_id, total_spi_time,
                             total_prompt_tokens, total_completion_tokens, total_spi_tokens
+                        )
+                        continue
+
+                    # Check if this section uses Company Intel pipeline
+                    elif phase_config.get("pipeline") == "company_intel":
+                        # Company Intel Pipeline: Run 3 focused category extractions
+                        yield send_progress("phase1", section_id, "Running Company Intelligence Analysis...")
+
+                        # Ensure model is loaded
+                        if current_model is None or current_model != phase1_model:
+                            yield send_model_loading(phase1_model, "Loading")
+                            load_start = time.time()
+                            if not client.ensure_model_loaded(phase1_model, num_ctx=16384):
+                                yield send_error(f"Failed to load model {phase1_model}")
+                                return
+                            load_time = time.time() - load_start
+                            current_model = phase1_model
+                            yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
+
+                        # Initialize CI analyzer
+                        ci_analyzer = CIAnalyzer(session_dir)
+                        passwords, accounts = ci_analyzer.get_data_for_analysis()
+
+                        if not passwords and not accounts:
+                            all_phase1_results[section_id] = {
+                                "content": "No data available for Company Intelligence analysis",
+                                "model": phase1_model,
+                                "temperature": 0.3,
+                                "time": 0,
+                                "tokens": 0,
+                                "ci_pipeline": True
+                            }
+                            yield send_step_complete("phase1", section_id, 0, 0, 0, 0)
+                            continue
+
+                        # Run each CI category
+                        from app.company_intel_analyzer import CIResults, CICategoryResult
+                        ci_result = CIResults(
+                            total_passwords=len(ci_analyzer._get_password_list()),
+                            total_accounts=len(ci_analyzer._get_account_list())
+                        )
+
+                        category_keys = get_ci_category_keys()
+                        total_ci_time = 0
+                        total_ci_tokens = 0
+                        total_prompt_tokens = 0
+                        total_completion_tokens = 0
+
+                        phase1_temp = phase_config.get("phase1", {}).get("temperature", 0.3)
+
+                        for i, category_key in enumerate(category_keys):
+                            category_name = get_ci_category_name(category_key)
+                            # Use substep progress to avoid incrementing step counter for each category
+                            yield send_substep_progress("phase1", section_id, f"Analyzing {category_name} ({i+1}/{len(category_keys)})...")
+
+                            start = time.time()
+
+                            # Create LLM call function that uses our client
+                            def llm_call_ci(prompt):
+                                result = client.generate(
+                                    prompt=prompt,
+                                    model=phase1_model,
+                                    temperature=phase1_temp
+                                )
+                                return result if result else ""
+
+                            # Analyze this category
+                            cat_result = ci_analyzer.analyze_category(
+                                category_key, passwords, accounts, llm_call_ci
+                            )
+                            ci_result.categories[category_key] = cat_result
+
+                            cat_elapsed = time.time() - start
+                            total_ci_time += cat_elapsed
+
+                            # Log category result
+                            finding_count = len(cat_result.findings)
+                            logging.info(f"CI {category_key}: {finding_count} findings in {cat_elapsed:.1f}s")
+
+                        # Generate formatted markdown report from CI results
+                        ci_markdown = ci_analyzer.format_report_markdown(ci_result)
+
+                        # Store CI results for later use
+                        ci_results = ci_results_to_dict(ci_result)
+
+                        all_phase1_results[section_id] = {
+                            "content": ci_markdown,
+                            "model": phase1_model,
+                            "temperature": phase1_temp,
+                            "time": total_ci_time,
+                            "tokens": total_ci_tokens,
+                            "prompt_tokens": total_prompt_tokens,
+                            "completion_tokens": total_completion_tokens,
+                            "ci_pipeline": True,
+                            "ci_categories_analyzed": len(category_keys)
+                        }
+
+                        if runner.debug_mode:
+                            runner._save_debug_output(section_id, "ci_results", ci_results)
+                            runner._save_debug_output(section_id, "phase1_raw", ci_markdown)
+
+                        total_time += total_ci_time
+                        yield send_step_complete(
+                            "phase1", section_id, total_ci_time,
+                            total_prompt_tokens, total_completion_tokens, total_ci_tokens
                         )
                         continue
 
@@ -6174,7 +6291,9 @@ def aaia_get_config() -> Response:
         server["version"] = client.get_version()
 
     # AAIA sections (excluding risk-assessment and full-report for now)
-    aaia_sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+    # Only include enabled sections
+    all_aaia_sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+    aaia_sections = [s for s in all_aaia_sections if AI_REPORT_SECTIONS.get(s, {}).get("enabled", True)]
 
     sections_config = []
     for section_id in aaia_sections:
@@ -6201,7 +6320,9 @@ def aaia_get_config() -> Response:
             "recommended_model": recommended_model,
             "temperature": section_info.get("temperature", 0.5),
             "model_size_gb": model_size_gb,
-            "order": section_info.get("order", 99)
+            "order": section_info.get("order", 99),
+            "enabled": section_info.get("enabled", True),
+            "pipeline": section_info.get("pipeline", "standard")
         })
 
     return jsonify({

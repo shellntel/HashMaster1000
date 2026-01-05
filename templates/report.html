@@ -6187,13 +6187,22 @@
 			// ==================== AAIA FUNCTIONALITY ====================
 
 			// AAIA Configuration
-			const AAIA_SECTIONS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+			// AAIA_SECTIONS is now dynamic - populated from config when loadAAIAConfig() completes
+			let AAIA_SECTIONS = [];  // Will be populated from backend config (only enabled sections)
 			const AAIA_CONTENT_IDS = {
 				'weak-habits': 'aaiaWeakHabitsContent',
 				'company-intel': 'aaiaCompanyIntelContent',
 				'user-behavior': 'aaiaUserBehaviorContent',
 				'recommendations': 'aaiaRecommendationsContent'
 			};
+			// Mapping from section IDs to their HTML card element IDs
+			const AAIA_CARD_IDS = {
+				'weak-habits': 'aaiaWeakHabits',
+				'company-intel': 'aaiaCompanyIntel',
+				'user-behavior': 'aaiaUserBehavior',
+				'recommendations': 'aaiaRecommendations'
+			};
+			const ALL_AAIA_SECTIONS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
 
 			let aaiaConfig = null;  // Stores servers, sections, and model info
 			let aaiaAnalysisRunning = false;
@@ -6930,6 +6939,23 @@
 					if (!response.ok) throw new Error('Failed to load configuration');
 
 					aaiaConfig = await response.json();
+
+					// Populate AAIA_SECTIONS from config (only enabled sections)
+					AAIA_SECTIONS = aaiaConfig.sections.map(s => s.id);
+					console.log('AAIA sections loaded:', AAIA_SECTIONS);
+
+					// Hide result cards for disabled sections
+					for (const sectionId of ALL_AAIA_SECTIONS) {
+						const cardId = AAIA_CARD_IDS[sectionId];
+						const cardEl = document.getElementById(cardId);
+						if (cardEl) {
+							if (AAIA_SECTIONS.includes(sectionId)) {
+								cardEl.style.display = '';  // Show enabled sections
+							} else {
+								cardEl.style.display = 'none';  // Hide disabled sections
+							}
+						}
+					}
 
 					if (!aaiaConfig.servers || aaiaConfig.servers.length === 0) {
 						statusDiv.innerHTML = `

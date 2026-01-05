@@ -730,6 +730,7 @@ AI_REPORT_SECTIONS = {
     "weak-habits": {
         "title": "Semantic Password Intelligence",
         "description": "AI extracts semantic patterns (sports, pop culture, profanity, etc.) that regex cannot detect",
+        "enabled": True,
         "pipeline": "spi",  # Uses Semantic Password Intelligence pipeline instead of standard 3-phase
         "recommended_model": "llama3.1:70b",
         "temperature": 0.2,  # Lower temp for consistent extraction
@@ -742,7 +743,8 @@ AI_REPORT_SECTIONS = {
     "company-intel": {
         "title": "Company Intelligence",
         "description": "Infers company identity, industry, and location from raw passwords and account names",
-        "prompt_key": "COMPANY_INTEL_PROMPT",
+        "enabled": True,
+        "pipeline": "company_intel",  # Uses Company Intelligence pipeline with 3 focused prompts
         "recommended_model": "deepseek-r1:671b",
         "temperature": 0.3,  # 671B excels at inference - worth the extra time
         "order": 2,
@@ -758,6 +760,7 @@ AI_REPORT_SECTIONS = {
     "user-behavior": {
         "title": "User Behavior Insights",
         "description": "Analyzes user psychology and behavior from raw password data",
+        "enabled": False,  # Disabled - not providing value currently
         "prompt_key": "USER_BEHAVIOR_PROMPT",
         "recommended_model": "deepseek-r1:671b",
         "temperature": 0.4,  # 671B provides significantly more insightful behavioral analysis
@@ -776,6 +779,7 @@ AI_REPORT_SECTIONS = {
     "recommendations": {
         "title": "Security Recommendations",
         "description": "Prioritized actionable recommendations",
+        "enabled": False,  # Disabled - not providing value currently
         "prompt_key": "RECOMMENDATIONS_PROMPT",
         "recommended_model": "deepseek-r1:671b",
         "temperature": 0.4,  # Slightly lower for more actionable, less verbose output
@@ -1280,10 +1284,12 @@ PHASE_CONFIG = {
         "evidence_sources": []  # SPI generates its own evidence from validated matches
     },
     "company-intel": {
-        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.3},
-        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
-        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
-        "evidence_sources": ["cracking_stats_table", "pw_top_passwords", "pw_dict_words"]
+        # Uses Company Intel pipeline - runs 3 focused category prompts
+        "pipeline": "company_intel",
+        "phase1": {"model": "deepseek-r1:671b", "temperature": 0.3},  # Used for each CI category
+        "phase2": {"model": None, "temperature": None, "enabled": False},  # Findings are from LLM extraction
+        "phase3": {"model": None, "temperature": None, "enabled": False},  # Markdown formatted by Python
+        "evidence_sources": []  # CI generates its own evidence from analyzed data
     },
     "user-behavior": {
         "phase1": {"model": "deepseek-r1:671b", "temperature": 0.4},
