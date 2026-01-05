@@ -1358,15 +1358,15 @@
 				</div>
 			</div>
 
-			<!-- Password Pattern Analysis Section -->
+			<!-- Semantic Password Intelligence Section -->
 			<div class="aaia-result-card" id="aaiaWeakHabits">
 				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaWeakHabits')">
-					<h3>Password Pattern Analysis</h3>
+					<h3>Semantic Password Intelligence</h3>
 					<span class="aaia-card-toggle">&#9660;</span>
 				</div>
 				<div class="aaia-card-content">
 					<div class="aaia-card-body" id="aaiaWeakHabitsContent">
-						<!-- Content populated by JavaScript -->
+						<!-- Content populated by JavaScript (SPI renders as HTML, not markdown) -->
 					</div>
 				</div>
 			</div>
@@ -6201,6 +6201,7 @@
 			let aaiaElapsedTimer = null;  // Timer for elapsed time display
 			let aaiaStartTimestamp = null;  // When analysis started
 			let aaiaTotalTokens = { prompt: 0, completion: 0, total: 0 };  // Token usage tracking
+			let aaiaSortedSections = [];  // Sections in model-optimized execution order
 
 			// Initialize AAIA on page load
 			document.addEventListener('DOMContentLoaded', function() {
@@ -6971,7 +6972,7 @@
 						aaiaSectionConfigs[section.id] = assignment;
 					}
 
-					// Sort sections by server+model to show optimized execution order
+					// Sort sections by server+model to minimize model switches (optimized execution)
 					const sortedSections = [...aaiaConfig.sections].sort((a, b) => {
 						const configA = aaiaSectionConfigs[a.id];
 						const configB = aaiaSectionConfigs[b.id];
@@ -6980,7 +6981,7 @@
 						return keyA.localeCompare(keyB);
 					});
 
-					// Track current model group for visual grouping
+					// Render sections with model group headers (step numbers reflect execution order)
 					let currentModelKey = null;
 					let stepNumber = 1;
 
@@ -7389,7 +7390,7 @@
 			// Show progress overlay for revalidation (Phase 1 pre-marked as complete)
 			function showAAIAProgressRevalidate() {
 				const sectionNames = {
-					'weak-habits': 'Password Patterns',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intel',
 					'user-behavior': 'User Behavior',
 					'recommendations': 'Recommendations'
@@ -7403,6 +7404,18 @@
 
 				const progressSectionsEl = document.getElementById('aaiaProgressSections');
 				progressSectionsEl.innerHTML = '';
+
+				// Sort sections by model to match execution order (model-optimized)
+				const sortedSections = [...AAIA_SECTIONS].sort((a, b) => {
+					const configA = aaiaSectionConfigs[a];
+					const configB = aaiaSectionConfigs[b];
+					const keyA = `${configA?.server_id || 'z'}:${configA?.name || 'z'}`;
+					const keyB = `${configB?.server_id || 'z'}:${configB?.name || 'z'}`;
+					return keyA.localeCompare(keyB);
+				});
+
+				// Store globally for progress updates
+				aaiaSortedSections = sortedSections;
 
 				// Total steps: 4 sections × 2 phases (skip Phase 1) = 8 steps
 				const totalSteps = AAIA_SECTIONS.length * 2;
@@ -7431,7 +7444,7 @@
 					const sectionsContainer = document.createElement('div');
 					sectionsContainer.className = 'aaia-phase-sections';
 
-					for (const sectionId of AAIA_SECTIONS) {
+					for (const sectionId of sortedSections) {
 						const sectionEl = document.createElement('div');
 						// Phase 1 sections are pre-completed
 						const isComplete = phase === 'phase1';
@@ -7479,7 +7492,7 @@
 				};
 
 				const sectionNames = {
-					'weak-habits': 'Password Patterns',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intel',
 					'user-behavior': 'User Behavior',
 					'recommendations': 'Recommendations'
@@ -7539,7 +7552,9 @@
 			function updateSectionStatusFromPhase(currentSection, currentPhase, currentStep) {
 				const phases = ['phase1', 'phase2', 'phase3'];
 				const currentPhaseIndex = phases.indexOf(currentPhase);
-				const currentSectionIndex = AAIA_SECTIONS.indexOf(currentSection);
+				// Use sorted sections (model-optimized execution order) for determining completion status
+				const sectionsOrder = aaiaSortedSections.length > 0 ? aaiaSortedSections : AAIA_SECTIONS;
+				const currentSectionIndex = sectionsOrder.indexOf(currentSection);
 
 				// Update each phase column's sections
 				for (let phaseIdx = 0; phaseIdx < phases.length; phaseIdx++) {
@@ -7556,8 +7571,8 @@
 						}
 					}
 
-					for (let sectionIdx = 0; sectionIdx < AAIA_SECTIONS.length; sectionIdx++) {
-						const sectionId = AAIA_SECTIONS[sectionIdx];
+					for (let sectionIdx = 0; sectionIdx < sectionsOrder.length; sectionIdx++) {
+						const sectionId = sectionsOrder[sectionIdx];
 						// Select section element by both phase and section data attributes (new class)
 						const sectionEl = document.querySelector(`.aaia-phase-section-item[data-phase="${phase}"][data-section="${sectionId}"]`);
 						if (!sectionEl) continue;
@@ -7716,6 +7731,9 @@
 					if (tier0Result === 'skipped') {
 						tier0Indicator = ' ⚡';  // Lightning bolt for skipped (fast)
 						sectionEl.classList.add('tier0-skipped');
+					} else if (tier0Result === 'python') {
+						tier0Indicator = ' 🐍';  // Python snake for Python-validated
+						sectionEl.classList.add('tier0-python');
 					} else if (tier0Result === 'fast') {
 						tier0Indicator = ' 🚀';  // Rocket for fast model
 						sectionEl.classList.add('tier0-fast');
@@ -7769,7 +7787,7 @@
 			// Show AAIA progress overlay for 3-phase pipeline with horizontal layout
 			function showAAIAProgress() {
 				const sectionNames = {
-					'weak-habits': 'Password Patterns',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intel',
 					'user-behavior': 'User Behavior',
 					'recommendations': 'Recommendations'
@@ -7784,6 +7802,19 @@
 				// Build progress sections HTML showing 3-phase pipeline in horizontal grid
 				const progressSectionsEl = document.getElementById('aaiaProgressSections');
 				progressSectionsEl.innerHTML = '';
+
+				// Sort sections by model to match execution order (model-optimized)
+				// This groups sections by model to minimize model switching
+				const sortedSections = [...AAIA_SECTIONS].sort((a, b) => {
+					const configA = aaiaSectionConfigs[a];
+					const configB = aaiaSectionConfigs[b];
+					const keyA = `${configA?.server_id || 'z'}:${configA?.name || 'z'}`;
+					const keyB = `${configB?.server_id || 'z'}:${configB?.name || 'z'}`;
+					return keyA.localeCompare(keyB);
+				});
+
+				// Store globally for progress updates
+				aaiaSortedSections = sortedSections;
 
 				// Total steps: 4 sections × 3 phases = 12 steps
 				const totalSteps = AAIA_SECTIONS.length * 3;
@@ -7812,7 +7843,7 @@
 					const sectionsContainer = document.createElement('div');
 					sectionsContainer.className = 'aaia-phase-sections';
 
-					for (const sectionId of AAIA_SECTIONS) {
+					for (const sectionId of sortedSections) {
 						const sectionEl = document.createElement('div');
 						sectionEl.className = 'aaia-phase-section-item';
 						sectionEl.dataset.section = sectionId;
@@ -7854,7 +7885,7 @@
 			// Legacy progress display - single-phase approach (working)
 			function showAAIAProgressLegacy() {
 				const sectionNames = {
-					'weak-habits': 'Password Pattern Analysis',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intelligence',
 					'user-behavior': 'User Behavior Analysis',
 					'recommendations': 'Security Recommendations'
@@ -7962,7 +7993,7 @@
 				}
 
 				const sectionNames = {
-					'weak-habits': 'Password Pattern Analysis',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intelligence',
 					'user-behavior': 'User Behavior Analysis',
 					'recommendations': 'Security Recommendations'
@@ -8091,7 +8122,7 @@
 				}
 
 				const sectionNames = {
-					'weak-habits': 'Password Pattern Analysis',
+					'weak-habits': 'Semantic Password Intelligence',
 					'company-intel': 'Company Intelligence',
 					'user-behavior': 'User Behavior Analysis',
 					'recommendations': 'Security Recommendations'
@@ -8179,8 +8210,17 @@
 							if (sectionData.error) {
 								contentDiv.innerHTML = reviewWarning + `<div class="aaia-error">${sectionData.content}</div>`;
 							} else {
-								// Render markdown content with optional review warning
-								contentDiv.innerHTML = reviewWarning + marked.parse(sectionData.content);
+								// Check if content is already HTML (SPI output starts with <div)
+								// or if it's markdown that needs to be parsed
+								const content = sectionData.content || '';
+								const isHtml = content.trim().startsWith('<div') || content.trim().startsWith('<');
+								if (isHtml) {
+									// SPI and other HTML content - render directly
+									contentDiv.innerHTML = reviewWarning + content;
+								} else {
+									// Markdown content - parse with marked
+									contentDiv.innerHTML = reviewWarning + marked.parse(content);
+								}
 							}
 						}
 					}

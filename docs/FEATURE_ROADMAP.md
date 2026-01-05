@@ -911,6 +911,58 @@ Generated Files:
 - recommended_masks.hcmask
 ```
 
+#### Free-form Prompt Lab (PLANNED)
+
+**Status:** Planned for AI Report Lab page
+
+**Description:** Allow users to write custom prompts with access to session data via template variables. This enables ad-hoc analysis questions without requiring code changes.
+
+**Location:** AI Report Lab page (`/api/ai/report/test`)
+
+**Features:**
+- Free-form text input for custom prompts
+- Template variable injection from current session data
+- Server/model selection (same as existing Report Lab)
+- Temperature control
+- Save/load custom prompts for reuse
+
+**Available Template Variables:**
+| Variable | Description |
+|----------|-------------|
+| `{cracked_passwords_unique}` | List of unique cracked passwords |
+| `{cracked_passwords_all}` | All cracked passwords with counts |
+| `{account_names}` | List of account names |
+| `{domain_name}` | Current domain name |
+| `{company_name}` | Company name from session |
+| `{total_accounts}` | Total account count |
+| `{cracked_count}` | Number of cracked accounts |
+| `{crack_rate}` | Crack percentage |
+| `{password_lengths}` | Distribution of password lengths |
+| `{top_passwords}` | Most common passwords |
+
+**Example Prompts:**
+```
+How many passwords in {cracked_passwords_unique} contain city or state names?
+List them grouped by geographic location.
+```
+
+```
+Analyze {cracked_passwords_unique} for passwords that appear to reference
+the company name "{company_name}" or variations of it.
+```
+
+```
+Given these {cracked_count} cracked passwords from {total_accounts} accounts,
+identify any passwords that suggest insider knowledge or specific roles
+(like "admin", "backup", "sql", etc).
+```
+
+**Use Cases:**
+- Ad-hoc analysis questions during assessments
+- Testing new analysis ideas before building formal features
+- Client-specific queries (e.g., "Find passwords mentioning [client product]")
+- Research and exploration of password patterns
+
 ---
 
 ## Export & Reporting Enhancements

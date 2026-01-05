@@ -3467,8 +3467,8 @@ body.print-mode .status-badge.status-disabled {
 
 /* AAIA Continue/Back Buttons */
 .aaia-continue-btn {
-	background: #374151;
-	color: #d1d5db;
+	background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+	color: #ffffff;
 	border: none;
 	padding: 10px 24px;
 	border-radius: 6px;
@@ -3476,17 +3476,18 @@ body.print-mode .status-badge.status-disabled {
 	font-weight: 600;
 	font-size: 1rem;
 	transition: all 0.3s ease;
+	box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
 }
 
 .aaia-continue-btn:hover {
-	background: #4b5563;
-	color: #fff;
+	background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+	box-shadow: 0 4px 12px rgba(34, 197, 94, 0.5);
 }
 
 .aaia-back-btn {
-	background: transparent;
-	color: #9ca3af;
-	border: 1px solid rgba(255, 255, 255, 0.2);
+	background: #374151 !important;
+	color: #d1d5db !important;
+	border: 1px solid #4b5563 !important;
 	padding: 10px 20px;
 	border-radius: 6px;
 	cursor: pointer;
@@ -3494,12 +3495,13 @@ body.print-mode .status-badge.status-disabled {
 	font-size: 1rem;
 	transition: all 0.3s ease;
 	margin-right: auto;
+	box-shadow: none !important;
 }
 
 .aaia-back-btn:hover {
-	background: rgba(255, 255, 255, 0.1);
-	color: #fff;
-	border-color: rgba(255, 255, 255, 0.3);
+	background: #4b5563 !important;
+	color: #fff !important;
+	border-color: #6b7280 !important;
 }
 
 .aaia-warning {
@@ -3526,23 +3528,29 @@ body.print-mode .status-badge.status-disabled {
 }
 
 .aaia-server-status {
-	margin-bottom: 16px;
+	margin-bottom: 10px;
 }
 
 .aaia-status-error {
 	background: rgba(239, 68, 68, 0.1);
 	border: 1px solid rgba(239, 68, 68, 0.3);
-	border-radius: 8px;
-	padding: 16px;
+	border-radius: 6px;
+	padding: 10px 12px;
 	color: #f87171;
+	font-size: 0.9rem;
 }
 
 .aaia-status-success {
 	background: rgba(34, 197, 94, 0.1);
 	border: 1px solid rgba(34, 197, 94, 0.3);
-	border-radius: 8px;
-	padding: 16px;
+	border-radius: 6px;
+	padding: 10px 12px;
 	color: #4ade80;
+	font-size: 0.9rem;
+}
+
+.aaia-status-success p {
+	margin: 0;
 }
 
 .aaia-server-select,
@@ -3606,20 +3614,21 @@ body.print-mode .status-badge.status-disabled {
 }
 
 .aaia-revalidate-btn {
-	background: #374151;
-	color: #d1d5db;
-	border: none;
+	background: #374151 !important;
+	color: #d1d5db !important;
+	border: 1px solid #4b5563 !important;
 	padding: 10px 24px;
 	border-radius: 6px;
 	cursor: pointer;
-	font-weight: 600;
+	font-weight: 500;
 	transition: all 0.3s ease;
-	font-size: 0.85rem;
+	box-shadow: none !important;
 }
 
 .aaia-revalidate-btn:hover:not(:disabled) {
-	background: #4b5563;
-	color: #fff;
+	background: #4b5563 !important;
+	color: #fff !important;
+	border-color: #6b7280 !important;
 }
 
 .aaia-revalidate-btn:disabled {
@@ -3628,60 +3637,63 @@ body.print-mode .status-badge.status-disabled {
 }
 
 .aaia-cancel-btn {
-	background: #374151;
-	color: #d1d5db;
-	border: none;
+	background: rgba(239, 68, 68, 0.15) !important;
+	color: #f87171 !important;
+	border: 1px solid rgba(239, 68, 68, 0.3) !important;
 	padding: 10px 24px;
 	border-radius: 6px;
 	cursor: pointer;
 	font-weight: 500;
 	transition: all 0.3s ease;
+	box-shadow: none !important;
 }
 
 .aaia-cancel-btn:hover {
-	background: #4b5563;
+	background: rgba(239, 68, 68, 0.25) !important;
+	border-color: rgba(239, 68, 68, 0.5) !important;
 }
 
 /* AAIA Section Configuration UI */
-.aaia-modal-wide .aaia-modal-content {
-	max-width: 900px;
+.aaia-modal-content.aaia-modal-wide {
+	max-width: 1100px;
+	width: 95%;
 }
 
 .aaia-section-config {
-	margin-top: 20px;
-	padding: 16px;
+	margin-top: 12px;
+	padding: 12px;
 	background: #1a1a1a;
 	border-radius: 8px;
 	border: 1px solid #333;
 }
 
 .aaia-section-config h3 {
-	margin: 0 0 8px 0;
-	font-size: 1.1rem;
+	margin: 0 0 4px 0;
+	font-size: 1rem;
 	color: #f4f4f4;
 }
 
 .aaia-config-help {
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	color: #888;
-	margin: 0 0 16px 0;
+	margin: 0 0 10px 0;
 }
 
 .aaia-section-list {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 8px;
 }
 
 /* Model group header for optimized execution order */
 .aaia-model-group-header {
+	grid-column: 1 / -1;
 	background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%);
 	border: 1px solid #2a5a8c;
 	border-radius: 6px;
-	padding: 8px 12px;
-	margin-top: 16px;
-	margin-bottom: 8px;
-	font-size: 0.85rem;
+	padding: 6px 12px;
+	margin-top: 8px;
+	font-size: 0.8rem;
 }
 
 .aaia-model-group-header:first-child {
@@ -3702,57 +3714,65 @@ body.print-mode .status-badge.status-disabled {
 .aaia-section-step {
 	background: #3498db;
 	color: #fff;
-	font-size: 0.7rem;
+	font-size: 0.65rem;
 	font-weight: 600;
-	padding: 2px 8px;
-	border-radius: 10px;
-	margin-right: 10px;
+	padding: 2px 6px;
+	border-radius: 8px;
 	text-transform: uppercase;
+	flex-shrink: 0;
 }
 
 .aaia-section-config-item {
 	background: #252525;
-	border-radius: 8px;
-	padding: 12px 16px;
+	border-radius: 6px;
+	padding: 10px 12px;
 	border: 1px solid #333;
-	margin-left: 12px;
 	border-left: 3px solid #3498db;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
 }
 
 .aaia-section-config-header {
 	display: flex;
 	justify-content: flex-start;
 	align-items: center;
-	margin-bottom: 10px;
-	gap: 10px;
+	gap: 8px;
 }
 
 .aaia-section-config-title {
 	flex: 1;
 	font-weight: 500;
+	font-size: 0.9rem;
 	color: #f4f4f4;
 }
 
 .aaia-section-config-rec {
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 	color: #888;
 	background: #1e1e1e;
-	padding: 4px 8px;
+	padding: 2px 6px;
 	border-radius: 4px;
 }
 
+.aaia-section-config-selects {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
 .aaia-section-model-select {
-	width: 100%;
+	flex: 1;
 }
 
 .aaia-section-model-select select {
 	width: 100%;
-	padding: 8px 12px;
+	padding: 6px 10px;
 	background: #1e1e1e;
 	border: 1px solid #444;
-	border-radius: 6px;
+	border-radius: 4px;
 	color: #f4f4f4;
-	font-size: 0.85rem;
+	font-size: 0.8rem;
 	cursor: pointer;
 }
 
@@ -3776,17 +3796,16 @@ body.print-mode .status-badge.status-disabled {
 
 .aaia-config-ok {
 	color: #22c55e;
-	font-size: 0.8rem;
+	font-size: 0.75rem;
 }
 
 .aaia-config-warn {
 	color: #f59e0b;
-	font-size: 0.8rem;
+	font-size: 0.75rem;
 }
 
-.aaia-section-status {
-	margin-top: 8px;
-	font-size: 0.8rem;
+.aaia-section-config-status {
+	font-size: 0.75rem;
 }
 
 .aaia-section-status.ready {
@@ -11208,4 +11227,175 @@ body.matrix-mode .matrix-trigger {
 
 .btn-warning:hover {
     background: rgba(255, 165, 0, 0.3);
+}
+
+/* ============================================================
+   Semantic Password Intelligence (SPI) Styles
+   ============================================================ */
+
+.spi-analysis {
+    padding: 0;
+}
+
+.spi-analysis h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.1rem;
+    color: var(--text);
+}
+
+.spi-overview {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+}
+
+.spi-sampling-note {
+    background: rgba(255, 165, 0, 0.1);
+    border: 1px solid rgba(255, 165, 0, 0.3);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    color: #ffa500;
+    margin-bottom: 16px;
+}
+
+/* SPI Results Table */
+.spi-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    font-size: 0.9rem;
+}
+
+.spi-results-table thead th {
+    text-align: left;
+    padding: 10px 12px;
+    background: rgba(139, 92, 246, 0.1);
+    border-bottom: 2px solid rgba(139, 92, 246, 0.3);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.spi-results-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+
+.spi-results-table tbody tr:hover {
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.spi-results-table td {
+    padding: 10px 12px;
+}
+
+.spi-results-table td:first-child {
+    font-weight: 500;
+}
+
+.spi-results-table td:nth-child(2),
+.spi-results-table td:nth-child(3) {
+    text-align: right;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+}
+
+/* Severity coloring for rows */
+.spi-results-table tr.severity-high td:first-child {
+    color: #f87171;
+}
+
+.spi-results-table tr.severity-high td:nth-child(3) {
+    color: #f87171;
+    font-weight: 600;
+}
+
+.spi-results-table tr.severity-medium td:first-child {
+    color: #fbbf24;
+}
+
+.spi-results-table tr.severity-medium td:nth-child(3) {
+    color: #fbbf24;
+}
+
+.spi-results-table tr.severity-low td:first-child {
+    color: #60a5fa;
+}
+
+.spi-results-table tr.severity-none td {
+    color: var(--text-muted);
+}
+
+/* SPI Category Details */
+.spi-details {
+    margin-top: 24px;
+}
+
+.spi-details h4 {
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.spi-category-detail {
+    margin-bottom: 20px;
+}
+
+.spi-category-detail h5 {
+    font-size: 0.95rem;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+
+.spi-examples {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.spi-examples li {
+    background: rgba(139, 92, 246, 0.1);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+}
+
+.spi-examples li code {
+    background: transparent;
+    padding: 0;
+    color: var(--text);
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+}
+
+.spi-examples li em {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Light theme overrides for SPI */
+.light-theme .spi-analysis h3 {
+    color: #111827;
+}
+
+.light-theme .spi-results-table thead th {
+    background: rgba(139, 92, 246, 0.08);
+    color: #7c3aed;
+}
+
+.light-theme .spi-results-table tbody tr:hover {
+    background: rgba(139, 92, 246, 0.04);
+}
+
+.light-theme .spi-examples li {
+    background: rgba(139, 92, 246, 0.06);
+    border-color: rgba(139, 92, 246, 0.15);
+}
+
+.light-theme .spi-examples li code {
+    color: #111827;
 }

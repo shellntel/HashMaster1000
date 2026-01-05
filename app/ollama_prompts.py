@@ -728,21 +728,15 @@ This report will be used to justify security investments and may be shared with 
 
 AI_REPORT_SECTIONS = {
     "weak-habits": {
-        "title": "Weak Password Habits",
-        "description": "AI analyzes raw passwords to discover predictable patterns and weak habits",
-        "prompt_key": "WEAK_HABITS_PROMPT",
+        "title": "Semantic Password Intelligence",
+        "description": "AI extracts semantic patterns (sports, pop culture, profanity, etc.) that regex cannot detect",
+        "pipeline": "spi",  # Uses Semantic Password Intelligence pipeline instead of standard 3-phase
         "recommended_model": "llama3.1:70b",
-        "temperature": 0.3,  # Lower temp for consistent, structured analysis
+        "temperature": 0.2,  # Lower temp for consistent extraction
         "order": 1,
         "data_sources": {
-            # Raw data for independent AI analysis
-            "cracked_passwords": "derived:all_cracked_passwords",
-            "account_passwords": "derived:account_password_pairs",
-            "password_reuse": "derived:password_reuse_details",
-            "length_distribution": "derived:password_length_distribution",
-            "org_context": "derived:organizational_context",
-            "total_accounts": "derived:total_account_count",
-            "cracked_count": "derived:cracked_account_count"
+            # SPI uses its own data loading - these are for reference only
+            "cracked_passwords": "derived:all_cracked_passwords"
         }
     },
     "company-intel": {
@@ -1278,10 +1272,12 @@ def get_formatting_prompt(section_id: str) -> str:
 
 PHASE_CONFIG = {
     "weak-habits": {
-        "phase1": {"model": "llama3.1:70b", "temperature": 0.3},
-        "phase2": {"model": "deepseek-r1:671b", "temperature": 0.2, "enabled": True},
-        "phase3": {"model": "llama3.1:70b", "temperature": 0.15, "enabled": True},
-        "evidence_sources": ["cracking_stats_table", "pw_top_passwords", "pw_bad_practices", "pw_length_distribution"]
+        # Uses SPI pipeline - runs 11 focused category prompts, Python validates and formats
+        "pipeline": "spi",
+        "phase1": {"model": "llama3.1:70b", "temperature": 0.2},  # Used for each SPI category
+        "phase2": {"model": None, "temperature": None, "enabled": False},  # Python validates
+        "phase3": {"model": None, "temperature": None, "enabled": False},  # Python formats
+        "evidence_sources": []  # SPI generates its own evidence from validated matches
     },
     "company-intel": {
         "phase1": {"model": "deepseek-r1:671b", "temperature": 0.3},

@@ -4619,6 +4619,8 @@ def ai_pipeline_stream() -> Response:
         get_ai_data_loader, get_phase_config, AIReportAnalyzer,
         get_ai_report_sections
     )
+    from app.spi_analyzer import SPIAnalyzer, results_to_dict
+    from app.spi_prompts import get_all_category_keys, get_category_display_name
 
     config = get_ollama_config()
     if not config.enabled:
@@ -4660,6 +4662,7 @@ def ai_pipeline_stream() -> Response:
         total_time = 0
         all_phase1_results = {}
         all_phase2_results = {}
+        spi_results = {}  # Store SPI analysis results for weak-habits section
 
         def load_latest_phase1_file(section_id: str) -> str | None:
             """Load the most recent Phase 1 debug file for a section."""
@@ -4679,9 +4682,10 @@ def ai_pipeline_stream() -> Response:
                 return None
 
         # Optimized execution order (minimize model reloads)
+        # Run deepseek sections first (likely already loaded), then llama sections last
         llama_sections = [s for s in sections if get_phase_config(s).get("phase1", {}).get("model", "").startswith("llama")]
         deepseek_sections = [s for s in sections if s not in llama_sections]
-        ordered_sections = llama_sections + deepseek_sections
+        ordered_sections = deepseek_sections + llama_sections
 
         def send_progress(phase, section, action):
             nonlocal step_counter
@@ -4691,6 +4695,21 @@ def ai_pipeline_stream() -> Response:
                 "type": "progress",
                 "total_steps": total_steps,
                 "current_step": step_counter,
+                "current_phase": phase,
+                "current_section": section,
+                "current_action": action,
+                "elapsed_seconds": round(elapsed, 1),
+                "percent_complete": round(step_counter / total_steps * 100, 1)
+            }
+            return f"data: {json.dumps(progress_data)}\n\n"
+
+        def send_substep_progress(phase: str, section: str, action: str) -> str:
+            """Send progress update without incrementing step counter (for sub-steps like SPI categories)."""
+            elapsed = time.time() - start_time
+            progress_data = {
+                "type": "progress",
+                "total_steps": total_steps,
+                "current_step": step_counter,  # Don't increment
                 "current_phase": phase,
                 "current_section": section,
                 "current_action": action,
@@ -4782,6 +4801,114 @@ def ai_pipeline_stream() -> Response:
                     phase_config = get_phase_config(section_id)
                     phase1_model = phase_config.get("phase1", {}).get("model", "llama3.1:70b")
 
+                    # Check if this section uses SPI pipeline
+                    if phase_config.get("pipeline") == "spi":
+                        # SPI Pipeline: Run 11 focused category extractions
+                        yield send_progress("phase1", section_id, "Running Semantic Password Intelligence...")
+
+                        # Ensure model is loaded
+                        if current_model is None or current_model != phase1_model:
+                            yield send_model_loading(phase1_model, "Loading")
+                            load_start = time.time()
+                            if not client.ensure_model_loaded(phase1_model, num_ctx=16384):
+                                yield send_error(f"Failed to load model {phase1_model}")
+                                return
+                            load_time = time.time() - load_start
+                            current_model = phase1_model
+                            yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
+
+                        # Initialize SPI analyzer
+                        spi_analyzer = SPIAnalyzer(session_dir)
+                        passwords, sampling_used, sampling_note = spi_analyzer.get_passwords_for_analysis()
+
+                        if not passwords:
+                            all_phase1_results[section_id] = {
+                                "content": "No passwords available for analysis",
+                                "model": phase1_model,
+                                "temperature": 0.2,
+                                "time": 0,
+                                "tokens": 0,
+                                "spi_pipeline": True
+                            }
+                            yield send_step_complete("phase1", section_id, 0, 0, 0, 0)
+                            continue
+
+                        # Run each SPI category
+                        from app.spi_analyzer import SPIResults, SPICategoryResult
+                        spi_result = SPIResults(
+                            total_passwords=len(spi_analyzer._get_password_set()),
+                            sampling_used=sampling_used,
+                            sampling_note=sampling_note
+                        )
+
+                        category_keys = get_all_category_keys()
+                        total_spi_time = 0
+                        total_spi_tokens = 0
+                        total_prompt_tokens = 0
+                        total_completion_tokens = 0
+
+                        phase1_temp = phase_config.get("phase1", {}).get("temperature", 0.2)
+
+                        for i, category_key in enumerate(category_keys):
+                            category_name = get_category_display_name(category_key)
+                            # Use substep progress to avoid incrementing step counter for each category
+                            yield send_substep_progress("phase1", section_id, f"Analyzing {category_name} ({i+1}/{len(category_keys)})...")
+
+                            start = time.time()
+
+                            # Create LLM call function that uses our client
+                            def llm_call(prompt):
+                                result = client.generate(
+                                    prompt=prompt,
+                                    model=phase1_model,
+                                    temperature=phase1_temp
+                                )
+                                # generate() returns the response string directly (not a dict)
+                                return result if result else ""
+
+                            # Analyze this category
+                            cat_result = spi_analyzer.analyze_category(
+                                category_key, passwords, llm_call
+                            )
+                            spi_result.categories[category_key] = cat_result
+
+                            cat_elapsed = time.time() - start
+                            total_spi_time += cat_elapsed
+
+                            # Log category result
+                            match_count = len(cat_result.matches)
+                            logging.info(f"SPI {category_key}: {match_count} matches in {cat_elapsed:.1f}s")
+
+                        # Generate formatted HTML report from SPI results
+                        spi_html = spi_analyzer.format_report_html(spi_result)
+
+                        # Store SPI results for later use
+                        spi_results[section_id] = results_to_dict(spi_result)
+
+                        all_phase1_results[section_id] = {
+                            "content": spi_html,
+                            "model": phase1_model,
+                            "temperature": phase1_temp,
+                            "time": total_spi_time,
+                            "tokens": total_spi_tokens,
+                            "prompt_tokens": total_prompt_tokens,
+                            "completion_tokens": total_completion_tokens,
+                            "spi_pipeline": True,
+                            "spi_categories_analyzed": len(category_keys)
+                        }
+
+                        if runner.debug_mode:
+                            runner._save_debug_output(section_id, "spi_results", spi_results[section_id])
+                            runner._save_debug_output(section_id, "phase1_raw", spi_html)
+
+                        total_time += total_spi_time
+                        yield send_step_complete(
+                            "phase1", section_id, total_spi_time,
+                            total_prompt_tokens, total_completion_tokens, total_spi_tokens
+                        )
+                        continue
+
+                    # Standard pipeline: single LLM call
                     # Check if we need to switch models
                     if current_model is None or current_model != phase1_model:
                         yield send_model_loading(phase1_model, "Loading")
@@ -4863,7 +4990,9 @@ def ai_pipeline_stream() -> Response:
                         "time": 0
                     }
                     step_counter += 1
-                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase2', 'current_section': section_id, 'current_action': f'Skipped validation for {section_id}', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    yield f"data: {json.dumps({'type': 'progress', 'total_steps': total_steps, 'current_step': step_counter, 'current_phase': 'phase2', 'current_section': section_id, 'current_action': f'Validated by Python', 'elapsed_seconds': round(time.time() - start_time, 1), 'percent_complete': round(step_counter / total_steps * 100, 1)})}\n\n"
+                    # Send step_complete with python indicator (validation done by Python, not LLM)
+                    yield send_step_complete("phase2", section_id, 0, 0, 0, 0, tier0_result="python")
                     continue
 
                 phase1_content = all_phase1_results.get(section_id, {}).get("content", "")
