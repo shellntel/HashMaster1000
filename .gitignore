@@ -32,19 +32,10 @@ build/
 
 # Uploads and user data
 uploads/
-data/sessions/
 
-# Potfiles (contain cracked password hashes - sensitive data)
-data/*.potfile
-*.potfile
-
-# Generated data files (session outputs, AI analysis, etc)
-data/ai_analysis/
-data/current_session.json
-data/aaia_results.json
-data/timing_stats.json
-data/users.json
-data/users.json.bak
+# Data folder - contains runtime data, user accounts, sessions, analysis results
+# This entire folder should not be in version control
+data/
 
 # Test outputs
 test_outputs/
