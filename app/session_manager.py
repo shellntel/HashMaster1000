@@ -8,7 +8,7 @@ different password audit projects. Each session contains:
 - Session metadata (name, timestamp, user, source file info)
 
 Sessions are stored in data/sessions/<session_id>/ folders.
-The current active session is tracked in data/current_session.json.
+The current active session is tracked per-user in Flask session storage.
 """
 
 import os
@@ -19,6 +19,15 @@ import uuid
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Any
+
+# Import Flask session for per-user session tracking
+try:
+    from flask import session as flask_session, has_request_context
+    FLASK_SESSION_AVAILABLE = True
+except ImportError:
+    FLASK_SESSION_AVAILABLE = False
+    flask_session = None
+    has_request_context = lambda: False
 
 
 @dataclass
@@ -380,38 +389,97 @@ class SessionManager:
 
     def get_current_session(self) -> dict[str, str] | None:
         """
-        Get the current active session info.
+        Get the current active session info for the current user.
 
         Returns dict with session_id and user, or None if no active session.
+
+        Uses Flask session storage for per-user tracking when available.
+        Falls back to global file for backward compatibility.
         """
+        # Use Flask session if available (per-user isolation)
+        if FLASK_SESSION_AVAILABLE and has_request_context():
+            session_id = flask_session.get('current_session_id')
+            username = flask_session.get('current_session_user')
+            set_at = flask_session.get('current_session_set_at')
+
+            if session_id:
+                # Verify session still exists
+                if self.get_session(session_id):
+                    return {
+                        "session_id": session_id,
+                        "user": username or "unknown",
+                        "set_at": set_at or datetime.now().isoformat()
+                    }
+                else:
+                    # Session was deleted, clear from Flask session
+                    flask_session.pop('current_session_id', None)
+                    flask_session.pop('current_session_user', None)
+                    flask_session.pop('current_session_set_at', None)
+                    return None
+
+            return None
+
+        # Fallback to global file (legacy/non-HTTP contexts)
         if not os.path.exists(self.CURRENT_SESSION_FILE):
             return None
 
-        with open(self.CURRENT_SESSION_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(self.CURRENT_SESSION_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
 
     def set_current_session(self, session_id: str, username: str) -> bool:
         """
-        Set the current active session.
+        Set the current active session for the current user.
 
         Returns False if session doesn't exist.
+
+        Uses Flask session storage for per-user tracking when available.
+        Falls back to global file for backward compatibility.
         """
         if not self.get_session(session_id):
             return False
 
-        with open(self.CURRENT_SESSION_FILE, 'w') as f:
-            json.dump({
-                "session_id": session_id,
-                "user": username,
-                "set_at": datetime.now().isoformat()
-            }, f, indent=2)
+        # Use Flask session if available (per-user isolation)
+        if FLASK_SESSION_AVAILABLE and has_request_context():
+            flask_session['current_session_id'] = session_id
+            flask_session['current_session_user'] = username
+            flask_session['current_session_set_at'] = datetime.now().isoformat()
+            flask_session.modified = True  # Ensure session is saved
+            return True
 
-        return True
+        # Fallback to global file (legacy/non-HTTP contexts)
+        try:
+            with open(self.CURRENT_SESSION_FILE, 'w') as f:
+                json.dump({
+                    "session_id": session_id,
+                    "user": username,
+                    "set_at": datetime.now().isoformat()
+                }, f, indent=2)
+            return True
+        except IOError:
+            return False
 
     def clear_current_session(self):
-        """Clear the current session pointer."""
+        """
+        Clear the current session pointer for the current user.
+
+        Uses Flask session storage when available, falls back to global file.
+        """
+        # Clear from Flask session if available
+        if FLASK_SESSION_AVAILABLE and has_request_context():
+            flask_session.pop('current_session_id', None)
+            flask_session.pop('current_session_user', None)
+            flask_session.pop('current_session_set_at', None)
+            flask_session.modified = True
+
+        # Also clear global file (for backward compatibility)
         if os.path.exists(self.CURRENT_SESSION_FILE):
-            os.remove(self.CURRENT_SESSION_FILE)
+            try:
+                os.remove(self.CURRENT_SESSION_FILE)
+            except OSError:
+                pass  # Ignore if file can't be removed
 
     def get_session_data_path(self, filename: str, session_id: str | None = None) -> str:
         """

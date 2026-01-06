@@ -10,3 +10,4 @@ cryptography
 nltk
 requests
 aiohttp
+gunicorn
