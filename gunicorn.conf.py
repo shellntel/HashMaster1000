@@ -23,9 +23,9 @@ backlog = 2048
 
 # Worker Processes
 # Calculate workers based on CPU cores: (2 x num_cores) + 1
-workers = multiprocessing.cpu_count() * 2 + 1
+# workers = multiprocessing.cpu_count() * 2 + 1
 # For small teams (2-5 users), you can use a fixed number:
-# workers = 4
+workers = 8  # Good for 2-10 concurrent users, lower memory usage
 
 # Worker Class
 # 'gthread' = hybrid threading model (best for I/O-bound operations like AAIA)
