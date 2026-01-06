@@ -77,11 +77,12 @@ preload_app = False  # Set to True for production, False for development
 # Worker Connections (for async workers only - not used with gthread)
 # worker_connections = 1000
 
-# Ensure log directory exists
+# Ensure log directory exists BEFORE any logging starts
+import os
+os.makedirs("logs", exist_ok=True)
+
 def on_starting(server):
     """Callback when Gunicorn master starts."""
-    import os
-    os.makedirs("logs", exist_ok=True)
     print(f"Starting HM1K with {workers} workers, {threads} threads per worker")
     print(f"Total concurrent capacity: {workers * threads} requests")
     print(f"Timeout set to {timeout}s for long-running AAIA analysis")
