@@ -36,12 +36,21 @@ def main():
     threads = 8  # Concurrent request capacity
     timeout = 900  # 15 minutes for long AAIA runs
 
+    # SSL certificate paths
+    certfile = "cert.pem"
+    keyfile = "key.pem"
+
+    # Check if SSL certificates exist
+    use_ssl = os.path.exists(certfile) and os.path.exists(keyfile)
+    protocol = "https" if use_ssl else "http"
+
     # Startup banner
     print("=" * 70)
     print("Hash Master 1000 - Waitress Production Server")
     print("=" * 70)
     print(f"Server:          Waitress (Windows/Linux/macOS compatible)")
-    print(f"Listening on:    https://{host}:{port}")
+    print(f"Listening on:    {protocol}://{host}:{port}")
+    print(f"SSL/TLS:         {'Enabled (cert.pem, key.pem)' if use_ssl else 'Disabled (certificates not found)'}")
     print(f"Threads:         {threads} (concurrent request capacity)")
     print(f"Timeout:         {timeout}s (15 minutes for AAIA analysis)")
     print(f"Environment:     {'Windows' if sys.platform == 'win32' else sys.platform}")
@@ -51,21 +60,26 @@ def main():
     print()
 
     try:
-        serve(
-            app,
-            host=host,
-            port=port,
-            threads=threads,
-            channel_timeout=timeout,
-            url_scheme='https',
-            ident='HM1K/1.0',
-            # Waitress-specific tuning
-            asyncore_use_poll=True,  # Better performance on Windows
-            connection_limit=1000,   # Max simultaneous connections
-            cleanup_interval=30,     # Clean up idle connections every 30s
-            recv_bytes=8192,         # Receive buffer size
-            send_bytes=8192          # Send buffer size
-        )
+        # Build server arguments
+        server_args = {
+            'app': app,
+            'host': host,
+            'port': port,
+            'threads': threads,
+            'channel_timeout': timeout,
+            'ident': 'HM1K/1.0',
+            'asyncore_use_poll': True,
+            'connection_limit': 1000,
+            'cleanup_interval': 30,
+            'recv_bytes': 8192,
+            'send_bytes': 8192
+        }
+
+        # Add SSL if certificates exist
+        if use_ssl:
+            server_args['url_scheme'] = 'https'
+
+        serve(**server_args)
     except KeyboardInterrupt:
         print("\n" + "=" * 70)
         print("Server stopped by user")
