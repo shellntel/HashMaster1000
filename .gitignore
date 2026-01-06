@@ -42,6 +42,9 @@ data/*.potfile
 data/ai_analysis/
 data/current_session.json
 data/aaia_results.json
+data/timing_stats.json
+data/users.json
+data/users.json.bak
 
 # Test outputs
 test_outputs/
