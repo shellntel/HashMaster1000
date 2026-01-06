@@ -210,6 +210,34 @@
 						<div id="aaiaServerStatus" class="aaia-server-status">
 							<p>Loading configuration...</p>
 						</div>
+						<!-- SPI Sampling Configuration -->
+						<div id="aaiaSPIConfig" class="aaia-spi-config" style="display: none; margin-bottom: 20px; padding: 15px; background: #2a2a3e; border-radius: 8px;">
+							<h3 style="margin-top: 0; margin-bottom: 10px; font-size: 16px;">Semantic Password Intelligence (SPI) Sampling</h3>
+							<p style="margin: 0 0 15px 0; color: #9ca3af; font-size: 13px;">
+								Configure how many passwords to analyze for SPI categories (sports, companies, languages, etc.)
+							</p>
+							<div style="display: flex; flex-direction: column; gap: 12px;">
+								<div style="display: flex; align-items: center; gap: 10px;">
+									<label for="spiMaxPasswords" style="min-width: 140px; font-size: 14px;">Sample Size:</label>
+									<select id="spiMaxPasswords" class="aaia-section-model-select" style="flex: 1; max-width: 300px;">
+										<option value="500" selected>500 passwords (Recommended - Fast)</option>
+										<option value="1000">1,000 passwords (More accurate, slower)</option>
+										<option value="2000">2,000 passwords (High accuracy, slow)</option>
+										<option value="0">All passwords (Most accurate, slowest)</option>
+									</select>
+								</div>
+								<div style="display: flex; align-items: center; gap: 10px;">
+									<label style="min-width: 140px; font-size: 14px;">
+										<input type="checkbox" id="spiIntelligentSampling" checked style="margin-right: 5px;">
+										Intelligent Filtering
+									</label>
+									<span style="color: #9ca3af; font-size: 12px;">Filter out random character passwords to improve accuracy</span>
+								</div>
+								<div id="spiSamplingNote" style="padding: 10px; background: #1f2937; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 12px; color: #9ca3af; display: none;">
+									<!-- Will show sampling recommendations based on dataset size -->
+								</div>
+							</div>
+						</div>
 						<div id="aaiaSectionConfig" class="aaia-section-config" style="display: none;">
 							<h3>Analysis Sections</h3>
 							<p class="aaia-config-help">Each section has a recommended model. Available models are shown based on your server capabilities.</p>
@@ -6988,6 +7016,29 @@
 						</div>
 					`;
 
+					// Show SPI sampling configuration
+					const spiConfigDiv = document.getElementById('aaiaSPIConfig');
+					const spiSamplingNote = document.getElementById('spiSamplingNote');
+					spiConfigDiv.style.display = 'block';
+
+					// Show sampling recommendation based on dataset size (if available in config)
+					if (aaiaConfig.total_passwords) {
+						const totalPw = aaiaConfig.total_passwords;
+						let recommendation = '';
+						if (totalPw <= 500) {
+							recommendation = `✓ Your dataset has ${totalPw} passwords. No sampling needed - all passwords will be analyzed.`;
+							spiSamplingNote.style.borderColor = '#10b981';  // Green
+						} else if (totalPw <= 1000) {
+							recommendation = `ℹ Your dataset has ${totalPw} passwords. Sampling recommended for faster analysis. Default (500) will analyze ${Math.round(500/totalPw*100)}% of passwords.`;
+							spiSamplingNote.style.borderColor = '#3b82f6';  // Blue
+						} else {
+							recommendation = `⚠ Your dataset has ${totalPw} passwords. Sampling highly recommended. Default (500) will analyze ${Math.round(500/totalPw*100)}% of passwords.`;
+							spiSamplingNote.style.borderColor = '#f59e0b';  // Orange
+						}
+						spiSamplingNote.innerHTML = recommendation;
+						spiSamplingNote.style.display = 'block';
+					}
+
 					// Build section configuration UI
 					const sectionListDiv = document.getElementById('aaiaSectionList');
 					sectionListDiv.innerHTML = '';
@@ -7191,8 +7242,12 @@
 				const firstConfig = Object.values(aaiaSectionConfigs)[0];
 				const serverId = firstConfig?.server_id || 'primary';
 
-				// Build SSE URL with query params
-				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}`;
+				// Get SPI configuration from UI
+				const spiMaxPasswords = document.getElementById('spiMaxPasswords')?.value || '500';
+				const spiIntelligentSampling = document.getElementById('spiIntelligentSampling')?.checked ? 'true' : 'false';
+
+				// Build SSE URL with query params (including SPI config)
+				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}&spi_max_passwords=${encodeURIComponent(spiMaxPasswords)}&spi_intelligent_sampling=${encodeURIComponent(spiIntelligentSampling)}`;
 				console.log('Starting SSE connection to:', sseUrl);
 
 				// Create EventSource for SSE streaming
@@ -7307,8 +7362,12 @@
 				const firstConfig = Object.values(aaiaSectionConfigs)[0];
 				const serverId = firstConfig?.server_id || 'primary';
 
-				// Build SSE URL with skip_phase1=true
-				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}&skip_phase1=true`;
+				// Get SPI configuration from UI (same values as initial run)
+				const spiMaxPasswords = document.getElementById('spiMaxPasswords')?.value || '500';
+				const spiIntelligentSampling = document.getElementById('spiIntelligentSampling')?.checked ? 'true' : 'false';
+
+				// Build SSE URL with skip_phase1=true and SPI config
+				const sseUrl = `/api/ai/report/pipeline/stream?sections=all&server_id=${encodeURIComponent(serverId)}&skip_phase1=true&spi_max_passwords=${encodeURIComponent(spiMaxPasswords)}&spi_intelligent_sampling=${encodeURIComponent(spiIntelligentSampling)}`;
 				console.log('Starting SSE connection to:', sseUrl);
 
 				// Create EventSource for SSE streaming

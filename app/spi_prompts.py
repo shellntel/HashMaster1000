@@ -84,11 +84,13 @@ SPI_CATEGORIES = {
     "sports": {
         "name": "Sports References",
         "description": "Passwords referencing sports teams, athletes, sporting events, or sports terminology.",
-        "include": """- Professional and college team names (Lakers, Patriots, ManUtd, Yankees)
+        "include": """- Professional and college team names, including abbreviations (Lakers, Patriots, ManUtd, Yankees, Azcardinals, LALakers)
+- Team names with location prefixes (ArizonaCardinals, LosAngelesLakers, NYYankees)
 - Athlete names (Lebron, Brady, Messi, Jordan23)
 - Sports terminology (touchdown, homerun, goalkeeper)
 - Stadium/venue names (Fenway, Wembley)
-- Championships/events (Superbowl, WorldCup, March Madness)""",
+- Championships/events (Superbowl, WorldCup, MarchMadness)
+- Fan expressions with team names (Lakers4life, GoBroncos, ChiefsKingdom)""",
         "exclude": """- Generic words that happen to also be sports terms (winner, champion, goal)
 - Common names that happen to match athletes unless clearly sports-related
 - Numbers without sports context (23 alone is not sports, Jordan23 is)""",
@@ -97,11 +99,14 @@ Lebron#1Fan
 yankees99
 Touchdown!
 messi10goat
-ChiefsKingdom""",
+ChiefsKingdom
+Azcardinals24!
+!Lakers4life09
+DallasCowboys#1""",
         "examples_nomatch": """champion2024 (generic motivational word)
 Michael23 (common name, no clear sports context)
 winner! (generic word)
-goalkeeper (could be sports but too generic without context)"""
+goalkeeper (too generic, no team/context)"""
     },
 
     "pop_culture": {
@@ -130,46 +135,57 @@ Michael123 (common name, not clearly a character reference)"""
     "company": {
         "name": "Company & Organization References",
         "description": "Passwords referencing the organization name, products, internal terms, or competitor names.",
-        "include": """- Company name or abbreviations (Acme, ACME2024)
-- Product or service names specific to the organization
+        "include": """- Company name or abbreviations (Acme, ACME2024, Microsoft, Google)
+- Product or service names specific to an organization
 - Internal project codenames or department names
 - Competitor company names
 - Industry-specific company references
-- Building names or office locations""",
-        "exclude": """- Generic business terms (admin, corporate, office)
-- Common industry words without company context
-- Job titles (manager, developer)""",
+- Building names or office locations (when company-specific)""",
+        "exclude": """- Generic business terms (admin, corporate, office, manager)
+- Generic password patterns with initials (AB.password123, XY.password001)
+- Generic greeting words (Welcome, Hello, Greetings) even with numbers
+- Job titles (manager, developer, director)
+- Common abbreviations that aren't company-specific (SK, CG, DS, NJ, DB, TK, JR)
+- Location names (these belong in Geographic category, not Company)""",
         "examples_match": """AcmeCorp2024
 ProjectPhoenix!
-Building3Admin
-CompetitorSucks
-OurProduct#1""",
+MicrosoftRocks
+GoogleEmployee
+SalesforceAdmin
+CompetitorSucks""",
         "examples_nomatch": """admin2024 (generic IT term)
 corporate! (generic business word)
-manager123 (job title, not company-specific)"""
+manager123 (job title, not company-specific)
+Welcome@123456 (generic greeting + generic pattern)
+SK.password666 (generic pattern: initials + password + number)
+CG.password103 (generic pattern: initials + password + number)
+LosAngeles_2028 (location, belongs in Geographic)"""
     },
 
     "geographic": {
         "name": "Geographic References",
         "description": "Passwords referencing cities, countries, regions, landmarks, or locations.",
-        "include": """- City names (Chicago, London, Tokyo2024)
-- Country names (America, Deutschland, Brasil)
-- State/province/region names (California, Bavaria, Ontario)
-- Landmarks and monuments (Eiffel, BigBen, Statue)
+        "include": """- City names, including compound forms (Chicago, London, Tokyo2024, LosAngeles, NewYork, SanFrancisco)
+- City names with underscores or years (LosAngeles_2028, NYC_2024, Paris2025)
+- Country names (America, Deutschland, Brasil, USA)
+- State/province/region names (California, Bavaria, Ontario, Texas)
+- Landmarks and monuments (Eiffel, BigBen, Statue, GoldenGate)
 - Street names or addresses (MainStreet, 5thAve)
-- Neighborhood names (Brooklyn, Shibuya)""",
-        "exclude": """- Common words that happen to be place names (Paris the name vs Paris the city - include if clearly geographic)
-- Generic directional words (north, east, central)
-- Words that are both common words and places (Jersey as clothing vs New Jersey)""",
+- Neighborhood names (Brooklyn, Shibuya, Manhattan)""",
+        "exclude": """- Generic directional words without location context (north, east, central alone)
+- Common first names that happen to be place names (Paris as a name - but LosAngeles is clearly a city)
+- Very ambiguous cases (Jersey alone could be clothing)""",
         "examples_match": """NYC2024!
 California$un
 Tokyo#1
 ParisLove
 Deutschland99
-LondonBridge""",
-        "examples_nomatch": """Central123 (generic directional)
+LondonBridge
+LosAngeles_2028
+SanDiego#1""",
+        "examples_nomatch": """Central123 (generic directional, no city/country)
 North2024 (generic directional)
-jersey99 (ambiguous - could be clothing)"""
+jersey99 (ambiguous, no clear location context)"""
     },
 
     "religious": {

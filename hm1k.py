@@ -591,6 +591,8 @@ def login() -> FlaskResponse:
 @login_required
 def logout() -> Response:
     logout_user()
+    # Clear Flask session (including session_id for multi-user mode)
+    session.clear()
     return cast(FlaskResponse, redirect(url_for("login")))
 
 
@@ -4633,6 +4635,10 @@ def ai_pipeline_stream() -> Response:
     server_id = request.args.get("server_id", "primary")
     skip_phase1 = request.args.get("skip_phase1", "false").lower() == "true"
 
+    # SPI configuration from UI (not .env)
+    spi_max_passwords = request.args.get("spi_max_passwords", "500")
+    spi_intelligent_sampling = request.args.get("spi_intelligent_sampling", "true").lower() == "true"
+
     # Determine sections to process
     all_sections = get_ai_report_sections()
 
@@ -4829,8 +4835,21 @@ def ai_pipeline_stream() -> Response:
                             current_model = phase1_model
                             yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
 
-                        # Initialize SPI analyzer
-                        spi_analyzer = SPIAnalyzer(session_dir)
+                        # Initialize SPI analyzer with UI-configured sampling
+                        # (spi_max_passwords and spi_intelligent_sampling already parsed from request.args above)
+
+                        # Convert max_passwords: None if 0 or empty, otherwise int
+                        try:
+                            max_pw = int(spi_max_passwords) if spi_max_passwords else 500
+                            max_pw = None if max_pw == 0 else max_pw
+                        except ValueError:
+                            max_pw = 500  # Fallback to default
+
+                        spi_analyzer = SPIAnalyzer(
+                            session_dir,
+                            max_passwords=max_pw,
+                            intelligent_sampling=spi_intelligent_sampling
+                        )
                         passwords, sampling_used, sampling_note = spi_analyzer.get_passwords_for_analysis()
 
                         if not passwords:
@@ -6325,9 +6344,21 @@ def aaia_get_config() -> Response:
             "pipeline": section_info.get("pipeline", "standard")
         })
 
+    # Get total unique passwords for SPI sampling recommendation
+    total_passwords = 0
+    try:
+        session_dir = get_session_manager().get_current_session_dir()
+        if session_dir:
+            from app.spi_analyzer import SPIAnalyzer
+            analyzer = SPIAnalyzer(session_dir)
+            total_passwords = len(analyzer._get_password_set())
+    except Exception:
+        pass  # If we can't get password count, just don't show recommendation
+
     return jsonify({
         "servers": online_servers,
-        "sections": sorted(sections_config, key=lambda x: x["order"])
+        "sections": sorted(sections_config, key=lambda x: x["order"]),
+        "total_passwords": total_passwords
     })
 
 

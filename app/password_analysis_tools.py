@@ -1140,14 +1140,17 @@ def bad_practices_analysis(
 
         # Check 7: First name or initials + last name patterns
         # e.g., "jsmith" -> check "smith" and "j"+"smith" variations
-        if len(username_base) >= 5:
+        # Made more conservative to reduce false positives (require 5+ char last names, stricter initial placement)
+        if len(username_base) >= 6:
             # Check if last N chars (potential last name) appear in password
-            for name_len in range(4, min(len(username_base), 8)):
+            # Require at least 5 chars to avoid false positives like "amil" in "Family"
+            for name_len in range(5, min(len(username_base), 8)):
                 potential_name = username_base[-name_len:]
                 if potential_name in pw_lower or potential_name in pw_deleet:
-                    # Only flag if there's also some connection to initial
+                    # Only flag if the initial is at position 0 or 1 (more strict)
+                    # This reduces false positives where the initial just happens to appear early
                     first_char = username_base[0]
-                    if first_char in pw_lower[:3]:  # Initial near start
+                    if pw_lower[0] == first_char or (len(pw_lower) > 1 and pw_lower[1] == first_char):
                         return True
 
         return False

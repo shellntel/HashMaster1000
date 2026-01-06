@@ -61,17 +61,29 @@ class SPIAnalyzer:
     Coordinates LLM extraction, validation, and report generation.
     """
 
-    # Maximum passwords to send to LLM (sampling threshold)
-    MAX_PASSWORDS_FOR_LLM = 500
+    # Default maximum passwords to send to LLM (sampling threshold)
+    # Can be overridden in __init__ or set to None to disable sampling
+    DEFAULT_MAX_PASSWORDS = 500
 
-    def __init__(self, session_dir: Path | str):
+    def __init__(
+        self,
+        session_dir: Path | str,
+        max_passwords: int | None = None,
+        intelligent_sampling: bool = True
+    ):
         """
         Initialize analyzer with session directory.
 
         Args:
             session_dir: Path to session directory containing account_data.json
+            max_passwords: Maximum passwords for LLM analysis. None = no limit (analyze all)
+                          Default uses DEFAULT_MAX_PASSWORDS (500)
+            intelligent_sampling: Use smart filtering to exclude likely non-matches
+                                 (e.g., random character passwords) from sample
         """
         self.session_dir = Path(session_dir)
+        self.max_passwords = max_passwords if max_passwords is not None else self.DEFAULT_MAX_PASSWORDS
+        self.intelligent_sampling = intelligent_sampling
         self._account_data: dict | None = None
         self._password_set: set[str] | None = None
         self._password_counts: dict[str, int] | None = None
@@ -116,9 +128,67 @@ class SPIAnalyzer:
         self._password_set = set(self._get_password_counts().keys())
         return self._password_set
 
+    def _is_likely_semantic_password(self, password: str) -> bool:
+        """
+        Determine if a password is likely to contain semantic content.
+
+        Filters out random character passwords that are unlikely to match
+        any SPI categories (languages, brands, sports, etc.).
+
+        Returns:
+            True if password might contain semantic content, False if likely random
+        """
+        # Don't filter if intelligent sampling is disabled
+        if not self.intelligent_sampling:
+            return True
+
+        # Very short passwords (<4 chars) are unlikely to have semantic meaning
+        if len(password) < 4:
+            return False
+
+        # Count character types
+        has_letter = any(c.isalpha() for c in password)
+        letter_count = sum(c.isalpha() for c in password)
+        digit_count = sum(c.isdigit() for c in password)
+        special_count = sum(not c.isalnum() for c in password)
+
+        # Must have at least some letters for semantic content
+        if not has_letter:
+            return False
+
+        # Check for consecutive letters (indicates potential words)
+        consecutive_letters = 0
+        max_consecutive = 0
+        for c in password:
+            if c.isalpha():
+                consecutive_letters += 1
+                max_consecutive = max(max_consecutive, consecutive_letters)
+            else:
+                consecutive_letters = 0
+
+        # If longest letter sequence is < 3, likely random (e.g., "a2!b9#c")
+        if max_consecutive < 3:
+            return False
+
+        # Check for patterns that suggest semantic content:
+        # - Mostly letters with some numbers/special (like "Summer2024!")
+        # - Has word-like structure (consonant-vowel patterns)
+        letter_ratio = letter_count / len(password)
+
+        # If mostly letters (>50%), likely semantic
+        if letter_ratio >= 0.5:
+            return True
+
+        # If mix of types but has decent letter sequences, might be semantic
+        if max_consecutive >= 4:
+            return True
+
+        # Otherwise, likely random
+        return False
+
     def get_passwords_for_analysis(self) -> tuple[list[str], bool, str]:
         """
-        Get passwords ready for LLM analysis.
+        Get passwords ready for LLM analysis with optional sampling and filtering.
 
         Returns:
             Tuple of (password_list, sampling_used, sampling_note)
@@ -137,28 +207,45 @@ class SPIAnalyzer:
 
         sampling_used = False
         sampling_note = ""
+        filtered_count = 0
 
-        if total_unique > self.MAX_PASSWORDS_FOR_LLM:
+        # Check if sampling is needed
+        if self.max_passwords and total_unique > self.max_passwords:
             sampling_used = True
             import random
 
-            # Keep all reused passwords + sample of unique
+            # Separate reused vs unique passwords
             reused = [(pw, count) for pw, count in sorted_passwords if count > 1]
             unique = [(pw, count) for pw, count in sorted_passwords if count == 1]
 
-            remaining_slots = self.MAX_PASSWORDS_FOR_LLM - len(reused)
+            # Apply intelligent filtering to unique passwords if enabled
+            if self.intelligent_sampling:
+                unique_before = len(unique)
+                unique = [(pw, count) for pw, count in unique if self._is_likely_semantic_password(pw)]
+                filtered_count = unique_before - len(unique)
+
+            # Calculate how many slots we have for sampling
+            remaining_slots = self.max_passwords - len(reused)
 
             if remaining_slots > 0 and unique:
+                # Sample from filtered unique passwords
                 sampled_unique = random.sample(unique, min(remaining_slots, len(unique)))
                 sorted_passwords = reused + sampled_unique
             else:
-                sorted_passwords = reused[:self.MAX_PASSWORDS_FOR_LLM]
+                # If reused alone exceeds limit, just take first N reused
+                sorted_passwords = reused[:self.max_passwords]
 
-            sampling_note = (
-                f"Dataset contains {total_unique:,} unique passwords. "
-                f"Analysis based on {len(sorted_passwords)} passwords "
-                f"({len(reused)} reused + {len(sorted_passwords) - len(reused)} sampled)."
-            )
+            # Build sampling note
+            parts = [
+                f"Dataset contains {total_unique:,} unique passwords.",
+                f"Analysis based on {len(sorted_passwords)} passwords",
+                f"({len(reused)} reused + {len(sorted_passwords) - len(reused)} sampled)"
+            ]
+
+            if filtered_count > 0:
+                parts.append(f"Filtered out {filtered_count} likely non-semantic passwords")
+
+            sampling_note = " ".join(parts) + "."
 
         # Return just the passwords (without counts)
         return [pw for pw, _ in sorted_passwords], sampling_used, sampling_note
