@@ -1,0 +1,26 @@
+{
+  "njoyzrd": {
+    "password_hash": "$2b$12$EpqDv22DD32SAo8p1452H.UmzzMBNaEq6595yN3LCszNqswcKZjmC",
+    "role": "user",
+    "can_view_passwords": true,
+    "force_password_change": true,
+    "created_at": "2026-01-04T03:00:10.484030Z",
+    "created_by": "admin"
+  },
+  "audit": {
+    "password_hash": "$2b$12$vntmupzzjAfS0YuCK81ur.aimbR5X0R3FkwiL0iwivQ1owzkZXDMy",
+    "role": "admin",
+    "can_view_passwords": true,
+    "force_password_change": true,
+    "created_at": "2026-01-04T03:01:05.219326Z",
+    "created_by": "admin"
+  },
+  "bjudd": {
+    "password_hash": "$2b$12$eGA7Mua54A9meOun9vL0t.dYPLNoUO5Bqfkr2N34oJdPhegLwpQMG",
+    "role": "user",
+    "can_view_passwords": false,
+    "force_password_change": true,
+    "created_at": "2026-01-06T00:26:06.319524Z",
+    "created_by": "admin"
+  }
+}

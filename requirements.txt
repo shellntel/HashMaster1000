@@ -10,4 +10,5 @@ cryptography
 nltk
 requests
 aiohttp
-gunicorn
+gunicorn; sys_platform != 'win32'
+waitress

@@ -45,6 +45,8 @@ This guide explains how to deploy Hash Master 1000 for concurrent multi-user acc
 
 For quick testing with 2-3 concurrent users:
 
+### Linux/macOS (Gunicorn)
+
 ```bash
 # Activate virtual environment
 source .venv/bin/activate
@@ -52,8 +54,21 @@ source .venv/bin/activate
 # Install Gunicorn
 pip install gunicorn
 
-# Run with Gunicorn (4 workers, 2 threads each = 8 concurrent)
+# Run with Gunicorn (8 workers, 2 threads each = 16 concurrent)
 gunicorn -c gunicorn.conf.py hm1k:app
+```
+
+### Windows (Waitress)
+
+```powershell
+# Activate virtual environment
+.venv\Scripts\activate
+
+# Install Waitress
+pip install waitress
+
+# Run with Waitress (8 threads = 8 concurrent)
+python waitress_server.py
 ```
 
 Access at: `https://localhost:8443`
@@ -345,6 +360,57 @@ tail -f logs/gunicorn_access.log
 tail -f logs/gunicorn_error.log
 ```
 
+## Windows Production Deployment
+
+For Windows production deployments, use Waitress with NSSM (Non-Sucking Service Manager) to run as a Windows service:
+
+### 1. Install NSSM
+
+Download from: https://nssm.cc/download
+
+### 2. Install HM1K as Windows Service
+
+```powershell
+# Install the service
+nssm install hm1k "F:\apps\hm1k-internal\hm1k\Scripts\python.exe" "F:\apps\hm1k-internal\waitress_server.py"
+
+# Set working directory
+nssm set hm1k AppDirectory "F:\apps\hm1k-internal"
+
+# Set startup type (auto-start on boot)
+nssm set hm1k Start SERVICE_AUTO_START
+
+# Start the service
+nssm start hm1k
+```
+
+### 3. Manage Service
+
+```powershell
+# Check status
+nssm status hm1k
+
+# Stop service
+nssm stop hm1k
+
+# Restart service
+nssm restart hm1k
+
+# Remove service
+nssm remove hm1k confirm
+```
+
+### 4. View Logs
+
+Waitress logs to console, which NSSM redirects to:
+- `C:\Windows\System32\config\systemprofile\AppData\Local\NSSM\hm1k\logs\`
+
+Or configure custom log paths:
+```powershell
+nssm set hm1k AppStdout "F:\apps\hm1k-internal\logs\waitress_output.log"
+nssm set hm1k AppStderr "F:\apps\hm1k-internal\logs\waitress_error.log"
+```
+
 ## Scaling Beyond 10 Users
 
 For larger deployments (>10 concurrent users):
@@ -354,14 +420,14 @@ For larger deployments (>10 concurrent users):
 ```
 Internet → Nginx (SSL, load balancing, static files)
             ↓
-          Gunicorn (HM1K)
+          Gunicorn/Waitress (HM1K)
 ```
 
 Benefits:
 - Better SSL performance
 - Serve static files faster
 - Rate limiting
-- Multiple Gunicorn instances
+- Multiple backend instances
 
 ### Option 2: Multiple Ollama Servers
 
