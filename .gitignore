@@ -47,3 +47,6 @@ benchmark_results/
 
 # Domain output file (generated)
 hm_domainoutput.json
+
+# Deployment scripts (environment-specific)
+update_hm1k.sh
