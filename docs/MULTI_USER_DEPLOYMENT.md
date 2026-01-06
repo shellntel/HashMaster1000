@@ -43,9 +43,9 @@ This guide explains how to deploy Hash Master 1000 for concurrent multi-user acc
 
 ## Quick Start (Development/Testing)
 
-For quick testing with 2-3 concurrent users:
+### Linux/macOS (Recommended for Production)
 
-### Linux/macOS (Gunicorn)
+For production multi-user deployments with concurrent access:
 
 ```bash
 # Activate virtual environment
@@ -58,22 +58,31 @@ pip install gunicorn
 gunicorn -c gunicorn.conf.py hm1k:app
 ```
 
-### Windows (Waitress)
+Access at: `https://localhost:8443`
+
+### Windows (Development Only)
+
+**Note:** Windows is **not recommended for production** multi-user deployments. For development and testing:
 
 ```powershell
 # Activate virtual environment
 .venv\Scripts\activate
 
-# Install Waitress
-pip install waitress
-
-# Run with Waitress (8 threads = 8 concurrent)
-python waitress_server.py
+# Run Flask dev server (supports 2-3 concurrent users via threading)
+python hm1k.py
 ```
 
 Access at: `https://localhost:8443`
 
-## Production Deployment (systemd)
+**Windows Limitations:**
+- Flask dev server supports basic concurrency via threading (adequate for 2-3 users)
+- Gunicorn does not support Windows (requires Unix-specific features)
+- Waitress requires Nginx reverse proxy for HTTPS (complex setup)
+- For production multi-user deployments (5+ concurrent users), **use Linux**
+
+## Production Deployment (Linux/macOS - systemd)
+
+**Recommended Platform:** Linux (Ubuntu, CentOS, Debian, etc.)
 
 For production use with automatic startup and restart:
 
@@ -360,56 +369,59 @@ tail -f logs/gunicorn_access.log
 tail -f logs/gunicorn_error.log
 ```
 
-## Windows Production Deployment
+## Windows Deployment (Not Recommended for Production)
 
-For Windows production deployments, use Waitress with NSSM (Non-Sucking Service Manager) to run as a Windows service:
+**Important:** Windows is **not officially supported** for production multi-user deployments.
 
-### 1. Install NSSM
+### Why Windows is Not Recommended:
 
-Download from: https://nssm.cc/download
+1. **No native WSGI server support:**
+   - Gunicorn (best performance) requires Unix-specific features (fork, fcntl, signals)
+   - Waitress requires Nginx reverse proxy for HTTPS (complex setup)
 
-### 2. Install HM1K as Windows Service
+2. **Flask dev server limitations:**
+   - Designed for development, not production
+   - Basic threading support (adequate for 2-3 users, not production scale)
+   - Less robust error handling and recovery
+
+3. **Production features unavailable:**
+   - No process management (Gunicorn workers, auto-restart on crashes)
+   - No worker recycling (memory leak prevention)
+   - Limited monitoring and logging capabilities
+
+### For Windows Users Who Need Production Deployment:
+
+**Option 1: Use Linux (Recommended)**
+- Deploy on Ubuntu Server, CentOS, or Debian
+- Use Gunicorn with systemd for production-grade multi-user support
+- Full support for all HM1K features
+
+**Option 2: Windows Workaround (Advanced Users Only)**
+- Install Nginx for Windows (handles HTTPS)
+- Install Waitress (handles Python WSGI)
+- Configure Nginx → Waitress reverse proxy
+- Use NSSM for Windows service management
+- **Note:** This is complex and not officially supported
+
+**Option 3: WSL2 (Windows Subsystem for Linux)**
+- Run Ubuntu in WSL2
+- Deploy using Linux instructions (Gunicorn + systemd)
+- Access from Windows host via `localhost`
+
+### Development on Windows
+
+For development and testing (2-3 concurrent users):
 
 ```powershell
-# Install the service
-nssm install hm1k "F:\apps\hm1k-internal\hm1k\Scripts\python.exe" "F:\apps\hm1k-internal\waitress_server.py"
-
-# Set working directory
-nssm set hm1k AppDirectory "F:\apps\hm1k-internal"
-
-# Set startup type (auto-start on boot)
-nssm set hm1k Start SERVICE_AUTO_START
-
-# Start the service
-nssm start hm1k
+# Use Flask dev server
+python hm1k.py
 ```
 
-### 3. Manage Service
-
-```powershell
-# Check status
-nssm status hm1k
-
-# Stop service
-nssm stop hm1k
-
-# Restart service
-nssm restart hm1k
-
-# Remove service
-nssm remove hm1k confirm
-```
-
-### 4. View Logs
-
-Waitress logs to console, which NSSM redirects to:
-- `C:\Windows\System32\config\systemprofile\AppData\Local\NSSM\hm1k\logs\`
-
-Or configure custom log paths:
-```powershell
-nssm set hm1k AppStdout "F:\apps\hm1k-internal\logs\waitress_output.log"
-nssm set hm1k AppStderr "F:\apps\hm1k-internal\logs\waitress_error.log"
-```
+This provides:
+- ✅ HTTPS support (cert.pem, key.pem)
+- ✅ Basic threading (2-3 concurrent users)
+- ✅ All HM1K features
+- ❌ Not suitable for production (5+ users)
 
 ## Scaling Beyond 10 Users
 

@@ -11,4 +11,3 @@ nltk
 requests
 aiohttp
 gunicorn; sys_platform != 'win32'
-waitress
