@@ -6800,6 +6800,35 @@ def delete_comparison_result(comparison_id: str) -> Response:
         return jsonify({"error": str(e)}), 500
 
 
+# ============================================================================
+# Module-Level Initialization (runs on import for both Flask dev server and Gunicorn)
+# ============================================================================
+
+# Initialize local HIBP database if configured (uses binary search - no memory loading)
+# This runs at module import time, so it executes in every Gunicorn worker process
+hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
+if hibp_local_db_path:
+    from app.hibp_checker import init_local_hibp_database, get_local_db_status
+    import time as _hibp_time
+    # Normalize path for cross-platform compatibility
+    hibp_local_db_path = os.path.normpath(hibp_local_db_path)
+    if os.path.exists(hibp_local_db_path):
+        _hibp_start = _hibp_time.time()
+        _success, _message, _estimated_entries = init_local_hibp_database(hibp_local_db_path)
+        _hibp_duration = _hibp_time.time() - _hibp_start
+        if _success:
+            _db_status = get_local_db_status()
+            # Log to stderr so it appears in Gunicorn error log
+            import sys
+            print(f"[HM1K] Local HIBP database ready: ~{_estimated_entries:,} hashes ({_db_status.get('mode', 'unknown')} mode, {_hibp_duration:.2f}s)", file=sys.stderr)
+        else:
+            import sys
+            print(f"[HM1K] Warning: Could not initialize local HIBP database: {_message}", file=sys.stderr)
+    else:
+        import sys
+        print(f"[HM1K] Warning: HIBP database file does not exist: {hibp_local_db_path}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     import time as _time
     from app.timing_stats import get_timing_stats
@@ -6823,24 +6852,15 @@ if __name__ == "__main__":
             "Environment variable ADMIN_PASSWORD_HASH must be set in a local .env file."
         )
 
-    # Initialize local HIBP database if configured (uses binary search - no memory loading)
-    hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
-    if hibp_local_db_path:
-        from app.hibp_checker import init_local_hibp_database
-        # Normalize path for cross-platform compatibility
-        hibp_local_db_path = os.path.normpath(hibp_local_db_path)
-        print(f"\n--> Checking local HIBP database at: {hibp_local_db_path}")
-        if not os.path.exists(hibp_local_db_path):
-            print(f"--> Warning: File does not exist: {hibp_local_db_path}")
-        hibp_start = _time.time()
-        success, message, estimated_entries = init_local_hibp_database(hibp_local_db_path)
-        hibp_duration = _time.time() - hibp_start
-        if success:
-            db_status = get_local_db_status()
-            timing.record_hibp_init(hibp_duration, db_status.get("mode", "unknown"), estimated_entries)
-            print(f"--> Local HIBP database ready: ~{estimated_entries:,} hashes ({db_status.get('mode', 'unknown')} mode, {hibp_duration:.2f}s)")
+    # HIBP database initialization moved to module level (runs for both Flask dev server and Gunicorn)
+    # Show status message for Flask dev server (Gunicorn workers already logged this)
+    _hibp_local_db_path = os.getenv("HIBP_LOCAL_DB_PATH", "").strip()
+    if _hibp_local_db_path:
+        _db_status = get_local_db_status()
+        if _db_status["loaded"]:
+            print(f"\n--> Local HIBP database ready: ~{_db_status['hash_count']:,} hashes ({_db_status.get('mode', 'unknown')} mode)")
         else:
-            print(f"--> Warning: Could not initialize local HIBP database: {message}")
+            print(f"\n--> Warning: Local HIBP database configured but not loaded")
     else:
         print("\n--> No local HIBP database configured (HIBP_LOCAL_DB_PATH not set)")
 
