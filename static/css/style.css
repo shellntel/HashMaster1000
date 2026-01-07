@@ -797,12 +797,14 @@ body#reportPage {
 #reportPage .stacked-bar-container {
 	position: relative;
 	width: 100%;
-	height: 40px;
+	max-width: 100%;
+	height: 60px;
 }
 
 #reportPage .stacked-bar-wrapper canvas {
 	width: 100% !important;
-	height: 40px !important;
+	max-width: 100%;
+	height: 60px !important;
 }
 
 #reportPage .bar-labels-overlay {
@@ -829,6 +831,7 @@ body#reportPage {
 #reportPage .custom-chart-legend {
 	display: flex;
 	flex-wrap: wrap;
+	justify-content: center;
 	gap: 15px;
 	margin-top: 8px;
 	font-size: 14px;
