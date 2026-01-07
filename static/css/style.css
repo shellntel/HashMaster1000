@@ -784,6 +784,8 @@ body#reportPage {
 	flex-direction: column;
 	gap: 20px;
 	min-width: 280px;
+	align-items: stretch;
+	width: 100%;
 }
 
 #reportPage .stats-charts-buttons-row {
@@ -904,6 +906,8 @@ body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"]:hover 
 	width: 100% !important;
 	max-width: 100%;
 	height: 60px !important;
+	display: block;
+	box-sizing: border-box;
 }
 
 #reportPage .bar-labels-overlay {
@@ -934,6 +938,9 @@ body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"]:hover 
 	gap: 15px;
 	margin-top: 8px;
 	font-size: 14px;
+	min-height: 24px;
+	width: 100%;
+	box-sizing: border-box;
 }
 
 #reportPage .custom-chart-legend .legend-item {
