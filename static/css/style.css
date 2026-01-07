@@ -762,10 +762,16 @@ body#reportPage {
 
 #reportPage #statsAndCharts {
 	display: flex;
+	flex-direction: column;
+	padding: 20px;
+}
+
+#reportPage .stats-and-charts-row {
+	display: flex;
 	justify-content: space-between;
 	align-items: flex-start;
 	gap: 40px;
-	padding: 20px;
+	margin-bottom: 20px;
 }
 
 #reportPage .stats-table-container {
@@ -778,6 +784,35 @@ body#reportPage {
 	flex-direction: column;
 	gap: 20px;
 	min-width: 280px;
+}
+
+#reportPage .stats-charts-buttons-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 40px;
+	margin-bottom: 10px;
+}
+
+#reportPage .stats-table-buttons,
+#reportPage .stacked-charts-buttons {
+	text-align: center;
+}
+
+#reportPage .stats-table-buttons {
+	flex: 0 0 auto;
+	min-width: 240px;
+}
+
+#reportPage .stacked-charts-buttons {
+	flex: 1;
+	min-width: 280px;
+}
+
+#reportPage .stats-table-buttons button,
+#reportPage .stacked-charts-buttons button {
+	font-size: 12px;
+	padding: 6px 12px;
 }
 
 #reportPage .stacked-bar-wrapper {
@@ -801,6 +836,7 @@ body#reportPage {
 	width: 100%;
 	max-width: 100%;
 	height: 60px;
+	overflow: visible; /* Allow labels to overflow for small segments */
 }
 
 #reportPage .stacked-bar-wrapper canvas {
@@ -9698,6 +9734,21 @@ body#reportPage.dark-theme button[id*="Copy"]:hover {
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
         0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Dark theme - Green Download SVG buttons */
+body#reportPage.dark-theme button[id*="download"],
+body#reportPage.dark-theme button[id*="Download"] {
+    background: linear-gradient(180deg, #059669 0%, #047857 50%, #065f46 100%) !important;
+    border: 1px solid rgba(16, 185, 129, 0.25) !important;
+}
+
+body#reportPage.dark-theme button[id*="download"]:hover,
+body#reportPage.dark-theme button[id*="Download"]:hover {
+    background: linear-gradient(180deg, #10b981 0%, #059669 50%, #047857 100%) !important;
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.3),
+        0 0 10px rgba(16, 185, 129, 0.15) !important;
 }
 
 /* Dark theme - Red Download SVG buttons (charts only, not toggle buttons) */

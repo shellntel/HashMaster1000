@@ -299,70 +299,72 @@
 		</div>
 		<!-- Combined Section for Stats Table and Stacked Bar Charts -->
 		<section id="statsAndCharts">
-			<!-- Stats Table -->
-			<div class="stats-table-container">
-				<h2>Project Statistics</h2>
-				<table id="analysisStatsTable">
-					<tbody>
-						<!-- Table content will be populated by JavaScript -->
-					</tbody>
-				</table>
+			<!-- Content Row -->
+			<div class="stats-and-charts-row">
+				<!-- Stats Table -->
+				<div class="stats-table-container">
+					<h2>Project Statistics</h2>
+					<table id="analysisStatsTable">
+						<tbody>
+							<!-- Table content will be populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+				<!-- Horizontal Stacked Bar Charts Container -->
+				<div class="stacked-charts-container">
+					<div class="stacked-bar-wrapper">
+						<h2>Accounts</h2>
+						<div class="stacked-bar-container">
+							<canvas id="accountsStackedBar"></canvas>
+							<div id="accountsStackedBarLabels" class="bar-labels-overlay"></div>
+						</div>
+						<div id="accountsStackedBarLegend" class="custom-chart-legend"></div>
+					</div>
+					<div class="stacked-bar-wrapper">
+						<h2>Hashes</h2>
+						<div class="stacked-bar-container">
+							<canvas id="hashesStackedBar"></canvas>
+							<div id="hashesStackedBarLabels" class="bar-labels-overlay"></div>
+						</div>
+						<div id="hashesStackedBarLegend" class="custom-chart-legend"></div>
+					</div>
+				</div>
+			</div>
+			<!-- Export Buttons Row -->
+			<div class="stats-charts-buttons-row">
 				<!-- Export buttons for stats table -->
-				<div class="button-container" style="text-align: center; margin-top: 15px;">
+				<div class="button-container stats-table-buttons">
 					<button
 						id="copyStatsTableButton"
 						onclick="copyStatsTableToClipboard()"
-						style="font-size: 12px; padding: 6px 12px;"
 					>
 						Copy PNG
 					</button>
 					<button
 						id="downloadStatsTableButton"
 						onclick="downloadStatsTableAsSVG()"
-						style="font-size: 12px; padding: 6px 12px;"
 					>
 						Download SVG
 					</button>
 				</div>
-			</div>
-			<!-- Horizontal Stacked Bar Charts Container -->
-			<div class="stacked-charts-container">
-				<div class="stacked-bar-wrapper">
-					<h2>Accounts</h2>
-					<div class="stacked-bar-container">
-						<canvas id="accountsStackedBar"></canvas>
-						<div id="accountsStackedBarLabels" class="bar-labels-overlay"></div>
-					</div>
-					<div id="accountsStackedBarLegend" class="custom-chart-legend"></div>
-				</div>
-				<div class="stacked-bar-wrapper">
-					<h2>Hashes</h2>
-					<div class="stacked-bar-container">
-						<canvas id="hashesStackedBar"></canvas>
-						<div id="hashesStackedBarLabels" class="bar-labels-overlay"></div>
-					</div>
-					<div id="hashesStackedBarLegend" class="custom-chart-legend"></div>
-				</div>
 				<!-- Export buttons for bar charts -->
-				<div class="button-container" style="text-align: center; margin-top: 15px;">
+				<div class="button-container stacked-charts-buttons">
 					<button
 						id="copyStackedBarsButton"
 						onclick="copyStackedBarsToClipboard()"
-						style="font-size: 12px; padding: 6px 12px;"
 					>
 						Copy PNG
 					</button>
 					<button
 						id="downloadStackedBarsButton"
 						onclick="downloadStackedBarsAsSVG()"
-						style="font-size: 12px; padding: 6px 12px;"
 					>
 						Download SVG
 					</button>
 				</div>
 			</div>
 			<!-- Explanatory Note -->
-			<p class="section-description" style="margin-top: 15px; font-size: 13px; color: #888; text-align: center; font-style: italic;">
+			<p class="section-description" style="margin: 20px 0 0 0; font-size: 13px; color: #888; text-align: center; font-style: italic; width: 100%;">
 				<strong>Note:</strong> The number of accounts may exceed the number of unique hashes due to blank passwords, duplicate passwords, or disabled accounts with the same hash value.
 			</p>
 		</section>
@@ -3821,20 +3823,30 @@
 				ctx.font = 'bold 20px Arial';
 				ctx.fillText('Project Statistics', 20, 30);
 
-				// Draw table content
+				// Draw table content with borders
 				ctx.font = '14px Arial';
 				const rows = table.querySelectorAll('tbody tr');
 				let y = 60;
-				rows.forEach(row => {
+				const rowHeight = 22;
+				rows.forEach((row, index) => {
 					const cells = row.querySelectorAll('th, td');
 					if (cells.length >= 2) {
+						// Draw text
 						ctx.fillStyle = themeColors[theme].text;
 						ctx.textAlign = 'left';
 						ctx.fillText(cells[0].textContent, 20, y);
 						ctx.textAlign = 'right';
 						ctx.fillText(cells[1].textContent, tableWidth + 20, y);
+
+						// Draw bottom border line
+						ctx.strokeStyle = theme === 'dark' ? '#444' : '#ddd';
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.moveTo(20, y + 5);
+						ctx.lineTo(tableWidth + 20, y + 5);
+						ctx.stroke();
 					}
-					y += 22;
+					y += rowHeight;
 				});
 
 				// Copy to clipboard
@@ -3873,6 +3885,7 @@
 
 				const rows = table.querySelectorAll('tbody tr');
 				let y = 60;
+				const rowHeight = 22;
 				rows.forEach(row => {
 					const cells = row.querySelectorAll('th, td');
 					if (cells.length >= 2) {
@@ -3880,8 +3893,16 @@
 						ctx.fillText(cells[0].textContent, 20, y);
 						ctx.textAlign = 'right';
 						ctx.fillText(cells[1].textContent, tableWidth + 20, y);
+
+						// Draw bottom border line
+						ctx.strokeStyle = theme === 'dark' ? '#444' : '#ddd';
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.moveTo(20, y + 5);
+						ctx.lineTo(tableWidth + 20, y + 5);
+						ctx.stroke();
 					}
-					y += 22;
+					y += rowHeight;
 				});
 
 				// Convert to SVG
@@ -3906,29 +3927,53 @@
 			function copyStackedBarsToClipboard() {
 				const canvas1 = document.getElementById('accountsStackedBar');
 				const canvas2 = document.getElementById('hashesStackedBar');
+				const legend1 = document.getElementById('accountsStackedBarLegend');
+				const legend2 = document.getElementById('hashesStackedBarLegend');
 				const theme = getCurrentTheme();
 
-				// Create a combined canvas
+				// Create a combined canvas with extra space for legends
 				const tempCanvas = document.createElement('canvas');
 				const padding = 20;
-				const spacing = 40;
+				const spacing = 60;
+				const legendHeight = 30;
 				tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
-				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80;
+				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80 + (legendHeight * 2);
 
 				const ctx = tempCanvas.getContext('2d');
 				ctx.fillStyle = themeColors[theme].copyBackground;
 				ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
 
-				// Draw titles
+				// Draw titles and charts
 				ctx.fillStyle = themeColors[theme].text;
 				ctx.font = 'bold 17px Arial';
 				ctx.textAlign = 'center';
-				ctx.fillText('Accounts', tempCanvas.width / 2, padding + 20);
-				ctx.fillText('Hashes', tempCanvas.width / 2, padding + 20 + canvas1.height + spacing + 40);
 
-				// Draw charts
-				ctx.drawImage(canvas1, padding, padding + 30);
-				ctx.drawImage(canvas2, padding, padding + 30 + canvas1.height + spacing + 40);
+				let currentY = padding + 20;
+
+				// Accounts section
+				ctx.fillText('Accounts', tempCanvas.width / 2, currentY);
+				currentY += 15;
+				ctx.drawImage(canvas1, padding, currentY);
+				currentY += canvas1.height + 10;
+
+				// Draw Accounts legend
+				ctx.font = '14px Arial';
+				ctx.textAlign = 'center';
+				const legend1Text = legend1.textContent;
+				ctx.fillText(legend1Text, tempCanvas.width / 2, currentY);
+				currentY += spacing;
+
+				// Hashes section
+				ctx.font = 'bold 17px Arial';
+				ctx.fillText('Hashes', tempCanvas.width / 2, currentY);
+				currentY += 15;
+				ctx.drawImage(canvas2, padding, currentY);
+				currentY += canvas2.height + 10;
+
+				// Draw Hashes legend
+				ctx.font = '14px Arial';
+				const legend2Text = legend2.textContent;
+				ctx.fillText(legend2Text, tempCanvas.width / 2, currentY);
 
 				// Copy to clipboard
 				tempCanvas.toBlob(blob => {
@@ -3948,13 +3993,16 @@
 			function downloadStackedBarsAsSVG() {
 				const canvas1 = document.getElementById('accountsStackedBar');
 				const canvas2 = document.getElementById('hashesStackedBar');
+				const legend1 = document.getElementById('accountsStackedBarLegend');
+				const legend2 = document.getElementById('hashesStackedBarLegend');
 				const theme = getCurrentTheme();
 
 				const tempCanvas = document.createElement('canvas');
 				const padding = 20;
-				const spacing = 40;
+				const spacing = 60;
+				const legendHeight = 30;
 				tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
-				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80;
+				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80 + (legendHeight * 2);
 
 				const ctx = tempCanvas.getContext('2d');
 				ctx.fillStyle = themeColors[theme].copyBackground;
@@ -3962,10 +4010,32 @@
 				ctx.fillStyle = themeColors[theme].text;
 				ctx.font = 'bold 17px Arial';
 				ctx.textAlign = 'center';
-				ctx.fillText('Accounts', tempCanvas.width / 2, padding + 20);
-				ctx.fillText('Hashes', tempCanvas.width / 2, padding + 20 + canvas1.height + spacing + 40);
-				ctx.drawImage(canvas1, padding, padding + 30);
-				ctx.drawImage(canvas2, padding, padding + 30 + canvas1.height + spacing + 40);
+
+				let currentY = padding + 20;
+
+				// Accounts section
+				ctx.fillText('Accounts', tempCanvas.width / 2, currentY);
+				currentY += 15;
+				ctx.drawImage(canvas1, padding, currentY);
+				currentY += canvas1.height + 10;
+
+				// Draw Accounts legend
+				ctx.font = '14px Arial';
+				const legend1Text = legend1.textContent;
+				ctx.fillText(legend1Text, tempCanvas.width / 2, currentY);
+				currentY += spacing;
+
+				// Hashes section
+				ctx.font = 'bold 17px Arial';
+				ctx.fillText('Hashes', tempCanvas.width / 2, currentY);
+				currentY += 15;
+				ctx.drawImage(canvas2, padding, currentY);
+				currentY += canvas2.height + 10;
+
+				// Draw Hashes legend
+				ctx.font = '14px Arial';
+				const legend2Text = legend2.textContent;
+				ctx.fillText(legend2Text, tempCanvas.width / 2, currentY);
 
 				const chartDataUrl = tempCanvas.toDataURL('image/png');
 				const svgContent = `
