@@ -813,12 +813,73 @@ body#reportPage {
 #reportPage .stacked-charts-buttons button {
 	font-size: 12px;
 	padding: 6px 12px;
+	cursor: pointer;
+	border-radius: 4px;
+	font-weight: 500;
+	transition: all 0.2s ease;
+}
+
+/* Light theme - Stats/Charts section buttons */
+body#reportPage.light-theme .stats-table-buttons button[id*="copy"],
+body#reportPage.light-theme .stacked-charts-buttons button[id*="copy"] {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+	border: 1px solid #1d4ed8;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme .stats-table-buttons button[id*="copy"]:hover,
+body#reportPage.light-theme .stacked-charts-buttons button[id*="copy"]:hover {
+	background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+}
+
+body#reportPage.light-theme .stats-table-buttons button[id*="download"],
+body#reportPage.light-theme .stacked-charts-buttons button[id*="download"] {
+	background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+	border: 1px solid #047857;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme .stats-table-buttons button[id*="download"]:hover,
+body#reportPage.light-theme .stacked-charts-buttons button[id*="download"]:hover {
+	background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+}
+
+/* Dark theme - Stats/Charts section buttons */
+body#reportPage.dark-theme .stats-table-buttons button[id*="copy"],
+body#reportPage.dark-theme .stacked-charts-buttons button[id*="copy"] {
+	background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%) !important;
+	border: 1px solid rgba(59, 130, 246, 0.25) !important;
+	color: #ffffff !important;
+}
+
+body#reportPage.dark-theme .stats-table-buttons button[id*="copy"]:hover,
+body#reportPage.dark-theme .stacked-charts-buttons button[id*="copy"]:hover {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%) !important;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+body#reportPage.dark-theme .stats-table-buttons button[id*="download"],
+body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"] {
+	background: linear-gradient(180deg, #059669 0%, #047857 50%, #065f46 100%) !important;
+	border: 1px solid rgba(16, 185, 129, 0.25) !important;
+	color: #ffffff !important;
+}
+
+body#reportPage.dark-theme .stats-table-buttons button[id*="download"]:hover,
+body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"]:hover {
+	background: linear-gradient(180deg, #10b981 0%, #059669 50%, #047857 100%) !important;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 10px rgba(16, 185, 129, 0.15) !important;
 }
 
 #reportPage .stacked-bar-wrapper {
 	width: 100%;
 	max-width: 100%;
 	text-align: center;
+	box-sizing: border-box;
+	flex-shrink: 0;
+}
+
+#reportPage .stacked-bar-wrapper > * {
 	box-sizing: border-box;
 }
 
