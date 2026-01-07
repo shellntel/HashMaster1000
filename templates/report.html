@@ -307,6 +307,23 @@
 						<!-- Table content will be populated by JavaScript -->
 					</tbody>
 				</table>
+				<!-- Export buttons for stats table -->
+				<div class="button-container" style="text-align: center; margin-top: 15px;">
+					<button
+						id="copyStatsTableButton"
+						onclick="copyStatsTableToClipboard()"
+						style="font-size: 12px; padding: 6px 12px;"
+					>
+						Copy PNG
+					</button>
+					<button
+						id="downloadStatsTableButton"
+						onclick="downloadStatsTableAsSVG()"
+						style="font-size: 12px; padding: 6px 12px;"
+					>
+						Download SVG
+					</button>
+				</div>
 			</div>
 			<!-- Horizontal Stacked Bar Charts Container -->
 			<div class="stacked-charts-container">
@@ -325,6 +342,23 @@
 						<div id="hashesStackedBarLabels" class="bar-labels-overlay"></div>
 					</div>
 					<div id="hashesStackedBarLegend" class="custom-chart-legend"></div>
+				</div>
+				<!-- Export buttons for bar charts -->
+				<div class="button-container" style="text-align: center; margin-top: 15px;">
+					<button
+						id="copyStackedBarsButton"
+						onclick="copyStackedBarsToClipboard()"
+						style="font-size: 12px; padding: 6px 12px;"
+					>
+						Copy PNG
+					</button>
+					<button
+						id="downloadStackedBarsButton"
+						onclick="downloadStackedBarsAsSVG()"
+						style="font-size: 12px; padding: 6px 12px;"
+					>
+						Download SVG
+					</button>
 				</div>
 			</div>
 			<!-- Explanatory Note -->
@@ -3763,6 +3797,193 @@
 				alert("SVG chart downloaded!");
 			}
 
+			// Function to copy stats table to clipboard as PNG
+			function copyStatsTableToClipboard() {
+				const table = document.getElementById('analysisStatsTable');
+				const theme = getCurrentTheme();
+
+				// Create a temporary canvas
+				const tempCanvas = document.createElement('canvas');
+				const ctx = tempCanvas.getContext('2d');
+
+				// Set canvas size based on table dimensions
+				const tableWidth = table.offsetWidth;
+				const tableHeight = table.offsetHeight;
+				tempCanvas.width = tableWidth + 40; // Add padding
+				tempCanvas.height = tableHeight + 60; // Add padding for title
+
+				// Fill background
+				ctx.fillStyle = themeColors[theme].copyBackground;
+				ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+				// Draw title
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 20px Arial';
+				ctx.fillText('Project Statistics', 20, 30);
+
+				// Draw table content
+				ctx.font = '14px Arial';
+				const rows = table.querySelectorAll('tbody tr');
+				let y = 60;
+				rows.forEach(row => {
+					const cells = row.querySelectorAll('th, td');
+					if (cells.length >= 2) {
+						ctx.fillStyle = themeColors[theme].text;
+						ctx.textAlign = 'left';
+						ctx.fillText(cells[0].textContent, 20, y);
+						ctx.textAlign = 'right';
+						ctx.fillText(cells[1].textContent, tableWidth + 20, y);
+					}
+					y += 22;
+				});
+
+				// Copy to clipboard
+				tempCanvas.toBlob(blob => {
+					if (blob) {
+						const item = new ClipboardItem({ 'image/png': blob });
+						navigator.clipboard.write([item])
+							.then(() => alert('Stats table copied to clipboard!'))
+							.catch(err => {
+								console.error('Failed to copy:', err);
+								alert('Failed to copy stats table.');
+							});
+					}
+				});
+			}
+
+			// Function to download stats table as SVG
+			function downloadStatsTableAsSVG() {
+				const table = document.getElementById('analysisStatsTable');
+				const theme = getCurrentTheme();
+
+				// Create canvas and render table
+				const tempCanvas = document.createElement('canvas');
+				const ctx = tempCanvas.getContext('2d');
+				const tableWidth = table.offsetWidth;
+				const tableHeight = table.offsetHeight;
+				tempCanvas.width = tableWidth + 40;
+				tempCanvas.height = tableHeight + 60;
+
+				ctx.fillStyle = themeColors[theme].copyBackground;
+				ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 20px Arial';
+				ctx.fillText('Project Statistics', 20, 30);
+				ctx.font = '14px Arial';
+
+				const rows = table.querySelectorAll('tbody tr');
+				let y = 60;
+				rows.forEach(row => {
+					const cells = row.querySelectorAll('th, td');
+					if (cells.length >= 2) {
+						ctx.textAlign = 'left';
+						ctx.fillText(cells[0].textContent, 20, y);
+						ctx.textAlign = 'right';
+						ctx.fillText(cells[1].textContent, tableWidth + 20, y);
+					}
+					y += 22;
+				});
+
+				// Convert to SVG
+				const chartDataUrl = tempCanvas.toDataURL('image/png');
+				const svgContent = `
+					<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+						<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+					</svg>
+				`;
+
+				const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+				const link = document.createElement('a');
+				link.href = URL.createObjectURL(blob);
+				link.download = 'project_statistics.svg';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				alert('Stats table SVG downloaded!');
+			}
+
+			// Function to copy both stacked bar charts to clipboard as PNG
+			function copyStackedBarsToClipboard() {
+				const canvas1 = document.getElementById('accountsStackedBar');
+				const canvas2 = document.getElementById('hashesStackedBar');
+				const theme = getCurrentTheme();
+
+				// Create a combined canvas
+				const tempCanvas = document.createElement('canvas');
+				const padding = 20;
+				const spacing = 40;
+				tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
+				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80;
+
+				const ctx = tempCanvas.getContext('2d');
+				ctx.fillStyle = themeColors[theme].copyBackground;
+				ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+				// Draw titles
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 17px Arial';
+				ctx.textAlign = 'center';
+				ctx.fillText('Accounts', tempCanvas.width / 2, padding + 20);
+				ctx.fillText('Hashes', tempCanvas.width / 2, padding + 20 + canvas1.height + spacing + 40);
+
+				// Draw charts
+				ctx.drawImage(canvas1, padding, padding + 30);
+				ctx.drawImage(canvas2, padding, padding + 30 + canvas1.height + spacing + 40);
+
+				// Copy to clipboard
+				tempCanvas.toBlob(blob => {
+					if (blob) {
+						const item = new ClipboardItem({ 'image/png': blob });
+						navigator.clipboard.write([item])
+							.then(() => alert('Stacked bar charts copied to clipboard!'))
+							.catch(err => {
+								console.error('Failed to copy:', err);
+								alert('Failed to copy charts.');
+							});
+					}
+				});
+			}
+
+			// Function to download both stacked bar charts as SVG
+			function downloadStackedBarsAsSVG() {
+				const canvas1 = document.getElementById('accountsStackedBar');
+				const canvas2 = document.getElementById('hashesStackedBar');
+				const theme = getCurrentTheme();
+
+				const tempCanvas = document.createElement('canvas');
+				const padding = 20;
+				const spacing = 40;
+				tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
+				tempCanvas.height = canvas1.height + canvas2.height + spacing + (padding * 2) + 80;
+
+				const ctx = tempCanvas.getContext('2d');
+				ctx.fillStyle = themeColors[theme].copyBackground;
+				ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 17px Arial';
+				ctx.textAlign = 'center';
+				ctx.fillText('Accounts', tempCanvas.width / 2, padding + 20);
+				ctx.fillText('Hashes', tempCanvas.width / 2, padding + 20 + canvas1.height + spacing + 40);
+				ctx.drawImage(canvas1, padding, padding + 30);
+				ctx.drawImage(canvas2, padding, padding + 30 + canvas1.height + spacing + 40);
+
+				const chartDataUrl = tempCanvas.toDataURL('image/png');
+				const svgContent = `
+					<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+						<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+					</svg>
+				`;
+
+				const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+				const link = document.createElement('a');
+				link.href = URL.createObjectURL(blob);
+				link.download = 'stacked_bar_charts.svg';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				alert('Stacked bar charts SVG downloaded!');
+			}
+
 			// Function to download CSV without headers and handle special characters correctly
 			function downloadCSV(endpoint, filename) {
 				fetch(endpoint)
@@ -4415,12 +4636,22 @@
 				// Generate HTML overlay labels for percentages
 				const labelsContainer = document.getElementById(canvasId + 'Labels');
 				if (labelsContainer) {
-					labelsContainer.innerHTML = sortedEntries.map(entry => {
+					let cumulativeWidth = 0;
+					labelsContainer.innerHTML = sortedEntries.map((entry, index) => {
 						const percentage = ((entry.value / total) * 100).toFixed(1);
 						const widthPercent = (entry.value / total) * 100;
-						// Only show label if segment is wide enough (>15%)
-						const labelText = widthPercent >= 15 ? `${percentage}%` : '';
-						return `<div class="bar-label" style="width: ${widthPercent}%">${labelText}</div>`;
+						const position = cumulativeWidth;
+						cumulativeWidth += widthPercent;
+
+						// Show label inside if segment is wide enough (>12%), otherwise outside on the right
+						if (widthPercent >= 12) {
+							return `<div class="bar-label" style="width: ${widthPercent}%">${percentage}%</div>`;
+						} else {
+							// Small segment - show label outside to the right
+							return `<div class="bar-label" style="width: ${widthPercent}%; position: relative;">
+								<span style="position: absolute; left: 100%; padding-left: 5px; white-space: nowrap;">${percentage}%</span>
+							</div>`;
+						}
 					}).join('');
 				}
 

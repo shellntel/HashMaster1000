@@ -782,7 +782,9 @@ body#reportPage {
 
 #reportPage .stacked-bar-wrapper {
 	width: 100%;
+	max-width: 100%;
 	text-align: center;
+	box-sizing: border-box;
 }
 
 #reportPage .stacked-bar-wrapper h2 {
