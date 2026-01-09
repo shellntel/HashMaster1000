@@ -2248,6 +2248,16 @@ def cracking_stats_table() -> Response:
     return jsonify(data)
 
 
+# Endpoint for Breach Statistics Table
+@app.route("/breach_stats")
+@login_required
+def breach_stats() -> Response:
+    data = _load_session_json("breach_stats.json")
+    if data is None:
+        return jsonify({"error": "No breach data available"}), 404
+    return jsonify(data)
+
+
 # Endpoint for Cracked Accounts Pie Chart data
 @app.route("/pw_account_pie")
 @login_required
@@ -2701,6 +2711,73 @@ def hibp_test_connection() -> Response:
     })
 
 
+def _generate_breach_stats(hibp_results: dict, session_dir: str):
+    """
+    Generate breach statistics table from HIBP results.
+
+    Creates breach_stats.json with key/value pairs for the Breach Statistics table.
+    """
+    try:
+        # Extract data from HIBP results
+        total_checked = hibp_results.get("total_checked", 0)
+        results = hibp_results.get("results", [])
+
+        # Count different categories
+        breached_hashes = set()
+        cracked_hashes = set()
+        cracked_and_breached_hashes = set()
+        all_hashes = set()
+        breached_accounts = 0
+        cracked_and_breached_accounts = 0
+
+        for result in results:
+            ntlm_hash = result.get("ntlm_hash")
+            if ntlm_hash:
+                all_hashes.add(ntlm_hash.upper())
+
+            is_breached = result.get("found_in_breach", False)
+            has_cracked_pw = result.get("cracked_pw") is not None
+
+            if is_breached:
+                breached_accounts += 1
+                if ntlm_hash:
+                    breached_hashes.add(ntlm_hash.upper())
+
+            if has_cracked_pw and ntlm_hash:
+                cracked_hashes.add(ntlm_hash.upper())
+
+            if is_breached and has_cracked_pw:
+                cracked_and_breached_accounts += 1
+                if ntlm_hash:
+                    cracked_and_breached_hashes.add(ntlm_hash.upper())
+
+        unique_breached_hashes = len(breached_hashes)
+        unique_all_hashes = len(all_hashes)
+        cracked_pwds_in_breach = cracked_and_breached_accounts
+
+        # Calculate percentages
+        hash_breach_rate = f"{(unique_breached_hashes / unique_all_hashes * 100):.1f}%" if unique_all_hashes > 0 else "0.0%"
+        account_breach_rate = f"{(breached_accounts / len(results) * 100):.1f}%" if len(results) > 0 else "0.0%"
+
+        # Create breach stats table in same format as cracking_stats_table.json
+        breach_stats = [
+            {"key": "Accts. w/ Breached Pw: ", "value": cracked_pwds_in_breach},
+            {"key": "Hashes in Breach: ", "value": unique_breached_hashes},
+            {"key": "Hash Breach Rate: ", "value": hash_breach_rate},
+            {"key": "Account Breach Rate: ", "value": account_breach_rate}
+        ]
+
+        # Save to session directory
+        breach_stats_path = os.path.join(session_dir, "breach_stats.json")
+        with open(breach_stats_path, "w") as f:
+            json.dump(breach_stats, f, indent=2)
+
+        logging.info(f"Generated breach statistics: {cracked_pwds_in_breach} cracked passwords in breach, {unique_breached_hashes} unique hashes in breach")
+
+    except Exception as e:
+        logging.error(f"Failed to generate breach statistics: {e}")
+
+
 def _run_hibp_check_background(session_dir: str, method: str, account_list: list,
                                 username_to_password: dict, username_to_status: dict,
                                 local_db_hash_count: int = 0):
@@ -2769,9 +2846,22 @@ def _run_hibp_check_background(session_dir: str, method: str, account_list: list
             result["cracked_pw"] = username_to_password.get(result["username"])
             result["account_status"] = username_to_status.get(result["username"], "unknown")
 
+        # Add hash-level statistics
+        all_results = results_dict.get("results", [])
+        unique_hashes = set(r["ntlm_hash"].upper() for r in all_results if r.get("ntlm_hash"))
+        breached_hashes = set(r["ntlm_hash"].upper() for r in all_results if r.get("found_in_breach", False) and r.get("ntlm_hash"))
+
+        results_dict["total_unique_hashes"] = len(unique_hashes)
+        results_dict["unique_hashes_in_breach"] = len(breached_hashes)
+        results_dict["unique_hashes_not_in_breach"] = len(unique_hashes) - len(breached_hashes)
+        results_dict["total_accounts"] = len(all_results)
+
         # Save results to session
         with open(hibp_results_path, "w") as f:
             json.dump(results_dict, f, indent=2)
+
+        # Generate breach statistics table
+        _generate_breach_stats(results_dict, session_dir)
 
         # Mark progress as complete
         total_checked = results_dict.get("total_checked", estimated_prefixes)
@@ -3075,7 +3165,11 @@ def hibp_summary() -> Response:
         "data_source": data.get("data_source", "unknown"),
         "data_source_info": data.get("data_source_info", ""),
         "has_results": bool(data.get("results")),
-        "result_count": len(data.get("results", []))
+        "result_count": len(data.get("results", [])),
+        "total_unique_hashes": data.get("total_unique_hashes", 0),
+        "unique_hashes_in_breach": data.get("unique_hashes_in_breach", 0),
+        "unique_hashes_not_in_breach": data.get("unique_hashes_not_in_breach", 0),
+        "total_accounts": data.get("total_accounts", 0)
     }
     return jsonify(summary)
 
@@ -3439,10 +3533,23 @@ def run_automatic_hibp_check(account_data: dict, session_dir: str) -> dict | Non
             result["cracked_pw"] = username_to_password.get(result["username"])
             result["account_status"] = username_to_status.get(result["username"], "unknown")
 
+        # Add hash-level statistics
+        all_results = results_dict.get("results", [])
+        unique_hashes = set(r["ntlm_hash"].upper() for r in all_results if r.get("ntlm_hash"))
+        breached_hashes = set(r["ntlm_hash"].upper() for r in all_results if r.get("found_in_breach", False) and r.get("ntlm_hash"))
+
+        results_dict["total_unique_hashes"] = len(unique_hashes)
+        results_dict["unique_hashes_in_breach"] = len(breached_hashes)
+        results_dict["unique_hashes_not_in_breach"] = len(unique_hashes) - len(breached_hashes)
+        results_dict["total_accounts"] = len(all_results)
+
         # Save results to session
         hibp_results_path = os.path.join(session_dir, "hibp_results.json")
         with open(hibp_results_path, "w") as f:
             json.dump(results_dict, f, indent=2)
+
+        # Generate breach statistics table
+        _generate_breach_stats(results_dict, session_dir)
 
         logging.info(f"Automatic HIBP check complete: {results_dict['total_found']}/{results_dict['total_checked']} found in breaches")
         return results_dict

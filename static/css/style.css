@@ -943,6 +943,189 @@ body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"]:hover 
 	box-sizing: border-box;
 }
 
+/* ============================================================
+   Enhanced Statistics Section (Three-Column Layout)
+   ============================================================ */
+
+#reportPage #enhancedStatsSection {
+	/* Styling is inherited from body#reportPage.dark-theme section */
+	/* No additional background/border needed - handled by dark theme */
+}
+
+#reportPage .enhanced-stats-container {
+	display: flex;
+	gap: 20px;
+	margin-bottom: 20px;
+	align-items: flex-start;
+}
+
+#reportPage .stats-column {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+#reportPage .stats-tables-left {
+	flex: 0 0 27%;
+}
+
+#reportPage .stats-tables-middle {
+	flex: 0 0 27%;
+}
+
+#reportPage .stats-charts-right {
+	flex: 0 0 auto;
+	max-width: 400px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+#reportPage .stat-table-section {
+	background: rgba(255, 255, 255, 0.05);
+	border-radius: 6px;
+	padding: 15px;
+}
+
+#reportPage .stat-table-title {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 0 0 12px 0;
+	text-align: center;
+	color: #ffffff;
+}
+
+#reportPage .stat-chart-section {
+	background: rgba(255, 255, 255, 0.05);
+	border-radius: 6px;
+	padding: 15px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+#reportPage .stat-chart-title {
+	font-size: 16px;
+	font-weight: 600;
+	margin: 0 0 12px 0;
+	text-align: center;
+	color: #ffffff;
+	width: 100%;
+}
+
+#reportPage .stat-bar-container {
+	width: 340px;
+	max-width: 100%;
+	margin: 0 0 10px 0;
+}
+
+#reportPage .stat-bar-container canvas {
+	display: block;
+	width: 340px;
+	height: 45px;
+}
+
+#reportPage .stat-chart-legend {
+	display: flex;
+	justify-content: center;
+	gap: 15px;
+	font-size: 13px;
+	color: #cccccc;
+}
+
+/* Enhanced stats buttons row */
+#reportPage .enhanced-stats-buttons-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 20px;
+	margin-bottom: 10px;
+}
+
+#reportPage .enhanced-tables-buttons {
+	flex: 0 0 calc(54% - 10px);
+	text-align: center;
+}
+
+#reportPage .enhanced-charts-buttons {
+	flex: 0 0 calc(46% - 10px);
+	text-align: center;
+}
+
+#reportPage .enhanced-tables-buttons button,
+#reportPage .enhanced-charts-buttons button {
+	font-size: 12px;
+	padding: 6px 12px;
+	cursor: pointer;
+	border-radius: 4px;
+	font-weight: 500;
+	transition: all 0.2s ease;
+}
+
+/* Light theme - Enhanced section buttons */
+body#reportPage.light-theme .enhanced-tables-buttons button[id*="copy"],
+body#reportPage.light-theme .enhanced-charts-buttons button[id*="copy"] {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+	border: 1px solid #1d4ed8;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme .enhanced-tables-buttons button[id*="copy"]:hover,
+body#reportPage.light-theme .enhanced-charts-buttons button[id*="copy"]:hover {
+	background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+}
+
+body#reportPage.light-theme .enhanced-tables-buttons button[id*="download"],
+body#reportPage.light-theme .enhanced-charts-buttons button[id*="download"] {
+	background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+	border: 1px solid #047857;
+	color: #ffffff;
+}
+
+body#reportPage.light-theme .enhanced-tables-buttons button[id*="download"]:hover,
+body#reportPage.light-theme .enhanced-charts-buttons button[id*="download"]:hover {
+	background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+}
+
+/* Dark theme - Enhanced section buttons */
+body#reportPage.dark-theme .enhanced-tables-buttons button[id*="copy"],
+body#reportPage.dark-theme .enhanced-charts-buttons button[id*="copy"] {
+	background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 50%, #1e40af 100%) !important;
+	border: 1px solid rgba(59, 130, 246, 0.25) !important;
+	color: #ffffff !important;
+}
+
+body#reportPage.dark-theme .enhanced-tables-buttons button[id*="copy"]:hover,
+body#reportPage.dark-theme .enhanced-charts-buttons button[id*="copy"]:hover {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%) !important;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 10px rgba(59, 130, 246, 0.15) !important;
+}
+
+body#reportPage.dark-theme .enhanced-tables-buttons button[id*="download"],
+body#reportPage.dark-theme .enhanced-charts-buttons button[id*="download"] {
+	background: linear-gradient(180deg, #059669 0%, #047857 50%, #065f46 100%) !important;
+	border: 1px solid rgba(16, 185, 129, 0.25) !important;
+	color: #ffffff !important;
+}
+
+body#reportPage.dark-theme .enhanced-tables-buttons button[id*="download"]:hover,
+body#reportPage.dark-theme .enhanced-charts-buttons button[id*="download"]:hover {
+	background: linear-gradient(180deg, #10b981 0%, #059669 50%, #047857 100%) !important;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 10px rgba(16, 185, 129, 0.15) !important;
+}
+
+/* Light theme - Enhanced stats legend and table borders */
+body#reportPage.light-theme .stat-chart-legend {
+	color: #374151;
+}
+
+body#reportPage.light-theme .enhanced-stat-table td {
+	border-bottom-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Dark theme - Enhanced stats legend (default) */
+body#reportPage.dark-theme .stat-chart-legend {
+	color: #cccccc;
+}
+
 #reportPage .custom-chart-legend .legend-item {
 	display: flex;
 	align-items: center;

@@ -368,6 +368,94 @@
 				<strong>Note:</strong> Account count may exceed unique hash count due to blank/duplicate passwords or disabled accounts.
 			</p>
 		</section>
+
+		<!-- Enhanced Statistics Section -->
+		<section id="enhancedStatsSection" class="report-section">
+			<h2 style="margin-bottom: 20px;">Detailed Analysis Summary</h2>
+
+			<!-- Three-column layout container -->
+			<div class="enhanced-stats-container">
+				<!-- Left 27%: Hash and Password Statistics Tables -->
+				<div class="stats-column stats-tables-left">
+					<!-- Hash Statistics Table -->
+					<div class="stat-table-section">
+						<h3 class="stat-table-title">Hash Statistics</h3>
+						<div id="hashStatsTableContainer"></div>
+					</div>
+
+					<!-- Password Statistics Table -->
+					<div class="stat-table-section">
+						<h3 class="stat-table-title">Password Statistics</h3>
+						<div id="passwordStatsTableContainer"></div>
+					</div>
+				</div>
+
+				<!-- Middle 27%: Account and Breach Statistics Tables -->
+				<div class="stats-column stats-tables-middle">
+					<!-- Account Statistics Table -->
+					<div class="stat-table-section">
+						<h3 class="stat-table-title">Account Statistics</h3>
+						<div id="accountStatsTableContainer"></div>
+					</div>
+
+					<!-- Breach Statistics Table -->
+					<div class="stat-table-section">
+						<h3 class="stat-table-title">Breach Statistics</h3>
+						<div id="breachStatsTableContainer"></div>
+					</div>
+				</div>
+
+				<!-- Right 46%: Bar Charts -->
+				<div class="stats-column stats-charts-right">
+					<!-- Cracked Account Passwords Bar Chart -->
+					<div class="stat-chart-section">
+						<h3 class="stat-chart-title">Cracked Account Passwords</h3>
+						<div class="stat-bar-container">
+							<canvas id="enhancedAccountsBar" width="340" height="45"></canvas>
+						</div>
+						<div id="enhancedAccountsBarLegend" class="stat-chart-legend"></div>
+					</div>
+
+					<!-- Cracked NTLM Hashes Bar Chart -->
+					<div class="stat-chart-section">
+						<h3 class="stat-chart-title">Cracked (Unique) NTLM Hashes</h3>
+						<div class="stat-bar-container">
+							<canvas id="enhancedHashesBar" width="340" height="45"></canvas>
+						</div>
+						<div id="enhancedHashesBarLegend" class="stat-chart-legend"></div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Export buttons row -->
+			<div class="enhanced-stats-buttons-row">
+				<!-- Export buttons for tables (left half) -->
+				<div class="button-container enhanced-tables-buttons">
+					<button id="copyEnhancedTablesButton" onclick="copyEnhancedTablesToClipboard()">
+						Copy PNG
+					</button>
+					<button id="downloadEnhancedTablesButton" onclick="downloadEnhancedTablesAsSVG()">
+						Download SVG
+					</button>
+				</div>
+
+				<!-- Export buttons for charts (right half) -->
+				<div class="button-container enhanced-charts-buttons">
+					<button id="copyEnhancedChartsButton" onclick="copyEnhancedChartsToClipboard()">
+						Copy PNG
+					</button>
+					<button id="downloadEnhancedChartsButton" onclick="downloadEnhancedChartsAsSVG()">
+						Download SVG
+					</button>
+			</div>
+			</div>
+
+			<!-- Explanatory note -->
+			<p class="section-description" style="margin: 20px 0 0 0; font-size: 13px; color: #888; text-align: center; font-style: italic; width: 100%;">
+				<strong>Note:</strong> Account count may exceed unique hash count due to blank/duplicate passwords or disabled accounts.
+			</p>
+		</section>
+
 		<!-- Create Password Length Distribution Bar Chart -->
 		<section class="barChart">
 			<h2>Password Length Distribution</h2>
@@ -1706,6 +1794,8 @@
 							stopHIBPProgressPolling();
 							progressDetail.textContent = 'Loading results...';
 							await loadAndDisplayHIBPResults();
+							// Reload breach statistics in the Detailed Analysis Summary section
+							await reloadBreachStatistics();
 						} else if (progress.status === 'error') {
 							// Check failed
 							stopHIBPProgressPolling();
@@ -1751,6 +1841,41 @@
 				if (hibpProgressInterval) {
 					clearInterval(hibpProgressInterval);
 					hibpProgressInterval = null;
+				}
+			}
+
+			// Reload breach statistics table after HIBP check completes
+			async function reloadBreachStatistics() {
+				try {
+					const response = await fetch("breach_stats", { credentials: "same-origin" });
+					if (response.ok) {
+						const breachData = await response.json();
+						
+						// Create lookup map for breach data
+						const breachMap = {};
+						breachData.forEach(item => {
+							breachMap[item.key] = item.value;
+						});
+						
+						// Clear existing table
+						const container = document.getElementById("breachStatsTableContainer");
+						container.innerHTML = "";
+						
+						// Create new table with updated data
+						const breachStatsTable = createEnhancedTable([
+							{ label: "Accts. w/ Breached Pw:", value: breachMap["Accts. w/ Breached Pw: "] },
+							{ label: "Hashes in Breach:", value: breachMap["Hashes in Breach: "] },
+							{ label: "Hash Breach Rate:", value: breachMap["Hash Breach Rate: "] },
+							{ label: "Account Breach Rate:", value: breachMap["Account Breach Rate: "] }
+						]);
+						container.appendChild(breachStatsTable);
+						
+						console.log("Breach statistics table updated successfully");
+					} else {
+						console.log("Breach statistics not available yet");
+					}
+				} catch (error) {
+					console.error("Failed to reload breach statistics:", error);
 				}
 			}
 
@@ -1865,22 +1990,33 @@
 				}
 
 				// Summary grid
-				const safeCount = data.total_checked - data.total_found;
+				const hashesInBreach = data.unique_hashes_in_breach || 0;
+				const hashesNotInBreach = data.unique_hashes_not_in_breach || (data.total_unique_hashes - data.unique_hashes_in_breach) || 0;
+				const totalUniqueHashes = data.total_unique_hashes || data.total_checked;
+				const totalAccounts = data.total_accounts || data.total_checked;
+				const hashBreachPercentage = totalUniqueHashes > 0 ? ((hashesInBreach / totalUniqueHashes) * 100).toFixed(1) : '0.0';
+				const hashSafePercentage = totalUniqueHashes > 0 ? ((hashesNotInBreach / totalUniqueHashes) * 100).toFixed(1) : '0.0';
+
 				document.getElementById('hibpSummaryGrid').innerHTML = `
 					<div class="hibp-stat-card found">
-						<div class="stat-value">${data.total_found}</div>
-						<div class="stat-label">Found in Breaches</div>
+						<div class="stat-value">${data.total_found.toLocaleString()}</div>
+						<div class="stat-label">Accounts with Passwords in Breaches</div>
 						<div class="stat-detail">${data.found_percentage}% of accounts</div>
 					</div>
+					<div class="hibp-stat-card found">
+						<div class="stat-value">${hashesInBreach.toLocaleString()}</div>
+						<div class="stat-label">Unique NTLM Hashes in Breaches</div>
+						<div class="stat-detail">${hashBreachPercentage}% of hashes</div>
+					</div>
 					<div class="hibp-stat-card safe">
-						<div class="stat-value">${safeCount}</div>
-						<div class="stat-label">Not Found</div>
-						<div class="stat-detail">Unique passwords</div>
+						<div class="stat-value">${hashesNotInBreach.toLocaleString()}</div>
+						<div class="stat-label">Unique NTLM Hashes Not Found in Breaches</div>
+						<div class="stat-detail">${hashSafePercentage}% of hashes</div>
 					</div>
 					<div class="hibp-stat-card total">
-						<div class="stat-value">${data.total_checked}</div>
-						<div class="stat-label">Total Checked</div>
-						<div class="stat-detail">${data.check_duration_seconds}s</div>
+						<div class="stat-value">${totalUniqueHashes.toLocaleString()}</div>
+						<div class="stat-label">NTLM Hashes Analyzed</div>
+						<div class="stat-detail">Representing ${totalAccounts.toLocaleString()} accounts</div>
 					</div>
 				`;
 
@@ -1953,22 +2089,33 @@
 				}
 
 				// Summary grid
-				const safeCount = summary.total_checked - summary.total_found;
+				const hashesInBreach = summary.unique_hashes_in_breach || 0;
+				const hashesNotInBreach = summary.unique_hashes_not_in_breach || (summary.total_unique_hashes - summary.unique_hashes_in_breach) || 0;
+				const totalUniqueHashes = summary.total_unique_hashes || summary.total_checked;
+				const totalAccounts = summary.total_accounts || summary.total_checked;
+				const hashBreachPercentage = totalUniqueHashes > 0 ? ((hashesInBreach / totalUniqueHashes) * 100).toFixed(1) : '0.0';
+				const hashSafePercentage = totalUniqueHashes > 0 ? ((hashesNotInBreach / totalUniqueHashes) * 100).toFixed(1) : '0.0';
+
 				document.getElementById('hibpSummaryGrid').innerHTML = `
 					<div class="hibp-stat-card found">
-						<div class="stat-value">${summary.total_found}</div>
-						<div class="stat-label">Found in Breaches</div>
+						<div class="stat-value">${summary.total_found.toLocaleString()}</div>
+						<div class="stat-label">Accounts with Passwords in Breaches</div>
 						<div class="stat-detail">${summary.found_percentage}% of accounts</div>
 					</div>
+					<div class="hibp-stat-card found">
+						<div class="stat-value">${hashesInBreach.toLocaleString()}</div>
+						<div class="stat-label">Unique NTLM Hashes in Breaches</div>
+						<div class="stat-detail">${hashBreachPercentage}% of hashes</div>
+					</div>
 					<div class="hibp-stat-card safe">
-						<div class="stat-value">${safeCount}</div>
-						<div class="stat-label">Not Found</div>
-						<div class="stat-detail">Unique passwords</div>
+						<div class="stat-value">${hashesNotInBreach.toLocaleString()}</div>
+						<div class="stat-label">Unique NTLM Hashes Not Found in Breaches</div>
+						<div class="stat-detail">${hashSafePercentage}% of hashes</div>
 					</div>
 					<div class="hibp-stat-card total">
-						<div class="stat-value">${summary.total_checked}</div>
-						<div class="stat-label">Total Checked</div>
-						<div class="stat-detail">${summary.check_duration_seconds}s</div>
+						<div class="stat-value">${totalUniqueHashes.toLocaleString()}</div>
+						<div class="stat-label">NTLM Hashes Analyzed</div>
+						<div class="stat-detail">Representing ${totalAccounts.toLocaleString()} accounts</div>
 					</div>
 				`;
 
@@ -2129,11 +2276,11 @@
 						// Group by password (using hash as key for uncracked)
 						const grouped = {};
 						breached.forEach(item => {
-							const key = item.cracked_pw !== null ? item.cracked_pw : `__hash__${item.nt_hash}`;
+							const key = item.cracked_pw !== null ? item.cracked_pw : `__hash__${item.ntlm_hash}`;
 							if (!grouped[key]) {
 								grouped[key] = {
 									password: item.cracked_pw,
-									hash: item.nt_hash,
+									hash: item.ntlm_hash,
 									breach_count: item.breach_count || 0,
 									accounts: []
 								};
@@ -2410,7 +2557,7 @@
 						}]
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: {
@@ -2471,7 +2618,7 @@
 					},
 					options: {
 						indexAxis: 'y',
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: { display: false }
@@ -2740,7 +2887,7 @@
 						}]
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: { display: false }
@@ -2798,7 +2945,7 @@
 						}]
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: {
@@ -2835,7 +2982,7 @@
 						}]
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: { display: false }
@@ -2904,7 +3051,7 @@
 						}]
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: true,
 						plugins: {
 							legend: {
@@ -3315,7 +3462,7 @@
 				if (trendBadPracticesChart) trendBadPracticesChart.destroy();
 
 				const chartOptions = {
-					responsive: true,
+					responsive: false,
 					maintainAspectRatio: false,
 					plugins: {
 						legend: { display: false }
@@ -3326,7 +3473,7 @@
 				};
 
 				const barChartOptions = {
-					responsive: true,
+					responsive: false,
 					maintainAspectRatio: false,
 					plugins: {
 						legend: { display: false }
@@ -4653,7 +4800,7 @@
 					},
 					options: {
 						indexAxis: "y", // Horizontal bar
-						responsive: true,
+						responsive: false,
 						maintainAspectRatio: false,
 						layout: {
 							padding: { left: 0, right: 0, top: 10, bottom: 10 }
@@ -4757,7 +4904,7 @@
 						],
 					},
 					options: {
-						responsive: true,
+						responsive: false,
 						layout: {
 							padding: {
 								top: 30, // Add padding to top of chart to prevent labels from cutting off
@@ -4917,6 +5064,222 @@
 					console.error("Error loading pw_ntlm_hash_pie:", error)
 				);
 
+			// ============================================================
+			// Enhanced Statistics Section
+			// ============================================================
+
+			// Fetch data and populate enhanced statistics section
+			Promise.all([
+				fetch("cracking_stats_table").then(res => res.json()),
+				fetch("pw_account_pie").then(res => res.json()),
+				fetch("pw_ntlm_hash_pie").then(res => res.json()),
+				fetch("breach_stats").then(res => res.json()).catch(() => null)
+			]).then(([statsData, accountPieData, hashPieData, breachData]) => {
+				// Create lookup map for stats data
+				const statsMap = {};
+				statsData.forEach(item => {
+					statsMap[item.key] = item.value;
+				});
+
+				// Populate Account Statistics Table
+				const accountStatsTable = createEnhancedTable([
+					{ label: "Cracked Accounts:", value: statsMap["Cracked Accounts: "] },
+					{ label: "Uncracked Accounts:", value: statsMap["Uncracked Accounts: "] },
+					{ label: "Accounts Analyzed:", value: statsMap["Total Accounts Analyzed: "] },
+					{ label: "Account Crack Rate:", value: statsMap["Percent of Accounts Cracked: "] }
+				]);
+				document.getElementById('accountStatsTableContainer').appendChild(accountStatsTable);
+
+				// Populate Password Statistics Table
+				const passwordStatsTable = createEnhancedTable([
+					{ label: "Shortest Password:", value: statsMap["Shortest Cracked Password: "] },
+					{ label: "Longest Password:", value: statsMap["Longest Cracked Password: "] },
+					{ label: "Average Length:", value: statsMap["Average Password Length: "] }
+				]);
+				document.getElementById('passwordStatsTableContainer').appendChild(passwordStatsTable);
+
+				// Populate Hash Statistics Table
+				const hashStatsTable = createEnhancedTable([
+					{ label: "Cracked NTLM Hashes:", value: statsMap["Cracked NTLM Hashes: "] },
+					{ label: "Uncracked NTLM Hashes:", value: statsMap["Uncracked NTLM Hashes: "] },
+					{ label: "Hashes Analyzed:", value: statsMap["Unique NTLM Hashes Analyzed: "] },
+					{ label: "Hash Crack Rate:", value: statsMap["Percent of NTLM Hashes Cracked: "] },
+					{ label: "LANMan Hashes:", value: statsMap["Total LANMan Hashes: "] }
+				]);
+				document.getElementById('hashStatsTableContainer').appendChild(hashStatsTable);
+				// Populate Breach Statistics Table
+				let breachStatsTable;
+				if (breachData && Array.isArray(breachData)) {
+					// Create lookup map for breach data
+					const breachMap = {};
+					breachData.forEach(item => {
+						breachMap[item.key] = item.value;
+					});
+
+					breachStatsTable = createEnhancedTable([
+						{ label: "Accts. w/ Breached Pw:", value: breachMap["Accts. w/ Breached Pw: "] },
+						{ label: "Hashes in Breach:", value: breachMap["Hashes in Breach: "] },
+						{ label: "Hash Breach Rate:", value: breachMap["Hash Breach Rate: "] },
+						{ label: "Account Breach Rate:", value: breachMap["Account Breach Rate: "] }
+					]);
+				} else {
+					// No breach data available - show N/A
+					breachStatsTable = createEnhancedTable([
+						{ label: "Accts. w/ Breached Pw:", value: "N/A" },
+						{ label: "Hashes in Breach:", value: "N/A" },
+						{ label: "Hash Breach Rate:", value: "N/A" },
+						{ label: "Account Breach Rate:", value: "N/A" }
+					]);
+				}
+				document.getElementById("breachStatsTableContainer").appendChild(breachStatsTable);
+
+
+
+
+
+
+
+
+				document.getElementById('breachStatsTableContainer').appendChild(breachStatsTable);
+
+				// Create enhanced bar charts
+				createEnhancedBarChart(accountPieData, "enhancedAccountsBar", "enhancedAccountsBarLegend");
+				createEnhancedBarChart(hashPieData, "enhancedHashesBar", "enhancedHashesBarLegend");
+			}).catch(error => {
+				console.error("Error loading enhanced statistics data:", error);
+			});
+
+			// Helper function to create enhanced statistics tables
+			function createEnhancedTable(rows) {
+				const table = document.createElement('table');
+				table.className = 'enhanced-stat-table';
+				const tbody = document.createElement('tbody');
+
+				// Determine border color based on theme
+				const theme = getCurrentTheme();
+				const borderColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+
+				rows.forEach(row => {
+					const tr = document.createElement('tr');
+
+					const labelCell = document.createElement('td');
+					labelCell.textContent = row.label;
+					labelCell.style.textAlign = 'left';
+					labelCell.style.padding = '6px 4px';
+					labelCell.style.fontSize = '13px';
+					labelCell.style.borderBottom = '1px solid ' + borderColor;
+
+					const valueCell = document.createElement('td');
+					valueCell.textContent = typeof row.value === 'number' ? row.value.toLocaleString() : row.value;
+					valueCell.style.textAlign = 'right';
+					valueCell.style.padding = '6px 4px';
+					valueCell.style.fontSize = '13px';
+					valueCell.style.fontWeight = '600';
+					valueCell.style.borderBottom = '1px solid ' + borderColor;
+
+					tr.appendChild(labelCell);
+					tr.appendChild(valueCell);
+					tbody.appendChild(tr);
+				});
+
+				table.appendChild(tbody);
+				return table;
+			}
+
+			// Helper function to create enhanced bar charts
+			function createEnhancedBarChart(data, canvasId, legendId) {
+				const canvas = document.getElementById(canvasId);
+				const ctx = canvas.getContext('2d');
+
+				const cracked = data.Cracked || 0;
+				const uncracked = data.Uncracked || 0;
+				const total = cracked + uncracked;
+
+				if (total === 0) {
+					console.warn(`No data for ${canvasId}`);
+					return;
+				}
+
+				// Calculate percentages (0-100) for consistent bar widths
+				const crackedPercent = (cracked / total) * 100;
+				const uncrackedPercent = (uncracked / total) * 100;
+
+				// Use colors from the old stacked bar chart
+				const colors = {
+					uncracked: "rgba(49, 176, 5, 0.8)",
+					uncrackedBorder: "#31b005",
+					cracked: "rgba(220, 53, 69, 0.8)",
+					crackedBorder: "#dc3545"
+				};
+
+				new Chart(ctx, {
+					type: 'bar',
+					data: {
+						labels: [''],
+						datasets: [
+							{
+								label: 'Uncracked',
+								data: [uncrackedPercent],  // Use percentage instead of raw count
+								backgroundColor: colors.uncracked,
+								borderColor: colors.uncrackedBorder,
+								borderWidth: 1,
+								barPercentage: 1.0,
+								categoryPercentage: 1.0
+							},
+							{
+								label: 'Cracked',
+								data: [crackedPercent],  // Use percentage instead of raw count
+								backgroundColor: colors.cracked,
+								borderColor: colors.crackedBorder,
+								borderWidth: 1,
+								barPercentage: 1.0,
+								categoryPercentage: 1.0
+							}
+						]
+					},
+					options: {
+						indexAxis: 'y',
+						responsive: false,
+						maintainAspectRatio: false,
+						scales: {
+							x: {
+								stacked: true,
+								display: false,
+								max: 100  // Set max to 100 since we're using percentages
+							},
+							y: {
+								stacked: true,
+								display: false
+							}
+						},
+						plugins: {
+							legend: {
+								display: false
+							},
+							tooltip: {
+								enabled: true,
+								callbacks: {
+									label: function(context) {
+										const label = context.dataset.label || '';
+										const percent = context.parsed.x.toFixed(1);
+										// Show actual count in tooltip
+										const count = label === 'Uncracked' ? uncracked : cracked;
+										return `${label}: ${count.toLocaleString()} (${percent}%)`;
+									}
+								}
+							}
+						}
+					}
+				});
+
+				// Create legend with matching colors
+				const legend = document.getElementById(legendId);
+				legend.innerHTML = `
+					<span style="color: ${colors.uncrackedBorder};">⬤</span> Uncracked: ${uncracked.toLocaleString()} (${uncrackedPercent.toFixed(1)}%) &nbsp;&nbsp;
+					<span style="color: ${colors.crackedBorder};">⬤</span> Cracked: ${cracked.toLocaleString()} (${crackedPercent.toFixed(1)}%)
+				`;
+			}
+
 			// Fetch and create Password Length Distribution Bar Chart
 			let passwordLengthChartInstance; // Declare the chart instance globally
 
@@ -4992,7 +5355,7 @@
 								],
 							},
 							options: {
-								responsive: true,
+								responsive: false,
 								layout: {
 									padding: {
 										top: 30,
@@ -5264,7 +5627,7 @@
 							],
 						},
 						options: {
-							responsive: true,
+							responsive: false,
 							layout: {
 								padding: {
 									top: 30, // Add padding to top of chart to prevent labels from cutting off
@@ -5431,7 +5794,7 @@
 							],
 						},
 						options: {
-							responsive: true,
+							responsive: false,
 							layout: {
 								padding: { top: 30 }, // Prevent labels from cutting off
 							},
@@ -5586,7 +5949,7 @@
 							],
 						},
 						options: {
-							responsive: true,
+							responsive: false,
 							layout: {
 								padding: {
 									top: 30, // Add padding to top of chart to prevent labels from cutting off
@@ -5718,7 +6081,7 @@
 							}],
 						},
 						options: {
-							responsive: true,
+							responsive: false,
 							layout: {
 								padding: { top: 30 },
 							},
@@ -5897,7 +6260,7 @@
 							{ title: "Accounts", data: 2, visible: false }, // Hidden searchable column for accounts
 						],
 						order: [[2, "desc"]], // Sort by the "Count" column in descending order
-						responsive: true,
+						responsive: false,
 						destroy: true,
 						createdRow: function (row, data, dataIndex) {
 							const cell = $(row).find("span.hash-cell")[0];
@@ -6073,7 +6436,7 @@
 							}
 						],
 						order: [[1, "asc"], [0, "asc"]], // Sort by status first (Enabled < Disabled alphabetically), then account name
-						responsive: true,
+						responsive: false,
 						destroy: true,
 					});
 				})
@@ -6123,7 +6486,7 @@
 							}
 						],
 						order: [[0, "asc"]], // Sort by the account name column in ascending order
-						responsive: true,
+						responsive: false,
 						destroy: true,
 					});
 				})
@@ -6170,7 +6533,7 @@
 							{ title: "Password Age (Days)", data: "Age", className: "dt-center" },
 						],
 						order: [[2, "desc"]], // Sort by Age in descending order
-						responsive: true, // Make the table responsive
+						responsive: false, // Make the table responsive
 						destroy: true, // Allow reinitialization
 					});
 				})
@@ -6912,7 +7275,7 @@
 							},
 							options: {
 								indexAxis: 'y',
-								responsive: true,
+								responsive: false,
 								maintainAspectRatio: false,
 								plugins: {
 									legend: { display: false }
@@ -9358,6 +9721,441 @@
 				}
 			}
 			loadMasterPotfileIndicator();
+
+		// ============================================================
+		// Enhanced Statistics Section Export Functions
+		// ============================================================
+
+		// Function to copy enhanced tables (Account, Password, Hash, and Breach stats) to clipboard as PNG
+		function copyEnhancedTablesToClipboard() {
+			const theme = getCurrentTheme();
+
+			// Get all four table containers
+			const accountTable = document.querySelector('#accountStatsTableContainer table');
+			const passwordTable = document.querySelector('#passwordStatsTableContainer table');
+			const hashTable = document.querySelector('#hashStatsTableContainer table');
+			const breachTable = document.querySelector('#breachStatsTableContainer table');
+
+			if (!accountTable || !passwordTable || !hashTable || !breachTable) {
+				alert('Tables not loaded yet. Please try again.');
+				return;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const ctx = tempCanvas.getContext('2d');
+			const padding = 20;
+			const columnGap = 30;
+			const sectionGap = 25;
+
+			// Calculate dimensions
+			const colWidth = 340;
+			tempCanvas.width = (colWidth * 2) + columnGap + (padding * 2);
+
+			// Helper function to measure table height
+			function measureTableHeight(table, title) {
+				const rows = table.querySelectorAll('tr');
+				const titleHeight = 30;
+				const rowHeight = 26;
+				return titleHeight + (rows.length * rowHeight);
+			}
+
+			const leftColHeight = measureTableHeight(hashTable, 'Hash Statistics') + sectionGap + measureTableHeight(passwordTable, 'Password Statistics');
+			const rightColHeight = measureTableHeight(accountTable, 'Account Statistics') + sectionGap + measureTableHeight(breachTable, 'Breach Statistics');
+			tempCanvas.height = Math.max(leftColHeight, rightColHeight) + (padding * 2) + 40;
+
+			// Fill background
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			// Helper function to draw a table
+			function drawTable(table, title, x, y) {
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 16px Arial';
+				ctx.textAlign = 'left';
+				ctx.fillText(title, x, y);
+
+				let currentY = y + 20;
+				ctx.font = '13px Arial';
+
+				const rows = table.querySelectorAll('tr');
+				rows.forEach((row, index) => {
+					const cells = row.querySelectorAll('td');
+					if (cells.length >= 2) {
+						// Draw label (left-aligned)
+						ctx.textAlign = 'left';
+						ctx.fillText(cells[0].textContent, x, currentY);
+
+						// Draw value (right-aligned)
+						ctx.textAlign = 'right';
+						ctx.fillText(cells[1].textContent, x + colWidth - 10, currentY);
+
+						// Draw bottom border
+						ctx.strokeStyle = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#ddd';
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.moveTo(x, currentY + 5);
+						ctx.lineTo(x + colWidth - 10, currentY + 5);
+						ctx.stroke();
+
+						currentY += 26;
+					}
+				});
+
+				return currentY;
+			}
+
+			// Draw left column (Hash + Password stats) - matches on-screen layout
+			let leftY = padding + 30;
+			leftY = drawTable(hashTable, 'Hash Statistics', padding, leftY);
+			leftY += sectionGap;
+			drawTable(passwordTable, 'Password Statistics', padding, leftY);
+
+			// Draw right column (Account + Breach stats) - matches on-screen layout
+			let rightY = padding + 30;
+			rightY = drawTable(accountTable, 'Account Statistics', padding + colWidth + columnGap, rightY);
+			rightY += sectionGap;
+			drawTable(breachTable, 'Breach Statistics', padding + colWidth + columnGap, rightY);
+
+			// Copy to clipboard
+			tempCanvas.toBlob(blob => {
+				if (blob) {
+					const item = new ClipboardItem({ 'image/png': blob });
+					navigator.clipboard.write([item])
+						.then(() => alert('Enhanced tables copied to clipboard!'))
+						.catch(err => {
+							console.error('Failed to copy:', err);
+							alert('Failed to copy tables.');
+						});
+				}
+			});
+		}
+
+		// Function to download enhanced tables as SVG
+		function downloadEnhancedTablesAsSVG() {
+			const theme = getCurrentTheme();
+
+			// Get all four table containers
+			const accountTable = document.querySelector('#accountStatsTableContainer table');
+			const passwordTable = document.querySelector('#passwordStatsTableContainer table');
+			const hashTable = document.querySelector('#hashStatsTableContainer table');
+			const breachTable = document.querySelector('#breachStatsTableContainer table');
+
+			if (!accountTable || !passwordTable || !hashTable || !breachTable) {
+				alert('Tables not loaded yet. Please try again.');
+				return;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const ctx = tempCanvas.getContext('2d');
+			const padding = 20;
+			const columnGap = 30;
+			const sectionGap = 25;
+			const colWidth = 340;
+
+			tempCanvas.width = (colWidth * 2) + columnGap + (padding * 2);
+
+			// Helper function to measure table height
+			function measureTableHeight(table) {
+				const rows = table.querySelectorAll('tr');
+				const titleHeight = 30;
+				const rowHeight = 26;
+				return titleHeight + (rows.length * rowHeight);
+			}
+
+			const leftColHeight = measureTableHeight(hashTable) + sectionGap + measureTableHeight(passwordTable);
+			const rightColHeight = measureTableHeight(accountTable) + sectionGap + measureTableHeight(breachTable);
+			tempCanvas.height = Math.max(leftColHeight, rightColHeight) + (padding * 2) + 40;
+
+			// Fill background
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			// Helper function to draw a table
+			function drawTable(table, title, x, y) {
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 16px Arial';
+				ctx.textAlign = 'left';
+				ctx.fillText(title, x, y);
+
+				let currentY = y + 20;
+				ctx.font = '13px Arial';
+
+				const rows = table.querySelectorAll('tr');
+				rows.forEach((row) => {
+					const cells = row.querySelectorAll('td');
+					if (cells.length >= 2) {
+						ctx.textAlign = 'left';
+						ctx.fillText(cells[0].textContent, x, currentY);
+						ctx.textAlign = 'right';
+						ctx.fillText(cells[1].textContent, x + colWidth - 10, currentY);
+
+						ctx.strokeStyle = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#ddd';
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.moveTo(x, currentY + 5);
+						ctx.lineTo(x + colWidth - 10, currentY + 5);
+						ctx.stroke();
+
+						currentY += 26;
+					}
+				});
+
+				return currentY;
+			}
+
+			// Draw left column (Hash + Password stats) - matches on-screen layout
+			let leftY = padding + 30;
+			leftY = drawTable(hashTable, 'Hash Statistics', padding, leftY);
+			leftY += sectionGap;
+			drawTable(passwordTable, 'Password Statistics', padding, leftY);
+
+			// Draw right column (Account + Breach stats) - matches on-screen layout
+			let rightY = padding + 30;
+			rightY = drawTable(accountTable, 'Account Statistics', padding + colWidth + columnGap, rightY);
+			rightY += sectionGap;
+			drawTable(breachTable, 'Breach Statistics', padding + colWidth + columnGap, rightY);
+
+			// Convert to SVG
+			const chartDataUrl = tempCanvas.toDataURL('image/png');
+			const svgContent = `
+				<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+					<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+				</svg>
+			`;
+
+			const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+			const link = document.createElement('a');
+			link.href = URL.createObjectURL(blob);
+			link.download = 'detailed_analysis_tables.svg';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		}
+
+		// Function to copy enhanced bar charts to clipboard as PNG
+		function copyEnhancedChartsToClipboard() {
+			const canvas1 = document.getElementById('enhancedAccountsBar');
+			const canvas2 = document.getElementById('enhancedHashesBar');
+			const legend1 = document.getElementById('enhancedAccountsBarLegend');
+			const legend2 = document.getElementById('enhancedHashesBarLegend');
+			const theme = getCurrentTheme();
+
+			if (!canvas1 || !canvas2 || !legend1 || !legend2) {
+				alert('Charts not loaded yet. Please try again.');
+				return;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const padding = 20;
+			const titleToChartGap = 20;
+			const chartToLegendGap = 25;
+			const sectionGap = 50;
+			tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
+			tempCanvas.height = canvas1.height + canvas2.height + (padding * 2) + (titleToChartGap * 2) + (chartToLegendGap * 2) + sectionGap + 40;
+
+			const ctx = tempCanvas.getContext('2d');
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.font = 'bold 22px Arial';
+			ctx.textAlign = 'center';
+
+			let currentY = padding + 20;
+
+			// Helper function to draw colored legend
+			function drawColoredLegend(centerX, y, legendElement) {
+				const uncrackedColor = '#31b005';
+				const crackedColor = '#dc3545';
+				const circleRadius = 7;
+				const gap = 40;
+
+				// Parse legend text to extract values
+				const legendText = legendElement.textContent.trim();
+				// Example: "⬤ Uncracked: 649 (62.5%)   ⬤ Cracked: 389 (37.5%)"
+				const parts = legendText.split(/\s{2,}/); // Split on multiple spaces
+				const uncrackedText = parts[0].replace('⬤', '').trim();
+				const crackedText = parts[1].replace('⬤', '').trim();
+
+				ctx.font = '18px Arial';
+				const uncrackedWidth = ctx.measureText(uncrackedText).width;
+				const crackedWidth = ctx.measureText(crackedText).width;
+				const totalWidth = circleRadius * 2 + 8 + uncrackedWidth + gap + circleRadius * 2 + 8 + crackedWidth;
+
+				let startX = centerX - (totalWidth / 2);
+
+				// Draw uncracked circle
+				ctx.fillStyle = uncrackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				// Draw uncracked text
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(uncrackedText, startX + circleRadius * 2 + 8, y);
+
+				startX += circleRadius * 2 + 8 + uncrackedWidth + gap;
+
+				// Draw cracked circle
+				ctx.fillStyle = crackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				// Draw cracked text
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(crackedText, startX + circleRadius * 2 + 8, y);
+			}
+
+			// Accounts section
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.fillText('Cracked Account Passwords', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas1, padding, currentY);
+			currentY += canvas1.height + chartToLegendGap;
+
+			// Draw Accounts legend with colors
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend1);
+			currentY += sectionGap;
+
+			// Hashes section
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.font = 'bold 22px Arial';
+			ctx.fillText('Cracked (Unique) NTLM Hashes', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas2, padding, currentY);
+			currentY += canvas2.height + chartToLegendGap;
+
+			// Draw Hashes legend with colors
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend2);
+
+			// Copy to clipboard
+			tempCanvas.toBlob(blob => {
+				if (blob) {
+					const item = new ClipboardItem({ 'image/png': blob });
+					navigator.clipboard.write([item])
+						.then(() => alert('Enhanced bar charts copied to clipboard!'))
+						.catch(err => {
+							console.error('Failed to copy:', err);
+							alert('Failed to copy charts.');
+						});
+				}
+			});
+		}
+
+		// Function to download enhanced charts as SVG
+		function downloadEnhancedChartsAsSVG() {
+			const canvas1 = document.getElementById('enhancedAccountsBar');
+			const canvas2 = document.getElementById('enhancedHashesBar');
+			const legend1 = document.getElementById('enhancedAccountsBarLegend');
+			const legend2 = document.getElementById('enhancedHashesBarLegend');
+			const theme = getCurrentTheme();
+
+			if (!canvas1 || !canvas2 || !legend1 || !legend2) {
+				alert('Charts not loaded yet. Please try again.');
+				return;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const padding = 20;
+			const titleToChartGap = 20;
+			const chartToLegendGap = 25;
+			const sectionGap = 50;
+			tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
+			tempCanvas.height = canvas1.height + canvas2.height + (padding * 2) + (titleToChartGap * 2) + (chartToLegendGap * 2) + sectionGap + 40;
+
+			const ctx = tempCanvas.getContext('2d');
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.font = 'bold 22px Arial';
+			ctx.textAlign = 'center';
+
+			let currentY = padding + 20;
+
+			// Helper function to draw colored legend
+			function drawColoredLegend(centerX, y, legendElement) {
+				const uncrackedColor = '#31b005';
+				const crackedColor = '#dc3545';
+				const circleRadius = 7;
+				const gap = 40;
+
+				const legendText = legendElement.textContent.trim();
+				const parts = legendText.split(/\s{2,}/);
+				const uncrackedText = parts[0].replace('⬤', '').trim();
+				const crackedText = parts[1].replace('⬤', '').trim();
+
+				ctx.font = '18px Arial';
+				const uncrackedWidth = ctx.measureText(uncrackedText).width;
+				const crackedWidth = ctx.measureText(crackedText).width;
+				const totalWidth = circleRadius * 2 + 8 + uncrackedWidth + gap + circleRadius * 2 + 8 + crackedWidth;
+
+				let startX = centerX - (totalWidth / 2);
+
+				ctx.fillStyle = uncrackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(uncrackedText, startX + circleRadius * 2 + 8, y);
+
+				startX += circleRadius * 2 + 8 + uncrackedWidth + gap;
+
+				ctx.fillStyle = crackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(crackedText, startX + circleRadius * 2 + 8, y);
+			}
+
+			// Accounts section
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.fillText('Cracked Account Passwords', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas1, padding, currentY);
+			currentY += canvas1.height + chartToLegendGap;
+
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend1);
+			currentY += sectionGap;
+
+			// Hashes section
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.font = 'bold 22px Arial';
+			ctx.fillText('Cracked (Unique) NTLM Hashes', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas2, padding, currentY);
+			currentY += canvas2.height + chartToLegendGap;
+
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend2);
+
+			// Convert to SVG
+			const chartDataUrl = tempCanvas.toDataURL('image/png');
+			const svgContent = `
+				<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+					<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+				</svg>
+			`;
+
+			const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+			const link = document.createElement('a');
+			link.href = URL.createObjectURL(blob);
+			link.download = 'detailed_analysis_charts.svg';
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+		}
 
 			// Hide loading overlay once page is ready
 			document.body.classList.remove('loading-on-entry');

@@ -731,6 +731,11 @@ A password appearing millions of times (e.g., 52,000,000+) indicates it's extrem
 - **k-Anonymity**: The HIBP API never sees your full hashes
 - **Consent Required**: Users must explicitly consent before any external API calls
 
+### **Important Notes**
+
+- **Hash Count Discrepancy**: The number of NTLM hashes checked in HIBP may be 1 less than the total shown in the report statistics, because blank passwords (hash: `31d6cfe0d16ae931b73c59d7e0c089c0`) are automatically excluded from breach checks. This is intentional - there's no value in checking whether the blank password appears in breaches.
+- **Account vs Hash Counts**: Multiple accounts can share the same password hash (and thus the same password). The report displays both unique NTLM hash counts and account counts to give you a complete picture of password reuse within your organization.
+
 ### **Future: Local Database Support**
 
 For air-gapped environments, a future update will support checking against a locally-downloaded HIBP NTLM hash database.
