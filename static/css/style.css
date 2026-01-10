@@ -3204,14 +3204,18 @@ body#reportPage.light-theme section button[id*="Copy"]:hover {
 	background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
 }
 
-/* Light theme - Red Download SVG buttons (charts only, not toggle buttons) */
-body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button) {
+/* Light theme - Red Download SVG buttons (all SVG download buttons) */
+body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button),
+body#reportPage.light-theme button#downloadEnhancedTablesButton,
+body#reportPage.light-theme button#downloadEnhancedChartsButton {
 	background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
 	border: 1px solid #b91c1c;
 	color: #ffffff;
 }
 
-body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button):hover {
+body#reportPage.light-theme section button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button):hover,
+body#reportPage.light-theme button#downloadEnhancedTablesButton:hover,
+body#reportPage.light-theme button#downloadEnhancedChartsButton:hover {
 	background: linear-gradient(180deg, #f87171 0%, #ef4444 100%);
 }
 
@@ -6011,8 +6015,8 @@ button.session-delete-btn:hover {
 	gap: 16px;
 	margin-bottom: 24px;
 	padding: 16px 20px;
-	background: linear-gradient(135deg, rgba(26, 26, 46, 0.9), rgba(22, 33, 62, 0.9));
-	border: 1px solid rgba(99, 102, 241, 0.2);
+	background: linear-gradient(135deg, rgba(15, 25, 15, 0.9), rgba(10, 20, 10, 0.9));
+	border: 2px solid #31b005;
 	border-radius: 12px;
 }
 
@@ -6038,7 +6042,7 @@ button.session-delete-btn:hover {
 .sessions-toolbar .search-box input {
 	padding: 10px 16px 10px 40px;
 	background: rgba(0, 0, 0, 0.3);
-	border: 1px solid rgba(99, 102, 241, 0.3);
+	border: 1px solid rgba(49, 176, 5, 0.3);
 	border-radius: 8px;
 	color: #e4e4e7;
 	font-size: 14px;
@@ -6048,8 +6052,8 @@ button.session-delete-btn:hover {
 
 .sessions-toolbar .search-box input:focus {
 	outline: none;
-	border-color: #6366f1;
-	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	border-color: #31b005;
+	box-shadow: 0 0 0 3px rgba(49, 176, 5, 0.1);
 }
 
 .sessions-toolbar .search-box input::placeholder {
@@ -6094,8 +6098,8 @@ button.view-btn:hover {
 }
 
 button.view-btn.active {
-	background: rgba(59, 130, 246, 0.25);
-	color: #93c5fd;
+	background: rgba(49, 176, 5, 0.25);
+	color: #7ed957;
 }
 
 /* Sort Controls */
@@ -6113,7 +6117,7 @@ button.view-btn.active {
 .sort-controls select {
 	padding: 8px 12px;
 	background: rgba(0, 0, 0, 0.3);
-	border: 1px solid rgba(99, 102, 241, 0.3);
+	border: 1px solid rgba(49, 176, 5, 0.3);
 	border-radius: 6px;
 	color: #e4e4e7;
 	font-size: 13px;
@@ -6122,22 +6126,22 @@ button.view-btn.active {
 
 .sort-controls select:focus {
 	outline: none;
-	border-color: #6366f1;
+	border-color: #31b005;
 }
 
 button.sort-dir-btn {
 	padding: 8px 10px;
 	background: rgba(0, 0, 0, 0.3);
-	border: 1px solid rgba(59, 130, 246, 0.3);
+	border: 1px solid rgba(49, 176, 5, 0.3);
 	border-radius: 6px;
-	color: #93c5fd;
+	color: #7ed957;
 	font-size: 14px;
 	cursor: pointer;
 	transition: all 0.2s;
 }
 
 button.sort-dir-btn:hover {
-	background: rgba(59, 130, 246, 0.2);
+	background: rgba(49, 176, 5, 0.2);
 }
 
 /* Expand/Collapse Buttons (Sessions Page) */
@@ -6175,7 +6179,7 @@ button.sort-dir-btn:hover {
 }
 
 .bulk-actions #selectedCount {
-	color: #a5b4fc;
+	color: #7ed957;
 	font-size: 13px;
 	font-weight: 500;
 }
@@ -6189,8 +6193,9 @@ button.sort-dir-btn:hover {
 }
 
 .sessions-stats .stat-item {
-	background: linear-gradient(135deg, rgba(26, 26, 46, 0.8), rgba(22, 33, 62, 0.8));
-	border: 1px solid rgba(99, 102, 241, 0.15);
+	background: linear-gradient(135deg, rgba(15, 25, 15, 0.8), rgba(10, 20, 10, 0.8));
+	border: 1px solid rgba(49, 176, 5, 0.15);
+	border-left: 3px solid #31b005;
 	border-radius: 10px;
 	padding: 16px 20px;
 	text-align: center;
@@ -6200,7 +6205,7 @@ button.sort-dir-btn:hover {
 	display: block;
 	font-size: 28px;
 	font-weight: 700;
-	color: #a5b4fc;
+	color: #7ed957;
 	margin-bottom: 4px;
 }
 
@@ -6233,8 +6238,9 @@ button.sort-dir-btn:hover {
 /* Company Group */
 .company-group {
 	margin-bottom: 20px;
-	background: linear-gradient(135deg, rgba(26, 26, 46, 0.6), rgba(22, 33, 62, 0.6));
-	border: 1px solid rgba(99, 102, 241, 0.15);
+	background: linear-gradient(135deg, rgba(15, 25, 15, 0.6), rgba(10, 20, 10, 0.6));
+	border: 1px solid rgba(49, 176, 5, 0.15);
+	border-left: 3px solid #31b005;
 	border-radius: 12px;
 	overflow: hidden;
 }
@@ -6254,7 +6260,7 @@ button.sort-dir-btn:hover {
 }
 
 .company-toggle {
-	color: #6366f1;
+	color: #31b005;
 	font-size: 12px;
 	transition: transform 0.2s;
 }
@@ -6268,8 +6274,8 @@ button.sort-dir-btn:hover {
 
 .company-count {
 	font-size: 13px;
-	color: #71717a;
-	background: rgba(99, 102, 241, 0.1);
+	color: #a1a1aa;
+	background: rgba(49, 176, 5, 0.15);
 	padding: 4px 10px;
 	border-radius: 12px;
 }
@@ -6294,12 +6300,12 @@ button.sort-dir-btn:hover {
 
 .session-card:hover {
 	background: rgba(0, 0, 0, 0.3);
-	border-color: rgba(99, 102, 241, 0.2);
+	border-color: rgba(49, 176, 5, 0.3);
 }
 
 .session-card.selected {
-	background: rgba(99, 102, 241, 0.1);
-	border-color: rgba(99, 102, 241, 0.3);
+	background: rgba(49, 176, 5, 0.1);
+	border-color: rgba(49, 176, 5, 0.4);
 }
 
 .session-checkbox {
@@ -6310,7 +6316,7 @@ button.sort-dir-btn:hover {
 	width: 18px;
 	height: 18px;
 	cursor: pointer;
-	accent-color: #6366f1;
+	accent-color: #31b005;
 }
 
 .session-info {
@@ -6375,15 +6381,15 @@ button.sort-dir-btn:hover {
 
 .sessions-page .session-actions .action-btn.view,
 .session-modal .session-actions .action-btn.view {
-	background: rgba(59, 130, 246, 0.15) !important;
-	border: 1px solid rgba(59, 130, 246, 0.3) !important;
-	color: #60a5fa !important;
+	background: rgba(0, 212, 255, 0.15) !important;
+	border: 1px solid rgba(0, 212, 255, 0.3) !important;
+	color: #00d4ff !important;
 }
 
 .sessions-page .session-actions .action-btn.view:hover,
 .session-modal .session-actions .action-btn.view:hover {
-	background: rgba(59, 130, 246, 0.25) !important;
-	border-color: rgba(59, 130, 246, 0.5) !important;
+	background: rgba(0, 212, 255, 0.25) !important;
+	border-color: rgba(0, 212, 255, 0.5) !important;
 }
 
 .sessions-page .session-actions .action-btn.delete,
@@ -6413,8 +6419,8 @@ button.sort-dir-btn:hover {
 }
 
 .sessions-page .view-toggle button.view-btn.active {
-	background: rgba(59, 130, 246, 0.25) !important;
-	color: #93c5fd !important;
+	background: rgba(49, 176, 5, 0.25) !important;
+	color: #7ed957 !important;
 }
 
 /* Expand/Collapse buttons - override global button styles */
@@ -6551,12 +6557,12 @@ button.sort-dir-btn:hover {
 
 .session-restore-card:hover {
 	background: rgba(63, 63, 70, 0.5);
-	border-color: rgba(99, 102, 241, 0.3);
+	border-color: rgba(49, 176, 5, 0.3);
 }
 
 .session-restore-card.selected {
-	background: rgba(99, 102, 241, 0.15);
-	border-color: rgba(99, 102, 241, 0.5);
+	background: rgba(49, 176, 5, 0.15);
+	border-color: rgba(49, 176, 5, 0.5);
 }
 
 .session-restore-info {
@@ -6598,12 +6604,12 @@ button.sort-dir-btn:hover {
 	justify-content: center;
 	border-radius: 50%;
 	font-size: 16px;
-	color: #6366f1;
+	color: #31b005;
 	font-weight: bold;
 }
 
 .session-restore-card.selected .session-restore-check {
-	background: rgba(99, 102, 241, 0.3);
+	background: rgba(49, 176, 5, 0.3);
 }
 
 .session-loading,
@@ -7601,29 +7607,33 @@ body.print-mode .privilege-badge.elevated { background: #fff3cd; color: #856404;
 body.print-mode .status-enabled { background: #d4edda; color: #155724; }
 body.print-mode .status-disabled { background: #e9ecef; color: #495057; }
 body.print-mode #crackedPrivilegedTable .groups-cell { color: #666; }
-/* Password sharing summary */
+/* Password sharing summary - styled like privilege-stat-card */
 .sharing-summary {
-	display: flex;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	gap: 16px;
-	margin-bottom: 16px;
-	flex-wrap: wrap;
+	margin-bottom: 24px;
 }
 .sharing-stat {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	padding: 8px 16px;
+	padding: 16px;
 	background: var(--surface-color, #2a2a2a);
-	border-radius: 6px;
-	min-width: 100px;
+	border-radius: 8px;
+	text-align: center;
 }
+.sharing-stat.tier0 { border-left: 4px solid #ff4444; }
+.sharing-stat.elevated { border-left: 4px solid #feca57; }
+.sharing-stat.at-risk { border-left: 4px solid #00d4ff; }
 .sharing-stat-value {
-	font-size: 1.3rem;
+	font-size: 2rem;
 	font-weight: bold;
+	color: var(--accent-color, #00d4ff);
 }
-.sharing-stat-value.critical { color: #ff6b6b; }
+.sharing-stat-value.critical { color: #ff4444; }
 .sharing-stat-value.high { color: #feca57; }
-.sharing-stat-label { font-size: 0.8rem; color: var(--text-secondary, #aaa); }
+.sharing-stat-label { font-size: 0.85rem; color: var(--text-secondary, #aaa); }
 #passwordSharingTable .shared-accounts { font-size: 0.9rem; color: var(--text-secondary, #aaa); }
 #passwordSharingTable .sharing-password {
 	font-family: monospace;
@@ -7648,8 +7658,11 @@ body.print-mode #passwordSharingTable .shared-accounts { color: #666; }
 	background: #f3f4f6;
 	border: 1px solid #e5e7eb;
 }
+.light-theme .sharing-stat.tier0 { border-left: 4px solid #dc2626; }
+.light-theme .sharing-stat.elevated { border-left: 4px solid #d97706; }
+.light-theme .sharing-stat.at-risk { border-left: 4px solid #0891b2; }
 .light-theme .sharing-stat-value {
-	color: #1f2937;
+	color: #0891b2;
 }
 .light-theme .sharing-stat-value.critical { color: #dc2626; }
 .light-theme .sharing-stat-value.high { color: #d97706; }
@@ -9747,8 +9760,12 @@ body:not(.advanced-mode):not(#reportPage) {
 
 /* ==================== ENHANCED APP HEADER ==================== */
 body:not(.advanced-mode):not(#reportPage) .app-header {
-    background: linear-gradient(180deg, #0a150a 0%, #080d08 100%);
-    border: 1px solid rgba(49, 176, 5, 0.2);
+    background:
+        linear-gradient(rgba(49, 176, 5, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(49, 176, 5, 0.08) 1px, transparent 1px),
+        linear-gradient(180deg, #0a150a 0%, #080d08 100%);
+    background-size: 20px 20px, 20px 20px, 100% 100%;
+    border: 2px solid #31b005;
     box-shadow:
         0 4px 20px rgba(0, 0, 0, 0.4),
         0 0 20px rgba(49, 176, 5, 0.05),
@@ -9763,7 +9780,7 @@ body:not(.advanced-mode):not(#reportPage) .app-header .brand-name {
 /* ==================== ENHANCED STEP PANELS ==================== */
 body:not(.advanced-mode):not(#reportPage) .step-panel {
     background: linear-gradient(180deg, #151a15 0%, #111511 100%);
-    border: 1px solid rgba(49, 176, 5, 0.15);
+    border: 2px solid #31b005;
     border-radius: 12px;
     box-shadow:
         0 6px 24px rgba(0, 0, 0, 0.35),
@@ -9772,7 +9789,7 @@ body:not(.advanced-mode):not(#reportPage) .step-panel {
 }
 
 body:not(.advanced-mode):not(#reportPage) .step-panel:hover {
-    border-color: rgba(49, 176, 5, 0.25);
+    border-color: #4ed62e;
     box-shadow:
         0 8px 30px rgba(0, 0, 0, 0.4),
         0 0 15px rgba(49, 176, 5, 0.05);
@@ -9788,7 +9805,7 @@ body:not(.advanced-mode):not(#reportPage) .step-panel h2 {
 body:not(.advanced-mode):not(#reportPage) .file-section {
     background: linear-gradient(135deg, #141814 0%, #111411 100%);
     border: 1px solid rgba(49, 176, 5, 0.1);
-    border-left: 3px solid #2a8a2a;
+    border-left: 3px solid #31b005;
     border-radius: 8px;
     box-shadow:
         0 4px 12px rgba(0, 0, 0, 0.25),
@@ -10095,8 +10112,12 @@ body#reportPage.dark-theme {
 
 /* Enhanced report header - dark theme only */
 body#reportPage.dark-theme .app-header {
-    background: linear-gradient(180deg, #0a120a 0%, #080c08 100%);
-    border: 1px solid rgba(49, 176, 5, 0.15);
+    background:
+        linear-gradient(rgba(49, 176, 5, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(49, 176, 5, 0.08) 1px, transparent 1px),
+        linear-gradient(180deg, #0a120a 0%, #080c08 100%);
+    background-size: 20px 20px, 20px 20px, 100% 100%;
+    border: 2px solid #31b005;
     box-shadow:
         0 4px 16px rgba(0, 0, 0, 0.4),
         0 0 10px rgba(49, 176, 5, 0.03);
@@ -10105,7 +10126,7 @@ body#reportPage.dark-theme .app-header {
 /* Enhanced dark theme sections - add green border accent */
 body#reportPage.dark-theme section {
     border: 1px solid rgba(49, 176, 5, 0.12);
-    border-left: 3px solid #2a7a2a;
+    border-left: 3px solid #31b005;
     box-shadow:
         0 4px 16px rgba(0, 0, 0, 0.3),
         0 0 8px rgba(49, 176, 5, 0.03);
@@ -10114,7 +10135,7 @@ body#reportPage.dark-theme section {
 
 body#reportPage.dark-theme section:hover {
     border-color: rgba(49, 176, 5, 0.2);
-    border-left-color: #3a8a3a;
+    border-left-color: #4ed62e;
     box-shadow:
         0 6px 20px rgba(0, 0, 0, 0.35),
         0 0 12px rgba(49, 176, 5, 0.05);
@@ -10156,28 +10177,32 @@ body#reportPage.dark-theme button[id*="Copy"]:hover {
         0 0 10px rgba(59, 130, 246, 0.15) !important;
 }
 
-/* Dark theme - Green Download SVG buttons */
-body#reportPage.dark-theme button[id*="download"],
-body#reportPage.dark-theme button[id*="Download"] {
+/* Dark theme - Green Download CSV buttons */
+body#reportPage.dark-theme button[id*="CSV"],
+body#reportPage.dark-theme button[id*="Csv"] {
     background: linear-gradient(180deg, #059669 0%, #047857 50%, #065f46 100%) !important;
     border: 1px solid rgba(16, 185, 129, 0.25) !important;
 }
 
-body#reportPage.dark-theme button[id*="download"]:hover,
-body#reportPage.dark-theme button[id*="Download"]:hover {
+body#reportPage.dark-theme button[id*="CSV"]:hover,
+body#reportPage.dark-theme button[id*="Csv"]:hover {
     background: linear-gradient(180deg, #10b981 0%, #059669 50%, #047857 100%) !important;
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
         0 0 10px rgba(16, 185, 129, 0.15) !important;
 }
 
-/* Dark theme - Red Download SVG buttons (charts only, not toggle buttons) */
-body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button) {
+/* Dark theme - Red Download SVG buttons */
+body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not([id*="Copy"]):not(.toggle-visibility-button),
+body#reportPage.dark-theme button#downloadEnhancedTablesButton,
+body#reportPage.dark-theme button#downloadEnhancedChartsButton {
     background: linear-gradient(180deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%) !important;
     border: 1px solid rgba(220, 38, 38, 0.25) !important;
 }
 
-body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not(.toggle-visibility-button):hover {
+body#reportPage.dark-theme button[id$="Chart"]:not([id*="copy"]):not([id*="Copy"]):not(.toggle-visibility-button):hover,
+body#reportPage.dark-theme button#downloadEnhancedTablesButton:hover,
+body#reportPage.dark-theme button#downloadEnhancedChartsButton:hover {
     background: linear-gradient(180deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%) !important;
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
@@ -10214,7 +10239,7 @@ body#reportPage.dark-theme button#downloadAllImagesBtn:hover {
 /* Jump-to navigation section - add matching left border */
 body#reportPage.dark-theme .report-nav {
     border: 1px solid rgba(49, 176, 5, 0.12);
-    border-left: 3px solid #2a7a2a;
+    border-left: 3px solid #31b005;
     box-shadow:
         0 4px 16px rgba(0, 0, 0, 0.3),
         0 0 8px rgba(49, 176, 5, 0.03);
@@ -10223,7 +10248,7 @@ body#reportPage.dark-theme .report-nav {
 
 body#reportPage.dark-theme .report-nav:hover {
     border-color: rgba(49, 176, 5, 0.2);
-    border-left-color: #3a8a3a;
+    border-left-color: #4ed62e;
 }
 
 /* Report page scrollbar - dark theme */

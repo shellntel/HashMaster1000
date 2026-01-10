@@ -686,12 +686,7 @@
 		</section>
 		<!-- Section for Accounts with LM Hashes -->
 		<section id="lmHashSection">
-			<div class="section-header-with-toggle">
-				<h2 style="margin: 0;">Accounts With LM Hashes</h2>
-				<button id="toggleLmHashBlur" class="toggle-visibility-button" onclick="toggleLmHashBlur()">
-					Show Passwords
-				</button>
-			</div>
+			<h2>Accounts With LM Hashes</h2>
 			<p class="section-description" style="font-style: italic; color: #ff9800;"><strong>Note:</strong> LAN Manager hashes are cryptographically weak and should be easy to crack. LM hashes that were <span class="uncracked-warning" style="font-size: inherit; font-style: normal;">Not Cracked</span> indicates that LM hash cracking was missed or the LM hash may not be valid. Search for <code>Not Cracked</code>.</p>
 			<table
 				id="lmHashTable"
@@ -717,6 +712,9 @@
 					onclick="downloadCSV('pw_lm_hashes', 'LM_Hash_Accounts.csv')"
 				>
 					Download CSV
+				</button>
+				<button id="toggleLmHashBlur" class="toggle-visibility-button" onclick="toggleLmHashBlur()">
+					Show Passwords
 				</button>
 			</div>
 		</section>
@@ -6526,15 +6524,15 @@
 
 							// Populate summary
 							document.getElementById('sharingSummary').innerHTML = `
-								<div class="sharing-stat">
+								<div class="sharing-stat tier0">
 									<span class="sharing-stat-value critical">${tier0Sharing}</span>
 									<span class="sharing-stat-label">Tier 0 Violations</span>
 								</div>
-								<div class="sharing-stat">
+								<div class="sharing-stat elevated">
 									<span class="sharing-stat-value high">${elevatedSharing}</span>
 									<span class="sharing-stat-label">Elevated Violations</span>
 								</div>
-								<div class="sharing-stat">
+								<div class="sharing-stat at-risk">
 									<span class="sharing-stat-value">${sharingData.summary.standard_accounts_affected}</span>
 									<span class="sharing-stat-label">Standard Accounts At Risk</span>
 								</div>
