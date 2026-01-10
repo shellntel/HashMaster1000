@@ -51,9 +51,9 @@
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
 				{% endif %}
 				{% if multi_user_enabled and current_user.can_manage_users %}
-				<a href="{{ url_for('users_list') }}" class="header-btn" title="User Management"><span class="btn-icon">&#128101;</span>Users</a>
+				<a href="{{ url_for('users_list') }}" class="header-btn users" title="User Management"><span class="btn-icon">&#128101;</span>Users</a>
 				{% endif %}
-				<a href="{{ url_for('sessions_page') }}" class="header-btn" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
+				<a href="{{ url_for('sessions_page') }}" class="header-btn sessions" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
 				<button type="button" class="header-btn help helpButton"><span class="btn-icon">?</span>Help</button>
 				<button id="logoutButton" class="header-btn logout icon-btn" title="Logout"><span class="btn-icon">⎋</span></button>
 			</div>
@@ -175,7 +175,7 @@
 									<span class="master-potfile-icon">&#128218;</span>
 									<div class="master-potfile-info">
 										<strong>Master Potfile Active</strong>
-										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ master_potfile_count }} entries){% endif %}.</span>
+										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ "{:,}".format(master_potfile_count) }} entries){% endif %}.</span>
 									</div>
 								</div>
 								{% endif %}
@@ -227,7 +227,7 @@
 									<span class="master-potfile-icon">&#128218;</span>
 									<div class="master-potfile-info">
 										<strong>Master Potfile Active</strong>
-										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ master_potfile_count }} entries){% endif %}.</span>
+										<span>Your cracked hashes will be merged into the central database{% if master_potfile_count > 0 %} ({{ "{:,}".format(master_potfile_count) }} entries){% endif %}.</span>
 									</div>
 								</div>
 								{% endif %}
@@ -2008,7 +2008,7 @@
 									${escapeHtml(session.name)} ${aaiaIcon}
 								</div>
 								<div class="session-restore-meta">
-									<span title="Total accounts">${session.total_accounts || 0} accounts</span>
+									<span title="Total accounts">${(session.total_accounts || 0).toLocaleString()} accounts</span>
 									<span title="Crack rate">${crackRate} cracked</span>
 									<span title="Last updated">Updated: ${updatedDate}</span>
 								</div>

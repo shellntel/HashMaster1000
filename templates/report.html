@@ -56,7 +56,7 @@
 				{% if advanced_options_enabled %}
 				<a href="{{ url_for('hidden_pages_index') }}" class="header-btn advanced" title="Advanced Tools"><span class="btn-icon">&#9881;</span>Advanced</a>
 				{% endif %}
-				<a href="{{ url_for('sessions_page') }}" class="header-btn" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
+				<a href="{{ url_for('sessions_page') }}" class="header-btn sessions" title="Manage Sessions"><span class="btn-icon">&#128194;</span>Sessions</a>
 				<button type="button" class="header-btn start-over" onclick="window.location.href='{{ url_for('clear_and_restart') }}'"><span class="btn-icon">↩</span>Start Over</button>
 				<button type="button" id="themeToggle" class="header-btn theme icon-btn" title="Switch to Print View"><span class="btn-icon">☀</span></button>
 				<form action="/logout" method="post" style="display: inline; margin: 0;">
@@ -66,64 +66,13 @@
 			</div>
 		</header>
 
-		<!-- Session Picker Modal -->
-		<div id="sessionPickerModal" class="session-modal" style="display: none;">
-			<div class="session-modal-content session-modal-enhanced">
-				<div class="session-modal-header">
-					<h2>Session Manager</h2>
-					<button class="session-modal-close" onclick="closeSessionPicker()">&times;</button>
-				</div>
-				<div class="session-modal-body">
-					<div class="session-current-info" id="sessionCurrentInfo">
-						<!-- Current session details shown here -->
-					</div>
-					<!-- Search and Controls -->
-					<div class="session-modal-controls">
-						<div class="session-search-box">
-							<input type="text" id="sessionModalSearch" placeholder="Search sessions..." oninput="filterModalSessions()">
-							<span class="search-icon">🔍</span>
-						</div>
-						<div class="session-modal-options">
-							<div class="session-view-toggle">
-								<button class="session-view-btn active" data-view="grouped" onclick="setModalView('grouped')" title="Group by Company">📁</button>
-								<button class="session-view-btn" data-view="list" onclick="setModalView('list')" title="Flat List">☰</button>
-							</div>
-							<div class="session-expand-btns" id="sessionExpandBtns">
-								<button class="expand-btn" onclick="expandAllModalGroups()" title="Expand All">▼</button>
-								<button class="collapse-btn" onclick="collapseAllModalGroups()" title="Collapse All">▶</button>
-							</div>
-							<select id="sessionModalSort" onchange="sortModalSessions()">
-								<option value="updated_at">Last Updated</option>
-								<option value="created_at">Created</option>
-								<option value="name">Name</option>
-								<option value="crack_rate">Crack Rate</option>
-							</select>
-							<button class="session-sort-dir" id="sessionSortDirBtn" onclick="toggleModalSortDir()" title="Toggle sort direction">▼</button>
-						</div>
-					</div>
-					<div class="session-list-header">
-						<h3>Available Sessions <span id="sessionFilteredCount"></span></h3>
-						<button class="session-migrate-btn" id="migrateLegacyBtn" onclick="migrateLegacyData()" style="display: none;">
-							📥 Import Legacy Data
-						</button>
-					</div>
-					<div class="session-list" id="sessionList">
-						<div class="session-loading">Loading sessions...</div>
-					</div>
-				</div>
-			</div>
-		</div>
-
 		<!-- Report Content Container -->
 		<div class="report-content">
 		<!-- Action buttons row -->
 		<div class="report-action-bar">
-			<div class="session-indicator" id="sessionIndicator" onclick="openSessionPicker()" title="Click to manage sessions">
-				<span class="session-icon">📂</span>
-				<span class="session-name">Load Saved Session</span>
-			</div>
 			<div class="report-action-buttons">
 				<button id="reconfigureSettingsBtn" class="settings-btn" onclick="openSettingsModal()"><span class="settings-icon">⚙️</span> Edit Report Settings</button>
+				<button id="downloadAllImagesBtn" class="images-btn" onclick="downloadAllImages()"><span class="images-icon">🖼️</span> Download All Images</button>
 				<button id="downloadAllJsonFiles" class="download-btn"><span class="download-icon">📦</span> Download JSON Files</button>
 				<button id="generateAIAnalysisBtn" class="aaia-btn"><span class="aaia-sparkle">✨</span> Advanced AI Analysis</button>
 			</div>
@@ -810,8 +759,8 @@
 			<!-- Pattern Distribution Chart -->
 			<div id="patternDistributionContainer" style="display: none;">
 				<h3>Detected Pattern Types</h3>
-				<div class="chart-container" style="max-width: 600px; height: 250px; margin: 0 auto 20px;">
-					<canvas id="patternDistributionChart"></canvas>
+				<div class="chart-container" style="max-width: 900px; height: 250px; margin: 0 auto 20px;">
+					<canvas id="patternDistributionChart" width="850" height="220"></canvas>
 				</div>
 			</div>
 
@@ -1198,11 +1147,11 @@
 				<div class="kerberoast-charts-grid">
 					<div class="kerberoast-chart-container">
 						<h4>Risk Distribution</h4>
-						<canvas id="kerberoastRiskChart"></canvas>
+						<canvas id="kerberoastRiskChart" width="380" height="280"></canvas>
 					</div>
 					<div class="kerberoast-chart-container">
 						<h4>Top Risk Factors</h4>
-						<canvas id="kerberoastFactorsChart"></canvas>
+						<canvas id="kerberoastFactorsChart" width="400" height="200"></canvas>
 					</div>
 				</div>
 
@@ -1277,19 +1226,19 @@
 				<div class="asrep-charts-grid">
 					<div class="asrep-chart-container">
 						<h4>Account Classification</h4>
-						<canvas id="asrepClassChart"></canvas>
+						<canvas id="asrepClassChart" width="350" height="260"></canvas>
 					</div>
 					<div class="asrep-chart-container">
 						<h4>Enabled vs Disabled</h4>
-						<canvas id="asrepEnabledChart"></canvas>
+						<canvas id="asrepEnabledChart" width="320" height="250"></canvas>
 					</div>
 					<div class="asrep-chart-container">
 						<h4>Password Age Distribution</h4>
-						<canvas id="asrepPwdAgeChart"></canvas>
+						<canvas id="asrepPwdAgeChart" width="350" height="260"></canvas>
 					</div>
 					<div class="asrep-chart-container">
 						<h4>Risk Distribution</h4>
-						<canvas id="asrepRiskChart"></canvas>
+						<canvas id="asrepRiskChart" width="320" height="250"></canvas>
 					</div>
 				</div>
 
@@ -1371,33 +1320,33 @@
 				<div class="trend-charts-container">
 					<div class="trend-chart-wrapper">
 						<h3>Crack Rate Over Time</h3>
-						<canvas id="trendCrackRateChart"></canvas>
+						<canvas id="trendCrackRateChart" width="400" height="220"></canvas>
 					</div>
 					<div class="trend-chart-wrapper">
 						<h3>Password Reuse Rate Over Time</h3>
-						<canvas id="trendPasswordReuseChart"></canvas>
+						<canvas id="trendPasswordReuseChart" width="400" height="220"></canvas>
 					</div>
 				</div>
 
 				<div class="trend-charts-container">
 					<div class="trend-chart-wrapper">
 						<h3>Total Accounts Analyzed</h3>
-						<canvas id="trendTotalAccountsChart"></canvas>
+						<canvas id="trendTotalAccountsChart" width="400" height="220"></canvas>
 					</div>
 					<div class="trend-chart-wrapper">
 						<h3>HIBP Exposed Accounts</h3>
-						<canvas id="trendHIBPExposureChart"></canvas>
+						<canvas id="trendHIBPExposureChart" width="400" height="220"></canvas>
 					</div>
 				</div>
 
 				<div class="trend-charts-container">
 					<div class="trend-chart-wrapper">
 						<h3>Policy Violations Over Time</h3>
-						<canvas id="trendViolationsChart"></canvas>
+						<canvas id="trendViolationsChart" width="400" height="220"></canvas>
 					</div>
 					<div class="trend-chart-wrapper">
 						<h3>Bad Practices Over Time</h3>
-						<canvas id="trendBadPracticesChart"></canvas>
+						<canvas id="trendBadPracticesChart" width="400" height="220"></canvas>
 					</div>
 				</div>
 
@@ -2532,6 +2481,24 @@
 					return;
 				}
 
+				// Generate colors based on value intensity - higher values get warmer/more urgent colors
+				const maxValue = Math.max(...values);
+				const barColors = values.map((val, idx) => {
+					// Color palette from most to least significant
+					const colorPalette = [
+						'rgba(220, 53, 69, 0.8)',   // Red - highest
+						'rgba(255, 107, 53, 0.8)', // Orange
+						'rgba(255, 152, 0, 0.8)',  // Amber
+						'rgba(255, 193, 7, 0.8)',  // Yellow
+						'rgba(40, 167, 69, 0.8)',  // Green
+						'rgba(23, 162, 184, 0.8)', // Cyan
+						'rgba(111, 66, 193, 0.8)', // Purple
+						'rgba(108, 117, 125, 0.8)' // Gray - lowest
+					];
+					return colorPalette[Math.min(idx, colorPalette.length - 1)];
+				});
+				const borderColors = barColors.map(c => c.replace('0.8)', '1)'));
+
 				kerberoastFactorsChart = new Chart(ctx, {
 					type: 'bar',
 					data: {
@@ -2539,8 +2506,8 @@
 						datasets: [{
 							label: 'Affected Accounts',
 							data: values,
-							backgroundColor: 'rgba(255, 152, 0, 0.7)',
-							borderColor: '#ff9800',
+							backgroundColor: barColors,
+							borderColor: borderColors,
 							borderWidth: 1
 						}]
 					},
@@ -2879,7 +2846,9 @@
 							legend: {
 								position: 'bottom',
 								labels: {
-									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff'
+									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff',
+									boxWidth: 12,
+									padding: 15
 								}
 							}
 						}
@@ -2897,13 +2866,19 @@
 
 				if (!chartData || !chartData.labels) return;
 
+				// Calculate a nice max value for the y-axis based on data
+				const data = chartData.datasets[0].data;
+				const maxVal = Math.max(...data);
+				// Use exact max value for small numbers, add minimal padding for larger
+				const yMax = maxVal <= 10 ? maxVal : Math.ceil(maxVal * 1.1);
+
 				asrepPwdAgeChart = new Chart(ctx, {
 					type: 'bar',
 					data: {
 						labels: chartData.labels,
 						datasets: [{
 							label: 'Accounts',
-							data: chartData.datasets[0].data,
+							data: data,
 							backgroundColor: 'rgba(156, 39, 176, 0.7)',
 							borderColor: '#9c27b0',
 							borderWidth: 1
@@ -2918,6 +2893,7 @@
 						scales: {
 							y: {
 								beginAtZero: true,
+								max: yMax,
 								ticks: {
 									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa',
 									stepSize: 1
@@ -2985,7 +2961,9 @@
 							legend: {
 								position: 'bottom',
 								labels: {
-									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff'
+									color: getComputedStyle(document.body).getPropertyValue('--text-primary') || '#fff',
+									boxWidth: 12,
+									padding: 10
 								}
 							}
 						}
@@ -3374,12 +3352,29 @@
 
 				// Populate session cards
 				populateTrendSessionCards(analysis.sessions);
+
+				// Scroll to the results section
+				const resultsSection = document.getElementById('trendResults');
+				if (resultsSection) {
+					resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				}
 			}
 
 			// Render trend charts
 			function renderTrendCharts(chartData) {
-				const labels = chartData.labels;
+				const sessionDescriptions = chartData.labels;  // Original session descriptions
+				const dates = chartData.dates || [];  // Session dates from backend
 				const datasets = chartData.datasets;
+
+				// Format dates for x-axis labels as 2-line array (e.g., ["Jan 15", "2025"])
+				// Chart.js renders array labels as multi-line
+				const dateLabels = dates.map(dateStr => {
+					if (!dateStr) return ['Unknown', ''];
+					const date = new Date(dateStr);
+					const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+					const year = date.getFullYear().toString();
+					return [monthDay, year];
+				});
 
 				// Destroy existing charts
 				if (trendCrackRateChart) trendCrackRateChart.destroy();
@@ -3388,34 +3383,6 @@
 				if (trendHIBPExposureChart) trendHIBPExposureChart.destroy();
 				if (trendViolationsChart) trendViolationsChart.destroy();
 				if (trendBadPracticesChart) trendBadPracticesChart.destroy();
-
-				const chartOptions = {
-					responsive: false,
-					maintainAspectRatio: false,
-					plugins: {
-						legend: { display: false }
-					},
-					scales: {
-						y: { beginAtZero: true }
-					}
-				};
-
-				const barChartOptions = {
-					responsive: false,
-					maintainAspectRatio: false,
-					plugins: {
-						legend: { display: false }
-					},
-					scales: {
-						y: { beginAtZero: true },
-						x: {
-							grid: { display: false }
-						}
-					},
-					barPercentage: 0.6,
-					categoryPercentage: 0.8,
-					maxBarThickness: 60
-				};
 
 				// Helper to calculate nice max value for Y-axis with padding
 				function calcNiceMax(data, minMax = 10) {
@@ -3429,6 +3396,40 @@
 					return Math.ceil(padded / 50) * 50;
 				}
 
+				// Common chart options for all trend charts (now all line charts)
+				const getChartOptions = (yTickCallback = null, yMax = null) => ({
+					responsive: false,
+					maintainAspectRatio: false,
+					plugins: {
+						legend: { display: false },
+						tooltip: {
+							callbacks: {
+								// Show session description in tooltip title
+								title: function(context) {
+									const idx = context[0].dataIndex;
+									return sessionDescriptions[idx] || dateLabels[idx];
+								}
+							}
+						}
+					},
+					scales: {
+						y: {
+							beginAtZero: true,
+							...(yMax && { max: yMax }),
+							...(yTickCallback && { ticks: { callback: yTickCallback } })
+						},
+						x: {
+							grid: { display: false },
+							ticks: {
+								// Add tick marks on x-axis
+								tickLength: 6,
+								tickWidth: 1,
+								tickColor: 'rgba(255, 255, 255, 0.3)'
+							}
+						}
+					}
+				});
+
 				// Crack Rate Chart
 				const crackRateCtx = document.getElementById('trendCrackRateChart');
 				if (crackRateCtx) {
@@ -3436,24 +3437,14 @@
 					trendCrackRateChart = new Chart(crackRateCtx, {
 						type: 'line',
 						data: {
-							labels: labels,
+							labels: dateLabels,
 							datasets: [{
 								...datasets.crack_rate,
 								fill: true,
 								tension: 0.3
 							}]
 						},
-						options: {
-							...chartOptions,
-							scales: {
-								y: {
-									beginAtZero: true,
-									max: crackRateMax,
-									ticks: { callback: (v) => v + '%' }
-								},
-								x: { grid: { display: false } }
-							}
-						}
+						options: getChartOptions((v) => v + '%', crackRateMax)
 					});
 				}
 
@@ -3464,24 +3455,14 @@
 					trendPasswordReuseChart = new Chart(reuseCtx, {
 						type: 'line',
 						data: {
-							labels: labels,
+							labels: dateLabels,
 							datasets: [{
 								...datasets.password_reuse_rate,
 								fill: true,
 								tension: 0.3
 							}]
 						},
-						options: {
-							...chartOptions,
-							scales: {
-								y: {
-									beginAtZero: true,
-									max: reuseMax,
-									ticks: { callback: (v) => v + '%' }
-								},
-								x: { grid: { display: false } }
-							}
-						}
+						options: getChartOptions((v) => v + '%', reuseMax)
 					});
 				}
 
@@ -3491,20 +3472,14 @@
 					trendTotalAccountsChart = new Chart(accountsCtx, {
 						type: 'line',
 						data: {
-							labels: labels,
+							labels: dateLabels,
 							datasets: [{
 								...datasets.total_accounts,
 								fill: true,
 								tension: 0.3
 							}]
 						},
-						options: {
-							...chartOptions,
-							scales: {
-								y: { beginAtZero: true },
-								x: { grid: { display: false } }
-							}
-						}
+						options: getChartOptions()
 					});
 				}
 
@@ -3517,20 +3492,14 @@
 						trendHIBPExposureChart = new Chart(hibpCtx, {
 							type: 'line',
 							data: {
-								labels: labels,
+								labels: dateLabels,
 								datasets: [{
 									...datasets.hibp_exposure_count,
 									fill: true,
 									tension: 0.3
 								}]
 							},
-							options: {
-								...chartOptions,
-								scales: {
-									y: { beginAtZero: true },
-									x: { grid: { display: false } }
-								}
-							}
+							options: getChartOptions()
 						});
 					} else if (hibpWrapper) {
 						// No HIBP data - show informative message
@@ -3546,35 +3515,37 @@
 					}
 				}
 
-				// Violations Chart
+				// Violations Chart (now line chart)
 				const violationsCtx = document.getElementById('trendViolationsChart');
 				if (violationsCtx) {
 					trendViolationsChart = new Chart(violationsCtx, {
-						type: 'bar',
+						type: 'line',
 						data: {
-							labels: labels,
+							labels: dateLabels,
 							datasets: [{
 								...datasets.policy_violations,
-								backgroundColor: 'rgba(243, 156, 18, 0.7)'
+								fill: true,
+								tension: 0.3
 							}]
 						},
-						options: barChartOptions
+						options: getChartOptions()
 					});
 				}
 
-				// Bad Practices Chart
+				// Bad Practices Chart (now line chart)
 				const badPracticesCtx = document.getElementById('trendBadPracticesChart');
 				if (badPracticesCtx) {
 					trendBadPracticesChart = new Chart(badPracticesCtx, {
-						type: 'bar',
+						type: 'line',
 						data: {
-							labels: labels,
+							labels: dateLabels,
 							datasets: [{
 								...datasets.bad_practices,
-								backgroundColor: 'rgba(155, 89, 182, 0.7)'
+								fill: true,
+								tension: 0.3
 							}]
 						},
-						options: barChartOptions
+						options: getChartOptions()
 					});
 				}
 			}
@@ -8574,369 +8545,6 @@
 				}
 			}
 
-			// Session modal state
-			let modalAllSessions = [];
-			let modalFilteredSessions = [];
-			let modalCurrentSessionId = null;
-			let modalSortField = 'updated_at';
-			let modalSortAsc = false;
-			let modalView = 'grouped';
-
-			// Open session picker modal
-			async function openSessionPicker() {
-				document.getElementById('sessionPickerModal').style.display = 'flex';
-				await loadSessionList();
-			}
-
-			// Close session picker modal
-			function closeSessionPicker() {
-				document.getElementById('sessionPickerModal').style.display = 'none';
-			}
-
-			// Load list of all sessions
-			async function loadSessionList() {
-				const listEl = document.getElementById('sessionList');
-				const currentInfoEl = document.getElementById('sessionCurrentInfo');
-
-				try {
-					const response = await fetch('/api/sessions');
-					const data = await response.json();
-
-					modalAllSessions = data.sessions || [];
-					modalCurrentSessionId = data.current_session_id;
-
-					// Check for legacy data
-					const legacyBtn = document.getElementById('migrateLegacyBtn');
-					try {
-						const legacyCheck = await fetch('/list_json_files');
-						if (legacyCheck.ok) {
-							const files = await legacyCheck.json();
-							// Show migrate button if there's data in legacy location and no sessions
-							if (files.length > 0 && data.sessions.length === 0) {
-								legacyBtn.style.display = 'inline-block';
-							}
-						}
-					} catch (e) {
-						// Ignore legacy check errors
-					}
-
-					// Display current session info
-					const current = modalAllSessions.find(s => s.session_id === modalCurrentSessionId);
-					if (current) {
-						currentInfoEl.innerHTML = `
-							<div class="session-current-card">
-								<div class="session-current-title">
-									<span class="session-current-label">Current Session</span>
-									<span class="session-current-name">${escapeHtml(current.name)}</span>
-								</div>
-								<div class="session-current-meta">
-									<span>📊 ${current.total_accounts || 0} accounts</span>
-									<span>🔓 ${current.cracked_accounts || 0} cracked (${current.crack_rate || 0}%)</span>
-									<span>📅 ${formatDate(current.updated_at)}</span>
-									${current.aaia_generated ? '<span class="session-aaia-badge">✨ AAIA</span>' : ''}
-								</div>
-							</div>
-						`;
-					} else {
-						currentInfoEl.innerHTML = '<div class="session-no-current">No active session</div>';
-					}
-
-					// Apply filtering and sorting
-					filterModalSessions();
-
-				} catch (error) {
-					console.error('Error loading sessions:', error);
-					listEl.innerHTML = '<div class="session-error">Error loading sessions</div>';
-				}
-			}
-
-			// Filter sessions by search term
-			function filterModalSessions() {
-				const searchTerm = document.getElementById('sessionModalSearch').value.toLowerCase().trim();
-
-				if (!searchTerm) {
-					modalFilteredSessions = [...modalAllSessions];
-				} else {
-					modalFilteredSessions = modalAllSessions.filter(s => {
-						return (s.name && s.name.toLowerCase().includes(searchTerm)) ||
-							   (s.company_name && s.company_name.toLowerCase().includes(searchTerm)) ||
-							   (s.project_description && s.project_description.toLowerCase().includes(searchTerm));
-					});
-				}
-
-				sortModalSessions();
-			}
-
-			// Sort sessions
-			function sortModalSessions() {
-				modalSortField = document.getElementById('sessionModalSort').value;
-
-				modalFilteredSessions.sort((a, b) => {
-					let cmp = 0;
-					switch (modalSortField) {
-						case 'name':
-							cmp = (a.name || '').localeCompare(b.name || '');
-							break;
-						case 'crack_rate':
-							cmp = (a.crack_rate || 0) - (b.crack_rate || 0);
-							break;
-						case 'created_at':
-							cmp = new Date(a.created_at) - new Date(b.created_at);
-							break;
-						case 'updated_at':
-						default:
-							cmp = new Date(a.updated_at) - new Date(b.updated_at);
-					}
-					return modalSortAsc ? cmp : -cmp;
-				});
-
-				renderModalSessions();
-			}
-
-			// Toggle sort direction
-			function toggleModalSortDir() {
-				modalSortAsc = !modalSortAsc;
-				document.getElementById('sessionSortDirBtn').innerHTML = modalSortAsc ? '▲' : '▼';
-				sortModalSessions();
-			}
-
-			// Set view mode
-			function setModalView(view) {
-				modalView = view;
-				document.querySelectorAll('.session-view-btn').forEach(btn => {
-					btn.classList.toggle('active', btn.dataset.view === view);
-				});
-				// Show/hide expand/collapse buttons based on view
-				document.getElementById('sessionExpandBtns').style.display = view === 'grouped' ? 'flex' : 'none';
-				renderModalSessions();
-			}
-
-			// Expand all groups in modal
-			function expandAllModalGroups() {
-				document.querySelectorAll('.session-group').forEach(group => {
-					const toggle = group.querySelector('.session-group-toggle');
-					const items = group.querySelector('.session-group-items');
-					if (items) {
-						items.style.display = 'block';
-						if (toggle) toggle.textContent = '▼';
-					}
-				});
-			}
-
-			// Collapse all groups in modal
-			function collapseAllModalGroups() {
-				document.querySelectorAll('.session-group').forEach(group => {
-					const toggle = group.querySelector('.session-group-toggle');
-					const items = group.querySelector('.session-group-items');
-					if (items) {
-						items.style.display = 'none';
-						if (toggle) toggle.textContent = '▶';
-					}
-				});
-			}
-
-			// Render sessions in the modal
-			function renderModalSessions() {
-				const listEl = document.getElementById('sessionList');
-				const countEl = document.getElementById('sessionFilteredCount');
-
-				// Update count
-				if (modalFilteredSessions.length !== modalAllSessions.length) {
-					countEl.textContent = `(${modalFilteredSessions.length} of ${modalAllSessions.length})`;
-				} else {
-					countEl.textContent = `(${modalAllSessions.length})`;
-				}
-
-				if (modalAllSessions.length === 0) {
-					listEl.innerHTML = '<div class="session-empty">No sessions found. Create a new analysis to start a session.</div>';
-					return;
-				}
-
-				if (modalFilteredSessions.length === 0) {
-					listEl.innerHTML = '<div class="session-empty">No sessions match your search.</div>';
-					return;
-				}
-
-				if (modalView === 'grouped') {
-					renderGroupedModalSessions(listEl);
-				} else {
-					renderListModalSessions(listEl);
-				}
-			}
-
-			// Render grouped view
-			function renderGroupedModalSessions(listEl) {
-				// Group by company
-				const grouped = {};
-				for (const session of modalFilteredSessions) {
-					const company = session.company_name || 'Unknown';
-					if (!grouped[company]) grouped[company] = [];
-					grouped[company].push(session);
-				}
-
-				// Sort companies
-				const companies = Object.keys(grouped).sort((a, b) => {
-					if (a === 'Unknown') return 1;
-					if (b === 'Unknown') return -1;
-					return a.localeCompare(b);
-				});
-
-				let html = '';
-				for (const company of companies) {
-					const sessions = grouped[company];
-					html += `
-						<div class="session-group" data-company="${escapeHtml(company)}">
-							<div class="session-group-header" onclick="toggleSessionGroup(this)">
-								<span class="session-group-toggle">▼</span>
-								<span class="session-group-name">${escapeHtml(company)}</span>
-								<span class="session-group-count">${sessions.length}</span>
-							</div>
-							<div class="session-group-items">
-								${sessions.map(s => renderModalSessionItem(s)).join('')}
-							</div>
-						</div>
-					`;
-				}
-
-				listEl.innerHTML = html;
-			}
-
-			// Render flat list view
-			function renderListModalSessions(listEl) {
-				listEl.innerHTML = modalFilteredSessions.map(s => renderModalSessionItem(s)).join('');
-			}
-
-			// Render a single session item
-			function renderModalSessionItem(session) {
-				const isCurrent = session.session_id === modalCurrentSessionId;
-				return `
-					<div class="session-item ${isCurrent ? 'session-item-current' : ''}"
-						 data-session-id="${session.session_id}">
-						<div class="session-item-info">
-							<div class="session-item-name">${escapeHtml(session.name)}</div>
-							<div class="session-item-meta">
-								<span>${session.total_accounts || 0} accounts</span>
-								<span>${session.cracked_accounts || 0} cracked</span>
-								<span>${formatDate(session.updated_at)}</span>
-								${session.aaia_generated ? '<span class="session-aaia-badge">✨</span>' : ''}
-							</div>
-						</div>
-						<div class="session-item-actions">
-							${!isCurrent ?
-								`<button class="session-action-btn session-switch-btn" onclick="switchSession('${session.session_id}')">Switch</button>` :
-								'<span class="session-current-badge">Current</span>'
-							}
-							<button class="session-action-btn session-delete-btn" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete session">🗑️</button>
-						</div>
-					</div>
-				`;
-			}
-
-			// Toggle company group collapse
-			function toggleSessionGroup(header) {
-				const group = header.parentElement;
-				const toggle = header.querySelector('.session-group-toggle');
-				const items = group.querySelector('.session-group-items');
-
-				if (items.style.display === 'none') {
-					items.style.display = 'block';
-					toggle.textContent = '▼';
-				} else {
-					items.style.display = 'none';
-					toggle.textContent = '▶';
-				}
-			}
-
-			// Switch to a different session
-			async function switchSession(sessionId) {
-				try {
-					const response = await fetch(`/api/sessions/${sessionId}/switch`, {
-						method: 'POST',
-						headers: { 'X-CSRFToken': csrfToken }
-					});
-
-					if (response.ok) {
-						// Reload the page to load new session data
-						window.location.reload();
-					} else {
-						const data = await response.json();
-						alert('Failed to switch session: ' + (data.error || 'Unknown error'));
-					}
-				} catch (error) {
-					console.error('Error switching session:', error);
-					alert('Error switching session');
-				}
-			}
-
-			// Delete a session
-			async function deleteSession(sessionId, sessionName) {
-				if (!confirm(`Delete session "${sessionName}"?\n\nThis will permanently delete all analysis data for this session.`)) {
-					return;
-				}
-
-				try {
-					const response = await fetch(`/api/sessions/${sessionId}`, {
-						method: 'DELETE'
-					});
-
-					if (response.ok) {
-						await loadSessionList();
-						loadCurrentSession();
-					} else {
-						const data = await response.json();
-						alert('Failed to delete session: ' + (data.error || 'Unknown error'));
-					}
-				} catch (error) {
-					console.error('Error deleting session:', error);
-					alert('Error deleting session');
-				}
-			}
-
-			// Migrate legacy data to a new session
-			async function migrateLegacyData() {
-				const name = prompt('Enter a name for the imported session:', 'Imported Analysis');
-				if (!name) return;
-
-				try {
-					const response = await fetch('/api/sessions/migrate-legacy', {
-						method: 'POST',
-						headers: getHeaders(),
-						body: JSON.stringify({ name: name })
-					});
-
-					if (response.ok) {
-						window.location.reload();
-					} else {
-						const data = await response.json();
-						alert('Migration failed: ' + (data.error || 'Unknown error'));
-					}
-				} catch (error) {
-					console.error('Error migrating data:', error);
-					alert('Error migrating data');
-				}
-			}
-
-			// Close modal when clicking outside
-			document.addEventListener('click', function(e) {
-				const modal = document.getElementById('sessionPickerModal');
-				if (e.target === modal) {
-					closeSessionPicker();
-				}
-			});
-
-			// Helper: Format date
-			function formatDate(isoString) {
-				if (!isoString) return 'Unknown';
-				const date = new Date(isoString);
-				return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-			}
-
-			// Helper: Escape HTML
-			function escapeHtml(text) {
-				const div = document.createElement('div');
-				div.textContent = text || '';
-				return div.innerHTML;
-			}
 		</script>
 
 		<!-- Settings Reconfiguration JavaScript -->
@@ -9632,6 +9240,281 @@
 			document.body.appendChild(link);
 			link.click();
 			document.body.removeChild(link);
+		}
+
+		// Function to download all images as a zip file
+		async function downloadAllImages() {
+			const btn = document.getElementById('downloadAllImagesBtn');
+			const originalText = btn.innerHTML;
+			btn.innerHTML = '<span class="images-icon">⏳</span> Generating...';
+			btn.disabled = true;
+
+			try {
+				const theme = getCurrentTheme();
+				const images = [];
+
+				// Helper function to generate SVG from canvas
+				function canvasToSVG(canvas, filename) {
+					if (!canvas) return null;
+					const dataUrl = canvas.toDataURL('image/png');
+					const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
+						<image href="${dataUrl}" width="${canvas.width}" height="${canvas.height}" />
+					</svg>`;
+					return { filename: filename, content: svgContent };
+				}
+
+				// 1. Enhanced Tables (Session Analysis Summary)
+				const enhancedTablesSVG = generateEnhancedTablesSVG();
+				if (enhancedTablesSVG) {
+					images.push({ filename: 'session_analysis_tables.svg', content: enhancedTablesSVG });
+				}
+
+				// 2. Enhanced Charts (bar charts)
+				const enhancedChartsSVG = generateEnhancedChartsSVG();
+				if (enhancedChartsSVG) {
+					images.push({ filename: 'session_analysis_charts.svg', content: enhancedChartsSVG });
+				}
+
+				// 3. Password Length Chart
+				const pwLengthCanvas = document.getElementById('passwordLengthChart');
+				const pwLengthSVG = canvasToSVG(pwLengthCanvas, 'password_length_distribution.svg');
+				if (pwLengthSVG) images.push(pwLengthSVG);
+
+				// 4. Top Passwords Chart
+				const topPwCanvas = document.getElementById('topPasswordsChart');
+				const topPwSVG = canvasToSVG(topPwCanvas, 'top_passwords.svg');
+				if (topPwSVG) images.push(topPwSVG);
+
+				// 5. Top Substrings Chart
+				const topSubCanvas = document.getElementById('topSubstringsChart');
+				const topSubSVG = canvasToSVG(topSubCanvas, 'top_substrings.svg');
+				if (topSubSVG) images.push(topSubSVG);
+
+				// 6. Top Dictionary Words Chart
+				const topDictCanvas = document.getElementById('topDictionaryWordsChart');
+				const topDictSVG = canvasToSVG(topDictCanvas, 'top_dictionary_words.svg');
+				if (topDictSVG) images.push(topDictSVG);
+
+				// 7. Bad Practices Chart
+				const badPracticesCanvas = document.getElementById('badPracticesChart');
+				const badPracticesSVG = canvasToSVG(badPracticesCanvas, 'bad_practices.svg');
+				if (badPracticesSVG) images.push(badPracticesSVG);
+
+				if (images.length === 0) {
+					alert('No images available to download. Please wait for charts to load.');
+					return;
+				}
+
+				// Send to backend for zipping
+				const response = await fetch('/api/download-all-images', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-CSRFToken': csrfToken
+					},
+					body: JSON.stringify({ images: images })
+				});
+
+				if (!response.ok) {
+					throw new Error('Failed to generate zip file');
+				}
+
+				// Download the zip file
+				const blob = await response.blob();
+				const url = window.URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'report_images.zip';
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				window.URL.revokeObjectURL(url);
+
+			} catch (error) {
+				console.error('Error downloading images:', error);
+				alert('Error downloading images: ' + error.message);
+			} finally {
+				btn.innerHTML = originalText;
+				btn.disabled = false;
+			}
+		}
+
+		// Helper function to generate Enhanced Tables SVG content
+		function generateEnhancedTablesSVG() {
+			const theme = getCurrentTheme();
+			const accountTable = document.querySelector('#accountStatsTableContainer table');
+			const passwordTable = document.querySelector('#passwordStatsTableContainer table');
+			const hashTable = document.querySelector('#hashStatsTableContainer table');
+			const breachTable = document.querySelector('#breachStatsTableContainer table');
+
+			if (!accountTable || !passwordTable || !hashTable || !breachTable) {
+				return null;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const ctx = tempCanvas.getContext('2d');
+			const padding = 20;
+			const columnGap = 30;
+			const sectionGap = 25;
+			const colWidth = 340;
+
+			tempCanvas.width = (colWidth * 2) + columnGap + (padding * 2);
+
+			function measureTableHeight(table) {
+				const rows = table.querySelectorAll('tr');
+				const titleHeight = 30;
+				const rowHeight = 26;
+				return titleHeight + (rows.length * rowHeight);
+			}
+
+			const leftColHeight = measureTableHeight(hashTable) + sectionGap + measureTableHeight(passwordTable);
+			const rightColHeight = measureTableHeight(accountTable) + sectionGap + measureTableHeight(breachTable);
+			tempCanvas.height = Math.max(leftColHeight, rightColHeight) + (padding * 2) + 40;
+
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			function drawTable(table, title, x, y) {
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.font = 'bold 16px Arial';
+				ctx.textAlign = 'left';
+				ctx.fillText(title, x, y);
+
+				let currentY = y + 20;
+				ctx.font = '13px Arial';
+
+				const rows = table.querySelectorAll('tr');
+				rows.forEach((row) => {
+					const cells = row.querySelectorAll('td');
+					if (cells.length >= 2) {
+						ctx.textAlign = 'left';
+						ctx.fillText(cells[0].textContent, x, currentY);
+						ctx.textAlign = 'right';
+						ctx.fillText(cells[1].textContent, x + colWidth - 10, currentY);
+
+						ctx.strokeStyle = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : '#ddd';
+						ctx.lineWidth = 1;
+						ctx.beginPath();
+						ctx.moveTo(x, currentY + 5);
+						ctx.lineTo(x + colWidth - 10, currentY + 5);
+						ctx.stroke();
+
+						currentY += 26;
+					}
+				});
+
+				return currentY;
+			}
+
+			let leftY = padding + 30;
+			leftY = drawTable(hashTable, 'Hash Statistics', padding, leftY);
+			leftY += sectionGap;
+			drawTable(passwordTable, 'Password Statistics', padding, leftY);
+
+			let rightY = padding + 30;
+			rightY = drawTable(accountTable, 'Account Statistics', padding + colWidth + columnGap, rightY);
+			rightY += sectionGap;
+			drawTable(breachTable, 'Breach Statistics', padding + colWidth + columnGap, rightY);
+
+			const chartDataUrl = tempCanvas.toDataURL('image/png');
+			return `<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+				<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+			</svg>`;
+		}
+
+		// Helper function to generate Enhanced Charts SVG content
+		function generateEnhancedChartsSVG() {
+			const canvas1 = document.getElementById('enhancedAccountsBar');
+			const canvas2 = document.getElementById('enhancedHashesBar');
+			const legend1 = document.getElementById('enhancedAccountsBarLegend');
+			const legend2 = document.getElementById('enhancedHashesBarLegend');
+			const theme = getCurrentTheme();
+
+			if (!canvas1 || !canvas2 || !legend1 || !legend2) {
+				return null;
+			}
+
+			const tempCanvas = document.createElement('canvas');
+			const padding = 20;
+			const titleToChartGap = 20;
+			const chartToLegendGap = 25;
+			const sectionGap = 50;
+			tempCanvas.width = Math.max(canvas1.width, canvas2.width) + (padding * 2);
+			tempCanvas.height = canvas1.height + canvas2.height + (padding * 2) + (titleToChartGap * 2) + (chartToLegendGap * 2) + sectionGap + 40;
+
+			const ctx = tempCanvas.getContext('2d');
+			ctx.fillStyle = themeColors[theme].copyBackground;
+			ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.font = 'bold 22px Arial';
+			ctx.textAlign = 'center';
+
+			let currentY = padding + 20;
+
+			function drawColoredLegend(centerX, y, legendElement) {
+				const uncrackedColor = '#31b005';
+				const crackedColor = '#dc3545';
+				const circleRadius = 7;
+				const gap = 40;
+
+				const legendText = legendElement.textContent.trim();
+				const parts = legendText.split(/\s{2,}/);
+				const uncrackedText = parts[0].replace('⬤', '').trim();
+				const crackedText = parts[1].replace('⬤', '').trim();
+
+				ctx.font = '18px Arial';
+				const uncrackedWidth = ctx.measureText(uncrackedText).width;
+				const crackedWidth = ctx.measureText(crackedText).width;
+				const totalWidth = circleRadius * 2 + 8 + uncrackedWidth + gap + circleRadius * 2 + 8 + crackedWidth;
+
+				let startX = centerX - (totalWidth / 2);
+
+				ctx.fillStyle = uncrackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(uncrackedText, startX + circleRadius * 2 + 8, y);
+
+				startX += circleRadius * 2 + 8 + uncrackedWidth + gap;
+
+				ctx.fillStyle = crackedColor;
+				ctx.beginPath();
+				ctx.arc(startX + circleRadius, y - 5, circleRadius, 0, 2 * Math.PI);
+				ctx.fill();
+
+				ctx.fillStyle = themeColors[theme].text;
+				ctx.textAlign = 'left';
+				ctx.fillText(crackedText, startX + circleRadius * 2 + 8, y);
+			}
+
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.fillText('Cracked Account Passwords', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas1, padding, currentY);
+			currentY += canvas1.height + chartToLegendGap;
+
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend1);
+			currentY += sectionGap;
+
+			ctx.fillStyle = themeColors[theme].text;
+			ctx.textAlign = 'center';
+			ctx.font = 'bold 22px Arial';
+			ctx.fillText('Cracked (Unique) NTLM Hashes', tempCanvas.width / 2, currentY);
+			currentY += titleToChartGap;
+			ctx.drawImage(canvas2, padding, currentY);
+			currentY += canvas2.height + chartToLegendGap;
+
+			drawColoredLegend(tempCanvas.width / 2, currentY, legend2);
+
+			const chartDataUrl = tempCanvas.toDataURL('image/png');
+			return `<svg xmlns="http://www.w3.org/2000/svg" width="${tempCanvas.width}" height="${tempCanvas.height}">
+				<image href="${chartDataUrl}" width="${tempCanvas.width}" height="${tempCanvas.height}" />
+			</svg>`;
 		}
 
 			// Hide loading overlay once page is ready

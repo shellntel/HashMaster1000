@@ -6,6 +6,8 @@ import time
 import json
 import logging
 import bcrypt
+import zipfile
+import io
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -3583,6 +3585,57 @@ def list_json_files() -> Response:
         files = [f for f in os.listdir(session_dir) if f.endswith(".json")]
         return jsonify(files)
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/download-all-images", methods=["POST"])
+@login_required
+def download_all_images() -> Response:
+    """
+    Endpoint to create a zip file containing all chart/table SVG images.
+    Receives SVG data from the frontend and packages them into a downloadable zip.
+    """
+    try:
+        data = request.get_json()
+        if not data or "images" not in data:
+            return jsonify({"error": "No image data provided"}), 400
+
+        images = data["images"]
+        if not images:
+            return jsonify({"error": "No images to download"}), 400
+
+        # Create zip file in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for image in images:
+                filename = image.get("filename", "image.svg")
+                content = image.get("content", "")
+                if filename and content:
+                    # Ensure filename is safe
+                    safe_filename = secure_filename(filename)
+                    if not safe_filename.endswith(".svg"):
+                        safe_filename += ".svg"
+                    zip_file.writestr(safe_filename, content)
+
+        zip_buffer.seek(0)
+
+        # Get session name for zip filename
+        session_mgr = get_session_manager()
+        current_session = session_mgr.get_current_session()
+        session_name = current_session.get("name", "report") if current_session else "report"
+        # Sanitize session name for filename
+        safe_session_name = re.sub(r"[^\w\-]", "_", session_name)
+        zip_filename = f"{safe_session_name}_images.zip"
+
+        return send_file(
+            zip_buffer,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=zip_filename,
+        )
+
+    except Exception as e:
+        logging.error(f"Error creating images zip: {e}")
         return jsonify({"error": str(e)}), 500
 
 

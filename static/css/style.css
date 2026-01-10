@@ -499,7 +499,6 @@ button.generateReportButton:hover {
 /* Chart Styles */
 .chart-container {
 	text-align: center;
-	max-width: 270px;
 }
 .barChart canvas {
 	max-width: 900px;
@@ -1734,6 +1733,34 @@ body#reportPage .app-header {
 	color: #fff;
 }
 
+/* Users button styling - soft teal/cyan gradient */
+.app-header .header-btn.users {
+	background: linear-gradient(135deg, rgba(8, 145, 178, 0.7) 0%, rgba(6, 182, 212, 0.7) 100%);
+	border-color: rgba(6, 182, 212, 0.3);
+	color: #fff;
+	text-decoration: none;
+}
+
+.app-header .header-btn.users:hover {
+	background: linear-gradient(135deg, rgba(14, 116, 144, 0.85) 0%, rgba(8, 145, 178, 0.85) 100%);
+	border-color: rgba(6, 182, 212, 0.5);
+	color: #fff;
+}
+
+/* Sessions button styling - soft amber/yellow gradient */
+.app-header .header-btn.sessions {
+	background: linear-gradient(135deg, rgba(217, 119, 6, 0.7) 0%, rgba(245, 158, 11, 0.7) 100%);
+	border-color: rgba(245, 158, 11, 0.3);
+	color: #fff;
+	text-decoration: none;
+}
+
+.app-header .header-btn.sessions:hover {
+	background: linear-gradient(135deg, rgba(180, 83, 9, 0.85) 0%, rgba(217, 119, 6, 0.85) 100%);
+	border-color: rgba(245, 158, 11, 0.5);
+	color: #fff;
+}
+
 /* Logout button - ensure white icon */
 .app-header .header-btn.logout {
 	color: #fff;
@@ -2297,19 +2324,35 @@ body#reportPage .app-header {
 }
 
 .btn-primary:disabled {
-	background: #444;
-	color: #666;
+	background: linear-gradient(135deg, #3f3f46 0%, #52525b 100%);
+	color: #71717a;
 	cursor: not-allowed;
 	transform: none;
+	opacity: 0.6;
+	box-shadow: none;
+	border: 1px solid rgba(113, 113, 122, 0.3);
 }
 
 .btn-secondary {
-	background: #333;
-	color: #ccc;
+	background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+	color: #ffffff;
+	border: 1px solid rgba(100, 116, 139, 0.3);
 }
 
 .btn-secondary:hover {
-	background: #444;
+	background: linear-gradient(135deg, #334155 0%, #475569 100%);
+}
+
+.btn-danger {
+	background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+	color: #ffffff;
+	border: 1px solid rgba(239, 68, 68, 0.3);
+	box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.btn-danger:hover {
+	background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+	box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
 }
 
 .btn-outline {
@@ -3628,6 +3671,48 @@ body.print-mode .status-badge.status-disabled {
 @keyframes sparkle-pulse {
 	0%, 100% { opacity: 1; transform: scale(1); }
 	50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+/* Download All Images Button */
+.images-btn {
+	background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
+	color: #ffffff;
+	border: 1px solid rgba(6, 182, 212, 0.3);
+	padding: 0 16px;
+	border-radius: 8px;
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.95rem;
+	height: 48px;
+	flex: 1;
+	transition: all 0.3s ease;
+	box-shadow: 0 2px 8px rgba(8, 145, 178, 0.3);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+}
+
+.images-btn:hover {
+	background: linear-gradient(135deg, #0e7490 0%, #0891b2 100%);
+	box-shadow: 0 4px 12px rgba(8, 145, 178, 0.5);
+	transform: translateY(-1px);
+}
+
+.images-btn:disabled {
+	opacity: 0.7;
+	cursor: not-allowed;
+	transform: none;
+}
+
+/* Images icon animation */
+.images-icon {
+	font-size: 1.1em;
+	transition: transform 0.3s ease;
+}
+
+.images-btn:hover:not(:disabled) .images-icon {
+	transform: scale(1.1);
 }
 
 /* AAIA Modal */
@@ -5899,7 +5984,8 @@ button.session-delete-btn:hover {
 
 	.report-action-buttons .settings-btn,
 	.report-action-buttons .download-btn,
-	.report-action-buttons .aaia-btn {
+	.report-action-buttons .aaia-btn,
+	.report-action-buttons .images-btn {
 		width: 100%;
 		justify-content: center;
 		margin: 4px 0;
@@ -7648,6 +7734,33 @@ body.print-mode .domain-filter-row .domain-filter-hint {
 body.print-mode .privileged-subsection {
 	border-top-color: #ddd;
 }
+/* Tier 0 and Elevated accounts table column widths */
+#tier0AccountsTable th:nth-child(1),
+#tier0AccountsTable td:nth-child(1),
+#elevatedAccountsTable th:nth-child(1),
+#elevatedAccountsTable td:nth-child(1) {
+	width: 30%;
+}
+#tier0AccountsTable th:nth-child(2),
+#tier0AccountsTable td:nth-child(2),
+#elevatedAccountsTable th:nth-child(2),
+#elevatedAccountsTable td:nth-child(2) {
+	width: 45%;
+}
+#tier0AccountsTable th:nth-child(3),
+#tier0AccountsTable td:nth-child(3),
+#elevatedAccountsTable th:nth-child(3),
+#elevatedAccountsTable td:nth-child(3) {
+	width: 12%;
+	text-align: center;
+}
+#tier0AccountsTable th:nth-child(4),
+#tier0AccountsTable td:nth-child(4),
+#elevatedAccountsTable th:nth-child(4),
+#elevatedAccountsTable td:nth-child(4) {
+	width: 13%;
+	text-align: center;
+}
 /* Password blurring for cracked privileged table */
 #crackedPrivilegedTable .priv-password-cell {
 	font-family: monospace;
@@ -7838,18 +7951,19 @@ body.print-mode .privileged-subsection {
 	text-align: center;
 }
 .hibp-rerun-btn {
-	background: transparent;
-	border: 1px solid var(--border-color, #444);
-	color: var(--text-secondary, #aaa);
-	padding: 8px 16px;
+	background: linear-gradient(135deg, #00d4ff, #0099cc);
+	border: none;
+	color: white;
+	padding: 10px 20px;
 	border-radius: 6px;
 	cursor: pointer;
-	font-size: 0.9rem;
-	transition: border-color 0.2s, color 0.2s;
+	font-size: 0.95rem;
+	font-weight: 500;
+	transition: transform 0.2s, box-shadow 0.2s;
 }
 .hibp-rerun-btn:hover {
-	border-color: var(--accent-color, #00d4ff);
-	color: var(--text-primary, #fff);
+	transform: translateY(-1px);
+	box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
 }
 .hibp-start-btn {
 	background: linear-gradient(135deg, #00d4ff, #0099cc);
@@ -8099,10 +8213,13 @@ table.dataTable th.dt-center { text-align: center !important; }
 	background: var(--surface-color, #2a2a2a);
 	border-radius: 8px;
 	padding: 16px;
-	max-height: 280px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
 }
 .kerberoast-chart-container canvas {
-	max-height: 220px;
+	max-height: 300px;
+	max-width: 100%;
 }
 .kerberoast-chart-container h4 {
 	margin-bottom: 12px;
@@ -8268,10 +8385,13 @@ body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
 	background: var(--surface-color, #2a2a2a);
 	border-radius: 8px;
 	padding: 16px;
-	max-height: 280px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
 }
 .asrep-chart-container canvas {
-	max-height: 220px;
+	max-height: 300px;
+	max-width: 100%;
 }
 .asrep-chart-container h4 {
 	margin-bottom: 12px;
@@ -9712,8 +9832,8 @@ body:not(.advanced-mode):not(#reportPage) .toggle-option.active {
 }
 
 /* ==================== ENHANCED BUTTONS ==================== */
-/* Main action buttons - green theme (exclude browse/validate which have their own colors) */
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn) {
+/* Main action buttons - green theme (exclude browse/validate/secondary/danger which have their own colors) */
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger) {
     background: linear-gradient(180deg, #2f9a2f 0%, #289028 50%, #217821 100%);
     border: 1px solid rgba(49, 176, 5, 0.3);
     box-shadow:
@@ -9723,7 +9843,7 @@ body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-clo
     transition: all 0.3s ease;
 }
 
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):hover {
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):hover {
     background: linear-gradient(180deg, #3aa83a 0%, #2f9a2f 50%, #289028 100%);
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
@@ -9731,11 +9851,31 @@ body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-clo
     transform: translateY(-1px);
 }
 
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):active {
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):active {
     transform: translateY(0);
     box-shadow:
         0 2px 6px rgba(0, 0, 0, 0.2),
         inset 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* Disabled buttons - clearly grayed out appearance */
+body:not(.advanced-mode):not(#reportPage) button:disabled,
+body:not(.advanced-mode):not(#reportPage) button[disabled] {
+    background: linear-gradient(135deg, #3f3f46 0%, #52525b 100%) !important;
+    color: #71717a !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    opacity: 0.6 !important;
+    box-shadow: none !important;
+    border: 1px solid rgba(113, 113, 122, 0.3) !important;
+    text-shadow: none !important;
+}
+
+body:not(.advanced-mode):not(#reportPage) button:disabled:hover,
+body:not(.advanced-mode):not(#reportPage) button[disabled]:hover {
+    background: linear-gradient(135deg, #3f3f46 0%, #52525b 100%) !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
 /* Browse button - neutral slate/gray color */
@@ -9981,8 +10121,8 @@ body#reportPage.dark-theme section:hover {
 }
 
 /* Enhanced report buttons - dark theme */
-/* Exclude: nav buttons, header buttons, settings/download/aaia action buttons, modal close buttons */
-body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close),
+/* Exclude: nav buttons, header buttons, settings/download/aaia/images action buttons, modal close buttons */
+body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.images-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close),
 body#reportPage.dark-theme .btn:not(.report-nav-btn) {
     background: linear-gradient(180deg, #2a8a2a 0%, #247824 50%, #1e6a1e 100%);
     border: 1px solid rgba(49, 176, 5, 0.25);
@@ -9992,7 +10132,7 @@ body#reportPage.dark-theme .btn:not(.report-nav-btn) {
     transition: all 0.3s ease;
 }
 
-body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close):hover,
+body#reportPage.dark-theme button:not(.header-btn):not(.report-nav-btn):not(.settings-btn):not(.download-btn):not(.aaia-btn):not(.images-btn):not(.modal-close):not(.session-modal-close):not(.aaia-modal-close):not(.hibp-modal-close):hover,
 body#reportPage.dark-theme .btn:not(.report-nav-btn):hover {
     background: linear-gradient(180deg, #3a9a3a 0%, #2a8a2a 50%, #247824 100%);
     box-shadow:
@@ -10055,6 +10195,20 @@ body#reportPage.dark-theme button.toggle-visibility-button:hover {
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
         0 0 10px rgba(139, 92, 246, 0.15);
+}
+
+/* Dark theme - Download All Images button (cyan) - override generic download selector */
+body#reportPage.dark-theme button.images-btn,
+body#reportPage.dark-theme button#downloadAllImagesBtn {
+    background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%) !important;
+    border: 1px solid rgba(6, 182, 212, 0.3) !important;
+    box-shadow: 0 2px 8px rgba(8, 145, 178, 0.3) !important;
+}
+
+body#reportPage.dark-theme button.images-btn:hover,
+body#reportPage.dark-theme button#downloadAllImagesBtn:hover {
+    background: linear-gradient(135deg, #0e7490 0%, #0891b2 100%) !important;
+    box-shadow: 0 4px 12px rgba(8, 145, 178, 0.5) !important;
 }
 
 /* Jump-to navigation section - add matching left border */
