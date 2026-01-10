@@ -299,7 +299,7 @@
 		</div>
 		<!-- Enhanced Statistics Section -->
 		<section id="enhancedStatsSection" class="report-section">
-			<h2 style="margin-bottom: 20px;">Detailed Analysis Summary</h2>
+			<h2 style="margin-bottom: 20px;">Session Analysis Summary</h2>
 
 			<!-- Three-column layout container -->
 			<div class="enhanced-stats-container">
@@ -1722,7 +1722,7 @@
 							stopHIBPProgressPolling();
 							progressDetail.textContent = 'Loading results...';
 							await loadAndDisplayHIBPResults();
-							// Reload breach statistics in the Detailed Analysis Summary section
+							// Reload breach statistics in the Session Analysis Summary section
 							await reloadBreachStatistics();
 						} else if (progress.status === 'error') {
 							// Check failed
