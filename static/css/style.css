@@ -965,25 +965,54 @@ body#reportPage.dark-theme .stacked-charts-buttons button[id*="download"]:hover 
 	gap: 20px;
 }
 
-#reportPage .stats-tables-left {
-	flex: 0 0 27%;
-}
-
+#reportPage .stats-tables-left,
 #reportPage .stats-tables-middle {
-	flex: 0 0 27%;
+	flex: 0 0 250px;
+	width: 250px;
 }
 
 #reportPage .stats-charts-right {
-	flex: 0 0 auto;
+	flex: 1 1 auto;
+	min-width: 280px;
 	max-width: 400px;
-	min-width: 0;
-	overflow: hidden;
 }
 
 #reportPage .stat-table-section {
 	background: rgba(255, 255, 255, 0.05);
 	border-radius: 6px;
 	padding: 15px;
+	width: 100%;
+	box-sizing: border-box;
+}
+
+#reportPage .stats-tables-left .stat-table-section,
+#reportPage .stats-tables-middle .stat-table-section {
+	width: 100%;
+}
+
+/* Ensure consistent table column alignment across all stat tables */
+#reportPage .enhanced-stat-table {
+	width: 200px;
+	table-layout: fixed;
+	border-collapse: collapse;
+}
+
+#reportPage .enhanced-stat-table col:first-child {
+	width: 175px;
+}
+
+#reportPage .enhanced-stat-table col:last-child {
+	width: 25px;
+}
+
+#reportPage .enhanced-stat-table td:first-child {
+	text-align: left;
+	padding: 6px 4px;
+}
+
+#reportPage .enhanced-stat-table td:last-child {
+	text-align: right;
+	padding: 6px 15px 6px 4px;
 }
 
 #reportPage .stat-table-title {

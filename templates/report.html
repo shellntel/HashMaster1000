@@ -375,7 +375,7 @@
 
 			<!-- Three-column layout container -->
 			<div class="enhanced-stats-container">
-				<!-- Left 27%: Hash and Password Statistics Tables -->
+				<!-- Left column: Hash and Password Statistics Tables -->
 				<div class="stats-column stats-tables-left">
 					<!-- Hash Statistics Table -->
 					<div class="stat-table-section">
@@ -390,7 +390,7 @@
 					</div>
 				</div>
 
-				<!-- Middle 27%: Account and Breach Statistics Tables -->
+				<!-- Middle column: Account and Breach Statistics Tables -->
 				<div class="stats-column stats-tables-middle">
 					<!-- Account Statistics Table -->
 					<div class="stat-table-section">
@@ -5153,6 +5153,19 @@
 			function createEnhancedTable(rows) {
 				const table = document.createElement('table');
 				table.className = 'enhanced-stat-table';
+				// Force all tables to be exactly 215px wide (container is 250px with 15px padding each side)
+				table.style.cssText = 'width: 215px !important; min-width: 215px !important; max-width: 215px !important; table-layout: fixed !important;';
+
+				// Create colgroup for consistent column widths (170px label + 45px value = 215px)
+				const colgroup = document.createElement('colgroup');
+				const col1 = document.createElement('col');
+				col1.style.width = '170px';
+				const col2 = document.createElement('col');
+				col2.style.width = '45px';
+				colgroup.appendChild(col1);
+				colgroup.appendChild(col2);
+				table.appendChild(colgroup);
+
 				const tbody = document.createElement('tbody');
 
 				// Determine border color based on theme
@@ -5172,9 +5185,10 @@
 					const valueCell = document.createElement('td');
 					valueCell.textContent = typeof row.value === 'number' ? row.value.toLocaleString() : row.value;
 					valueCell.style.textAlign = 'right';
-					valueCell.style.padding = '6px 4px';
+					valueCell.style.padding = '6px 0 6px 4px';
 					valueCell.style.fontSize = '13px';
 					valueCell.style.fontWeight = '600';
+					valueCell.style.fontFamily = 'monospace';
 					valueCell.style.borderBottom = '1px solid ' + borderColor;
 
 					tr.appendChild(labelCell);
