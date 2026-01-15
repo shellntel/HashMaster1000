@@ -53,12 +53,13 @@ class OllamaConfig:
 
 @dataclass
 class OllamaServer:
-    """Configuration for a single Ollama server."""
+    """Configuration for a single LLM server (Ollama or OpenAI-compatible)."""
     id: str
     name: str
     host: str
     description: str = ""
     hardware: str = ""
+    api_type: str = "auto"  # "ollama", "openai", or "auto" (auto-detect)
 
 
 @dataclass
@@ -116,6 +117,247 @@ class PipelineProgress:
 _server_status_cache: Dict[str, Any] = {}
 _server_status_cache_time: float = 0
 SERVER_STATUS_CACHE_TTL = 90 * 60  # 90 minutes in seconds
+
+# API type detection cache (per-host, persists until invalidated)
+_api_type_cache: Dict[str, str] = {}
+
+
+def detect_api_type(host: str, timeout: float = 3.0) -> str:
+    """
+    Detect whether a server uses Ollama or OpenAI-compatible API.
+
+    Probes both API endpoints to determine the correct type.
+    Results are cached to avoid repeated detection.
+
+    Args:
+        host: Server URL (e.g., "http://localhost:11434")
+        timeout: Connection timeout in seconds
+
+    Returns:
+        "ollama" or "openai" based on detection, or "unknown" if unreachable
+    """
+    # Check cache first
+    if host in _api_type_cache:
+        return _api_type_cache[host]
+
+    api_type = "unknown"
+
+    # Try Ollama API first (more common in this app)
+    try:
+        response = requests.get(f"{host}/api/tags", timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            # Ollama returns {"models": [...]}
+            if "models" in data:
+                api_type = "ollama"
+                _api_type_cache[host] = api_type
+                return api_type
+    except requests.RequestException:
+        pass
+
+    # Try OpenAI-compatible API (LM Studio, vLLM, etc.)
+    try:
+        response = requests.get(f"{host}/v1/models", timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            # OpenAI format returns {"data": [...]} or {"object": "list", "data": [...]}
+            if "data" in data or "object" in data:
+                api_type = "openai"
+                _api_type_cache[host] = api_type
+                return api_type
+    except requests.RequestException:
+        pass
+
+    return api_type
+
+
+def get_api_type_for_server(server: 'OllamaServer') -> str:
+    """
+    Get the API type for a server, using auto-detection if needed.
+
+    Args:
+        server: OllamaServer instance
+
+    Returns:
+        "ollama" or "openai" (never "auto" or "unknown")
+    """
+    if server.api_type in ("ollama", "openai"):
+        return server.api_type
+
+    # Auto-detect
+    detected = detect_api_type(server.host)
+    if detected in ("ollama", "openai"):
+        return detected
+
+    # Default to ollama if detection fails
+    return "ollama"
+
+
+def invalidate_api_type_cache(host: Optional[str] = None) -> None:
+    """
+    Invalidate API type cache.
+
+    Args:
+        host: Specific host to invalidate, or None to clear all
+    """
+    global _api_type_cache
+    if host:
+        _api_type_cache.pop(host, None)
+    else:
+        _api_type_cache = {}
+
+
+# =============================================================================
+# OpenAI-Compatible API Adapters
+# =============================================================================
+
+def list_models_openai(host: str, timeout: float = 10.0) -> List[Dict[str, Any]]:
+    """
+    List models from an OpenAI-compatible API server.
+
+    Args:
+        host: Server URL (e.g., "http://localhost:1234")
+        timeout: Request timeout
+
+    Returns:
+        List of model info dicts with 'name' and 'size' keys
+    """
+    try:
+        response = requests.get(f"{host}/v1/models", timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            models = data.get("data", [])
+            # Normalize to our format
+            return [
+                {
+                    "name": m.get("id", m.get("name", "unknown")),
+                    "size": m.get("size", 0)  # OpenAI format may not include size
+                }
+                for m in models
+            ]
+    except requests.RequestException:
+        pass
+    return []
+
+
+def generate_openai(
+    host: str,
+    model: str,
+    prompt: str,
+    system: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: Optional[int] = None,
+    timeout: int = 120,
+    include_usage: bool = False
+) -> Optional[Any]:
+    """
+    Generate text using OpenAI-compatible API.
+
+    Args:
+        host: Server URL
+        model: Model name/ID
+        prompt: User prompt
+        system: Optional system prompt
+        temperature: Sampling temperature
+        max_tokens: Maximum tokens to generate
+        timeout: Request timeout
+        include_usage: If True, return dict with response and token usage
+
+    Returns:
+        Generated text (str) or dict with usage info, or None on error
+    """
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False
+    }
+
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+
+    try:
+        response = requests.post(
+            f"{host}/v1/chat/completions",
+            json=payload,
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            content = ""
+            if data.get("choices"):
+                content = data["choices"][0].get("message", {}).get("content", "")
+
+            if include_usage:
+                usage = data.get("usage", {})
+                return {
+                    "response": content,
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0)
+                }
+            return content
+        else:
+            print(f"OpenAI API error: {response.status_code} - {response.text}")
+            return None
+
+    except requests.RequestException as e:
+        print(f"OpenAI request failed: {e}")
+        return None
+
+
+def chat_openai(
+    host: str,
+    model: str,
+    messages: List[Dict[str, str]],
+    temperature: float = 0.7,
+    timeout: int = 120
+) -> Optional[str]:
+    """
+    Send chat messages using OpenAI-compatible API.
+
+    Args:
+        host: Server URL
+        model: Model name/ID
+        messages: List of {"role": "...", "content": "..."}
+        temperature: Sampling temperature
+        timeout: Request timeout
+
+    Returns:
+        Generated response or None on error
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False
+    }
+
+    try:
+        response = requests.post(
+            f"{host}/v1/chat/completions",
+            json=payload,
+            timeout=timeout
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("choices"):
+                return data["choices"][0].get("message", {}).get("content", "")
+            return ""
+        else:
+            print(f"OpenAI API error: {response.status_code} - {response.text}")
+            return None
+
+    except requests.RequestException as e:
+        print(f"OpenAI request failed: {e}")
+        return None
 
 
 def get_ollama_servers() -> List[OllamaServer]:
@@ -191,32 +433,70 @@ def get_ollama_config(server_id: Optional[str] = None) -> OllamaConfig:
     )
 
 
-class OllamaClient:
-    """Client for interacting with Ollama API."""
+def get_client_for_server(server_id: str) -> Optional['OllamaClient']:
+    """
+    Create an OllamaClient configured for a specific server.
 
-    def __init__(self, config: Optional[OllamaConfig] = None):
+    Uses auto-detection for API type unless the server has an explicit type set.
+
+    Args:
+        server_id: The server ID
+
+    Returns:
+        Configured OllamaClient or None if server not found
+    """
+    server = get_server_by_id(server_id)
+    if not server:
+        return None
+
+    config = get_ollama_config(server_id)
+    return OllamaClient(config, api_type=server.api_type)
+
+
+class OllamaClient:
+    """Client for interacting with LLM servers (Ollama or OpenAI-compatible)."""
+
+    def __init__(self, config: Optional[OllamaConfig] = None, api_type: str = "auto"):
         self.config = config or get_ollama_config()
         self._available_models: Optional[List[str]] = None
+        self._api_type = api_type  # "ollama", "openai", or "auto"
+        self._detected_api_type: Optional[str] = None
+
+    @property
+    def api_type(self) -> str:
+        """Get the API type, detecting if needed."""
+        if self._api_type in ("ollama", "openai"):
+            return self._api_type
+        if self._detected_api_type is None:
+            self._detected_api_type = detect_api_type(self.config.host)
+        return self._detected_api_type if self._detected_api_type in ("ollama", "openai") else "ollama"
 
     def is_available(self) -> bool:
-        """Check if Ollama server is reachable."""
+        """Check if server is reachable (supports both API types)."""
         if not self.config.enabled:
             return False
-        try:
-            response = requests.get(
-                f"{self.config.host}/api/tags",
-                timeout=5
-            )
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
+
+        # Try detection - this tells us if the server is reachable
+        detected = detect_api_type(self.config.host, timeout=5)
+        return detected in ("ollama", "openai")
 
     def list_models(self, include_details: bool = False) -> List:
-        """Get list of available models from Ollama server.
+        """Get list of available models from server.
 
         Args:
             include_details: If True, return full model info dicts. If False, return just names.
         """
+        if self.api_type == "openai":
+            models = list_models_openai(self.config.host)
+            if include_details:
+                return models
+            else:
+                names = [m["name"] for m in models]
+                if self._available_models is None:
+                    self._available_models = names
+                return names
+
+        # Ollama API
         try:
             response = requests.get(
                 f"{self.config.host}/api/tags",
@@ -238,7 +518,9 @@ class OllamaClient:
         return []
 
     def get_running_models(self) -> Dict[str, Any]:
-        """Get currently running/loaded models from Ollama server.
+        """Get currently running/loaded models from server.
+
+        Note: OpenAI-compatible APIs don't support this - returns empty result.
 
         Returns dict with:
         - models: List of running model info (name, size, vram, context_length, expires_at)
@@ -254,6 +536,10 @@ class OllamaClient:
         }
 
         if not self.config.enabled:
+            return result
+
+        # OpenAI API doesn't have a /ps endpoint
+        if self.api_type == "openai":
             return result
 
         try:
@@ -287,12 +573,29 @@ class OllamaClient:
     def get_model_info(self, model_name: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific model.
 
+        Note: OpenAI-compatible APIs have limited model info support.
+
         Returns dict with model details including:
-        - modelfile, parameters, template, license, etc.
+        - modelfile, parameters, template, license, etc. (Ollama)
+        - id, object, owned_by (OpenAI)
         """
         if not self.config.enabled:
             return None
 
+        # OpenAI API - try to get model info from /v1/models/{model}
+        if self.api_type == "openai":
+            try:
+                response = requests.get(
+                    f"{self.config.host}/v1/models/{model_name}",
+                    timeout=10
+                )
+                if response.status_code == 200:
+                    return response.json()
+            except requests.RequestException:
+                pass
+            return None
+
+        # Ollama API
         try:
             response = requests.post(
                 f"{self.config.host}/api/show",
@@ -307,9 +610,13 @@ class OllamaClient:
         return None
 
     def get_version(self) -> Optional[str]:
-        """Get Ollama server version."""
+        """Get server version."""
         if not self.config.enabled:
             return None
+
+        # OpenAI API doesn't have a standard version endpoint
+        if self.api_type == "openai":
+            return "OpenAI-compatible"
 
         try:
             response = requests.get(
@@ -337,6 +644,9 @@ class OllamaClient:
         If the model is not currently loaded, triggers a load by sending a minimal
         request and waits for it to complete.
 
+        Note: OpenAI-compatible APIs don't support explicit model loading.
+        For these, we assume the model is always ready.
+
         Args:
             model: Model name to load
             num_ctx: Context window size
@@ -350,10 +660,21 @@ class OllamaClient:
         if not self.config.enabled:
             return False
 
+        # OpenAI-compatible APIs don't have explicit model loading
+        # Model is loaded on first request or kept in memory by the server
+        if self.api_type == "openai":
+            if progress_callback:
+                progress_callback(f"Model {model} ready (OpenAI-compatible server)")
+            return True
+
         # Use reasonable timeout for model loading (not the long generation timeout)
-        # 70B models load in ~20s, 671B in ~2-3 min
+        # 70B models load in ~20s, 405B in ~1-2 min, 671B in ~3-5 min
         if timeout is None:
-            timeout = 180  # 3 minutes max for model loading
+            # Very large models need more time, especially when unloading another large model first
+            if "671b" in model.lower() or "405b" in model.lower():
+                timeout = 420  # 7 minutes for 400B+ models
+            else:
+                timeout = 180  # 3 minutes for smaller models
 
         # Check if model is already loaded
         running = self.get_running_models()
@@ -474,7 +795,7 @@ class OllamaClient:
         num_ctx: int = 16384
     ) -> Optional[str] | Dict[str, Any]:
         """
-        Generate a response from the Ollama model.
+        Generate a response from the LLM server.
 
         Args:
             prompt: The user prompt
@@ -495,6 +816,20 @@ class OllamaClient:
         if not model:
             return None
 
+        # Use OpenAI adapter for OpenAI-compatible servers
+        if self.api_type == "openai":
+            return generate_openai(
+                host=self.config.host,
+                model=model,
+                prompt=prompt,
+                system=system,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=self.config.timeout,
+                include_usage=include_usage
+            )
+
+        # Ollama API below
         # Adjust context size for very large models to avoid OOM
         # The 671B model with 16K context needs ~78GB KV cache which can exceed available memory
         actual_ctx = num_ctx
@@ -554,7 +889,7 @@ class OllamaClient:
         num_ctx: int = 16384
     ) -> Optional[str]:
         """
-        Send a chat conversation to the Ollama model.
+        Send a chat conversation to the LLM server.
 
         Args:
             messages: List of {"role": "user"|"assistant"|"system", "content": "..."}
@@ -571,6 +906,17 @@ class OllamaClient:
         if not model:
             return None
 
+        # Use OpenAI adapter for OpenAI-compatible servers
+        if self.api_type == "openai":
+            return chat_openai(
+                host=self.config.host,
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                timeout=self.config.timeout
+            )
+
+        # Ollama API
         payload = {
             "model": model,
             "messages": messages,
@@ -1350,8 +1696,8 @@ class AIReportDataLoader:
     # -------------------------------------------------------------------------
 
     # Sampling thresholds - if dataset exceeds these, switch to sampling mode
-    SAMPLING_THRESHOLD_PASSWORDS = 500  # Max unique passwords before sampling
-    SAMPLING_THRESHOLD_ACCOUNTS = 1000   # Max account pairs before sampling
+    SAMPLING_THRESHOLD_PASSWORDS = 2000  # Max unique passwords before sampling
+    SAMPLING_THRESHOLD_ACCOUNTS = 2000   # Max account pairs before sampling
 
     def _derive_all_cracked_passwords(self) -> str:
         """
@@ -2215,41 +2561,51 @@ def get_ai_data_loader(data_dir: str = "data") -> AIReportDataLoader:
 
 def test_ollama_connection(host: Optional[str] = None, server_id: Optional[str] = None) -> Dict[str, Any]:
     """
-    Test connection to Ollama server and return status info.
+    Test connection to LLM server (Ollama or OpenAI-compatible) and return status info.
 
     Args:
-        host: Ollama server URL (uses env var if not provided)
+        host: Server URL (uses env var if not provided)
         server_id: Server ID to test (alternative to host)
 
     Returns:
-        Dictionary with connection status and available models
+        Dictionary with connection status, API type, and available models
     """
     config = get_ollama_config(server_id)
     if host:
         config.host = host
         config.enabled = True
 
-    client = OllamaClient(config)
-
     result = {
         "host": config.host,
         "enabled": config.enabled,
         "reachable": False,
+        "api_type": "unknown",
         "available_models": [],
         "error": None
     }
 
-    try:
-        # Use short timeout for connectivity check - 2s is enough to detect reachability
-        response = requests.get(f"{config.host}/api/tags", timeout=2)
-        if response.status_code == 200:
-            result["reachable"] = True
-            data = response.json()
-            result["available_models"] = [m["name"] for m in data.get("models", [])]
+    # Detect API type (this also tests reachability)
+    detected_type = detect_api_type(config.host, timeout=3.0)
+
+    if detected_type in ("ollama", "openai"):
+        result["reachable"] = True
+        result["api_type"] = detected_type
+
+        # Get model list using the appropriate API
+        if detected_type == "openai":
+            models = list_models_openai(config.host)
+            result["available_models"] = [m["name"] for m in models]
         else:
-            result["error"] = f"HTTP {response.status_code}"
-    except requests.RequestException as e:
-        result["error"] = str(e)
+            # Ollama API
+            try:
+                response = requests.get(f"{config.host}/api/tags", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    result["available_models"] = [m["name"] for m in data.get("models", [])]
+            except requests.RequestException as e:
+                result["error"] = str(e)
+    else:
+        result["error"] = "Server unreachable or unknown API type"
 
     return result
 
@@ -2300,6 +2656,7 @@ def test_all_servers(use_cache: bool = True, force_refresh: bool = False) -> Dic
             "description": server.description,
             "hardware": server.hardware,
             "reachable": status["reachable"],
+            "api_type": status.get("api_type", "unknown"),
             "available_models": status["available_models"],
             "error": status.get("error")
         }
@@ -2568,6 +2925,9 @@ def pull_model(model_name: str, host: Optional[str] = None, server_id: Optional[
     """
     Pull (download) a model from Ollama library.
 
+    Note: This only works with Ollama servers. OpenAI-compatible servers (like LM Studio)
+    don't support remote model pulling - models must be managed through their own UI.
+
     Args:
         model_name: Name of the model to pull (e.g., "llama3.1:70b")
         host: Ollama server URL (uses env var if not provided)
@@ -2582,7 +2942,7 @@ def pull_model(model_name: str, host: Optional[str] = None, server_id: Optional[
         config.enabled = True
 
     if not config.enabled:
-        return {"success": False, "error": "Ollama integration is not enabled"}
+        return {"success": False, "error": "LLM integration is not enabled"}
 
     result = {
         "success": False,
@@ -2590,6 +2950,15 @@ def pull_model(model_name: str, host: Optional[str] = None, server_id: Optional[
         "status": "",
         "error": None
     }
+
+    # Check API type - pulling only works with Ollama
+    api_type = detect_api_type(config.host)
+    if api_type == "openai":
+        result["error"] = "Model pulling is not supported for OpenAI-compatible servers (like LM Studio). Please use the server's own interface to download models."
+        return result
+    elif api_type == "unknown":
+        result["error"] = "Server is not reachable"
+        return result
 
     try:
         # Ollama pull API - uses streaming by default
@@ -2618,6 +2987,9 @@ def delete_model(model_name: str, host: Optional[str] = None, server_id: Optiona
     """
     Delete a model from the Ollama server.
 
+    Note: This only works with Ollama servers. OpenAI-compatible servers (like LM Studio)
+    don't support remote model deletion - models must be managed through their own UI.
+
     Args:
         model_name: Name of the model to delete
         host: Ollama server URL (uses env var if not provided)
@@ -2632,13 +3004,22 @@ def delete_model(model_name: str, host: Optional[str] = None, server_id: Optiona
         config.enabled = True
 
     if not config.enabled:
-        return {"success": False, "error": "Ollama integration is not enabled"}
+        return {"success": False, "error": "LLM integration is not enabled"}
 
     result = {
         "success": False,
         "model": model_name,
         "error": None
     }
+
+    # Check API type - deletion only works with Ollama
+    api_type = detect_api_type(config.host)
+    if api_type == "openai":
+        result["error"] = "Model deletion is not supported for OpenAI-compatible servers (like LM Studio). Please use the server's own interface to manage models."
+        return result
+    elif api_type == "unknown":
+        result["error"] = "Server is not reachable"
+        return result
 
     try:
         response = requests.delete(

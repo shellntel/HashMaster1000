@@ -4092,33 +4092,7 @@ body.print-mode .status-badge.status-disabled {
 .aaia-section-list {
 	display: grid;
 	grid-template-columns: repeat(2, 1fr);
-	gap: 8px;
-}
-
-/* Model group header for optimized execution order */
-.aaia-model-group-header {
-	grid-column: 1 / -1;
-	background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%);
-	border: 1px solid #2a5a8c;
-	border-radius: 6px;
-	padding: 6px 12px;
-	margin-top: 8px;
-	font-size: 0.8rem;
-}
-
-.aaia-model-group-header:first-child {
-	margin-top: 0;
-}
-
-.aaia-group-model {
-	color: #5dade2;
-	font-weight: 600;
-	font-family: 'Consolas', 'Monaco', monospace;
-}
-
-.aaia-group-server {
-	color: #888;
-	font-style: italic;
+	gap: 10px;
 }
 
 .aaia-section-step {
@@ -4135,30 +4109,32 @@ body.print-mode .status-badge.status-disabled {
 .aaia-section-config-item {
 	background: #252525;
 	border-radius: 6px;
-	padding: 10px 12px;
+	padding: 8px 10px;
 	border: 1px solid #333;
 	border-left: 3px solid #3498db;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 4px;
 }
 
 .aaia-section-config-header {
 	display: flex;
 	justify-content: flex-start;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
+	flex-wrap: wrap;
 }
 
 .aaia-section-config-title {
 	flex: 1;
 	font-weight: 500;
-	font-size: 0.9rem;
+	font-size: 0.85rem;
 	color: #f4f4f4;
+	min-width: 150px;
 }
 
 .aaia-section-config-rec {
-	font-size: 0.7rem;
+	font-size: 0.65rem;
 	color: #888;
 	background: #1e1e1e;
 	padding: 2px 6px;
@@ -4177,12 +4153,12 @@ body.print-mode .status-badge.status-disabled {
 
 .aaia-section-model-select select {
 	width: 100%;
-	padding: 6px 10px;
+	padding: 4px 8px;
 	background: #1e1e1e;
 	border: 1px solid #444;
 	border-radius: 4px;
 	color: #f4f4f4;
-	font-size: 0.8rem;
+	font-size: 0.75rem;
 	cursor: pointer;
 }
 
@@ -4206,16 +4182,143 @@ body.print-mode .status-badge.status-disabled {
 
 .aaia-config-ok {
 	color: #22c55e;
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 }
 
 .aaia-config-warn {
 	color: #f59e0b;
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 }
 
 .aaia-section-config-status {
+	font-size: 0.7rem;
+}
+
+/* AAIA Section Settings (sampling, temperature, etc.) */
+.aaia-section-settings {
+	margin-top: 6px;
+	padding: 8px;
+	background: #1a1a2e;
+	border-radius: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 12px;
+	align-items: center;
+}
+
+.aaia-setting-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 	font-size: 0.75rem;
+}
+
+.aaia-setting-row > label {
+	color: #9ca3af;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+
+.aaia-setting-row > label input[type="checkbox"] {
+	margin: 0;
+	width: 14px;
+	height: 14px;
+}
+
+.aaia-setting-select {
+	padding: 3px 6px;
+	background: #252525;
+	border: 1px solid #444;
+	border-radius: 3px;
+	color: #f4f4f4;
+	font-size: 0.75rem;
+	max-width: 150px;
+}
+
+.aaia-setting-help {
+	color: #6b7280;
+	font-size: 0.65rem;
+	font-style: italic;
+}
+
+.aaia-temp-slider {
+	width: 80px;
+	height: 4px;
+	-webkit-appearance: none;
+	background: #333;
+	border-radius: 2px;
+	cursor: pointer;
+}
+
+.aaia-temp-slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #6366f1;
+	cursor: pointer;
+}
+
+.aaia-temp-slider::-moz-range-thumb {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: #6366f1;
+	cursor: pointer;
+	border: none;
+}
+
+.aaia-temp-value {
+	min-width: 24px;
+	text-align: center;
+	font-family: monospace;
+	color: #a5b4fc;
+	font-size: 0.75rem;
+}
+
+.aaia-sampling-note {
+	width: 100%;
+	padding: 4px 8px;
+	background: #1f2937;
+	border-left: 2px solid #3b82f6;
+	border-radius: 3px;
+	font-size: 0.7rem;
+	color: #9ca3af;
+	margin-top: 2px;
+}
+
+/* Light theme for section settings */
+.light-theme .aaia-section-settings {
+	background: #f3f4f6;
+}
+
+.light-theme .aaia-setting-row > label {
+	color: #4b5563;
+}
+
+.light-theme .aaia-setting-select {
+	background: #ffffff;
+	border-color: #d1d5db;
+	color: #111827;
+}
+
+.light-theme .aaia-setting-help {
+	color: #9ca3af;
+}
+
+.light-theme .aaia-temp-slider {
+	background: #d1d5db;
+}
+
+.light-theme .aaia-temp-value {
+	color: #4f46e5;
+}
+
+.light-theme .aaia-sampling-note {
+	background: #e5e7eb;
+	color: #4b5563;
 }
 
 .aaia-section-status.ready {
@@ -5244,19 +5347,6 @@ body.print-mode .status-badge.status-disabled {
 
 .light-theme .aaia-config-help {
 	color: #6b7280;
-}
-
-.light-theme .aaia-model-group-header {
-	background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-	border-color: #90caf9;
-}
-
-.light-theme .aaia-group-model {
-	color: #1565c0;
-}
-
-.light-theme .aaia-group-server {
-	color: #666;
 }
 
 .light-theme .aaia-section-step {
@@ -9849,8 +9939,8 @@ body:not(.advanced-mode):not(#reportPage) .toggle-option.active {
 }
 
 /* ==================== ENHANCED BUTTONS ==================== */
-/* Main action buttons - green theme (exclude browse/validate/secondary/danger which have their own colors) */
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger) {
+/* Main action buttons - green theme (exclude browse/validate/secondary/danger/warning which have their own colors) */
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):not(.btn-warning) {
     background: linear-gradient(180deg, #2f9a2f 0%, #289028 50%, #217821 100%);
     border: 1px solid rgba(49, 176, 5, 0.3);
     box-shadow:
@@ -9860,7 +9950,7 @@ body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-clo
     transition: all 0.3s ease;
 }
 
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):hover {
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):not(.btn-warning):hover {
     background: linear-gradient(180deg, #3aa83a 0%, #2f9a2f 50%, #289028 100%);
     box-shadow:
         0 4px 14px rgba(0, 0, 0, 0.3),
@@ -9868,7 +9958,7 @@ body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-clo
     transform: translateY(-1px);
 }
 
-body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):active {
+body:not(.advanced-mode):not(#reportPage) button:not(.header-btn):not(.modal-close):not(.helpButton):not(.browse-btn):not(.validate-btn):not(.btn-secondary):not(.btn-danger):not(.btn-warning):active {
     transform: translateY(0);
     box-shadow:
         0 2px 6px rgba(0, 0, 0, 0.2),
@@ -11472,7 +11562,7 @@ body.matrix-mode .matrix-trigger {
    ============================================================================= */
 
 .users-page {
-    max-width: 1200px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: 20px;
 }
@@ -11593,10 +11683,12 @@ body.matrix-mode .matrix-trigger {
 .user-form-container {
     max-width: 600px;
     margin: 0 auto;
-    background: var(--card-bg);
+    background: linear-gradient(135deg, rgba(15, 25, 15, 0.9), rgba(10, 18, 10, 0.95));
     border-radius: 12px;
     padding: 30px;
-    border: 1px solid var(--border);
+    border: 1px solid rgba(49, 176, 5, 0.15);
+    border-left: 3px solid #31b005;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .user-form-container h2 {
@@ -11621,8 +11713,8 @@ body.matrix-mode .matrix-trigger {
 .user-form select {
     width: 100%;
     padding: 12px;
-    background: var(--bg);
-    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(49, 176, 5, 0.3);
     border-radius: 6px;
     color: var(--text);
     font-size: 1rem;
@@ -11631,8 +11723,8 @@ body.matrix-mode .matrix-trigger {
 .user-form input:focus,
 .user-form select:focus {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(0, 255, 128, 0.2);
+    border-color: #31b005;
+    box-shadow: 0 0 0 2px rgba(49, 176, 5, 0.2);
 }
 
 .user-form input:disabled {
@@ -11735,13 +11827,13 @@ body.matrix-mode .matrix-trigger {
 
 /* Button variants */
 .btn-warning {
-    background: rgba(255, 165, 0, 0.2);
-    color: #ffa500;
-    border: 1px solid #ffa500;
+    background: linear-gradient(180deg, #f59e0b 0%, #d97706 50%, #b45309 100%);
+    color: #fff;
+    border: 1px solid #b45309;
 }
 
 .btn-warning:hover {
-    background: rgba(255, 165, 0, 0.3);
+    background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
 }
 
 /* ============================================================

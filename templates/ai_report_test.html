@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>HM1K - AI Report Lab</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
@@ -260,6 +261,9 @@ Yankees2024</textarea>
     </div>
 
     <script>
+        // CSRF Token for POST requests
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
         // Store the referrer for "Exit Advanced Mode" link
         (function() {
             const exitLink = document.querySelector('.exit-link');
@@ -464,7 +468,7 @@ Yankees2024</textarea>
                 const sectionData = await getSectionData(sectionId);
                 const resp = await fetch('/api/ai/report/analyze/' + sectionId, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                     body: JSON.stringify({ model: model, temperature: temperature, server_id: serverId, data: sectionData })
                 });
                 stopTimer();

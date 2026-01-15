@@ -63,7 +63,7 @@ class SPIAnalyzer:
 
     # Default maximum passwords to send to LLM (sampling threshold)
     # Can be overridden in __init__ or set to None to disable sampling
-    DEFAULT_MAX_PASSWORDS = 500
+    DEFAULT_MAX_PASSWORDS = 2000
 
     def __init__(
         self,

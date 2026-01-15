@@ -37,8 +37,8 @@ def get_ci_prompt(category_key: str, passwords: list[str], accounts: list[str]) 
         raise ValueError(f"Unknown CI category: {category_key}")
 
     category = CI_CATEGORIES[category_key]
-    password_list = "\n".join(passwords[:200])  # Limit for context size
-    account_list = "\n".join(accounts[:200])
+    password_list = "\n".join(passwords)  # Sampling handled by CIAnalyzer
+    account_list = "\n".join(accounts)
     pw_count = len(passwords)
     acct_count = len(accounts)
 

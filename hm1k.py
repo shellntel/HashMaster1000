@@ -4607,6 +4607,253 @@ def ai_report_sections() -> Response:
     return jsonify({"sections": get_ai_report_sections()})
 
 
+def _analyze_spi_section(
+    section_id: str,
+    section_config: dict,
+    client,
+    model: str | None,
+    temperature: float | None,
+    server_id: str,
+    server_name: str,
+    start_time: float
+) -> Response:
+    """
+    Run full SPI (Semantic Password Intelligence) analysis.
+
+    Runs all 11 SPI category prompts and aggregates results.
+    """
+    import time
+    from app.spi_analyzer import SPIAnalyzer, results_to_dict
+    from app.spi_prompts import SPI_PREAMBLE
+
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+
+    analyzer = SPIAnalyzer(session_dir)
+
+    # Use provided model/temp or section defaults
+    used_model = model or section_config["recommended_model"]
+    used_temp = temperature if temperature is not None else section_config["temperature"]
+
+    # Create LLM call function that uses the client
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    def llm_call_fn(prompt: str) -> str:
+        nonlocal total_prompt_tokens, total_completion_tokens
+        result = client.generate(
+            prompt=prompt,
+            model=used_model,
+            system=SPI_PREAMBLE,
+            temperature=used_temp,
+            include_usage=True
+        )
+        if isinstance(result, dict):
+            total_prompt_tokens += result.get("prompt_tokens", 0)
+            total_completion_tokens += result.get("completion_tokens", 0)
+            return result.get("response", "")
+        return result or ""
+
+    # Run full analysis (all categories)
+    results = analyzer.run_full_analysis(llm_call_fn)
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+    elapsed_seconds = round(elapsed_time, 1)
+    elapsed_formatted = f"{int(elapsed_time // 60)}m {int(elapsed_time % 60)}s" if elapsed_time >= 60 else f"{elapsed_seconds}s"
+
+    # Format results as HTML
+    html_report = analyzer.format_report_html(results)
+
+    # Also prepare JSON data for debugging/analysis
+    results_dict = results_to_dict(results)
+
+    # Build summary text
+    summary_lines = [f"Analyzed {results.total_passwords:,} passwords across {len(results.categories)} categories."]
+    if results.sampling_used:
+        summary_lines.append(f"Sampling: {results.sampling_note}")
+
+    # Count categories with matches
+    categories_with_matches = sum(1 for cat in results.categories.values() if cat.matches)
+    total_matches = sum(len(cat.matches) for cat in results.categories.values())
+    summary_lines.append(f"Found {total_matches:,} total matches in {categories_with_matches} categories.")
+
+    # Save to test_outputs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = used_model.replace(":", "_").replace("/", "_")
+    # Use 'spi' as the filename prefix since this is SPI analysis
+    filename = f"spi_{safe_model}_t{used_temp}_{timestamp}.md"
+
+    test_output_dir = os.path.join(os.path.dirname(__file__), "test_outputs")
+    os.makedirs(test_output_dir, exist_ok=True)
+    filepath = os.path.join(test_output_dir, filename)
+
+    with open(filepath, "w") as f:
+        f.write(f"# SPI Analysis Test Output\n\n")
+        f.write(f"- **Section:** {section_id}\n")
+        f.write(f"- **Model:** {used_model}\n")
+        f.write(f"- **Server:** {server_name}\n")
+        f.write(f"- **Temperature:** {used_temp}\n")
+        f.write(f"- **Response Time:** {elapsed_formatted} ({elapsed_seconds}s)\n")
+        f.write(f"- **Tokens:** {total_prompt_tokens:,} prompt + {total_completion_tokens:,} completion = {total_prompt_tokens + total_completion_tokens:,} total\n")
+        f.write(f"- **Categories Analyzed:** {len(results.categories)}\n")
+        f.write(f"- **Timestamp:** {timestamp}\n")
+        f.write(f"\n---\n\n## Summary\n\n")
+        f.write("\n".join(summary_lines))
+        f.write(f"\n\n## Results by Category\n\n")
+        for cat_key, cat_result in results.categories.items():
+            count, pct = results.get_category_stats(cat_key)
+            f.write(f"### {cat_result.category_name}\n")
+            f.write(f"- Matches: {count} ({pct:.1f}%)\n")
+            if cat_result.matches:
+                f.write(f"- Examples: {', '.join(cat_result.matches[:10])}\n")
+            if cat_result.error:
+                f.write(f"- Error: {cat_result.error}\n")
+            f.write("\n")
+
+    return jsonify({
+        "section_id": section_id,
+        "content": html_report,
+        "summary": "\n".join(summary_lines),
+        "model": used_model,
+        "server_id": server_id,
+        "server_name": server_name,
+        "saved_to": filename,
+        "response_time_seconds": elapsed_seconds,
+        "response_time_formatted": elapsed_formatted,
+        "prompt_tokens": total_prompt_tokens,
+        "completion_tokens": total_completion_tokens,
+        "total_tokens": total_prompt_tokens + total_completion_tokens,
+        "categories_analyzed": len(results.categories),
+        "total_matches": total_matches,
+        "results_json": results_dict
+    })
+
+
+def _analyze_ci_section(
+    section_id: str,
+    section_config: dict,
+    client,
+    model: str | None,
+    temperature: float | None,
+    server_id: str,
+    server_name: str,
+    start_time: float
+) -> Response:
+    """
+    Run full Company Intelligence analysis.
+
+    Runs all 3 CI category prompts and aggregates findings.
+    """
+    import time
+    from app.company_intel_analyzer import CIAnalyzer, results_to_dict
+    from app.company_intel_prompts import CI_PREAMBLE
+
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+
+    analyzer = CIAnalyzer(session_dir)
+
+    # Use provided model/temp or section defaults
+    used_model = model or section_config["recommended_model"]
+    used_temp = temperature if temperature is not None else section_config["temperature"]
+
+    # Create LLM call function that uses the client
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    def llm_call_fn(prompt: str) -> str:
+        nonlocal total_prompt_tokens, total_completion_tokens
+        result = client.generate(
+            prompt=prompt,
+            model=used_model,
+            system=CI_PREAMBLE,
+            temperature=used_temp,
+            include_usage=True
+        )
+        if isinstance(result, dict):
+            total_prompt_tokens += result.get("prompt_tokens", 0)
+            total_completion_tokens += result.get("completion_tokens", 0)
+            return result.get("response", "")
+        return result or ""
+
+    # Run full analysis (all categories)
+    results = analyzer.run_full_analysis(llm_call_fn)
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+    elapsed_seconds = round(elapsed_time, 1)
+    elapsed_formatted = f"{int(elapsed_time // 60)}m {int(elapsed_time % 60)}s" if elapsed_time >= 60 else f"{elapsed_seconds}s"
+
+    # Format results as HTML
+    html_report = analyzer.format_report_html(results)
+
+    # Also prepare JSON data for debugging/analysis
+    results_dict = results_to_dict(results)
+
+    # Build summary text
+    summary_lines = [f"Analyzed {results.total_passwords:,} passwords and {results.total_accounts:,} accounts across {len(results.categories)} categories."]
+    if results.sampling_used:
+        summary_lines.append(f"Sampling: {results.sampling_note}")
+
+    # Count total findings
+    total_findings = sum(len(cat.findings) for cat in results.categories.values())
+    categories_with_findings = sum(1 for cat in results.categories.values() if cat.findings)
+    summary_lines.append(f"Found {total_findings} findings in {categories_with_findings} categories.")
+
+    # Save to test_outputs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = used_model.replace(":", "_").replace("/", "_")
+    # Use 'company-intel' as the filename prefix since this is CI analysis
+    filename = f"company-intel_{safe_model}_t{used_temp}_{timestamp}.md"
+
+    test_output_dir = os.path.join(os.path.dirname(__file__), "test_outputs")
+    os.makedirs(test_output_dir, exist_ok=True)
+    filepath = os.path.join(test_output_dir, filename)
+
+    with open(filepath, "w") as f:
+        f.write(f"# Company Intelligence Analysis Test Output\n\n")
+        f.write(f"- **Section:** {section_id}\n")
+        f.write(f"- **Model:** {used_model}\n")
+        f.write(f"- **Server:** {server_name}\n")
+        f.write(f"- **Temperature:** {used_temp}\n")
+        f.write(f"- **Response Time:** {elapsed_formatted} ({elapsed_seconds}s)\n")
+        f.write(f"- **Tokens:** {total_prompt_tokens:,} prompt + {total_completion_tokens:,} completion = {total_prompt_tokens + total_completion_tokens:,} total\n")
+        f.write(f"- **Categories Analyzed:** {len(results.categories)}\n")
+        f.write(f"- **Timestamp:** {timestamp}\n")
+        f.write(f"\n---\n\n## Summary\n\n")
+        f.write("\n".join(summary_lines))
+        f.write(f"\n\n## Results by Category\n\n")
+        for cat_key, cat_result in results.categories.items():
+            f.write(f"### {cat_result.category_name}\n")
+            f.write(f"- Findings: {len(cat_result.findings)}\n")
+            for finding in cat_result.findings:
+                f.write(f"  - **{finding.what}** ({finding.confidence})\n")
+                if finding.evidence:
+                    f.write(f"    Evidence: {', '.join(finding.evidence[:5])}\n")
+            if cat_result.error:
+                f.write(f"- Error: {cat_result.error}\n")
+            f.write("\n")
+
+    return jsonify({
+        "section_id": section_id,
+        "content": html_report,
+        "summary": "\n".join(summary_lines),
+        "model": used_model,
+        "server_id": server_id,
+        "server_name": server_name,
+        "saved_to": filename,
+        "response_time_seconds": elapsed_seconds,
+        "response_time_formatted": elapsed_formatted,
+        "prompt_tokens": total_prompt_tokens,
+        "completion_tokens": total_completion_tokens,
+        "total_tokens": total_prompt_tokens + total_completion_tokens,
+        "categories_analyzed": len(results.categories),
+        "total_findings": total_findings,
+        "results_json": results_dict
+    })
+
+
 @app.route("/api/ai/report/analyze/<section_id>", methods=["POST"])
 @login_required
 def ai_report_analyze_section(section_id: str) -> Response:
@@ -4630,19 +4877,14 @@ def ai_report_analyze_section(section_id: str) -> Response:
     if section_id not in sections:
         return jsonify({"error": f"Unknown section: {section_id}"}), 400
 
+    section_config = sections[section_id]
+    pipeline = section_config.get("pipeline", "standard")
+
     request_data = request.get_json() or {}
     model = request_data.get("model")
     temperature = request_data.get("temperature")
     server_id = request_data.get("server_id", "primary")
     data = request_data.get("data", {})
-
-    # If no data provided, load it automatically (fallback)
-    if not data:
-        from app.ollama_tools import get_ai_data_loader
-        session_mgr = get_session_manager()
-        session_dir = session_mgr.get_session_dir()
-        loader = get_ai_data_loader(session_dir)
-        data = loader.load_section_data(section_id)
 
     # Get server-specific config
     server = get_server_by_id(server_id)
@@ -4655,6 +4897,28 @@ def ai_report_analyze_section(section_id: str) -> Response:
 
     # Create client for specific server
     client = OllamaClient(server_config)
+
+    # Handle specialized pipelines (SPI and Company Intel)
+    if pipeline == "spi":
+        return _analyze_spi_section(
+            section_id, section_config, client, model, temperature,
+            server_id, server_name, start_time
+        )
+    elif pipeline == "company_intel":
+        return _analyze_ci_section(
+            section_id, section_config, client, model, temperature,
+            server_id, server_name, start_time
+        )
+
+    # Standard pipeline - use generic analyzer
+    # If no data provided, load it automatically (fallback)
+    if not data:
+        from app.ollama_tools import get_ai_data_loader
+        session_mgr = get_session_manager()
+        session_dir = session_mgr.get_session_dir()
+        loader = get_ai_data_loader(session_dir)
+        data = loader.load_section_data(section_id)
+
     analyzer = AIReportAnalyzer(client=client)
 
     # Use the new method that returns token usage
@@ -4798,6 +5062,17 @@ def ai_pipeline_stream() -> Response:
     # SPI configuration from UI (not .env)
     spi_max_passwords = request.args.get("spi_max_passwords", "500")
     spi_intelligent_sampling = request.args.get("spi_intelligent_sampling", "true").lower() == "true"
+
+    # CI (Company Intel) configuration from UI
+    ci_max_passwords = request.args.get("ci_max_passwords", "500")
+    ci_intelligent_sampling = request.args.get("ci_intelligent_sampling", "true").lower() == "true"
+
+    # Temperature settings from UI (JSON string)
+    temperatures_json = request.args.get("temperatures", "{}")
+    try:
+        temperatures = json.loads(temperatures_json)
+    except (json.JSONDecodeError, TypeError):
+        temperatures = {}
 
     # Determine sections to process
     all_sections = get_ai_report_sections()
@@ -5115,9 +5390,19 @@ def ai_pipeline_stream() -> Response:
                             current_model = phase1_model
                             yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
 
-                        # Initialize CI analyzer
-                        ci_analyzer = CIAnalyzer(session_dir)
-                        passwords, accounts = ci_analyzer.get_data_for_analysis()
+                        # Initialize CI analyzer with UI-configured sampling
+                        try:
+                            ci_max_pw = int(ci_max_passwords) if ci_max_passwords else 500
+                            ci_max_pw = None if ci_max_pw == 0 else ci_max_pw
+                        except ValueError:
+                            ci_max_pw = 500  # Fallback to default
+
+                        ci_analyzer = CIAnalyzer(
+                            session_dir,
+                            max_passwords=ci_max_pw,
+                            intelligent_sampling=ci_intelligent_sampling
+                        )
+                        passwords, accounts, _, _ = ci_analyzer.get_data_for_analysis()
 
                         if not passwords and not accounts:
                             all_phase1_results[section_id] = {
@@ -5134,7 +5419,7 @@ def ai_pipeline_stream() -> Response:
                         # Run each CI category
                         from app.company_intel_analyzer import CIResults, CICategoryResult
                         ci_result = CIResults(
-                            total_passwords=len(ci_analyzer._get_password_list()),
+                            total_passwords=len(ci_analyzer._get_password_counts()),
                             total_accounts=len(ci_analyzer._get_account_list())
                         )
 
@@ -6595,7 +6880,7 @@ def ai_report_section_data(section_id: str) -> Response:
     Get pre-loaded analysis data for a specific AI report section.
 
     Returns the data that would be sent to the AI for this section,
-    loaded from the /data JSON files.
+    loaded from the /data JSON files or specialized analyzers.
     """
     from app.ollama_tools import get_ai_data_loader, get_ai_report_sections
 
@@ -6613,7 +6898,67 @@ def ai_report_section_data(section_id: str) -> Response:
             "has_data": False
         }), 404
 
-    # Load section data with session info for policy settings
+    section_config = sections[section_id]
+    pipeline = section_config.get("pipeline", "standard")
+
+    # Handle specialized pipelines that use their own data loading
+    if pipeline == "spi":
+        # SPI uses SPIAnalyzer for data loading
+        from app.spi_analyzer import SPIAnalyzer
+        analyzer = SPIAnalyzer(session_dir)
+        passwords, sampling_used, sampling_note = analyzer.get_passwords_for_analysis()
+        total_unique = len(analyzer._get_password_set())
+
+        data = {
+            "description": "Semantic Password Intelligence sends the full list of unique passwords to the LLM for semantic categorization (sports, pop culture, profanity, etc.)",
+            "total_unique_passwords": total_unique,
+            "passwords_sent_to_llm": len(passwords),
+            "sampling_used": sampling_used,
+            "sampling_note": sampling_note if sampling_note else f"All {total_unique} unique passwords will be sent to the LLM",
+            "sampling_threshold": analyzer.max_passwords,
+            "sample_passwords": passwords[:50] if passwords else [],  # Show first 50 as preview
+            "note": f"Showing first 50 of {len(passwords)} passwords that will be analyzed"
+        }
+        return jsonify({
+            "section_id": section_id,
+            "section_title": section_config["title"],
+            "data": data,
+            "data_sources": {"passwords": "Full list of unique cracked passwords (with sampling if >2000)"}
+        })
+
+    elif pipeline == "company_intel":
+        # Company Intel uses CIAnalyzer for data loading
+        from app.company_intel_analyzer import CIAnalyzer
+        analyzer = CIAnalyzer(session_dir)
+        passwords, accounts, sampling_used, sampling_note = analyzer.get_data_for_analysis()
+        total_passwords = len(analyzer._get_password_counts())
+        total_accounts = len(analyzer._get_account_list())
+
+        data = {
+            "description": "Company Intelligence sends passwords and account names to the LLM to infer company identity, industry, and location",
+            "total_unique_passwords": total_passwords,
+            "passwords_sent_to_llm": len(passwords),
+            "total_unique_accounts": total_accounts,
+            "accounts_sent_to_llm": len(accounts),
+            "sampling_used": sampling_used,
+            "sampling_note": sampling_note if sampling_note else f"All {total_passwords} passwords and {total_accounts} accounts will be sent to the LLM",
+            "sampling_threshold_passwords": analyzer.max_passwords,
+            "sampling_threshold_accounts": analyzer.max_accounts,
+            "sample_passwords": passwords[:30] if passwords else [],  # Show first 30 as preview
+            "sample_accounts": accounts[:30] if accounts else [],  # Show first 30 as preview
+            "note": f"Showing first 30 of {len(passwords)} passwords and {len(accounts)} accounts that will be analyzed"
+        }
+        return jsonify({
+            "section_id": section_id,
+            "section_title": section_config["title"],
+            "data": data,
+            "data_sources": {
+                "passwords": "Full list of unique cracked passwords (with sampling if >2000)",
+                "accounts": "Full list of unique account names (with sampling if >2000)"
+            }
+        })
+
+    # Standard pipeline - use generic loader
     session_data = {
         "analysis_options": session.get("analysis_options", {})
     }
@@ -6621,9 +6966,9 @@ def ai_report_section_data(section_id: str) -> Response:
 
     return jsonify({
         "section_id": section_id,
-        "section_title": sections[section_id]["title"],
+        "section_title": section_config["title"],
         "data": data,
-        "data_sources": sections[section_id].get("data_sources", {})
+        "data_sources": section_config.get("data_sources", {})
     })
 
 
@@ -6653,8 +6998,52 @@ def ai_report_all_section_data() -> Response:
     }
 
     all_data = {}
-    for section_id in sections:
-        all_data[section_id] = loader.load_section_data(section_id, session_data)
+    for section_id, section_config in sections.items():
+        pipeline = section_config.get("pipeline", "standard")
+
+        # Handle specialized pipelines
+        if pipeline == "spi":
+            from app.spi_analyzer import SPIAnalyzer
+            analyzer = SPIAnalyzer(session_dir)
+            passwords, sampling_used, sampling_note = analyzer.get_passwords_for_analysis()
+            total_unique = len(analyzer._get_password_set())
+
+            all_data[section_id] = {
+                "description": "Semantic Password Intelligence sends the full list of unique passwords to the LLM for semantic categorization (sports, pop culture, profanity, etc.)",
+                "total_unique_passwords": total_unique,
+                "passwords_sent_to_llm": len(passwords),
+                "sampling_used": sampling_used,
+                "sampling_note": sampling_note if sampling_note else f"All {total_unique} unique passwords will be sent to the LLM",
+                "sampling_threshold": analyzer.max_passwords,
+                "sample_passwords": passwords[:50] if passwords else [],
+                "note": f"Showing first 50 of {len(passwords)} passwords that will be analyzed"
+            }
+
+        elif pipeline == "company_intel":
+            from app.company_intel_analyzer import CIAnalyzer
+            analyzer = CIAnalyzer(session_dir)
+            passwords, accounts, sampling_used, sampling_note = analyzer.get_data_for_analysis()
+            total_passwords = len(analyzer._get_password_counts())
+            total_accounts = len(analyzer._get_account_list())
+
+            all_data[section_id] = {
+                "description": "Company Intelligence sends passwords and account names to the LLM to infer company identity, industry, and location",
+                "total_unique_passwords": total_passwords,
+                "passwords_sent_to_llm": len(passwords),
+                "total_unique_accounts": total_accounts,
+                "accounts_sent_to_llm": len(accounts),
+                "sampling_used": sampling_used,
+                "sampling_note": sampling_note if sampling_note else f"All {total_passwords} passwords and {total_accounts} accounts will be sent to the LLM",
+                "sampling_threshold_passwords": analyzer.max_passwords,
+                "sampling_threshold_accounts": analyzer.max_accounts,
+                "sample_passwords": passwords[:30] if passwords else [],
+                "sample_accounts": accounts[:30] if accounts else [],
+                "note": f"Showing first 30 of {len(passwords)} passwords and {len(accounts)} accounts that will be analyzed"
+            }
+
+        else:
+            # Standard pipeline - use generic loader
+            all_data[section_id] = loader.load_section_data(section_id, session_data)
 
     return jsonify({
         "has_data": True,
@@ -6678,6 +7067,108 @@ def ai_report_section_prompt(section_id: str) -> Response:
         EXECUTIVE_SUMMARY_PROMPT
     )
 
+    sections = get_ai_report_sections()
+    if section_id not in sections:
+        return jsonify({"error": f"Unknown section: {section_id}"}), 400
+
+    section_config = sections[section_id]
+    pipeline = section_config.get("pipeline", "standard")
+
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+
+    # Handle specialized pipelines with their own prompts
+    if pipeline == "spi":
+        from app.spi_analyzer import SPIAnalyzer
+        from app.spi_prompts import get_spi_prompt, SPI_PREAMBLE, get_all_category_keys
+
+        analyzer = SPIAnalyzer(session_dir)
+        passwords, sampling_used, sampling_note = analyzer.get_passwords_for_analysis()
+
+        if not passwords:
+            return jsonify({
+                "section_id": section_id,
+                "system_prompt": SPI_PREAMBLE,
+                "prompt_template": None,
+                "formatted_prompt": None,
+                "has_data": False,
+                "message": "No password data available. Run a password analysis first."
+            })
+
+        # Show example prompt for first category (sports)
+        example_category = "sports"
+        example_prompt = get_spi_prompt(example_category, passwords)
+
+        # Build explanation of the multi-prompt approach
+        categories = get_all_category_keys()
+        explanation = f"""=== SPI Multi-Prompt Approach ===
+
+Semantic Password Intelligence runs {len(categories)} separate LLM calls, one for each category:
+{', '.join(categories)}
+
+Each prompt sends the same {len(passwords)} passwords and asks the LLM to identify matches for that specific category.
+
+Below is an example prompt for the '{example_category}' category:
+
+{'='*60}
+
+{example_prompt}"""
+
+        return jsonify({
+            "section_id": section_id,
+            "system_prompt": SPI_PREAMBLE,
+            "prompt_template": f"SPI uses {len(categories)} category-specific prompts",
+            "formatted_prompt": explanation,
+            "has_data": True,
+            "note": f"Showing example prompt for '{example_category}' category. All {len(categories)} categories use similar prompts with {len(passwords)} passwords."
+        })
+
+    elif pipeline == "company_intel":
+        from app.company_intel_analyzer import CIAnalyzer
+        from app.company_intel_prompts import get_ci_prompt, CI_PREAMBLE, get_all_category_keys
+
+        analyzer = CIAnalyzer(session_dir)
+        passwords, accounts, sampling_used, sampling_note = analyzer.get_data_for_analysis()
+
+        if not passwords and not accounts:
+            return jsonify({
+                "section_id": section_id,
+                "system_prompt": CI_PREAMBLE,
+                "prompt_template": None,
+                "formatted_prompt": None,
+                "has_data": False,
+                "message": "No password or account data available. Run a password analysis first."
+            })
+
+        # Show example prompt for first category (company_identity)
+        example_category = "company_identity"
+        example_prompt = get_ci_prompt(example_category, passwords, accounts)
+
+        # Build explanation of the multi-prompt approach
+        categories = get_all_category_keys()
+        explanation = f"""=== Company Intelligence Multi-Prompt Approach ===
+
+Company Intelligence runs {len(categories)} separate LLM calls, one for each category:
+{', '.join(categories)}
+
+Each prompt sends {len(passwords)} passwords and {len(accounts)} account names, asking the LLM to extract organizational intelligence for that category.
+
+Below is an example prompt for the '{example_category}' category:
+
+{'='*60}
+
+{example_prompt}"""
+
+        return jsonify({
+            "section_id": section_id,
+            "system_prompt": CI_PREAMBLE,
+            "prompt_template": f"CI uses {len(categories)} category-specific prompts",
+            "formatted_prompt": explanation,
+            "has_data": True,
+            "note": f"Showing example prompt for '{example_category}' category. All {len(categories)} categories use similar prompts."
+        })
+
+    # Standard pipeline - use generic loader
     # Map section IDs to their prompt templates
     PROMPTS = {
         "weak-habits": WEAK_HABITS_PROMPT,
@@ -6688,16 +7179,10 @@ def ai_report_section_prompt(section_id: str) -> Response:
         "executive-summary": EXECUTIVE_SUMMARY_PROMPT
     }
 
-    sections = get_ai_report_sections()
-    if section_id not in sections:
-        return jsonify({"error": f"Unknown section: {section_id}"}), 400
-
     prompt_template = PROMPTS.get(section_id)
     if not prompt_template:
         return jsonify({"error": f"No prompt template for section: {section_id}"}), 400
 
-    session_mgr = get_session_manager()
-    session_dir = session_mgr.get_session_dir()
     loader = get_ai_data_loader(session_dir)
 
     # Load section data
