@@ -9,11 +9,12 @@
 ## Table of Contents
 
 1. [SynerComm Private Fork Features](#synercomm-private-fork-features)
-2. [New Reports & Analysis](#new-reports--analysis)
-3. [AI-Powered Analysis (Ollama Integration)](#ai-powered-analysis-ollama-integration)
-4. [Export & Reporting Enhancements](#export--reporting-enhancements)
-5. [Infrastructure & UX Improvements](#infrastructure--ux-improvements)
-6. [Implementation Priority Matrix](#implementation-priority-matrix)
+2. [Hashcat Management & Cracking](#hashcat-management--cracking)
+3. [New Reports & Analysis](#new-reports--analysis)
+4. [AI-Powered Analysis (Ollama Integration)](#ai-powered-analysis-ollama-integration)
+5. [Export & Reporting Enhancements](#export--reporting-enhancements)
+6. [Infrastructure & UX Improvements](#infrastructure--ux-improvements)
+7. [Implementation Priority Matrix](#implementation-priority-matrix)
 
 ---
 
@@ -100,6 +101,972 @@ sessions/
   }
 }
 ```
+
+---
+
+## Hashcat Management & Cracking
+
+**Status:** Planned
+
+Hash Master 1000 will expand to include integrated hashcat cracking capabilities, allowing users to manage the entire password auditing lifecycle from hash extraction through cracking to analysis—all within a single unified interface.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    HASH MASTER 1000 SERVER                               │
+│  (Can run standalone on cracking hardware OR as team server)            │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────────┐ │
+│  │  Web UI      │  │  Job Queue   │  │  Agent Manager                 │ │
+│  │  (Gunicorn)  │──│  Manager     │──│  (coordinates remote agents)   │ │
+│  └──────────────┘  └──────────────┘  └────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+           │                                      │
+           │ (Standalone Mode)                    │ (Server Mode)
+           ▼                                      ▼
+┌──────────────────────┐          ┌──────────────────────────────────────┐
+│  Local Hashcat       │          │  Remote Hashcat Agents               │
+│  Agent               │          │  ┌────────────┐  ┌────────────┐      │
+│  (screen session)    │          │  │ Cracker 1  │  │ Cracker 2  │ ... │
+└──────────────────────┘          │  │ (4x 4090)  │  │ (8x A100)  │      │
+                                  │  └────────────┘  └────────────┘      │
+                                  └──────────────────────────────────────┘
+```
+
+### Deployment Modes
+
+#### Standalone/Local Mode
+
+Hash Master runs directly on a machine with hashcat and GPU hardware. The local hashcat agent runs on the same system. Ideal for:
+- Single-user setups
+- Dedicated cracking workstations
+- Air-gapped environments
+
+#### Team Server Mode
+
+Hash Master runs on a central server (potentially without GPUs) and coordinates hashcat agents running on dedicated cracking servers. Features:
+- Centralized job management
+- Multi-user access via web UI
+- Distributed cracking across multiple servers
+- Job queue with priorities
+
+---
+
+### Hashcat Agent
+
+**Description:** Lightweight agents that run on cracking servers to execute hashcat jobs and report status back to Hash Master.
+
+#### Agent Responsibilities
+
+| Function | Description |
+|----------|-------------|
+| Job Execution | Start hashcat with specified parameters in a screen session |
+| Status Monitoring | Periodically send 's' key to hashcat to capture status |
+| Progress Reporting | Report speed, progress, ETA, and recovered hashes to server |
+| Error Detection | Detect hashcat errors, crashes, and GPU issues |
+| Availability Check | Verify hashcat is not running and GPUs are available before starting |
+| Potfile Collection | Collect and transmit cracked hashes after job completion |
+| Session Management | Stop, pause, and resume hashcat sessions |
+
+#### Agent Implementation
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HASHCAT AGENT                             │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │  Agent Daemon   │──│  Screen Session │                   │
+│  │  (Python)       │  │  (hashcat)      │                   │
+│  └────────┬────────┘  └────────┬────────┘                   │
+│           │                    │                            │
+│           │ send 's' ──────────│ (status output)            │
+│           │ send 'q' ──────────│ (quit gracefully)          │
+│           │                    │                            │
+│  ┌────────▼────────────────────▼────────┐                   │
+│  │  Status Parser                        │                   │
+│  │  - Speed (H/s)                        │                   │
+│  │  - Progress (%)                       │                   │
+│  │  - ETA                                │                   │
+│  │  - Recovered hashes                   │                   │
+│  │  - GPU temps/utilization              │                   │
+│  └───────────────────────────────────────┘                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Agent Deployment
+
+The hashcat agent is distributed as a **single Python package** (`hm1k-agent`) designed to run as a systemd service on cracking servers.
+
+**Installation:**
+```bash
+# Install the agent package
+pip install hm1k-agent
+
+# Initialize the agent (creates config, systemd unit, directories)
+hm1k-agent init
+
+# Start the agent service
+sudo systemctl enable --now hm1k-agent
+```
+
+**Initialization Wizard (`hm1k-agent init`):**
+1. Prompts for server URL and optional pre-shared token
+2. Detects hashcat binary location (or prompts for path)
+3. Discovers GPU hardware via `nvidia-smi` or `hashcat -I`
+4. Creates config file at `/etc/hm1k-agent/config.yaml`
+5. Sets up working directories with appropriate permissions
+6. Generates systemd unit file at `/etc/systemd/system/hm1k-agent.service`
+7. Optionally starts in discovery mode for server-side registration
+
+**Package Commands:**
+```bash
+hm1k-agent init           # Initial setup wizard
+hm1k-agent status         # Show agent status, connection state, current job
+hm1k-agent test-connection # Verify server connectivity
+hm1k-agent register       # Manually trigger registration with server
+hm1k-agent logs           # Tail the agent log
+hm1k-agent benchmark      # Run hashcat benchmark, report to server
+```
+
+#### Agent Authentication
+
+Agents authenticate using **per-agent tokens** with optional **discovery mode** for easy registration.
+
+**Authentication Flow:**
+```
+┌─────────────────┐                      ┌─────────────────┐
+│  Cracking       │                      │  Hash Master    │
+│  Server         │                      │  Server         │
+└────────┬────────┘                      └────────┬────────┘
+         │                                        │
+         │ 1. hm1k-agent init (no token)          │
+         │ ──────────────────────────────────────>│
+         │                                        │
+         │ 2. Agent generates one-time code       │
+         │    Displays: "Register code: ABC123"   │
+         │                                        │
+         │ 3. Admin enters code in HM1K UI        │
+         │ <──────────────────────────────────────│
+         │                                        │
+         │ 4. Server sends permanent token        │
+         │ <──────────────────────────────────────│
+         │                                        │
+         │ 5. Agent stores token, begins normal   │
+         │    operation with authenticated API    │
+         │ ──────────────────────────────────────>│
+         │                                        │
+```
+
+**Discovery Mode:**
+- Agent starts without a token and generates a short-lived registration code
+- Admin sees pending agents in the HM1K UI and enters the code to approve
+- Server issues a permanent JWT token to the agent
+- Token stored securely in agent config file
+
+**Pre-Shared Token Mode:**
+- Admin generates a token in HM1K UI before deploying agent
+- Token passed to `hm1k-agent init --token <token>`
+- Agent immediately authenticated, no discovery step needed
+
+**Token Security:**
+- Tokens are JWTs with agent ID claim, signed by server
+- Tokens can be revoked from HM1K UI
+- Failed auth attempts logged and rate-limited
+- Tokens have no expiration (revocation-based invalidation)
+
+#### Agent Communication Protocol
+
+Agents use a **hybrid REST + Server-Sent Events (SSE)** communication model for efficient, real-time coordination.
+
+**Communication Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        COMMUNICATION FLOW                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Agent → Server (REST API):                                             │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ POST /api/agent/heartbeat     - Health check + status update    │   │
+│  │ POST /api/agent/status        - Job progress (every 10-15s)     │   │
+│  │ POST /api/agent/job/complete  - Job finished + results          │   │
+│  │ POST /api/agent/job/error     - Job failed + error details      │   │
+│  │ GET  /api/agent/resources/*   - Pull wordlists, rules, masks    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Server → Agent (SSE Stream):                                           │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ GET /api/agent/events (persistent connection)                    │   │
+│  │                                                                  │   │
+│  │ Event types:                                                     │   │
+│  │   job:assigned    - New job assigned to this agent               │   │
+│  │   job:pause       - Pause current job                            │   │
+│  │   job:resume      - Resume paused job                            │   │
+│  │   job:stop        - Stop and cancel current job                  │   │
+│  │   resource:sync   - New resource available, trigger pull         │   │
+│  │   config:update   - Agent config changed (e.g., polling rate)    │   │
+│  │   ping            - Keep-alive (every 30s)                       │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Adaptive Polling Intervals:**
+
+| State | Heartbeat Interval | Status Update Interval |
+|-------|-------------------|------------------------|
+| Idle (no job) | 60 seconds | N/A |
+| Job Running | 60 seconds | 10-15 seconds |
+| Job Completing | 60 seconds | 5 seconds (final updates) |
+| Disconnected | Exponential backoff (5s → 300s max) | Queued locally |
+
+**Why SSE Instead of WebSockets:**
+- Simpler to implement and debug
+- Works through proxies and firewalls more reliably
+- Auto-reconnects on connection drop
+- Sufficient for server→agent commands (low frequency)
+- REST handles high-frequency agent→server updates
+
+#### Resource Synchronization
+
+Resources (wordlists, rules, masks) are managed on the server and **pulled by agents on demand**.
+
+**Resource Management Model:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        RESOURCE SYNC FLOW                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Server (Master):                     Agent (Cache):                    │
+│  ┌─────────────────────────────┐     ┌─────────────────────────────┐   │
+│  │ /data/wordlists/            │     │ /var/lib/hm1k-agent/cache/  │   │
+│  │   rockyou.txt (139 MB)      │────>│   rockyou.txt (139 MB)      │   │
+│  │   common_pass.txt (12 MB)   │     │   common_pass.txt (12 MB)   │   │
+│  │                             │     │                             │   │
+│  │ /data/rules/                │     │ /rules/                     │   │
+│  │   best64.rule               │────>│   best64.rule               │   │
+│  │   d3ad0ne.rule              │     │   d3ad0ne.rule              │   │
+│  └─────────────────────────────┘     └─────────────────────────────┘   │
+│                                                                         │
+│  Sync triggers:                                                         │
+│  1. Job assigned referencing resource not in cache                      │
+│  2. Server sends resource:sync SSE event (new/updated resource)         │
+│  3. Agent startup (verify cache integrity)                              │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Resource API:**
+```
+GET /api/agent/resources/wordlists              # List available wordlists
+GET /api/agent/resources/wordlists/{name}       # Download wordlist
+GET /api/agent/resources/wordlists/{name}/meta  # Get hash, size, modified date
+GET /api/agent/resources/rules                  # List available rules
+GET /api/agent/resources/rules/{name}           # Download rule file
+GET /api/agent/resources/masks                  # List available masks
+```
+
+**Cache Management:**
+- Agent maintains local cache with configurable max size (default: 50GB)
+- LRU eviction when cache full
+- SHA256 verification on download
+- Resume support for large file downloads
+- Compressed transfer for text files (gzip)
+
+#### Offline Resilience
+
+Agents are designed to **continue operating** when the server becomes unreachable.
+
+**Offline Behavior:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        OFFLINE OPERATION                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Server Connection Lost:                                                │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ 1. Agent detects connection failure (heartbeat timeout)         │   │
+│  │ 2. Current job CONTINUES running (never auto-stop)              │   │
+│  │ 3. Status updates queued locally in SQLite buffer               │   │
+│  │ 4. Reconnection attempts with exponential backoff               │   │
+│  │    (5s, 10s, 20s, 40s, 80s, 160s, 300s max)                    │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Job Completion While Offline:                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ 1. Job finishes, results stored locally                         │   │
+│  │    - Potfile saved to /var/lib/hm1k-agent/pending/              │   │
+│  │    - Job completion record queued                               │   │
+│  │ 2. Agent enters idle state, continues reconnection attempts     │   │
+│  │ 3. On reconnection:                                             │   │
+│  │    - Upload pending potfile results                             │   │
+│  │    - Sync buffered status updates                               │   │
+│  │    - Request next job assignment                                │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Local Buffer (SQLite):                                                 │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Table: pending_updates                                          │   │
+│  │   - id, timestamp, event_type, payload (JSON)                   │   │
+│  │ Max buffer size: 10,000 events (~50MB)                          │   │
+│  │ Oldest events dropped if buffer full (status updates only)      │   │
+│  │ Job results NEVER dropped (critical data)                       │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Resilience Guarantees:**
+- Jobs never auto-terminate due to server disconnect
+- Cracked passwords never lost (local storage + upload on reconnect)
+- Status history preserved for post-reconnection sync
+- Agent state persists across restarts (systemd + SQLite)
+
+#### File Transfer Security
+
+Hash files and potfiles contain sensitive data and are transferred securely.
+
+**Transfer Security Model:**
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        FILE TRANSFER                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Sensitive Files (HTTPS + Encryption):                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ Server → Agent:                                                  │   │
+│  │   - Hash files for cracking jobs                                 │   │
+│  │   - Encrypted with job-specific key (AES-256-GCM)               │   │
+│  │   - Key delivered via separate authenticated request             │   │
+│  │                                                                  │   │
+│  │ Agent → Server:                                                  │   │
+│  │   - Potfiles (cracked results)                                   │   │
+│  │   - Encrypted with session key                                   │   │
+│  │   - Chunked upload with resume support                          │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Non-Sensitive Files (HTTPS only):                                      │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │ - Wordlists (public data)                                        │   │
+│  │ - Rule files (public data)                                       │   │
+│  │ - Mask files (public data)                                       │   │
+│  │ - Status updates (not sensitive)                                 │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  Transfer Features:                                                     │
+│  - Chunked upload/download for large files                             │
+│  - Resume support (Content-Range headers)                              │
+│  - SHA256 integrity verification                                       │
+│  - Automatic retry on failure (3 attempts)                             │
+│  - Bandwidth throttling option                                         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Agent Configuration File
+
+```yaml
+# /etc/hm1k-agent/config.yaml
+# Generated by: hm1k-agent init
+# Do not edit while agent is running
+
+server:
+  url: "https://hashmaster.internal:8443"
+  token: "eyJhbGciOiJIUzI1NiIs..."    # JWT token (managed by agent)
+  verify_ssl: true                     # Set false for self-signed certs
+
+agent:
+  id: "cracker-01"                     # Unique agent identifier
+  name: "Primary Cracker"              # Human-friendly name
+  description: "4x RTX 4090 system"    # Optional description
+
+hashcat:
+  binary: "/usr/bin/hashcat"           # Path to hashcat binary
+  workdir: "/var/lib/hm1k-agent/sessions"  # Session working directory
+  extra_args: ""                       # Additional hashcat arguments
+
+resources:
+  cache_dir: "/var/lib/hm1k-agent/cache"
+  max_cache_size_gb: 50                # LRU eviction above this
+
+timing:
+  heartbeat_interval: 60               # Seconds between heartbeats
+  status_interval: 15                  # Seconds between status updates (during job)
+  reconnect_max_interval: 300          # Max seconds between reconnect attempts
+
+logging:
+  level: "INFO"                        # DEBUG, INFO, WARNING, ERROR
+  file: "/var/log/hm1k-agent/agent.log"
+  max_size_mb: 100                     # Rotate at this size
+  backup_count: 5                      # Keep this many old logs
+```
+
+#### Agent Privileges
+
+Agents run with **standard user privileges** (no root/sudo required):
+- Hashcat binary accessible to agent user
+- Write access to working directory for potfiles and session files
+- Read access to wordlists, rules, and hash files
+
+---
+
+### Workflow Integration
+
+#### Modified Step 1: Hash Input Options
+
+The existing Step 1 (file upload) will be extended with a new option:
+
+```
+Step 1: Provide Hash Data
+═════════════════════════
+
+○ Upload PWDump/DCSync File
+○ Upload ADD JSON File
+○ Upload Potfile (existing cracked hashes)
+● Start Cracking Session → [Configure Cracking Jobs]
+
+    ┌─────────────────────────────────────────────────────────┐
+    │  When you select "Start Cracking Session":              │
+    │                                                         │
+    │  1. Upload your hash file (PWDump, DCSync, or ADD)     │
+    │  2. Configure cracking job series                       │
+    │  3. Monitor cracking progress                           │
+    │  4. When complete, proceed to Step 2 with results      │
+    └─────────────────────────────────────────────────────────┘
+```
+
+#### LM Hash Detection Alert
+
+When valid, non-blank LM hashes are detected in the uploaded file:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⚠️  LM Hashes Detected                                     │
+│                                                             │
+│  This hash file contains 234 accounts with valid LM hashes. │
+│  LM hashes are significantly weaker than NTLM and should    │
+│  be cracked as part of your session.                        │
+│                                                             │
+│  [Include LM Cracking Jobs]  [Skip LM Hashes]               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Cracking Job Configuration
+
+#### Preset Job Series
+
+Users can select from pre-configured cracking "playlists" or build custom series:
+
+```
+Cracking Job Configuration
+══════════════════════════
+
+Select Preset Series:
+┌─────────────────────────────────────────────────────────────┐
+│  ○ Quick Crack (30 min - 1 hour)                           │
+│    Common wordlists + rules, basic masks                    │
+│                                                             │
+│  ○ Standard Crack (4-8 hours)                              │
+│    Extended wordlists, multiple rule sets, common masks     │
+│                                                             │
+│  ○ Thorough Crack (24-48 hours)                            │
+│    Full wordlist library, exhaustive rules, brute force    │
+│                                                             │
+│  ● Custom Series → [Build Custom Job Series]               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### À La Carte Job Builder
+
+```
+Build Custom Cracking Series
+════════════════════════════
+
+Available Job Types:                    Your Series:
+┌──────────────────────────┐           ┌──────────────────────────┐
+│ Dictionary Attacks       │           │ 1. rockyou + best64      │
+│  ├─ rockyou.txt         │    →      │ 2. common_passwords +    │
+│  ├─ common_passwords    │           │    d3ad0ne               │
+│  ├─ enterprise_words    │           │ 3. Mask: ?u?l?l?l?l?d?d  │
+│  └─ [custom wordlists]  │           │ 4. Potfile + best64      │
+│                          │           │    (2 rounds)            │
+│ Rule Files               │           │ 5. Mask: Company?d?d?d?d │
+│  ├─ best64.rule         │           └──────────────────────────┘
+│  ├─ d3ad0ne.rule        │
+│  ├─ dive.rule           │           Estimated Time: 6-8 hours
+│  └─ [custom rules]      │
+│                          │           ┌─────────────────────────┐
+│ Mask Attacks             │           │ Potfile + Rules Rounds: │
+│  ├─ ?u?l?l?l?l?d?d      │           │  [▼ 2 rounds         ]  │
+│  ├─ ?u?l?l?l?l?d?d?d?d  │           │                         │
+│  ├─ [saved masks]        │           │ After other jobs finish,│
+│  └─ [custom mask]        │           │ use session potfile as  │
+│                          │           │ wordlist with rules to  │
+│ Hybrid Attacks           │           │ find password variants. │
+│  └─ [configure...]       │           └─────────────────────────┘
+└──────────────────────────┘
+```
+
+#### Potfile-as-Wordlist Feature
+
+**Key Innovation:** Use cracked passwords from the current session as a wordlist for subsequent attacks.
+
+```
+Potfile + Rules Configuration
+═════════════════════════════
+
+When initial cracking jobs complete, use the recovered passwords
+as a wordlist with rule mutations to discover password variants.
+
+How it works:
+1. Initial jobs crack passwords like "Summer2024"
+2. Potfile wordlist + rules generates: "Summer2024!", "Summer2025",
+   "summer2024", "Summ3r2024", etc.
+3. These variants crack more hashes, expanding the potfile
+4. Repeat for N rounds
+
+Number of Potfile + Rules rounds: [▼ 2]
+
+Rule files to apply:
+☑ best64.rule
+☑ d3ad0ne.rule
+☐ dive.rule (adds significant time)
+☐ [custom rules]
+```
+
+---
+
+### Job Queue Management
+
+#### Queue Dashboard
+
+```
+Cracking Job Queue
+══════════════════
+
+Active Jobs:                                           Server Status:
+┌─────────────────────────────────────────────────┐   ┌──────────────┐
+│ ▶ Job #142 - CORP.LOCAL (NTLM)                  │   │ Cracker-1    │
+│   rockyou + best64                              │   │ ████████ 89% │
+│   Progress: 67% | Speed: 45.2 GH/s | ETA: 2h15m │   │ 4x RTX 4090  │
+│   Recovered: 1,234 / 5,432                      │   │ Temp: 72°C   │
+│   [Pause] [Stop] [Priority ▲▼]                  │   └──────────────┘
+├─────────────────────────────────────────────────┤   ┌──────────────┐
+│ ⏸ Job #143 - DEV.LOCAL (NTLM)                   │   │ Cracker-2    │
+│   Paused by admin (Job #145 priority override)  │   │ ░░░░░░░░ 0%  │
+│   [Resume] [Cancel]                              │   │ 8x A100      │
+└─────────────────────────────────────────────────┘   │ Available    │
+                                                      └──────────────┘
+Queued Jobs:
+┌─────────────────────────────────────────────────┐
+│ ⏳ Job #144 - CORP.LOCAL (NTLM) - common + dive │
+│    Queued behind Job #142                        │
+│    Estimated start: ~2h15m                       │
+│                                                 │
+│ ⏳ Job #145 - CLIENT-URGENT (NTLM) [PRIORITY]   │
+│    Admin override - will start next             │
+└─────────────────────────────────────────────────┘
+```
+
+#### Shared Cracking Time
+
+When multiple users have jobs queued, enable optional "time sharing":
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Shared Cracking Time                                        │
+│                                                             │
+│  Your job is #3 in queue. Estimated wait: 8 hours           │
+│                                                             │
+│  ☑ Enable Shared Cracking Time                              │
+│                                                             │
+│  When enabled:                                              │
+│  • Your job will start sooner on available servers          │
+│  • Jobs run in round-robin across servers                   │
+│  • Both jobs take longer but each sees results faster       │
+│                                                             │
+│  Other users with shared time enabled: 2                    │
+│  Estimated time to first results: 45 min (vs 8h wait)       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Admin Queue Override
+
+Administrators can:
+- Pause any running job
+- Reprioritize queue order
+- Start urgent jobs immediately
+- Assign jobs to specific servers
+
+---
+
+### Resource Management Pages
+
+#### Wordlist Management
+
+```
+Wordlist Library
+════════════════
+
+System Wordlists:                    Custom Wordlists:
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│ Name            Size    Lines  │  │ Name            Size    Lines  │
+├────────────────────────────────┤  ├────────────────────────────────┤
+│ rockyou.txt     139 MB  14.3M  │  │ company_terms   2.3 KB  156    │
+│ common_pass     12 MB   1.2M   │  │ client_custom   45 KB   3,421  │
+│ enterprise      234 MB  28.7M  │  │ industry_terms  890 KB  67,234 │
+│ leaked_2024     1.2 GB  156M   │  │                                │
+└────────────────────────────────┘  └────────────────────────────────┘
+
+[Upload New Wordlist]  [Create from Potfile]  [Download from URL]
+```
+
+#### Rule File Management
+
+```
+Rule Library
+════════════
+
+System Rules:                        Custom Rules:
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│ Name            Rules  Est.Time│  │ Name            Rules  Est.Time│
+├────────────────────────────────┤  ├────────────────────────────────┤
+│ best64.rule     64     Fast    │  │ company_mangle  234    Medium  │
+│ d3ad0ne.rule    34k    Medium  │  │ season_year     48     Fast    │
+│ dive.rule       99k    Slow    │  │ keyboard_walk   156    Fast    │
+│ toggles.rule    4k     Fast    │  │                                │
+│ leetspeak.rule  128    Fast    │  │                                │
+└────────────────────────────────┘  └────────────────────────────────┘
+
+[Upload New Rule File]  [Create Rule File]  [Test Rules]
+```
+
+#### Mask Management
+
+```
+Saved Masks
+═══════════
+
+Common Masks:                        Custom Masks:
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│ Pattern              Keyspace  │  │ Pattern              Keyspace  │
+├────────────────────────────────┤  ├────────────────────────────────┤
+│ ?u?l?l?l?l?l?d?d    ~170B     │  │ Company?d?d?d?d      10,000   │
+│ ?u?l?l?l?l?l?l?d?d  ~4.4T     │  │ ?u?l?l?l?l?s?d?d?d?d ~590B   │
+│ ?u?l?l?l?l?d?d?d?d  ~4.5B     │  │ Season?d?d?d?d       40,000   │
+│ ?d?d?d?d?d?d?d?d    100M      │  │                                │
+└────────────────────────────────┘  └────────────────────────────────┘
+
+[Create New Mask]  [Import .hcmask File]
+```
+
+#### Job Template Management
+
+```
+Crack Job Templates
+═══════════════════
+
+System Templates:                    Custom Templates:
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│ Name              Attack Type  │  │ Name              Attack Type  │
+├────────────────────────────────┤  ├────────────────────────────────┤
+│ rockyou_best64    Dict+Rules   │  │ client_custom     Dict+Rules   │
+│ common_d3ad0ne    Dict+Rules   │  │ season_brute      Mask         │
+│ mask_8char        Mask         │  │ potfile_expand    Dict+Rules   │
+│ hybrid_word_num   Hybrid       │  │                                │
+└────────────────────────────────┘  └────────────────────────────────┘
+
+[Create Job Template]  [Import Template]
+
+Job Series (Presets):
+┌────────────────────────────────────────────────────────────────────┐
+│ Name              Jobs  Est. Time  Description                      │
+├────────────────────────────────────────────────────────────────────┤
+│ Quick Crack       5     30-60 min  Basic wordlists + common masks   │
+│ Standard Crack    12    4-8 hours  Extended coverage                │
+│ Thorough Crack    25    24-48 hr   Exhaustive cracking              │
+│ LM Quick          3     15 min     LM-specific attacks              │
+└────────────────────────────────────────────────────────────────────┘
+
+[Create Job Series]  [Edit Series]
+```
+
+---
+
+### Server Health & Status
+
+#### Server Dashboard
+
+```
+Hashcat Server Status
+═════════════════════
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  CRACKER-1 (Primary)                                    ● Online    │
+├─────────────────────────────────────────────────────────────────────┤
+│  System Information:                                                │
+│  ├─ OS: Ubuntu 22.04.3 LTS (kernel 6.2.0-39-generic)               │
+│  ├─ CPU: AMD EPYC 7763 64-Core @ 2.45 GHz                          │
+│  ├─ RAM: 256 GB (45 GB used)                                       │
+│  ├─ Storage: 2x NVMe 2TB RAID-0 (1.2 TB free)                      │
+│  └─ Uptime: 45 days, 12:34:56                                      │
+│                                                                     │
+│  Hashcat:                                                           │
+│  ├─ Version: 6.2.6                                                 │
+│  ├─ Status: Running Job #142                                       │
+│  └─ Session: corp_ntlm_rockyou                                     │
+│                                                                     │
+│  GPU Status (nvidia-smi):                                          │
+│  ┌────────┬──────────┬──────────┬───────────┬────────────────────┐ │
+│  │ GPU    │ Temp     │ Power    │ Memory    │ Utilization        │ │
+│  ├────────┼──────────┼──────────┼───────────┼────────────────────┤ │
+│  │ GPU 0  │ 72°C     │ 320W     │ 22/24 GB  │ ████████████ 98%   │ │
+│  │ GPU 1  │ 70°C     │ 315W     │ 22/24 GB  │ ████████████ 97%   │ │
+│  │ GPU 2  │ 73°C     │ 322W     │ 22/24 GB  │ ████████████ 99%   │ │
+│  │ GPU 3  │ 71°C     │ 318W     │ 22/24 GB  │ ████████████ 98%   │ │
+│  └────────┴──────────┴──────────┴───────────┴────────────────────┘ │
+│                                                                     │
+│  NVIDIA Driver: 545.23.08  |  CUDA: 12.3                           │
+│                                                                     │
+│  [View Full nvidia-smi]  [View hashcat Status]  [Restart Agent]    │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  CRACKER-2 (Secondary)                                  ● Online    │
+├─────────────────────────────────────────────────────────────────────┤
+│  System Information:                                                │
+│  ├─ OS: Rocky Linux 9.3                                            │
+│  ├─ CPU: 2x Intel Xeon Gold 6248R @ 3.0 GHz (48 cores)            │
+│  ├─ RAM: 512 GB (128 GB used)                                      │
+│  ├─ Storage: 4x NVMe 4TB RAID-10 (6.8 TB free)                    │
+│  └─ Uptime: 123 days, 08:15:42                                     │
+│                                                                     │
+│  Hashcat:                                                           │
+│  ├─ Version: 6.2.6                                                 │
+│  ├─ Status: Idle (Ready for jobs)                                  │
+│  └─ Session: None                                                  │
+│                                                                     │
+│  GPU Status (nvidia-smi):                                          │
+│  ┌────────┬──────────┬──────────┬───────────┬────────────────────┐ │
+│  │ GPU    │ Temp     │ Power    │ Memory    │ Utilization        │ │
+│  ├────────┼──────────┼──────────┼───────────┼────────────────────┤ │
+│  │ GPU 0  │ 32°C     │ 45W      │ 2/80 GB   │ ░░░░░░░░░░░░ 0%    │ │
+│  │ GPU 1  │ 31°C     │ 44W      │ 2/80 GB   │ ░░░░░░░░░░░░ 0%    │ │
+│  │  ...   │  ...     │  ...     │   ...     │       ...          │ │
+│  │ GPU 7  │ 33°C     │ 46W      │ 2/80 GB   │ ░░░░░░░░░░░░ 0%    │ │
+│  └────────┴──────────┴──────────┴───────────┴────────────────────┘ │
+│                                                                     │
+│  NVIDIA Driver: 545.23.08  |  CUDA: 12.3                           │
+│                                                                     │
+│  [View Full nvidia-smi]  [View Logs]  [Restart Agent]              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Health Checks
+
+The server status page monitors:
+
+| Check | Description | Alert Threshold |
+|-------|-------------|-----------------|
+| Agent Heartbeat | Agent communication status | > 60s since last heartbeat |
+| GPU Temperature | Individual GPU temps | > 85°C warning, > 90°C critical |
+| GPU Memory | VRAM utilization | > 95% warning |
+| Disk Space | Available storage | < 10% warning, < 5% critical |
+| hashcat Version | Installed version | Mismatch with server |
+| NVIDIA Driver | Driver version | Out of date warning |
+| CUDA Version | CUDA toolkit version | Compatibility check |
+| Job Errors | Recent job failures | Any failure in last hour |
+
+---
+
+### Hash File Validation
+
+Reuse existing HM1K validation functions before sending hashes to hashcat:
+
+```python
+# Existing validation from hm1k.py
+validate_pwdump_file()    # PWDump/DCSync format validation
+validate_add_json()       # ADD JSON format validation
+extract_ntlm_hashes()     # NTLM hash extraction (scripts/extract_ntlm_hashes.py)
+extract_lm_hashes()       # LM hash extraction
+```
+
+#### Validation Flow
+
+```
+Hash File Upload
+      │
+      ▼
+┌─────────────────┐
+│ Format Detection│ (PWDump, DCSync, ADD JSON)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Validation      │ (structure, hash format, character validation)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Hash Extraction │
+│ - NTLM hashes   │ → ntlm_hashes.txt (for hashcat -m 1000)
+│ - LM hashes     │ → lm_hashes.txt (for hashcat -m 3000)
+│ - Blank removal │ (optionally exclude blank hashes)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ LM Hash Alert   │ (if non-blank LM hashes detected)
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Ready for       │
+│ Cracking Config │
+└─────────────────┘
+```
+
+---
+
+### Configuration
+
+#### Environment Variables
+
+```bash
+# .env configuration for hashcat management
+
+# =============================================================================
+# Hashcat Management Configuration
+# =============================================================================
+
+# Enable hashcat cracking features
+HASHCAT_ENABLED="true"
+
+# Deployment mode: "standalone" or "server"
+# standalone: Hash Master runs on cracking hardware with local agent
+# server: Hash Master coordinates remote agents on dedicated crackers
+HASHCAT_MODE="server"
+
+# Local hashcat binary path (standalone mode)
+HASHCAT_BINARY="/usr/bin/hashcat"
+
+# Session directory for hashcat working files
+HASHCAT_SESSION_DIR="/data/hashcat/sessions"
+
+# Potfile directory
+HASHCAT_POTFILE_DIR="/data/hashcat/potfiles"
+
+# =============================================================================
+# Hashcat Agent Configuration
+# =============================================================================
+
+# Agent communication
+HASHCAT_AGENT_PORT="8444"
+HASHCAT_AGENT_SECRET="your-secure-agent-secret"
+
+# Configured cracking servers (server mode)
+# Format: name|host|port|description
+HASHCAT_SERVER_1="Cracker-1|192.168.1.100|8444|4x RTX 4090"
+HASHCAT_SERVER_2="Cracker-2|192.168.1.101|8444|8x A100"
+
+# Status polling interval (seconds)
+HASHCAT_STATUS_INTERVAL="30"
+
+# =============================================================================
+# Resource Paths
+# =============================================================================
+
+# Wordlist directory
+HASHCAT_WORDLIST_DIR="/data/wordlists"
+
+# Rule file directory
+HASHCAT_RULES_DIR="/data/rules"
+
+# Mask file directory
+HASHCAT_MASKS_DIR="/data/masks"
+```
+
+---
+
+### API Endpoints
+
+#### Job Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/hashcat/jobs` | GET | List all jobs (queued, active, completed) |
+| `/api/hashcat/jobs` | POST | Create new cracking job |
+| `/api/hashcat/jobs/{id}` | GET | Get job details and status |
+| `/api/hashcat/jobs/{id}/pause` | POST | Pause running job |
+| `/api/hashcat/jobs/{id}/resume` | POST | Resume paused job |
+| `/api/hashcat/jobs/{id}/stop` | POST | Stop and cancel job |
+| `/api/hashcat/jobs/{id}/priority` | PUT | Change job priority |
+| `/api/hashcat/jobs/{id}/potfile` | GET | Download job potfile |
+
+#### Server Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/hashcat/servers` | GET | List all configured servers |
+| `/api/hashcat/servers/{id}/status` | GET | Get server health and status |
+| `/api/hashcat/servers/{id}/nvidia-smi` | GET | Get full nvidia-smi output |
+| `/api/hashcat/servers/{id}/restart-agent` | POST | Restart agent on server |
+
+#### Resource Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/hashcat/wordlists` | GET/POST | List/upload wordlists |
+| `/api/hashcat/rules` | GET/POST | List/upload rule files |
+| `/api/hashcat/masks` | GET/POST | List/create masks |
+| `/api/hashcat/templates` | GET/POST/PUT/DELETE | Manage job templates |
+| `/api/hashcat/series` | GET/POST/PUT/DELETE | Manage job series |
+
+---
+
+### Implementation Phases
+
+#### Phase 1: Foundation
+
+- [ ] Hashcat agent core (screen session management, status parsing)
+- [ ] Agent-server communication protocol
+- [ ] Basic job creation and execution
+- [ ] Status monitoring and reporting
+- [ ] Local/standalone mode support
+
+#### Phase 2: Job Management
+
+- [ ] Job queue with priorities
+- [ ] Multi-job series execution
+- [ ] Potfile-as-wordlist feature
+- [ ] Job templates and presets
+- [ ] Admin queue override
+
+#### Phase 3: Multi-Server
+
+- [ ] Remote agent deployment
+- [ ] Multi-server job distribution
+- [ ] Shared cracking time feature
+- [ ] Server health monitoring
+- [ ] nvidia-smi integration
+
+#### Phase 4: Resource Management
+
+- [ ] Wordlist management UI
+- [ ] Rule file management UI
+- [ ] Mask management UI
+- [ ] Job template editor
+- [ ] Job series builder
+
+#### Phase 5: Integration
+
+- [ ] Step 1 workflow integration
+- [ ] Hash file validation pipeline
+- [ ] LM hash detection alerts
+- [ ] Automatic transition to Step 2
+- [ ] Session potfile integration with HM1K analysis
 
 ---
 
@@ -1225,4 +2192,4 @@ For multi-user and session persistence, consider:
 
 ---
 
-*Last Updated: December 28, 2024*
+*Last Updated: January 16, 2026*

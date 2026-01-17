@@ -5879,14 +5879,16 @@ def ai_report_clear_all_cache() -> Response:
 @app.route("/api/sessions", methods=["GET"])
 @login_required
 def list_sessions() -> Response:
-    """List all sessions for the current user."""
+    """List all sessions for the current user (or all sessions for superadmin)."""
     session_mgr = get_session_manager()
-    sessions = session_mgr.list_sessions(username=current_user.id)
+    # Superadmin can see all sessions
+    username_filter = None if current_user.is_superadmin else current_user.id
+    sessions = session_mgr.list_sessions(username=username_filter)
     current = session_mgr.get_current_session()
     current_id = current.get("session_id") if current else None
 
     # Also include sessions grouped by company for trend analysis UI
-    grouped = session_mgr.get_sessions_grouped_by_company(username=current_user.id)
+    grouped = session_mgr.get_sessions_grouped_by_company(username=username_filter)
 
     return jsonify({
         "sessions": [s.to_dict() for s in sessions],
@@ -5904,9 +5906,11 @@ def get_company_suggestions() -> Response:
     """Get list of company names for autocomplete."""
     session_mgr = get_session_manager()
     partial = request.args.get("q", "")
+    # Superadmin can see all companies
+    username_filter = None if current_user.is_superadmin else current_user.id
     companies = session_mgr.get_company_suggestions(
         partial=partial,
-        username=current_user.id
+        username=username_filter
     )
     return jsonify({"companies": companies})
 
@@ -5970,8 +5974,8 @@ def get_session_info(session_id: str) -> Response:
     if not metadata:
         return jsonify({"error": "Session not found"}), 404
 
-    # Only allow access to own sessions
-    if metadata.created_by != current_user.id:
+    # Allow access to own sessions or if superadmin
+    if metadata.created_by != current_user.id and not current_user.is_superadmin:
         return jsonify({"error": "Access denied"}), 403
 
     return jsonify({
@@ -5990,8 +5994,8 @@ def update_session_info(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Only allow update of own sessions
-        if metadata.created_by != current_user.id:
+        # Allow update of own sessions or if superadmin
+        if metadata.created_by != current_user.id and not current_user.is_superadmin:
             return jsonify({"error": "Access denied"}), 403
 
         data = request.get_json() or {}
@@ -6027,8 +6031,8 @@ def delete_session_endpoint(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Only allow deletion of own sessions
-        if metadata.created_by != current_user.id:
+        # Allow deletion of own sessions or if superadmin
+        if metadata.created_by != current_user.id and not current_user.is_superadmin:
             return jsonify({"error": "Access denied"}), 403
 
         success = session_mgr.delete_session(session_id)
@@ -6052,8 +6056,8 @@ def switch_to_session(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Only allow switching to own sessions
-        if metadata.created_by != current_user.id:
+        # Allow switching to own sessions or if superadmin
+        if metadata.created_by != current_user.id and not current_user.is_superadmin:
             return jsonify({"error": "Access denied"}), 403
 
         success = session_mgr.set_current_session(session_id, current_user.id)
@@ -6099,12 +6103,12 @@ def analyze_session_trends() -> Response:
 
         session_mgr = get_session_manager()
 
-        # Verify all sessions belong to current user
+        # Verify all sessions belong to current user (or user is superadmin)
         for sid in session_ids:
             metadata = session_mgr.get_session(sid)
             if not metadata:
                 return jsonify({"error": f"Session not found: {sid}"}), 404
-            if metadata.created_by != current_user.id:
+            if metadata.created_by != current_user.id and not current_user.is_superadmin:
                 return jsonify({"error": "Access denied to one or more sessions"}), 403
 
         # Perform trend analysis
@@ -6132,9 +6136,11 @@ def get_sessions_by_company(company_name: str) -> Response:
     """Get all sessions for a specific company."""
     try:
         session_mgr = get_session_manager()
+        # Superadmin can see all sessions
+        username_filter = None if current_user.is_superadmin else current_user.id
         sessions = session_mgr.list_sessions_by_company(
             company_name=company_name,
-            username=current_user.id
+            username=username_filter
         )
         return jsonify({
             "company_name": company_name,
@@ -6250,8 +6256,9 @@ def check_duplicate_session() -> Response:
         if not source_hash:
             return jsonify({"error": "Could not compute source hash"}), 400
 
-        # Check all user's sessions for matching hash
-        sessions = session_mgr.list_sessions(username=current_user.id)
+        # Check all user's sessions for matching hash (superadmin sees all)
+        username_filter = None if current_user.is_superadmin else current_user.id
+        sessions = session_mgr.list_sessions(username=username_filter)
         matching_sessions = []
 
         for sess in sessions:
@@ -7216,6 +7223,221 @@ Below is an example prompt for the '{example_category}' category:
         "formatted_prompt": formatted_prompt,
         "has_data": True
     })
+
+
+@app.route("/api/ai/report/freeform", methods=["POST"])
+@login_required
+def ai_report_freeform_prompt() -> Response:
+    """
+    Execute a freeform AI prompt with data placeholders.
+
+    Supports placeholders like:
+    - {{all_passwords}} - All unique cracked passwords
+    - {{sampled2k_passwords}}, {{sampled1k_passwords}}, {{sampled500_passwords}} - Sampled passwords
+    - {{account_data}}, {{cracking_stats_table}}, {{pw_top_passwords}}, etc. - Report sections
+    """
+    import time
+    import re
+    from app.ollama_tools import OllamaClient, get_ollama_config, get_ai_data_loader
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+
+    prompt_template = data.get("prompt", "").strip()
+    if not prompt_template:
+        return jsonify({"error": "Prompt is required"}), 400
+
+    model = data.get("model")
+    if not model:
+        return jsonify({"error": "Model is required"}), 400
+
+    server_id = data.get("server_id")
+    temperature = float(data.get("temperature", 0.3))
+
+    # Get session data directory
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+    loader = get_ai_data_loader(session_dir)
+
+    # Find all placeholders in the prompt
+    placeholders = re.findall(r'\{\{(\w+)\}\}', prompt_template)
+
+    # Build replacement data for each placeholder
+    replacements = {}
+
+    for placeholder in placeholders:
+        if placeholder == "all_passwords":
+            replacements[placeholder] = loader._derive_all_cracked_passwords()
+        elif placeholder == "sampled2k_passwords":
+            replacements[placeholder] = _get_sampled_passwords(loader, 2000)
+        elif placeholder == "sampled1k_passwords":
+            replacements[placeholder] = _get_sampled_passwords(loader, 1000)
+        elif placeholder == "sampled500_passwords":
+            replacements[placeholder] = _get_sampled_passwords(loader, 500)
+        elif placeholder == "account_data":
+            account_data = loader._load_json_file("account_data")
+            if account_data:
+                # Format as username:password pairs
+                lines = []
+                for username, data in list(account_data.items())[:500]:  # Limit to 500
+                    pw = data.get("cracked_pw", "")
+                    if pw:
+                        simple_name = username.split("\\")[-1] if "\\" in username else username
+                        lines.append(f"{simple_name}:{pw}")
+                replacements[placeholder] = "\n".join(lines) if lines else "No account data available"
+            else:
+                replacements[placeholder] = "No account data available"
+        elif placeholder == "cracking_stats_table":
+            stats = loader._load_json_file("cracking_stats_table")
+            replacements[placeholder] = json.dumps(stats, indent=2) if stats else "No cracking stats available"
+        elif placeholder == "pw_top_passwords":
+            top_pw = loader._load_json_file("pw_top_passwords")
+            if top_pw:
+                lines = [f"{pw}: {count}" for pw, count in list(top_pw.items())[:100]]
+                replacements[placeholder] = "\n".join(lines)
+            else:
+                replacements[placeholder] = "No top passwords data available"
+        elif placeholder == "pw_substrings":
+            substrings = loader._load_json_file("pw_substrings")
+            replacements[placeholder] = json.dumps(substrings, indent=2) if substrings else "No substring data available"
+        elif placeholder == "pw_bad_practices":
+            bad = loader._load_json_file("pw_bad_practices")
+            replacements[placeholder] = json.dumps(bad, indent=2) if bad else "No bad practices data available"
+        elif placeholder == "pw_length_analysis":
+            length = loader._load_json_file("pw_length_analysis")
+            replacements[placeholder] = json.dumps(length, indent=2) if length else "No length analysis data available"
+        elif placeholder == "pw_character_classes":
+            chars = loader._load_json_file("pw_character_classes")
+            replacements[placeholder] = json.dumps(chars, indent=2) if chars else "No character class data available"
+        else:
+            # Unknown placeholder - try loading as JSON file
+            file_data = loader._load_json_file(placeholder)
+            if file_data:
+                replacements[placeholder] = json.dumps(file_data, indent=2)
+            else:
+                replacements[placeholder] = f"[Unknown placeholder: {placeholder}]"
+
+    # Replace placeholders in prompt
+    final_prompt = prompt_template
+    for placeholder, value in replacements.items():
+        final_prompt = final_prompt.replace(f"{{{{{placeholder}}}}}", str(value))
+
+    # Execute the prompt
+    config = get_ollama_config(server_id)
+    if not config.enabled:
+        return jsonify({"error": "LLM integration is not enabled"}), 400
+
+    client = OllamaClient(config)
+
+    start_time = time.time()
+    try:
+        response = client.generate(
+            prompt=final_prompt,
+            model=model,
+            temperature=temperature,
+            include_usage=True
+        )
+        elapsed = time.time() - start_time
+
+        if response is None:
+            return jsonify({
+                "error": "Failed to get response from LLM",
+                "response_time": elapsed
+            }), 500
+
+        # Handle response format
+        if isinstance(response, dict):
+            content = response.get("response", "")
+            usage = {
+                "prompt_tokens": response.get("prompt_tokens", 0),
+                "completion_tokens": response.get("completion_tokens", 0),
+                "total_tokens": response.get("total_tokens", 0)
+            }
+        else:
+            content = response
+            usage = {}
+
+        # Format response time
+        if elapsed >= 60:
+            mins = int(elapsed // 60)
+            secs = int(elapsed % 60)
+            response_time_formatted = f"{mins}m {secs}s"
+        else:
+            response_time_formatted = f"{elapsed:.1f}s"
+
+        return jsonify({
+            "content": content,
+            "response_time": elapsed,
+            "response_time_formatted": response_time_formatted,
+            "usage": usage,
+            "placeholders_replaced": list(replacements.keys()),
+            "model": model,
+            "temperature": temperature
+        })
+
+    except Exception as e:
+        elapsed = time.time() - start_time
+        return jsonify({
+            "error": str(e),
+            "response_time": elapsed
+        }), 500
+
+
+def _get_sampled_passwords(loader, max_count: int) -> str:
+    """Get sampled passwords up to max_count."""
+    account_data = loader._load_json_file("account_data")
+    if not account_data:
+        return "No password data available"
+
+    # Count password frequencies
+    password_counts = {}
+    for account in account_data.values():
+        pw = account.get("cracked_pw")
+        if pw:
+            password_counts[pw] = password_counts.get(pw, 0) + 1
+
+    if not password_counts:
+        return "No cracked passwords found"
+
+    total_unique = len(password_counts)
+
+    # Sort by frequency
+    sorted_passwords = sorted(
+        password_counts.items(),
+        key=lambda x: (-x[1], x[0])
+    )
+
+    # If within limit, return all
+    if total_unique <= max_count:
+        lines = []
+        for pw, count in sorted_passwords:
+            if count > 1:
+                lines.append(f"{pw} (x{count})")
+            else:
+                lines.append(pw)
+        return "\n".join(lines)
+
+    # Sample: prioritize reused passwords, then sample unique
+    import random
+    reused = [(pw, count) for pw, count in sorted_passwords if count > 1]
+    unique = [(pw, count) for pw, count in sorted_passwords if count == 1]
+
+    remaining_slots = max_count - len(reused)
+    if remaining_slots > 0 and unique:
+        sampled_unique = random.sample(unique, min(remaining_slots, len(unique)))
+        sampled = reused + sampled_unique
+    else:
+        sampled = reused[:max_count]
+
+    lines = [f"[Sampled {len(sampled)} of {total_unique} unique passwords]"]
+    for pw, count in sampled:
+        if count > 1:
+            lines.append(f"{pw} (x{count})")
+        else:
+            lines.append(pw)
+
+    return "\n".join(lines)
 
 
 @app.route("/api/ai/report/test")
