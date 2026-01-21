@@ -14,7 +14,7 @@ The approach:
 # Common preamble for all SPI prompts
 SPI_PREAMBLE = """You are a cybersecurity analyst reviewing passwords from a corporate security assessment.
 Your task is to identify passwords that match a specific semantic category.
-Be thorough but precise - only include passwords you are confident belong to this category."""
+Be thorough and precise - only include passwords you are confident belong to this category."""
 
 
 def get_spi_prompt(category_key: str, passwords: list[str]) -> str:

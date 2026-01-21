@@ -26,6 +26,39 @@ BLANK_NTLM = "31d6cfe0d16ae931b73c59d7e0c089c0"
 BLANK_LM = "aad3b435b51404eeaad3b435b51404ee"
 
 
+def parse_hash_value(value: str) -> Tuple[str, str]:
+    """
+    Parse a hash value that may be in various formats.
+
+    Supported formats:
+    - Plain 32-char hash: "77cb8886bd7149479631e65e49dc0753"
+    - LM:NTLM format: "aad3b435b51404eeaad3b435b51404ee:77cb8886bd7149479631e65e49dc0753"
+
+    Returns:
+        Tuple of (lm_hash, ntlm_hash), either may be empty string if not present
+    """
+    value = value.strip().lower()
+
+    if not value:
+        return "", ""
+
+    # Check for LM:NTLM format (65 chars: 32 + colon + 32)
+    if ":" in value:
+        parts = value.split(":")
+        if len(parts) == 2:
+            lm_part = parts[0].strip()
+            ntlm_part = parts[1].strip()
+            # Validate both parts are 32-char hex
+            if len(lm_part) == 32 and len(ntlm_part) == 32:
+                return lm_part, ntlm_part
+
+    # Plain 32-char hash (assume it's NTLM)
+    if len(value) == 32:
+        return "", value
+
+    return "", ""
+
+
 def extract_hashes(
     add_data: dict,
     include_historical: bool = False,
@@ -48,41 +81,56 @@ def extract_hashes(
     users = add_data.get("Users", [])
 
     for user in users:
-        # Get current NTLM hash
-        ntlm_hash = user.get("NTLMHash", "").strip().lower()
-        if ntlm_hash and len(ntlm_hash) == 32:
+        # Get current NTLM hash (may be in LM:NTLM format)
+        ntlm_field = user.get("NTLMHash", "")
+        lm_from_ntlm, ntlm_hash = parse_hash_value(ntlm_field)
+
+        if ntlm_hash:
             if include_blank or ntlm_hash != BLANK_NTLM:
                 ntlm_hashes.add(ntlm_hash)
 
-        # Get LM hash (try multiple field names)
-        lm_hash = ""
-        for field in LM_HASH_FIELDS:
-            lm_hash = user.get(field, "").strip().lower()
-            if lm_hash:
-                break
+        # LM hash may come from the NTLMHash field (LM:NTLM format) or separate LM fields
+        if lm_from_ntlm:
+            if include_blank or lm_from_ntlm != BLANK_LM:
+                lm_hashes.add(lm_from_ntlm)
 
-        if lm_hash and len(lm_hash) == 32:
-            if include_blank or lm_hash != BLANK_LM:
-                lm_hashes.add(lm_hash)
+        # Also check dedicated LM hash fields
+        for field in LM_HASH_FIELDS:
+            lm_field = user.get(field, "")
+            _, lm_hash = parse_hash_value(lm_field)
+            # If parse_hash_value returns empty ntlm, the value might be a plain LM hash
+            if not lm_hash:
+                lm_hash = lm_field.strip().lower() if len(lm_field.strip()) == 32 else ""
+            if lm_hash:
+                if include_blank or lm_hash != BLANK_LM:
+                    lm_hashes.add(lm_hash)
+                break
 
         # Get historical hashes if requested
         if include_historical:
-            # Historical NTLM hashes
+            # Historical NTLM hashes (may be in LM:NTLM format)
             historical_ntlm = user.get("HistoricalNTHashes", [])
             for h in historical_ntlm:
-                h = h.strip().lower() if isinstance(h, str) else ""
-                if h and len(h) == 32:
-                    if include_blank or h != BLANK_NTLM:
-                        ntlm_hashes.add(h)
+                if isinstance(h, str):
+                    hist_lm, hist_ntlm = parse_hash_value(h)
+                    if hist_ntlm:
+                        if include_blank or hist_ntlm != BLANK_NTLM:
+                            ntlm_hashes.add(hist_ntlm)
+                    if hist_lm:
+                        if include_blank or hist_lm != BLANK_LM:
+                            lm_hashes.add(hist_lm)
 
             # Historical LM hashes (try multiple field names)
             for field in ["HistoricalLMHashes", "HistoricalLanmanHashes"]:
                 historical_lm = user.get(field, [])
                 for h in historical_lm:
-                    h = h.strip().lower() if isinstance(h, str) else ""
-                    if h and len(h) == 32:
-                        if include_blank or h != BLANK_LM:
-                            lm_hashes.add(h)
+                    if isinstance(h, str):
+                        _, hist_lm = parse_hash_value(h)
+                        if not hist_lm:
+                            hist_lm = h.strip().lower() if len(h.strip()) == 32 else ""
+                        if hist_lm:
+                            if include_blank or hist_lm != BLANK_LM:
+                                lm_hashes.add(hist_lm)
 
     return ntlm_hashes, lm_hashes
 
