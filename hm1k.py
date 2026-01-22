@@ -351,6 +351,47 @@ def validate_potfile(filepath: str) -> bool:
         return False
 
 
+def _apply_duplicate_handling(
+    pwdump_result: "file_parser.ValidationResult",
+    duplicate_handling: dict
+) -> None:
+    """
+    Apply duplicate handling by marking lines to exclude.
+
+    Args:
+        pwdump_result: The validation result to modify in place
+        duplicate_handling: Dict with 'method' and 'manual_selections' keys
+    """
+    method = duplicate_handling.get("method", "first")
+    manual_selections = duplicate_handling.get("manual_selections", {})
+
+    for dup_info in pwdump_result.duplicate_accounts:
+        account_lower = dup_info.account_name.lower()
+
+        # Determine which line to keep
+        if method == "manual":
+            # Check for manual selection (case-insensitive lookup)
+            keep_line = None
+            for key, val in manual_selections.items():
+                if key.lower() == account_lower:
+                    keep_line = val
+                    break
+            # Fall back to first if no manual selection
+            if keep_line is None:
+                keep_line = dup_info.first_line
+        elif method == "last":
+            keep_line = dup_info.last_line
+        else:  # "first" is default
+            keep_line = dup_info.first_line
+
+        # Mark other occurrences as excluded
+        for line in pwdump_result.lines:
+            if (line.username and
+                line.username.lower() == account_lower and
+                line.line_number != keep_line):
+                line.included = False
+
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 # Validate and set SECRET_KEY immediately - required for WSGI imports
@@ -1762,6 +1803,29 @@ def update_selections() -> Response:
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/duplicate_handling", methods=["POST"])
+@login_required
+def save_duplicate_handling() -> Response:
+    """
+    Save user's duplicate handling preference to session.
+
+    Stores:
+    - method: "first", "last", or "manual"
+    - manual_selections: dict mapping account names to line numbers to keep
+    """
+    data = request.get_json()
+    handling = data.get("handling", "first")
+    manual_selections = data.get("manual_selections", {})
+
+    session["duplicate_handling"] = {
+        "method": handling,
+        "manual_selections": manual_selections
+    }
+    session.modified = True
+
+    return jsonify({"success": True})
+
+
 @app.route("/process_validated", methods=["GET", "POST"])
 @login_required
 def process_validated() -> Response:
@@ -1815,6 +1879,11 @@ def process_validated() -> Response:
     try:
         # Reconstruct pwdump validation result from session
         pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
+
+        # Apply duplicate handling if duplicates were detected
+        if pwdump_result.has_duplicates:
+            duplicate_handling = session.get("duplicate_handling", {"method": "first"})
+            _apply_duplicate_handling(pwdump_result, duplicate_handling)
 
         # Optimization: If using master potfile, use cached dict directly
         # This avoids creating 620K+ PotfileEntry objects
@@ -2592,6 +2661,17 @@ def asrep_report() -> Response:
     data = _load_session_json("asrep_report.json")
     if data is None:
         return jsonify({"error": "No AS-REP data available. This report requires ADD JSON input with DONT_REQ_PREAUTH accounts."}), 404
+    return jsonify(data)
+
+
+# Endpoint for AD Description Analysis Report (ADD JSON)
+@app.route("/description_analysis_report.json")
+@login_required
+def description_analysis_report() -> Response:
+    """Return AD description analysis report for the current session."""
+    data = _load_session_json("description_analysis_report.json")
+    if data is None:
+        return jsonify({"error": "No description analysis data available. This report requires ADD JSON input."}), 404
     return jsonify(data)
 
 
@@ -4133,6 +4213,36 @@ def process_add_validated() -> Response:
             except Exception as asrep_err:
                 logging.warning(f"AS-REP analysis failed: {asrep_err}")
 
+            # Run AD Description Analysis
+            try:
+                from app import description_analysis
+
+                desc_report = description_analysis.analyze_descriptions(
+                    users=add_result.raw_users,
+                    use_llm=False,  # Regex-only by default
+                )
+
+                # Save description analysis report
+                session_mgr.save_session_data(
+                    "description_analysis_report.json",
+                    desc_report.to_dict(),
+                    analysis_session.session_id
+                )
+
+                if desc_report.summary.accounts_with_findings > 0:
+                    print(f"--> Description analysis: {desc_report.summary.accounts_with_findings} accounts with sensitive info, "
+                          f"{desc_report.summary.password_disclosures} password disclosures, "
+                          f"{desc_report.summary.pii_findings} PII findings")
+            except Exception as desc_err:
+                logging.warning(f"Description analysis failed: {desc_err}")
+
+            # Save raw ADD data for AI freeform prompts (account descriptions, etc.)
+            session_mgr.save_session_data(
+                "add_data.json",
+                {"Users": add_result.raw_users},
+                analysis_session.session_id
+            )
+
         # Update session with statistics
         cracked_count = sum(1 for acc in account_data.values() if acc.get("cracked_pw"))
         total_count = len(account_data)
@@ -4854,6 +4964,170 @@ def _analyze_ci_section(
     })
 
 
+def _analyze_description_llm_section(
+    section_id: str,
+    section_config: dict,
+    client,
+    model: str | None,
+    temperature: float | None,
+    server_id: str,
+    server_name: str,
+    start_time: float
+) -> Response:
+    """
+    Run full Description LLM analysis using chunked processing.
+
+    Analyzes AD account descriptions for sensitive information:
+    - Passwords and password hints
+    - PII (SSN, phone, DOB, email)
+    - Credentials (API keys, tokens, PINs)
+    """
+    import time
+    from app.description_llm_analyzer import DescriptionLLMAnalyzer
+    from app.description_llm_prompts import DA_PREAMBLE
+
+    session_mgr = get_session_manager()
+    session_dir = session_mgr.get_session_dir()
+
+    # Get chunk size from config or use default
+    chunk_config = section_config.get("chunk_config", {})
+    chunk_size = chunk_config.get("default_chunk_size", 100)
+
+    analyzer = DescriptionLLMAnalyzer(session_dir, chunk_size=chunk_size)
+
+    # Check if we have users with descriptions
+    users_with_desc = analyzer.get_users_with_descriptions()
+    total_users = analyzer.get_total_user_count()
+
+    if not users_with_desc:
+        elapsed_time = time.time() - start_time
+        return jsonify({
+            "section_id": section_id,
+            "content": '<div class="da-no-data"><p>No AD account data available or no accounts with descriptions found.</p></div>',
+            "summary": f"No accounts with descriptions found (0 of {total_users} accounts have descriptions)",
+            "model": model or section_config["recommended_model"],
+            "server_id": server_id,
+            "server_name": server_name,
+            "response_time_seconds": round(elapsed_time, 1),
+            "response_time_formatted": f"{round(elapsed_time, 1)}s",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "categories_analyzed": 0,
+            "total_findings": 0,
+            "results_json": {}
+        })
+
+    # Use provided model/temp or section defaults
+    used_model = model or section_config["recommended_model"]
+    used_temp = temperature if temperature is not None else section_config["temperature"]
+
+    # Create LLM call function that uses the client
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    def llm_call_fn(prompt: str) -> str:
+        nonlocal total_prompt_tokens, total_completion_tokens
+        result = client.generate(
+            prompt=prompt,
+            model=used_model,
+            system=DA_PREAMBLE,
+            temperature=used_temp,
+            include_usage=True
+        )
+        if isinstance(result, dict):
+            total_prompt_tokens += result.get("prompt_tokens", 0)
+            total_completion_tokens += result.get("completion_tokens", 0)
+            return result.get("response", "")
+        return result or ""
+
+    # Run full analysis (all categories)
+    results = analyzer.run_full_analysis(llm_call_fn, model_name=used_model, temperature=used_temp)
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+    elapsed_seconds = round(elapsed_time, 1)
+    elapsed_formatted = f"{int(elapsed_time // 60)}m {int(elapsed_time % 60)}s" if elapsed_time >= 60 else f"{elapsed_seconds}s"
+
+    # Format results as HTML
+    html_report = analyzer.format_report_html(results)
+
+    # Also prepare JSON data for debugging/analysis
+    results_dict = results.to_dict()
+
+    # Build summary text
+    summary_lines = [f"Analyzed {results.accounts_analyzed:,} accounts with descriptions (of {total_users:,} total) across {len(results.category_results)} categories."]
+    summary_lines.append(f"Chunk size: {results.chunk_size}, Total chunks processed: {results.total_chunks}")
+
+    total_findings = results.total_findings
+    accounts_with_findings = results.unique_accounts_with_findings
+    summary_lines.append(f"Found {total_findings:,} findings in {accounts_with_findings} accounts.")
+
+    # Save to test_outputs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_model = used_model.replace(":", "_").replace("/", "_")
+    filename = f"description-analysis_{safe_model}_t{used_temp}_{timestamp}.md"
+
+    test_output_dir = os.path.join(os.path.dirname(__file__), "test_outputs")
+    os.makedirs(test_output_dir, exist_ok=True)
+    filepath = os.path.join(test_output_dir, filename)
+
+    with open(filepath, "w") as f:
+        f.write(f"# Description LLM Analysis Test Output\n\n")
+        f.write(f"- **Section:** {section_id}\n")
+        f.write(f"- **Model:** {used_model}\n")
+        f.write(f"- **Server:** {server_name}\n")
+        f.write(f"- **Temperature:** {used_temp}\n")
+        f.write(f"- **Response Time:** {elapsed_formatted} ({elapsed_seconds}s)\n")
+        f.write(f"- **Tokens:** {total_prompt_tokens:,} prompt + {total_completion_tokens:,} completion = {total_prompt_tokens + total_completion_tokens:,} total\n")
+        f.write(f"- **Accounts Analyzed:** {results.accounts_analyzed}\n")
+        f.write(f"- **Chunk Size:** {results.chunk_size}\n")
+        f.write(f"- **Total Chunks:** {results.total_chunks}\n")
+        f.write(f"- **Categories Analyzed:** {len(results.category_results)}\n")
+        f.write(f"- **Timestamp:** {timestamp}\n")
+        f.write(f"\n---\n\n## Summary\n\n")
+        f.write("\n".join(summary_lines))
+        f.write(f"\n\n## Results by Category\n\n")
+        for cat_key, cat_result in results.category_results.items():
+            f.write(f"### {cat_result.category_name}\n")
+            f.write(f"- Accounts with findings: {cat_result.accounts_with_findings}\n")
+            f.write(f"- Total findings: {cat_result.total_findings}\n")
+            f.write(f"- Chunks processed: {cat_result.chunks_processed}\n")
+            if cat_result.findings:
+                f.write(f"\n**Findings:**\n")
+                for account in cat_result.findings[:10]:  # Limit for file size
+                    if account.has_findings:
+                        f.write(f"\n**{account.sam_account_name}**\n")
+                        for finding in account.findings:
+                            f.write(f"  - {finding.category}: {finding.value} ({finding.confidence:.0%})\n")
+                            f.write(f"    Reasoning: {finding.reasoning}\n")
+            if cat_result.error:
+                f.write(f"- Error: {cat_result.error}\n")
+            f.write("\n")
+
+    return jsonify({
+        "section_id": section_id,
+        "content": html_report,
+        "summary": "\n".join(summary_lines),
+        "model": used_model,
+        "server_id": server_id,
+        "server_name": server_name,
+        "saved_to": filename,
+        "response_time_seconds": elapsed_seconds,
+        "response_time_formatted": elapsed_formatted,
+        "prompt_tokens": total_prompt_tokens,
+        "completion_tokens": total_completion_tokens,
+        "total_tokens": total_prompt_tokens + total_completion_tokens,
+        "categories_analyzed": len(results.category_results),
+        "total_findings": total_findings,
+        "accounts_analyzed": results.accounts_analyzed,
+        "accounts_with_findings": accounts_with_findings,
+        "chunk_size": results.chunk_size,
+        "total_chunks": results.total_chunks,
+        "results_json": results_dict
+    })
+
+
 @app.route("/api/ai/report/analyze/<section_id>", methods=["POST"])
 @login_required
 def ai_report_analyze_section(section_id: str) -> Response:
@@ -4898,7 +5172,7 @@ def ai_report_analyze_section(section_id: str) -> Response:
     # Create client for specific server
     client = OllamaClient(server_config)
 
-    # Handle specialized pipelines (SPI and Company Intel)
+    # Handle specialized pipelines (SPI, Company Intel, and Description LLM)
     if pipeline == "spi":
         return _analyze_spi_section(
             section_id, section_config, client, model, temperature,
@@ -4906,6 +5180,11 @@ def ai_report_analyze_section(section_id: str) -> Response:
         )
     elif pipeline == "company_intel":
         return _analyze_ci_section(
+            section_id, section_config, client, model, temperature,
+            server_id, server_name, start_time
+        )
+    elif pipeline == "description_llm":
+        return _analyze_description_llm_section(
             section_id, section_config, client, model, temperature,
             server_id, server_name, start_time
         )
@@ -5079,7 +5358,7 @@ def ai_pipeline_stream() -> Response:
 
     # Filter to only enabled sections
     enabled_sections = [
-        s for s in ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+        s for s in ["weak-habits", "company-intel", "description-analysis", "user-behavior", "recommendations"]
         if s in all_sections and all_sections[s].get("enabled", True)
     ]
 
@@ -5322,14 +5601,20 @@ def ai_pipeline_stream() -> Response:
 
                             start = time.time()
 
-                            # Create LLM call function that uses our client
+                            # Create LLM call function that uses our client with token tracking
                             def llm_call(prompt):
+                                nonlocal total_spi_tokens, total_prompt_tokens, total_completion_tokens
                                 result = client.generate(
                                     prompt=prompt,
                                     model=phase1_model,
-                                    temperature=phase1_temp
+                                    temperature=phase1_temp,
+                                    include_usage=True
                                 )
-                                # generate() returns the response string directly (not a dict)
+                                if isinstance(result, dict):
+                                    total_prompt_tokens += result.get("prompt_tokens", 0)
+                                    total_completion_tokens += result.get("completion_tokens", 0)
+                                    total_spi_tokens += result.get("total_tokens", 0)
+                                    return result.get("response", "")
                                 return result if result else ""
 
                             # Analyze this category
@@ -5438,13 +5723,20 @@ def ai_pipeline_stream() -> Response:
 
                             start = time.time()
 
-                            # Create LLM call function that uses our client
+                            # Create LLM call function that uses our client with token tracking
                             def llm_call_ci(prompt):
+                                nonlocal total_ci_tokens, total_prompt_tokens, total_completion_tokens
                                 result = client.generate(
                                     prompt=prompt,
                                     model=phase1_model,
-                                    temperature=phase1_temp
+                                    temperature=phase1_temp,
+                                    include_usage=True
                                 )
+                                if isinstance(result, dict):
+                                    total_prompt_tokens += result.get("prompt_tokens", 0)
+                                    total_completion_tokens += result.get("completion_tokens", 0)
+                                    total_ci_tokens += result.get("total_tokens", 0)
+                                    return result.get("response", "")
                                 return result if result else ""
 
                             # Analyze this category
@@ -5486,6 +5778,108 @@ def ai_pipeline_stream() -> Response:
                         yield send_step_complete(
                             "phase1", section_id, total_ci_time,
                             total_prompt_tokens, total_completion_tokens, total_ci_tokens
+                        )
+                        continue
+
+                    # Check if this section uses Description LLM pipeline
+                    elif phase_config.get("pipeline") == "description_llm":
+                        # Description LLM Pipeline: Chunked analysis of AD account descriptions
+                        yield send_progress("phase1", section_id, "Running AI Description Analysis...")
+
+                        # Ensure model is loaded
+                        if current_model is None or current_model != phase1_model:
+                            yield send_model_loading(phase1_model, "Loading")
+                            load_start = time.time()
+                            if not client.ensure_model_loaded(phase1_model, num_ctx=16384):
+                                yield send_error(f"Failed to load model {phase1_model}")
+                                return
+                            load_time = time.time() - load_start
+                            current_model = phase1_model
+                            yield send_model_loading(phase1_model, f"Ready ({load_time:.1f}s)")
+
+                        # Initialize Description LLM analyzer
+                        from app.description_llm_analyzer import DescriptionLLMAnalyzer
+                        from app.description_llm_prompts import DA_PREAMBLE, get_all_category_keys as get_da_category_keys
+
+                        # Get chunk size from request args (default 100)
+                        da_chunk_size_str = request.args.get("da_chunk_size", "100")
+                        try:
+                            da_chunk_size = int(da_chunk_size_str) if da_chunk_size_str else 100
+                        except ValueError:
+                            da_chunk_size = 100
+
+                        da_analyzer = DescriptionLLMAnalyzer(session_dir, chunk_size=da_chunk_size)
+                        users_with_desc = da_analyzer.get_users_with_descriptions()
+
+                        if not users_with_desc:
+                            all_phase1_results[section_id] = {
+                                "content": "No accounts with descriptions found for analysis",
+                                "model": phase1_model,
+                                "temperature": 0.1,
+                                "time": 0,
+                                "tokens": 0,
+                                "da_pipeline": True
+                            }
+                            yield send_step_complete("phase1", section_id, 0, 0, 0, 0)
+                            continue
+
+                        # Run Description LLM analysis
+                        phase1_temp = temperatures.get(section_id, phase_config.get("phase1", {}).get("temperature", 0.1))
+                        total_da_time = 0
+                        total_da_tokens = 0
+                        total_prompt_tokens = 0
+                        total_completion_tokens = 0
+
+                        def llm_call_da(prompt):
+                            nonlocal total_prompt_tokens, total_completion_tokens, total_da_tokens
+                            result = client.generate(
+                                prompt=prompt,
+                                model=phase1_model,
+                                system=DA_PREAMBLE,
+                                temperature=phase1_temp,
+                                include_usage=True
+                            )
+                            if isinstance(result, dict):
+                                total_prompt_tokens += result.get("prompt_tokens", 0)
+                                total_completion_tokens += result.get("completion_tokens", 0)
+                                total_da_tokens += result.get("total_tokens", 0)
+                                return result.get("response", "")
+                            return result if result else ""
+
+                        # Run full analysis across all categories
+                        start = time.time()
+                        da_results = da_analyzer.run_full_analysis(
+                            llm_call_fn=llm_call_da,
+                            model_name=phase1_model,
+                            temperature=phase1_temp
+                        )
+                        total_da_time = time.time() - start
+
+                        # Generate formatted HTML report
+                        da_html = da_analyzer.format_report_html(da_results)
+
+                        all_phase1_results[section_id] = {
+                            "content": da_html,
+                            "model": phase1_model,
+                            "temperature": phase1_temp,
+                            "time": total_da_time,
+                            "tokens": total_da_tokens,
+                            "prompt_tokens": total_prompt_tokens,
+                            "completion_tokens": total_completion_tokens,
+                            "da_pipeline": True,
+                            "da_accounts_analyzed": da_results.accounts_analyzed,
+                            "da_findings": da_results.total_findings,
+                            "da_chunks": da_results.total_chunks
+                        }
+
+                        if runner.debug_mode:
+                            runner._save_debug_output(section_id, "da_results", da_results.to_dict())
+                            runner._save_debug_output(section_id, "phase1_raw", da_html)
+
+                        total_time += total_da_time
+                        yield send_step_complete(
+                            "phase1", section_id, total_da_time,
+                            total_prompt_tokens, total_completion_tokens, total_da_tokens
                         )
                         continue
 
@@ -6763,7 +7157,7 @@ def aaia_get_config() -> Response:
 
     # AAIA sections (excluding risk-assessment and full-report for now)
     # Only include enabled sections
-    all_aaia_sections = ["weak-habits", "company-intel", "user-behavior", "recommendations"]
+    all_aaia_sections = ["weak-habits", "company-intel", "description-analysis", "user-behavior", "recommendations"]
     aaia_sections = [s for s in all_aaia_sections if AI_REPORT_SECTIONS.get(s, {}).get("enabled", True)]
 
     sections_config = []
@@ -6798,19 +7192,29 @@ def aaia_get_config() -> Response:
 
     # Get total unique passwords for SPI sampling recommendation
     total_passwords = 0
+    total_accounts = 0
+    accounts_with_descriptions = 0
     try:
-        session_dir = get_session_manager().get_current_session_dir()
+        session_dir = get_session_manager().get_session_dir()
         if session_dir:
             from app.spi_analyzer import SPIAnalyzer
             analyzer = SPIAnalyzer(session_dir)
             total_passwords = len(analyzer._get_password_set())
-    except Exception:
-        pass  # If we can't get password count, just don't show recommendation
+
+            # Get account description counts for description-analysis section
+            from app.description_llm_analyzer import DescriptionLLMAnalyzer
+            da_analyzer = DescriptionLLMAnalyzer(session_dir)
+            total_accounts = da_analyzer.get_total_user_count()
+            accounts_with_descriptions = len(da_analyzer.get_users_with_descriptions())
+    except Exception as e:
+        logging.warning(f"AAIA config: failed to get session data: {e}")
 
     return jsonify({
         "servers": online_servers,
         "sections": sorted(sections_config, key=lambda x: x["order"]),
-        "total_passwords": total_passwords
+        "total_passwords": total_passwords,
+        "total_accounts": total_accounts,
+        "accounts_with_descriptions": accounts_with_descriptions
     })
 
 
@@ -7235,6 +7639,8 @@ def ai_report_freeform_prompt() -> Response:
     - {{all_passwords}} - All unique cracked passwords
     - {{sampled2k_passwords}}, {{sampled1k_passwords}}, {{sampled500_passwords}} - Sampled passwords
     - {{account_data}}, {{cracking_stats_table}}, {{pw_top_passwords}}, etc. - Report sections
+    - {{account_descriptions}} - All AD account descriptions (requires ADD JSON)
+    - {{account_descriptions_100}}, {{account_descriptions_500}} - Sampled account descriptions
     """
     import time
     import re
@@ -7310,6 +7716,41 @@ def ai_report_freeform_prompt() -> Response:
         elif placeholder == "pw_character_classes":
             chars = loader._load_json_file("pw_character_classes")
             replacements[placeholder] = json.dumps(chars, indent=2) if chars else "No character class data available"
+        elif placeholder == "account_descriptions":
+            # Load account descriptions from ADD JSON
+            add_data = loader._load_json_file("add_data")
+            if add_data and "Users" in add_data:
+                lines = []
+                for user in add_data["Users"]:
+                    sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
+                    description = user.get("Description", user.get("description", ""))
+                    if sam_name and description and description.strip():
+                        lines.append(f"{sam_name}: {description}")
+                replacements[placeholder] = "\n".join(lines) if lines else "No account descriptions found"
+            else:
+                replacements[placeholder] = "No ADD data available. Upload an ADD JSON file to use this placeholder."
+        elif placeholder.startswith("account_descriptions_"):
+            # Support sampled versions: account_descriptions_100, account_descriptions_500, etc.
+            try:
+                limit = int(placeholder.split("_")[-1])
+            except ValueError:
+                limit = 100
+            add_data = loader._load_json_file("add_data")
+            if add_data and "Users" in add_data:
+                lines = []
+                for user in add_data["Users"]:
+                    sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
+                    description = user.get("Description", user.get("description", ""))
+                    if sam_name and description and description.strip():
+                        lines.append(f"{sam_name}: {description}")
+                        if len(lines) >= limit:
+                            break
+                if lines:
+                    replacements[placeholder] = "\n".join(lines) + f"\n\n[Showing {len(lines)} accounts with descriptions]"
+                else:
+                    replacements[placeholder] = "No account descriptions found"
+            else:
+                replacements[placeholder] = "No ADD data available. Upload an ADD JSON file to use this placeholder."
         else:
             # Unknown placeholder - try loading as JSON file
             file_data = loader._load_json_file(placeholder)

@@ -274,7 +274,7 @@ def generate_openai(
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
+        "temperature": float(temperature),
         "stream": False
     }
 
@@ -335,7 +335,7 @@ def chat_openai(
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
+        "temperature": float(temperature),
         "stream": False
     }
 
@@ -845,7 +845,7 @@ class OllamaClient:
             "prompt": prompt,
             "stream": False,
             "options": {
-                "temperature": temperature,
+                "temperature": float(temperature),
                 "num_ctx": actual_ctx
             }
         }
@@ -922,7 +922,7 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "options": {
-                "temperature": temperature,
+                "temperature": float(temperature),
                 "num_ctx": num_ctx
             }
         }

@@ -131,6 +131,21 @@ class PotfileEntry:
 
 
 @dataclass
+class DuplicateAccountInfo:
+    """Information about duplicate account entries in pwdump file."""
+    account_name: str
+    occurrences: list[int]  # Line numbers where this account appears
+    first_line: int
+    last_line: int
+    count: int
+
+    @property
+    def line_numbers_display(self) -> str:
+        """Format line numbers for display (e.g., '5, 12, 45')."""
+        return ", ".join(str(ln) for ln in self.occurrences)
+
+
+@dataclass
 class ValidationResult:
     """Complete validation results for a pwdump file."""
     filepath: str
@@ -148,6 +163,10 @@ class ValidationResult:
     computer_count: int = 0  # Count of computer accounts (ending in $)
     blank_count: int = 0  # Count of accounts with blank NTLM hash
     history_count: int = 0  # Count of history entries (_history suffix)
+    # Duplicate account detection
+    duplicate_accounts: list[DuplicateAccountInfo] = field(default_factory=list)
+    has_duplicates: bool = False
+    duplicate_count: int = 0  # Number of accounts with duplicates
 
     @property
     def has_fatal_errors(self) -> bool:
@@ -408,6 +427,9 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
     # Record timing statistics
     timing.stop_timer(TimingStats.PWDUMP_VALIDATION, item_count=len(lines))
 
+    # Detect duplicate accounts (excluding history entries)
+    duplicate_accounts = detect_duplicate_accounts(lines)
+
     return ValidationResult(
         filepath=filepath,
         total_lines=len(lines),
@@ -422,8 +444,63 @@ def validate_pwdump_file(filepath: str) -> ValidationResult:
         disabled_count=disabled_count,
         computer_count=computer_count,
         blank_count=blank_count,
-        history_count=history_count
+        history_count=history_count,
+        duplicate_accounts=duplicate_accounts,
+        has_duplicates=len(duplicate_accounts) > 0,
+        duplicate_count=len(duplicate_accounts)
     )
+
+
+def detect_duplicate_accounts(lines: list[ParsedLine]) -> list[DuplicateAccountInfo]:
+    """
+    Detect duplicate account names in pwdump lines.
+
+    Excludes _history entries from duplicate detection as they are expected
+    to have the same base username.
+
+    Args:
+        lines: List of parsed pwdump lines
+
+    Returns:
+        List of DuplicateAccountInfo for accounts appearing multiple times
+    """
+    history_pattern = re.compile(r'_history\d+$', re.IGNORECASE)
+    account_occurrences: dict[str, list[int]] = {}
+    original_names: dict[str, str] = {}  # Map lowercase to original case
+
+    for line in lines:
+        if not line.is_valid or not line.username:
+            continue
+
+        # Skip history entries - these are expected to share base username
+        if history_pattern.search(line.username):
+            continue
+
+        # Normalize username for comparison (case-insensitive)
+        username_key = line.username.lower()
+
+        if username_key not in account_occurrences:
+            account_occurrences[username_key] = []
+            original_names[username_key] = line.username
+
+        account_occurrences[username_key].append(line.line_number)
+
+    # Build list of duplicates
+    duplicates = []
+    for username_key, line_numbers in account_occurrences.items():
+        if len(line_numbers) > 1:
+            duplicates.append(DuplicateAccountInfo(
+                account_name=original_names[username_key],
+                occurrences=line_numbers,
+                first_line=min(line_numbers),
+                last_line=max(line_numbers),
+                count=len(line_numbers)
+            ))
+
+    # Sort by number of duplicates (descending), then by account name
+    duplicates.sort(key=lambda d: (-d.count, d.account_name.lower()))
+
+    return duplicates
 
 
 def parse_potfile_line_ntlm_only(line_number: int, raw_line: str) -> PotfileEntry:
@@ -1030,6 +1107,18 @@ def validation_result_to_dict(result: ValidationResult) -> dict:
         "computer_count": result.computer_count,
         "blank_count": result.blank_count,
         "history_count": result.history_count,
+        "duplicate_accounts": [
+            {
+                "account_name": d.account_name,
+                "occurrences": d.occurrences,
+                "first_line": d.first_line,
+                "last_line": d.last_line,
+                "count": d.count,
+            }
+            for d in result.duplicate_accounts
+        ],
+        "has_duplicates": result.has_duplicates,
+        "duplicate_count": result.duplicate_count,
         "lines": [
             {
                 "line_number": l.line_number,
@@ -1099,6 +1188,18 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
     if data.get("domain_info"):
         domain_info = DomainInfo.from_dict(data["domain_info"])
 
+    # Reconstruct duplicate_accounts if present
+    duplicate_accounts = [
+        DuplicateAccountInfo(
+            account_name=d["account_name"],
+            occurrences=d["occurrences"],
+            first_line=d["first_line"],
+            last_line=d["last_line"],
+            count=d["count"],
+        )
+        for d in data.get("duplicate_accounts", [])
+    ]
+
     return ValidationResult(
         filepath=data["filepath"],
         total_lines=data["total_lines"],
@@ -1113,7 +1214,10 @@ def dict_to_validation_result(data: dict) -> ValidationResult:
         disabled_count=data.get("disabled_count", 0),
         computer_count=data.get("computer_count", 0),
         blank_count=data.get("blank_count", 0),
-        history_count=data.get("history_count", 0)
+        history_count=data.get("history_count", 0),
+        duplicate_accounts=duplicate_accounts,
+        has_duplicates=data.get("has_duplicates", False),
+        duplicate_count=data.get("duplicate_count", 0)
     )
 
 

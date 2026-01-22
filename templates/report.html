@@ -106,6 +106,7 @@
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
 				<button class="report-nav-btn" id="navASREP" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
+				<button class="report-nav-btn" id="navDescriptionAnalysis" onclick="scrollToSection('descriptionAnalysisSection')" style="display: none;">Descriptions</button>
 				<button class="report-nav-btn" id="navTrendAnalysis" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
 				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysis" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
 			</div>
@@ -1240,6 +1241,120 @@
 			</div>
 		</section>
 
+		<!-- AD Description Analysis Section -->
+		<section id="descriptionAnalysisSection" class="report-section description-analysis-section" style="display: none;">
+			<h2>AD Description Analysis</h2>
+
+			<!-- Info panel when no data available -->
+			<div id="descriptionNotAvailable" class="desc-not-available" style="display: none;">
+				<p>Description analysis requires ADD JSON input.</p>
+				<p style="margin-top: 8px; font-size: 0.9rem;">This analysis scans Active Directory account descriptions for sensitive information such as passwords, PII, and credentials.</p>
+			</div>
+
+			<!-- No findings panel -->
+			<div id="descriptionNoFindings" class="desc-no-findings" style="display: none;">
+				<div class="desc-success-icon">✓</div>
+				<h3>No Sensitive Information Found in Descriptions</h3>
+				<p>Good news! None of the <strong id="descTotalScanned">0</strong> account descriptions analyzed contain detectable sensitive information.</p>
+
+				<!-- Summary Stats (shown even when no findings) -->
+				<div class="desc-summary-grid desc-summary-compact">
+					<div class="desc-summary-card">
+						<div class="desc-stat-value" id="descNoFindingsWithDesc">0</div>
+						<div class="desc-stat-label">Accounts with Descriptions</div>
+					</div>
+					<div class="desc-summary-card">
+						<div class="desc-stat-value" id="descNoFindingsWithoutDesc">0</div>
+						<div class="desc-stat-label">Accounts without Descriptions</div>
+					</div>
+				</div>
+
+				<div class="desc-what-checked">
+					<h4>What was scanned:</h4>
+					<ul>
+						<li>Password disclosures (password:, pwd:, temp password:)</li>
+						<li>Social Security Numbers (SSN patterns)</li>
+						<li>Phone numbers</li>
+						<li>Dates of birth</li>
+						<li>API keys and tokens</li>
+						<li>PINs</li>
+					</ul>
+				</div>
+
+				<!-- Sample descriptions to prove the check ran -->
+				<div class="desc-examples" id="descExamplesContainer" style="display: none;">
+					<h4>Sample Descriptions Analyzed:</h4>
+					<ul id="descExamplesList">
+						<!-- Populated by JavaScript -->
+					</ul>
+				</div>
+
+				<p class="desc-recommendation">Continue monitoring account descriptions during user provisioning and audits.</p>
+			</div>
+
+			<!-- Results when findings exist -->
+			<div id="descriptionResults" style="display: none;">
+				<div class="desc-intro">
+					<p>Analysis of Active Directory account descriptions for sensitive information that may pose security or compliance risks.</p>
+				</div>
+
+				<!-- Summary Stats -->
+				<div class="desc-summary-grid">
+					<div class="desc-summary-card">
+						<div class="desc-stat-value" id="descWithDescCount">0</div>
+						<div class="desc-stat-label">Accounts with Descriptions</div>
+					</div>
+					<div class="desc-summary-card">
+						<div class="desc-stat-value" id="descWithoutDescCount">0</div>
+						<div class="desc-stat-label">Accounts without Descriptions</div>
+					</div>
+					<div class="desc-summary-card warning">
+						<div class="desc-stat-value" id="descFindingsCount">0</div>
+						<div class="desc-stat-label">Accounts with Findings</div>
+					</div>
+					<div class="desc-summary-card critical">
+						<div class="desc-stat-value" id="descPasswordCount">0</div>
+						<div class="desc-stat-label">Password Disclosures</div>
+					</div>
+				</div>
+
+				<!-- Charts -->
+				<div class="desc-charts-grid">
+					<div class="desc-chart-container">
+						<h4>Findings by Category</h4>
+						<canvas id="descriptionCategoryChart" width="400" height="280"></canvas>
+					</div>
+					<div class="desc-chart-container">
+						<h4>Description Coverage</h4>
+						<canvas id="descriptionCoverageChart" width="300" height="280"></canvas>
+					</div>
+				</div>
+
+				<!-- Findings Table -->
+				<div class="desc-table-section">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+						<h3 style="margin: 0;">Detailed Findings</h3>
+						<button id="downloadDescCSV" onclick="downloadDescriptionCSV()">Download CSV</button>
+					</div>
+					<p class="warning-text">Accounts with sensitive information detected in their descriptions. Values are masked for security.</p>
+					<table id="descriptionTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Severity</th>
+								<th>Category</th>
+								<th>Finding (Masked)</th>
+								<th>Confidence</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
 		<!-- Historical Trend Analysis Section -->
 		<section id="trendAnalysisSection" class="report-section trend-section" style="display: none;">
 			<h2>Historical Trend Analysis</h2>
@@ -1383,6 +1498,19 @@
 				<div class="aaia-card-content">
 					<div class="aaia-card-body" id="aaiaCompanyIntelContent">
 						<!-- Content populated by JavaScript -->
+					</div>
+				</div>
+			</div>
+
+			<!-- Account Description Inspector Section -->
+			<div class="aaia-result-card" id="aaiaDescriptionAnalysis">
+				<div class="aaia-card-header" onclick="toggleAAIACard('aaiaDescriptionAnalysis')">
+					<h3>Account Description Inspector</h3>
+					<span class="aaia-card-toggle">&#9660;</span>
+				</div>
+				<div class="aaia-card-content">
+					<div class="aaia-card-body" id="aaiaDescriptionAnalysisContent">
+						<!-- Content populated by JavaScript (HTML from description_llm_analyzer) -->
 					</div>
 				</div>
 			</div>
@@ -3069,6 +3197,268 @@
 				const link = document.createElement('a');
 				link.href = url;
 				link.download = 'ASREP_Analysis.csv';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
+			}
+
+			// ==================== DESCRIPTION ANALYSIS FUNCTIONS ====================
+			let descriptionData = null;
+			let descriptionCategoryChart = null;
+			let descriptionCoverageChart = null;
+
+			// Initialize Description Analysis section
+			async function initDescriptionAnalysisSection() {
+				try {
+					const response = await fetch('/description_analysis_report.json');
+					if (response.ok) {
+						descriptionData = await response.json();
+						if (descriptionData && descriptionData.summary) {
+							// Show section and nav button
+							document.getElementById('descriptionAnalysisSection').style.display = 'block';
+							document.getElementById('navDescriptionAnalysis').style.display = 'inline-block';
+
+							if (descriptionData.summary.accounts_with_findings > 0) {
+								// Show results with findings
+								displayDescriptionResults(descriptionData);
+							} else {
+								// Show "no findings" panel with summary stats and samples
+								displayDescriptionNoFindings(descriptionData);
+							}
+						}
+					}
+				} catch (e) {
+					console.log('No description analysis data available:', e);
+				}
+			}
+
+			// Display "no findings" message with summary stats and sample descriptions
+			function displayDescriptionNoFindings(data) {
+				document.getElementById('descriptionNotAvailable').style.display = 'none';
+				document.getElementById('descriptionResults').style.display = 'none';
+				document.getElementById('descriptionNoFindings').style.display = 'block';
+
+				const summary = data.summary || {};
+				const totalScanned = summary.total_accounts_analyzed || 0;
+				const withDesc = summary.accounts_with_description || 0;
+				const withoutDesc = summary.accounts_without_description || 0;
+
+				document.getElementById('descTotalScanned').textContent = totalScanned.toLocaleString();
+				document.getElementById('descNoFindingsWithDesc').textContent = withDesc.toLocaleString();
+				document.getElementById('descNoFindingsWithoutDesc').textContent = withoutDesc.toLocaleString();
+
+				// Show sample descriptions if available
+				const sampleDescriptions = data.sample_descriptions || [];
+				const examplesContainer = document.getElementById('descExamplesContainer');
+				const examplesList = document.getElementById('descExamplesList');
+
+				if (sampleDescriptions.length > 0) {
+					examplesList.innerHTML = '';
+					sampleDescriptions.forEach(sample => {
+						const li = document.createElement('li');
+						li.innerHTML = `<strong>${escapeHtml(sample.account_name)}:</strong> ${escapeHtml(sample.description)}`;
+						examplesList.appendChild(li);
+					});
+					examplesContainer.style.display = 'block';
+				} else {
+					examplesContainer.style.display = 'none';
+				}
+			}
+
+			// Display description analysis results
+			function displayDescriptionResults(data) {
+				document.getElementById('descriptionNotAvailable').style.display = 'none';
+				document.getElementById('descriptionNoFindings').style.display = 'none';
+				document.getElementById('descriptionResults').style.display = 'block';
+
+				const summary = data.summary;
+
+				// Populate summary stats
+				document.getElementById('descWithDescCount').textContent = summary.accounts_with_description.toLocaleString();
+				document.getElementById('descWithoutDescCount').textContent = summary.accounts_without_description.toLocaleString();
+				document.getElementById('descFindingsCount').textContent = summary.accounts_with_findings.toLocaleString();
+				document.getElementById('descPasswordCount').textContent = summary.password_disclosures.toLocaleString();
+
+				// Create charts
+				if (data.chart_data) {
+					createDescriptionCategoryChart(data.chart_data.category_distribution);
+					createDescriptionCoverageChart(data.chart_data.description_coverage);
+				}
+
+				// Populate findings table
+				populateDescriptionTable(data.findings || []);
+			}
+
+			// Create category distribution bar chart
+			function createDescriptionCategoryChart(chartData) {
+				const ctx = document.getElementById('descriptionCategoryChart').getContext('2d');
+
+				if (descriptionCategoryChart) {
+					descriptionCategoryChart.destroy();
+				}
+
+				if (!chartData || !chartData.labels || chartData.labels.length === 0) {
+					ctx.fillStyle = '#888';
+					ctx.font = '14px sans-serif';
+					ctx.textAlign = 'center';
+					ctx.fillText('No findings to display', ctx.canvas.width / 2, ctx.canvas.height / 2);
+					return;
+				}
+
+				descriptionCategoryChart = new Chart(ctx, {
+					type: 'bar',
+					data: chartData,
+					options: {
+						responsive: false,
+						maintainAspectRatio: true,
+						indexAxis: 'y',
+						plugins: {
+							legend: { display: false }
+						},
+						scales: {
+							x: {
+								beginAtZero: true,
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa',
+									stepSize: 1
+								},
+								grid: {
+									color: 'rgba(255, 255, 255, 0.1)'
+								}
+							},
+							y: {
+								ticks: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								},
+								grid: {
+									display: false
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Create description coverage pie chart
+			function createDescriptionCoverageChart(chartData) {
+				const ctx = document.getElementById('descriptionCoverageChart').getContext('2d');
+
+				if (descriptionCoverageChart) {
+					descriptionCoverageChart.destroy();
+				}
+
+				if (!chartData || !chartData.labels) return;
+
+				descriptionCoverageChart = new Chart(ctx, {
+					type: 'doughnut',
+					data: chartData,
+					options: {
+						responsive: false,
+						maintainAspectRatio: true,
+						plugins: {
+							legend: {
+								display: true,
+								position: 'bottom',
+								labels: {
+									color: getComputedStyle(document.body).getPropertyValue('--text-secondary') || '#aaa'
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Populate description findings table
+			function populateDescriptionTable(findings) {
+				const tbody = document.querySelector('#descriptionTable tbody');
+				tbody.innerHTML = '';
+
+				// Flatten findings - each finding becomes a row
+				const rows = [];
+				findings.forEach(account => {
+					if (account.has_findings && account.findings) {
+						account.findings.forEach(finding => {
+							rows.push({
+								account: account.sam_account_name,
+								severity: account.severity,
+								category: finding.category,
+								value: finding.value,
+								confidence: finding.confidence
+							});
+						});
+					}
+				});
+
+				// Sort by severity (Critical first)
+				const severityOrder = { 'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+				rows.sort((a, b) => (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4));
+
+				rows.forEach(row => {
+					const tr = document.createElement('tr');
+
+					// Severity badge class
+					let severityClass = 'severity-low';
+					if (row.severity === 'Critical') severityClass = 'severity-critical';
+					else if (row.severity === 'High') severityClass = 'severity-high';
+					else if (row.severity === 'Medium') severityClass = 'severity-medium';
+
+					const confidencePct = Math.round(row.confidence * 100);
+
+					tr.innerHTML = `
+						<td class="account-cell">${escapeHtml(row.account)}</td>
+						<td><span class="severity-badge ${severityClass}">${escapeHtml(row.severity)}</span></td>
+						<td>${escapeHtml(row.category)}</td>
+						<td class="finding-value">${escapeHtml(row.value)}</td>
+						<td>${confidencePct}%</td>
+					`;
+					tbody.appendChild(tr);
+				});
+
+				// Initialize DataTable
+				if ($.fn.DataTable.isDataTable('#descriptionTable')) {
+					$('#descriptionTable').DataTable().destroy();
+				}
+
+				$('#descriptionTable').DataTable({
+					pageLength: 10,
+					order: [[1, 'asc']],
+					language: {
+						emptyTable: 'No sensitive information found in descriptions'
+					}
+				});
+			}
+
+			// Download description findings as CSV
+			function downloadDescriptionCSV() {
+				if (!descriptionData || !descriptionData.findings) {
+					alert('No description analysis data available to export.');
+					return;
+				}
+
+				// Build CSV content
+				let csvContent = '"Account","Severity","Category","Finding (Masked)","Confidence"\n';
+
+				descriptionData.findings.forEach(account => {
+					if (account.has_findings && account.findings) {
+						account.findings.forEach(finding => {
+							const accountName = String(account.sam_account_name || '').replace(/"/g, '""');
+							const severity = account.severity || 'Unknown';
+							const category = String(finding.category || '').replace(/"/g, '""');
+							const value = String(finding.value || '').replace(/"/g, '""');
+							const confidence = Math.round((finding.confidence || 0) * 100) + '%';
+
+							csvContent += `"${accountName}","${severity}","${category}","${value}","${confidence}"\n`;
+						});
+					}
+				});
+
+				// Download the file
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = 'Description_Analysis.csv';
 				document.body.appendChild(link);
 				link.click();
 				document.body.removeChild(link);
@@ -6306,6 +6696,7 @@
 			const AAIA_CONTENT_IDS = {
 				'weak-habits': 'aaiaWeakHabitsContent',
 				'company-intel': 'aaiaCompanyIntelContent',
+				'description-analysis': 'aaiaDescriptionAnalysisContent',
 				'user-behavior': 'aaiaUserBehaviorContent',
 				'recommendations': 'aaiaRecommendationsContent'
 			};
@@ -6313,10 +6704,11 @@
 			const AAIA_CARD_IDS = {
 				'weak-habits': 'aaiaWeakHabits',
 				'company-intel': 'aaiaCompanyIntel',
+				'description-analysis': 'aaiaDescriptionAnalysis',
 				'user-behavior': 'aaiaUserBehavior',
 				'recommendations': 'aaiaRecommendations'
 			};
-			const ALL_AAIA_SECTIONS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+			const ALL_AAIA_SECTIONS = ['weak-habits', 'company-intel', 'description-analysis', 'user-behavior', 'recommendations'];
 
 			let aaiaConfig = null;  // Stores servers, sections, and model info
 			let aaiaAnalysisRunning = false;
@@ -6348,6 +6740,9 @@
 
 				// Initialize AS-REP section (check for available data)
 				initASREPSection();
+
+				// Initialize Description Analysis section (check for available data)
+				initDescriptionAnalysisSection();
 
 				// Setup button handlers
 				document.getElementById('generateAIAnalysisBtn').addEventListener('click', openAAIAModal);
@@ -7132,7 +7527,7 @@
 
 						// Build section-specific settings HTML
 						let sectionSettings = '';
-						const defaultTemp = section.recommended_temperature || 0.3;
+						const defaultTemp = section.temperature || 0.3;
 
 						// Add sampling config for SPI section
 						if (section.id === 'weak-habits') {
@@ -7167,10 +7562,16 @@
 										</label>
 										<span class="aaia-setting-help">Filter random character passwords</span>
 									</div>
-									<div class="aaia-setting-row">
+									<div class="aaia-setting-row aaia-temp-control">
 										<label>Temperature:</label>
-										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider" onchange="updateTempDisplay('${section.id}')">
-										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value">${defaultTemp}</span>
+										<div class="aaia-temp-presets">
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.1 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.1)">Precise</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.3 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.3)">Balanced</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.7 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.7)">Creative</button>
+										</div>
+										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider-large" onchange="updateTempDisplay('${section.id}')">
+										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value-large">${defaultTemp}</span>
+										<span class="aaia-temp-tooltip" title="0.0-0.2: Precise, factual responses&#10;0.3-0.5: Balanced creativity&#10;0.6-1.0: More varied, creative output">?</span>
 									</div>
 									${totalPw > 0 ? `<div class="aaia-sampling-note" style="border-left-color: ${noteColor};">${samplingNote}</div>` : ''}
 								</div>
@@ -7209,12 +7610,66 @@
 										</label>
 										<span class="aaia-setting-help">Filter random character passwords</span>
 									</div>
-									<div class="aaia-setting-row">
+									<div class="aaia-setting-row aaia-temp-control">
 										<label>Temperature:</label>
-										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider" onchange="updateTempDisplay('${section.id}')">
-										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value">${defaultTemp}</span>
+										<div class="aaia-temp-presets">
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.1 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.1)">Precise</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.3 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.3)">Balanced</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.7 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.7)">Creative</button>
+										</div>
+										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider-large" onchange="updateTempDisplay('${section.id}')">
+										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value-large">${defaultTemp}</span>
+										<span class="aaia-temp-tooltip" title="0.0-0.2: Precise, factual responses&#10;0.3-0.5: Balanced creativity&#10;0.6-1.0: More varied, creative output">?</span>
 									</div>
 									${totalPw > 0 ? `<div class="aaia-sampling-note" style="border-left-color: ${noteColor};">${samplingNote}</div>` : ''}
+								</div>
+							`;
+						}
+						// Add description-analysis section config
+						else if (section.id === 'description-analysis') {
+							// Get accounts with descriptions count
+							const totalAccounts = aaiaConfig.total_accounts || 0;
+							const accountsWithDesc = aaiaConfig.accounts_with_descriptions || 0;
+
+							let daNote = '';
+							let noteColor = '#3b82f6';
+							if (accountsWithDesc === 0) {
+								daNote = '⚠ No accounts with descriptions found. Upload AD JSON with account descriptions.';
+								noteColor = '#f59e0b';
+							} else if (accountsWithDesc <= 100) {
+								daNote = `✓ ${accountsWithDesc} accounts with descriptions. Quick analysis expected.`;
+								noteColor = '#10b981';
+							} else if (accountsWithDesc <= 1000) {
+								daNote = `ℹ ${accountsWithDesc} accounts with descriptions. Analysis will process in ${Math.ceil(accountsWithDesc/100)} chunks.`;
+								noteColor = '#3b82f6';
+							} else {
+								daNote = `⚠ ${accountsWithDesc} accounts with descriptions. Large dataset: ${Math.ceil(accountsWithDesc/100)} chunks to process.`;
+								noteColor = '#f59e0b';
+							}
+
+							sectionSettings = `
+								<div class="aaia-section-settings">
+									<div class="aaia-setting-row">
+										<label>Chunk Size:</label>
+										<select id="daChunkSize" class="aaia-setting-select">
+											<option value="50">50 (More accurate)</option>
+											<option value="100" selected>100 (Recommended)</option>
+											<option value="200">200 (Faster)</option>
+											<option value="500">500 (Fastest)</option>
+										</select>
+									</div>
+									<div class="aaia-setting-row aaia-temp-control">
+										<label>Temperature:</label>
+										<div class="aaia-temp-presets">
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.1 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.1)">Precise</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.3 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.3)">Balanced</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.7 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.7)">Creative</button>
+										</div>
+										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider-large" onchange="updateTempDisplay('${section.id}')">
+										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value-large">${defaultTemp}</span>
+										<span class="aaia-temp-tooltip" title="0.0-0.2: Precise, factual responses&#10;0.3-0.5: Balanced creativity&#10;0.6-1.0: More varied, creative output">?</span>
+									</div>
+									<div class="aaia-sampling-note" style="border-left-color: ${noteColor};">${daNote}</div>
 								</div>
 							`;
 						}
@@ -7222,10 +7677,16 @@
 						else {
 							sectionSettings = `
 								<div class="aaia-section-settings">
-									<div class="aaia-setting-row">
+									<div class="aaia-setting-row aaia-temp-control">
 										<label>Temperature:</label>
-										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider" onchange="updateTempDisplay('${section.id}')">
-										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value">${defaultTemp}</span>
+										<div class="aaia-temp-presets">
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.1 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.1)">Precise</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.3 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.3)">Balanced</button>
+											<button type="button" class="aaia-preset-btn ${defaultTemp == 0.7 ? 'active' : ''}" onclick="setTemperature('${section.id}', 0.7)">Creative</button>
+										</div>
+										<input type="range" id="aaia-temp-${section.id}" min="0" max="1" step="0.1" value="${defaultTemp}" class="aaia-temp-slider-large" onchange="updateTempDisplay('${section.id}')">
+										<span id="aaia-temp-display-${section.id}" class="aaia-temp-value-large">${defaultTemp}</span>
+										<span class="aaia-temp-tooltip" title="0.0-0.2: Precise, factual responses&#10;0.3-0.5: Balanced creativity&#10;0.6-1.0: More varied, creative output">?</span>
 									</div>
 								</div>
 							`;
@@ -7361,7 +7822,40 @@
 				const display = document.getElementById(`aaia-temp-display-${sectionId}`);
 				if (slider && display) {
 					display.textContent = slider.value;
+					// Update preset button active states
+					updatePresetButtons(sectionId, parseFloat(slider.value));
 				}
+			}
+
+			// Set temperature from preset button
+			function setTemperature(sectionId, value) {
+				const slider = document.getElementById(`aaia-temp-${sectionId}`);
+				const display = document.getElementById(`aaia-temp-display-${sectionId}`);
+				if (slider && display) {
+					slider.value = value;
+					display.textContent = value;
+					updatePresetButtons(sectionId, value);
+				}
+			}
+
+			// Update preset button active states based on value
+			function updatePresetButtons(sectionId, value) {
+				// Find the temp control container for this section
+				const slider = document.getElementById(`aaia-temp-${sectionId}`);
+				if (!slider) return;
+
+				const container = slider.closest('.aaia-temp-control');
+				if (!container) return;
+
+				const buttons = container.querySelectorAll('.aaia-preset-btn');
+				buttons.forEach(btn => {
+					btn.classList.remove('active');
+					// Check if this button's value matches
+					const btnValue = parseFloat(btn.onclick.toString().match(/[\d.]+/)?.[0] || 0);
+					if (Math.abs(btnValue - value) < 0.05) {
+						btn.classList.add('active');
+					}
+				});
 			}
 
 			// Load analysis data for a specific section

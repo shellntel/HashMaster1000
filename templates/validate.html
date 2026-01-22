@@ -98,6 +98,91 @@
                                 </div>
                             </div>
 
+                            <!-- Duplicate Account Warning -->
+                            {% if pwdump and pwdump.has_duplicates %}
+                            <div id="duplicateAccountWarning" class="duplicate-account-warning">
+                                <div class="duplicate-warning-content">
+                                    <div class="duplicate-warning-header">
+                                        <span class="duplicate-warning-icon">⚠️</span>
+                                        <h3>Duplicate Account Names Detected</h3>
+                                    </div>
+                                    <p>Found <strong>{{ "{:,}".format(pwdump.duplicate_count) }}</strong> account name(s) appearing multiple times in your pwdump file. This can occur when the same account was exported multiple times or when historical passwords are not labeled with _history suffixes.</p>
+
+                                    <div class="duplicate-handling-options">
+                                        <h4>How should duplicates be handled?</h4>
+                                        <div class="radio-group">
+                                            <label class="radio-option">
+                                                <input type="radio" name="duplicate_handling" value="first" checked onchange="saveDuplicateHandling()">
+                                                <span class="radio-label">
+                                                    <strong>Use First Occurrence</strong>
+                                                    <span class="radio-description">Keep the first entry as current password, treat others as history</span>
+                                                </span>
+                                            </label>
+                                            <label class="radio-option">
+                                                <input type="radio" name="duplicate_handling" value="last" onchange="saveDuplicateHandling()">
+                                                <span class="radio-label">
+                                                    <strong>Use Last Occurrence</strong>
+                                                    <span class="radio-description">Keep the last entry as current password (most recent), treat others as history</span>
+                                                </span>
+                                            </label>
+                                            <label class="radio-option">
+                                                <input type="radio" name="duplicate_handling" value="manual" onchange="saveDuplicateHandling()">
+                                                <span class="radio-label">
+                                                    <strong>Choose Manually</strong>
+                                                    <span class="radio-description">Review each duplicate and select which entry to keep as current</span>
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <!-- Manual selection panel (shown when "manual" is selected) -->
+                                    <div id="manualDuplicateSelection" class="manual-duplicate-selection" style="display: none;">
+                                        <h4>Select Entry to Keep as Current for Each Duplicate</h4>
+                                        <table class="duplicate-selection-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Account</th>
+                                                    <th>Occurrences</th>
+                                                    <th>Keep as Current</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {% for dup in pwdump.duplicate_accounts %}
+                                                <tr>
+                                                    <td class="account-name">{{ dup.account_name }}</td>
+                                                    <td>Lines {{ dup.line_numbers_display }}</td>
+                                                    <td>
+                                                        <select name="duplicate_keep_{{ dup.account_name }}" class="duplicate-keep-select" onchange="saveDuplicateHandling()">
+                                                            {% for line_num in dup.occurrences %}
+                                                            <option value="{{ line_num }}" {% if line_num == dup.first_line %}selected{% endif %}>Line {{ line_num }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <!-- Preview of duplicate accounts (collapsed by default) -->
+                                    <details class="duplicate-preview">
+                                        <summary>View {{ "{:,}".format(pwdump.duplicate_count) }} Duplicate Account(s)</summary>
+                                        <ul class="duplicate-list">
+                                            {% for dup in pwdump.duplicate_accounts[:20] %}
+                                            <li>
+                                                <span class="dup-account">{{ dup.account_name }}</span>
+                                                <span class="dup-count">({{ dup.count }} entries: lines {{ dup.line_numbers_display }})</span>
+                                            </li>
+                                            {% endfor %}
+                                            {% if pwdump.duplicate_count > 20 %}
+                                            <li class="more-duplicates">... and {{ pwdump.duplicate_count - 20 }} more</li>
+                                            {% endif %}
+                                        </ul>
+                                    </details>
+                                </div>
+                            </div>
+                            {% endif %}
+
                             <!-- Summary Cards -->
         <div class="validation-summary">
             {% if pwdump %}
@@ -621,6 +706,54 @@
         function dismissDuplicateWarning() {
             duplicateState.dismissed = true;
             document.getElementById('duplicateSessionWarning').style.display = 'none';
+        }
+
+        // Duplicate Account Handling
+        function initDuplicateAccountHandling() {
+            const radios = document.querySelectorAll('input[name="duplicate_handling"]');
+            radios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const manualPanel = document.getElementById('manualDuplicateSelection');
+                    if (manualPanel) {
+                        manualPanel.style.display = this.value === 'manual' ? 'block' : 'none';
+                    }
+                });
+            });
+            // Save initial selection
+            saveDuplicateHandling();
+        }
+
+        async function saveDuplicateHandling() {
+            const handling = document.querySelector('input[name="duplicate_handling"]:checked')?.value || 'first';
+
+            let manualSelections = {};
+            if (handling === 'manual') {
+                document.querySelectorAll('.duplicate-keep-select').forEach(select => {
+                    const accountName = select.name.replace('duplicate_keep_', '');
+                    manualSelections[accountName] = parseInt(select.value);
+                });
+            }
+
+            try {
+                await fetch('/api/duplicate_handling', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        handling: handling,
+                        manual_selections: manualSelections
+                    })
+                });
+            } catch (error) {
+                console.error('Error saving duplicate handling:', error);
+            }
+        }
+
+        // Initialize duplicate handling if warning is present
+        if (document.getElementById('duplicateAccountWarning')) {
+            initDuplicateAccountHandling();
         }
 
         function escapeHtml(text) {

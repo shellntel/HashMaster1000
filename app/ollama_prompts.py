@@ -757,6 +757,24 @@ AI_REPORT_SECTIONS = {
             "cracked_count": "derived:cracked_account_count"
         }
     },
+    "description-analysis": {
+        "title": "Account Description Inspector",
+        "description": "LLM-enhanced detection of passwords, PII, and credentials in AD account descriptions",
+        "enabled": True,
+        "pipeline": "description_llm",  # Uses chunked LLM analysis for complete coverage
+        "recommended_model": "llama3.1:70b",
+        "temperature": 0.1,  # Low temp for precise extraction
+        "order": 3,
+        "requires_add_json": True,  # Only available for ADD JSON sessions
+        "data_sources": {
+            "users_with_descriptions": "derived:users_with_descriptions"
+        },
+        "chunk_config": {
+            "default_chunk_size": 100,
+            "min_chunk_size": 25,
+            "max_chunk_size": 500
+        }
+    },
     "user-behavior": {
         "title": "User Behavior Insights",
         "description": "Analyzes user psychology and behavior from raw password data",
@@ -1290,6 +1308,14 @@ PHASE_CONFIG = {
         "phase2": {"model": None, "temperature": None, "enabled": False},  # Findings are from LLM extraction
         "phase3": {"model": None, "temperature": None, "enabled": False},  # Markdown formatted by Python
         "evidence_sources": []  # CI generates its own evidence from analyzed data
+    },
+    "description-analysis": {
+        # Uses Description LLM pipeline - chunked analysis of AD account descriptions
+        "pipeline": "description_llm",
+        "phase1": {"model": "llama3.1:70b", "temperature": 0.1},  # Low temp for precise extraction
+        "phase2": {"model": None, "temperature": None, "enabled": False},  # Findings are from LLM extraction
+        "phase3": {"model": None, "temperature": None, "enabled": False},  # HTML formatted by Python
+        "evidence_sources": []  # DA generates its own evidence from account descriptions
     },
     "user-behavior": {
         "phase1": {"model": "deepseek-r1:671b", "temperature": 0.4},
