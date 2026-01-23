@@ -17,6 +17,12 @@ For systemd service, see: docs/systemd/hm1k.service
 import os
 import multiprocessing
 
+# Paths - define early so they can be used throughout config
+# Use absolute paths for production (systemd service)
+# Falls back to relative paths for local development
+_app_dir = os.environ.get("HM1K_APP_DIR", os.path.dirname(os.path.abspath(__file__)))
+_log_dir = os.environ.get("HM1K_LOG_DIR", os.path.join(_app_dir, "logs"))
+
 # Server Socket
 bind = "0.0.0.0:8443"
 backlog = 2048
@@ -41,12 +47,13 @@ keepalive = 5
 
 # SSL/HTTPS
 # Uses the same SSL certificates as Flask dev server
-certfile = "cert.pem"
-keyfile = "key.pem"
+# Use absolute paths for production (systemd service)
+certfile = os.path.join(_app_dir, "cert.pem")
+keyfile = os.path.join(_app_dir, "key.pem")
 
 # Logging
-accesslog = "logs/gunicorn_access.log"
-errorlog = "logs/gunicorn_error.log"
+accesslog = os.path.join(_log_dir, "gunicorn_access.log")
+errorlog = os.path.join(_log_dir, "gunicorn_error.log")
 loglevel = "info"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
@@ -78,8 +85,8 @@ preload_app = False  # Set to True for production, False for development
 # worker_connections = 1000
 
 # Ensure log directory exists BEFORE any logging starts
-import os
-os.makedirs("logs", exist_ok=True)
+# Uses absolute path determined above
+os.makedirs(_log_dir, exist_ok=True)
 
 def on_starting(server):
     """Callback when Gunicorn master starts."""

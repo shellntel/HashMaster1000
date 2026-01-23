@@ -9,6 +9,7 @@ import bcrypt
 import zipfile
 import io
 from dotenv import load_dotenv
+from flask_compress import Compress
 from flask import (
     Flask,
     render_template,
@@ -393,6 +394,7 @@ def _apply_duplicate_handling(
 
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+Compress(app)  # Enable gzip/brotli compression for static assets
 
 # Validate and set SECRET_KEY immediately - required for WSGI imports
 # The _ensure_secret_key() function should have already generated one if missing

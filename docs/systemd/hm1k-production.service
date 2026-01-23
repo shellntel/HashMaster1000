@@ -1,0 +1,62 @@
+[Unit]
+Description=Hash Master 1000 - Password Audit Analysis Tool
+Documentation=https://github.com/your-org/hm1k
+After=network.target
+Wants=nginx.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# User and group - create dedicated user: sudo useradd -r -s /sbin/nologin hm1k
+User=hm1k
+Group=hm1k
+
+# Working directory
+WorkingDirectory=/opt/hm1k
+
+# Environment variables
+Environment="PATH=/opt/hm1k/.venv/bin"
+Environment="HM1K_APP_DIR=/opt/hm1k"
+Environment="HM1K_LOG_DIR=/opt/hm1k/logs"
+
+# Gunicorn - HTTP only (nginx handles SSL)
+ExecStart=/opt/hm1k/.venv/bin/gunicorn \
+    --bind 127.0.0.1:8000 \
+    --workers 8 \
+    --threads 2 \
+    --worker-class gthread \
+    --timeout 900 \
+    --graceful-timeout 30 \
+    --keepalive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --access-logfile /opt/hm1k/logs/gunicorn_access.log \
+    --error-logfile /opt/hm1k/logs/gunicorn_error.log \
+    --capture-output \
+    hm1k:app
+
+# Reload command
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hm1k
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/hm1k/data /opt/hm1k/logs /opt/hm1k/flask_session
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
