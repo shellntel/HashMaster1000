@@ -103,6 +103,7 @@
 				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
 				<button class="report-nav-btn" id="navPasswordHistory" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
 				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
+				<button class="report-nav-btn" id="navGroupMembership" onclick="scrollToSection('groupMembershipSection')" style="display: none;">Group Membership</button>
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
 				<button class="report-nav-btn" id="navASREP" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
@@ -917,6 +918,49 @@
 			</div>
 		</section>
 
+		<!-- Group Membership Analysis Section (ADD JSON only) -->
+		<section id="groupMembershipSection" class="report-section group-membership-section" style="display: none;">
+			<h2>Top 25 Accounts by Group Membership</h2>
+			<p class="section-description">Accounts with the highest number of group memberships. High group counts may indicate over-provisioned permissions or privilege creep.</p>
+
+			<!-- Data not available message -->
+			<div id="groupMembershipNotAvailable" class="group-membership-not-available" style="display: none;">
+				<p>This section requires ADD JSON input with group membership data.</p>
+			</div>
+
+			<!-- Summary Statistics -->
+			<div id="groupMembershipSummary" class="group-membership-summary" style="display: none;">
+				<div class="group-membership-stats-grid" id="groupMembershipStatsGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+			</div>
+
+			<!-- Results Table -->
+			<div id="groupMembershipResults" style="display: none;">
+				<div class="group-membership-table-section">
+					<h3 style="margin: 0 0 8px 0;">Accounts with Most Group Memberships</h3>
+					<table id="groupMembershipTable" class="display" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Group Count</th>
+								<th>Privilege Level</th>
+								<th>Status</th>
+								<th>Cracked</th>
+								<th>Groups</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+				<div class="button-container" style="text-align: center; margin-top: 10px">
+					<button id="downloadGroupMembershipCSV" onclick="downloadGroupMembershipCSV()">Download CSV</button>
+				</div>
+			</div>
+		</section>
+
 		<!-- HIBP (Have I Been Pwned) Breach Check Section -->
 		<section id="hibpSection" class="report-section hibp-section">
 			<h2>Have I Been Pwned - Breach Check</h2>
@@ -1542,6 +1586,7 @@
 				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
 				<button class="report-nav-btn" id="navPasswordHistoryBottom" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
 				<button class="report-nav-btn" id="navPrivilegedAccountsBottom" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
+				<button class="report-nav-btn" id="navGroupMembershipBottom" onclick="scrollToSection('groupMembershipSection')" style="display: none;">Group Membership</button>
 				<button class="report-nav-btn" id="navHIBPBottom" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoastBottom" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
 				<button class="report-nav-btn" id="navASREPBottom" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
@@ -2395,6 +2440,187 @@
 						console.error('Error downloading HIBP CSV:', error);
 						alert('Unable to download CSV. Please run a breach check first.');
 					});
+			}
+
+			// ==================== GROUP MEMBERSHIP ANALYSIS FUNCTIONS ====================
+			let groupMembershipDataTable = null;
+			let groupMembershipData = null;
+
+			// Initialize Group Membership section - check for available data
+			async function initGroupMembershipSection() {
+				try {
+					const response = await fetch('/group_membership_report.json');
+					if (response.ok) {
+						groupMembershipData = await response.json();
+						if (groupMembershipData && groupMembershipData.top_accounts && groupMembershipData.top_accounts.length > 0) {
+							displayGroupMembershipResults(groupMembershipData);
+							// Show section and nav button (top and bottom)
+							document.getElementById('groupMembershipSection').style.display = 'block';
+							document.getElementById('navGroupMembership').style.display = 'inline-block';
+							document.getElementById('navGroupMembershipBottom').style.display = 'inline-block';
+						}
+					}
+				} catch (e) {
+					console.log('No Group Membership data available:', e);
+				}
+			}
+
+			// Display Group Membership analysis results
+			function displayGroupMembershipResults(data) {
+				document.getElementById('groupMembershipNotAvailable').style.display = 'none';
+				document.getElementById('groupMembershipSummary').style.display = 'block';
+				document.getElementById('groupMembershipResults').style.display = 'block';
+
+				const summary = data.summary;
+
+				// Populate summary grid (5 stats on one row)
+				const summaryGrid = document.getElementById('groupMembershipStatsGrid');
+				summaryGrid.innerHTML = `
+					<div class="group-membership-stat-card">
+						<div class="stat-value">${summary.max_group_count}</div>
+						<div class="stat-label">Max Groups</div>
+					</div>
+					<div class="group-membership-stat-card">
+						<div class="stat-value">${summary.avg_group_count}</div>
+						<div class="stat-label">Avg Groups</div>
+					</div>
+					<div class="group-membership-stat-card tier0">
+						<div class="stat-value">${summary.tier0_in_top}</div>
+						<div class="stat-label">Tier 0 in Top 25</div>
+					</div>
+					<div class="group-membership-stat-card elevated">
+						<div class="stat-value">${summary.elevated_in_top}</div>
+						<div class="stat-label">Elevated in Top 25</div>
+					</div>
+					<div class="group-membership-stat-card cracked">
+						<div class="stat-value">${summary.cracked_in_top}</div>
+						<div class="stat-label">Cracked in Top 25</div>
+					</div>
+				`;
+
+				// Populate table
+				populateGroupMembershipTable(data.top_accounts);
+			}
+
+			// Populate the Group Membership accounts table
+			function populateGroupMembershipTable(accounts) {
+				const tbody = document.querySelector('#groupMembershipTable tbody');
+				if (!tbody) return;
+
+				tbody.innerHTML = accounts.map(acc => {
+					const status = acc.is_enabled ? 'Enabled' : 'Disabled';
+					const statusClass = acc.is_enabled ? 'status-enabled' : 'status-disabled';
+					const crackedText = acc.is_cracked ? 'Yes' : 'No';
+					const crackedClass = acc.is_cracked ? 'cracked-yes' : 'cracked-no';
+
+					// Format privilege level with badge
+					let privilegeClass = 'privilege-standard';
+					let privilegeLabel = 'Standard';
+					if (acc.privilege_level === 'tier0') {
+						privilegeClass = 'privilege-tier0';
+						privilegeLabel = 'Tier 0';
+					} else if (acc.privilege_level === 'elevated') {
+						privilegeClass = 'privilege-elevated';
+						privilegeLabel = 'Elevated';
+					}
+
+					// Format groups - show first 3 with expand
+					const groups = acc.groups || [];
+					let groupsHtml = '';
+					if (groups.length <= 3) {
+						groupsHtml = groups.map(g => `<span class="group-tag">${escapeHtml(g)}</span>`).join('');
+					} else {
+						const visibleGroups = groups.slice(0, 3).map(g => `<span class="group-tag">${escapeHtml(g)}</span>`).join('');
+						const hiddenGroups = groups.slice(3).map(g => `<span class="group-tag">${escapeHtml(g)}</span>`).join('');
+						groupsHtml = `
+							${visibleGroups}
+							<span class="group-expand-toggle" onclick="toggleGroupExpand(this)">+${groups.length - 3} more</span>
+							<span class="group-hidden-list" style="display: none;">${hiddenGroups}</span>
+						`;
+					}
+
+					return `
+						<tr>
+							<td>${escapeHtml(acc.sam_account_name)}</td>
+							<td class="dt-center">${acc.group_count}</td>
+							<td class="dt-center"><span class="privilege-badge ${privilegeClass}">${privilegeLabel}</span></td>
+							<td class="dt-center"><span class="${statusClass}">${status}</span></td>
+							<td class="dt-center"><span class="${crackedClass}">${crackedText}</span></td>
+							<td><div class="group-list">${groupsHtml}</div></td>
+						</tr>
+					`;
+				}).join('');
+
+				// Initialize DataTable if jQuery is available
+				if (typeof $ !== 'undefined' && $.fn.DataTable) {
+					if (groupMembershipDataTable) {
+						groupMembershipDataTable.destroy();
+					}
+					groupMembershipDataTable = $('#groupMembershipTable').DataTable({
+						pageLength: 5,
+						lengthMenu: [5, 10, 25],
+						order: [[1, 'desc']],
+						autoWidth: false,
+						columnDefs: [
+							{ orderable: false, targets: [5] },  // Groups column not sortable
+							{ width: '18%', targets: 0 },  // Account
+							{ width: '10%', className: 'dt-center', targets: 1 },  // Group Count
+							{ width: '12%', className: 'dt-center', targets: 2 },  // Privilege
+							{ width: '10%', className: 'dt-center', targets: 3 },  // Status
+							{ width: '10%', className: 'dt-center', targets: 4 },  // Cracked
+							{ width: '40%', targets: 5 }  // Groups
+						]
+					});
+				}
+			}
+
+			// Toggle group list expansion
+			function toggleGroupExpand(el) {
+				const hiddenList = el.nextElementSibling;
+				if (hiddenList.style.display === 'none') {
+					hiddenList.style.display = 'inline';
+					el.textContent = 'Show less';
+				} else {
+					hiddenList.style.display = 'none';
+					const count = hiddenList.querySelectorAll('.group-tag').length;
+					el.textContent = `+${count} more`;
+				}
+			}
+
+			// Download Group Membership results as CSV
+			function downloadGroupMembershipCSV() {
+				if (!groupMembershipData || !groupMembershipData.top_accounts) {
+					alert('No Group Membership data available to export.');
+					return;
+				}
+
+				const accounts = groupMembershipData.top_accounts;
+
+				// Build CSV content
+				let csvContent = '"Account","Group Count","Privilege Level","Privilege Groups","Status","Cracked","Groups"\n';
+
+				accounts.forEach(acc => {
+					const account = String(acc.sam_account_name || '').replace(/"/g, '""');
+					const groupCount = acc.group_count || 0;
+					const privilegeLevel = acc.privilege_level || 'standard';
+					const privilegeGroups = (acc.privilege_groups || []).join('; ').replace(/"/g, '""');
+					const status = acc.is_enabled ? 'Enabled' : 'Disabled';
+					const cracked = acc.is_cracked ? 'Yes' : 'No';
+					const groups = (acc.groups || []).join('; ').replace(/"/g, '""');
+
+					csvContent += `"${account}","${groupCount}","${privilegeLevel}","${privilegeGroups}","${status}","${cracked}","${groups}"\n`;
+				});
+
+				// Download the file
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = 'Top_25_Group_Membership.csv';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
 			}
 
 			// ==================== KERBEROAST ANALYSIS FUNCTIONS ====================
@@ -6765,6 +6991,9 @@
 
 				// Initialize Kerberoast section (check for available data)
 				initKerberoastSection();
+
+				// Initialize Group Membership section (check for available data)
+				initGroupMembershipSection();
 
 				// Initialize AS-REP section (check for available data)
 				initASREPSection();

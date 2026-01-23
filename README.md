@@ -23,11 +23,12 @@
 15. [Kerberoast Exposure Analysis](#kerberoast-exposure-analysis)
 16. [AS-REP Exposure Analysis](#as-rep-exposure-analysis)
 17. [Historical Trend Analysis](#historical-trend-analysis)
-18. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
-19. [AD Description Analysis](#ad-description-analysis)
-20. [Advanced Mode](#advanced-mode)
-21. [Environment Configuration](#environment-configuration)
-22. [Licensing](#licensing)
+18. [Top 25 Group Memberships](#top-25-group-memberships)
+19. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
+20. [AD Description Analysis](#ad-description-analysis)
+21. [Advanced Mode](#advanced-mode)
+22. [Environment Configuration](#environment-configuration)
+23. [Licensing](#licensing)
 
 ---
 
@@ -965,6 +966,62 @@ Content-Type: application/json
 ```
 
 Returns trend comparison data with metrics, changes, and chart-ready datasets.
+
+---
+
+## **Top 25 Group Memberships**
+
+Hash Master 1000 identifies accounts with the highest number of Active Directory group memberships. Accounts with excessive group memberships often indicate over-provisioned permissions, privilege creep, or service accounts that have accumulated groups over time—all potential security risks.
+
+### **Requirements**
+
+This feature requires ADD JSON input, as standard pwdump files do not include group membership data.
+
+### **How It Works**
+
+When ADD JSON data is processed, Hash Master 1000:
+
+1. **Extracts Group Memberships**: Reads the `MemberOf` field for each account
+2. **Counts and Ranks**: Sorts accounts by total group count (descending)
+3. **Classifies Privilege Levels**: Identifies Tier 0, Elevated, and Standard accounts
+4. **Correlates with Crack Status**: Shows which high-membership accounts have cracked passwords
+
+### **Privilege Level Classification**
+
+Accounts are classified into three privilege tiers based on group membership:
+
+| Level | Groups | Description |
+|-------|--------|-------------|
+| **Tier 0** | Domain Admins, Enterprise Admins, Schema Admins, RID 500/502 | Highest privilege accounts with full domain control |
+| **Elevated** | Administrators, Backup Operators, Account Operators, Server Operators | Privileged accounts with significant access |
+| **Standard** | All other accounts | Normal user accounts |
+
+### **Report Output**
+
+The Top 25 Group Memberships section displays:
+
+- **Summary Statistics**: Max group count, average group count, counts by privilege level, cracked accounts in top 25
+- **Accounts Table**: Sortable table showing account name, group count, privilege level, and crack status
+- **Group Details**: Expandable view showing all groups for each account
+- **CSV Export**: Download the full data for offline analysis
+
+### **Security Implications**
+
+High group membership counts can indicate:
+
+- **Over-Provisioned Accounts**: Users with more access than necessary for their role
+- **Service Account Sprawl**: Service accounts accumulating groups over time without cleanup
+- **Privilege Creep**: Gradual accumulation of permissions as users change roles
+- **Orphaned Access**: Group memberships from previous roles that were never removed
+
+### **Recommendations**
+
+Based on the analysis, consider:
+
+1. **Review High-Count Accounts**: Investigate accounts with unusually high group counts
+2. **Prioritize Cracked Accounts**: Accounts with both high privileges and cracked passwords are critical risks
+3. **Implement Least Privilege**: Remove unnecessary group memberships
+4. **Regular Access Reviews**: Schedule periodic reviews of group memberships, especially for privileged accounts
 
 ---
 

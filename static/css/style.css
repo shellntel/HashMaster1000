@@ -3052,6 +3052,59 @@ body#reportPage.dark-theme .dataTables_paginate .paginate_button.disabled {
 	background: #222;
 }
 
+/* Dark theme - Buttons (general styling for buttons in sections) */
+body#reportPage.dark-theme section button {
+	background: linear-gradient(180deg, #333 0%, #222 100%);
+	border: 1px solid #444;
+	color: #f4f4f4;
+	padding: 8px 16px;
+	border-radius: 4px;
+	font-size: 0.9rem;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+body#reportPage.dark-theme section button:hover {
+	background: linear-gradient(180deg, #444 0%, #333 100%);
+	border-color: #555;
+}
+
+/* Dark theme - Green action buttons (Download CSV, etc) */
+body#reportPage.dark-theme section button[id*="download"],
+body#reportPage.dark-theme section button[id*="Download"] {
+	background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+	border: 1px solid #047857;
+	color: #ffffff;
+}
+
+body#reportPage.dark-theme section button[id*="download"]:hover,
+body#reportPage.dark-theme section button[id*="Download"]:hover {
+	background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
+}
+
+/* Dark theme - Blue Copy PNG buttons */
+body#reportPage.dark-theme section button[id*="copy"],
+body#reportPage.dark-theme section button[id*="Copy"] {
+	background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+	border: 1px solid #1d4ed8;
+	color: #ffffff;
+}
+
+body#reportPage.dark-theme section button[id*="copy"]:hover,
+body#reportPage.dark-theme section button[id*="Copy"]:hover {
+	background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%);
+}
+
+/* Dark theme - Purple toggle visibility buttons */
+body#reportPage.dark-theme section button.toggle-visibility-button {
+	background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+	border: 1px solid #6d28d9;
+	color: #ffffff;
+}
+
+body#reportPage.dark-theme section button.toggle-visibility-button:hover {
+	background: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 100%);
+}
+
 /* Dark theme child row content */
 body#reportPage.dark-theme .child-row-content {
 	background-color: #2a2a2a;
@@ -8940,6 +8993,120 @@ body.print-mode .kerberoast-chart-container { background: #f8f9fa; }
 }
 .light-theme .kerberoast-chart-container h4 { color: #1f2937; }
 .light-theme .kerberoast-table-section h3 { color: #1f2937; }
+
+/* ============================================
+   GROUP MEMBERSHIP ANALYSIS SECTION STYLES
+   ============================================ */
+.group-membership-section { margin-top: 30px; }
+.group-membership-summary { margin-bottom: 24px; }
+.group-membership-stats-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+.group-membership-stat-card {
+	background: var(--surface-color, #2a2a2a);
+	border-radius: 6px;
+	padding: 10px 16px;
+	text-align: center;
+	flex: 1 1 auto;
+	min-width: 100px;
+}
+.group-membership-stat-card.total { border-left: 4px solid #00d4ff; }
+.group-membership-stat-card.tier0 { border-left: 4px solid #dc3545; }
+.group-membership-stat-card.elevated { border-left: 4px solid #ff6b35; }
+.group-membership-stat-card.cracked { border-left: 4px solid #ffc107; }
+.group-membership-stat-card .stat-value {
+	font-size: 1.5rem;
+	font-weight: bold;
+	line-height: 1.2;
+}
+.group-membership-stat-card.total .stat-value { color: #00d4ff; }
+.group-membership-stat-card.tier0 .stat-value { color: #dc3545; }
+.group-membership-stat-card.elevated .stat-value { color: #ff6b35; }
+.group-membership-stat-card.cracked .stat-value { color: #ffc107; }
+.group-membership-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
+.group-membership-table-section { margin-top: 24px; }
+.group-membership-table-section h3 { margin-bottom: 8px; color: var(--text-primary, #fff); }
+.group-membership-not-available {
+	background: var(--surface-color, #2a2a2a);
+	border: 1px solid var(--border-color, #444);
+	border-radius: 8px;
+	padding: 24px;
+	text-align: center;
+}
+.group-membership-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
+
+/* Privilege badges */
+.privilege-badge {
+	display: inline-block;
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-size: 0.8rem;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+.privilege-badge.privilege-tier0 { background: rgba(220, 53, 69, 0.2); color: #dc3545; }
+.privilege-badge.privilege-elevated { background: rgba(255, 107, 53, 0.2); color: #ff6b35; }
+.privilege-badge.privilege-standard { background: rgba(100, 100, 100, 0.2); color: #888; }
+
+/* Group list styling */
+.group-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	max-height: 100px;
+	overflow-y: auto;
+}
+.group-tag {
+	display: inline-block;
+	padding: 2px 6px;
+	border-radius: 3px;
+	font-size: 0.75rem;
+	background: rgba(0, 212, 255, 0.1);
+	color: #00d4ff;
+	white-space: nowrap;
+}
+.group-expand-toggle {
+	display: inline-block;
+	padding: 2px 6px;
+	border-radius: 3px;
+	font-size: 0.75rem;
+	background: rgba(74, 222, 128, 0.15);
+	color: #4ade80;
+	cursor: pointer;
+}
+.group-expand-toggle:hover {
+	background: rgba(74, 222, 128, 0.25);
+}
+
+/* Cracked indicator */
+.cracked-yes { color: #ffc107; font-weight: 600; }
+.cracked-no { color: #6c757d; }
+
+/* Group Membership table styling */
+#groupMembershipTable { table-layout: fixed; width: 100%; }
+#groupMembershipTable th,
+#groupMembershipTable td {
+	vertical-align: middle !important;
+	padding: 10px 8px !important;
+}
+
+/* Print mode overrides for Group Membership */
+body.print-mode .group-membership-stat-card { background: #f8f9fa; }
+
+/* Light theme overrides for Group Membership */
+.light-theme .group-membership-stat-card {
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+}
+.light-theme .group-membership-stat-card .stat-label { color: #6b7280; }
+.light-theme .group-membership-table-section h3 { color: #1f2937; }
+.light-theme .group-tag {
+	background: rgba(0, 150, 180, 0.1);
+	color: #0891b2;
+}
 
 /* ============================================
    AS-REP ROASTING SECTION STYLES

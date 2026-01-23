@@ -2680,6 +2680,17 @@ def description_analysis_report() -> Response:
     return jsonify(data)
 
 
+# Endpoint for Group Membership Report (ADD JSON)
+@app.route("/group_membership_report.json")
+@login_required
+def group_membership_report() -> Response:
+    """Return group membership analysis report for the current session."""
+    data = _load_session_json("group_membership_report.json")
+    if data is None:
+        return jsonify({"error": "No group membership data available. This report requires ADD JSON input with group memberships."}), 404
+    return jsonify(data)
+
+
 # ============================================================================
 # HIBP (Have I Been Pwned) Integration Endpoints
 # ============================================================================
@@ -4255,6 +4266,41 @@ def process_add_validated() -> Response:
                           f"{desc_report.summary.pii_findings} PII findings")
             except Exception as desc_err:
                 logging.warning(f"Description analysis failed: {desc_err}")
+
+            # Run Group Membership analysis
+            try:
+                from app import group_membership_analysis
+
+                # Convert account_data dict to list format for analysis
+                account_list = []
+                for username, acc in account_data.items():
+                    account_list.append({
+                        "sam_account_name": username,
+                        "member_of": acc.get("member_of", []),
+                        "privilege_level": acc.get("privilege_level", "standard"),
+                        "privilege_groups": acc.get("privilege_groups", []),
+                        "is_enabled": acc.get("is_enabled", True),
+                        "password": acc.get("cracked_pw", "")
+                    })
+
+                group_report = group_membership_analysis.analyze_group_memberships(
+                    account_data=account_list,
+                    top_n=25
+                )
+
+                # Save group membership report
+                session_mgr.save_session_data(
+                    "group_membership_report.json",
+                    group_report.to_dict(),
+                    analysis_session.session_id
+                )
+
+                if group_report.top_accounts:
+                    print(f"--> Group membership analysis: Top account has {group_report.summary['max_group_count']} groups, "
+                          f"{group_report.summary['tier0_in_top']} Tier 0, "
+                          f"{group_report.summary['elevated_in_top']} Elevated in top 25")
+            except Exception as grp_err:
+                logging.warning(f"Group membership analysis failed: {grp_err}")
 
             # Save raw ADD data for AI freeform prompts (account descriptions, etc.)
             session_mgr.save_session_data(
