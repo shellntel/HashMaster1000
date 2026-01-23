@@ -171,6 +171,17 @@ REASONING: [brief explanation]
 }
 
 
+def get_da_preamble() -> str:
+    """Get the DA preamble, checking for custom override."""
+    try:
+        from .prompt_manager import get_prompt_manager
+        manager = get_prompt_manager()
+        preamble, is_custom = manager.get_prompt("preambles", "DA_PREAMBLE")
+        return preamble
+    except Exception:
+        return DA_PREAMBLE
+
+
 def get_da_prompt(category_key: str, accounts_data: str) -> str:
     """
     Generate the full prompt for a description analysis category.
@@ -188,7 +199,10 @@ def get_da_prompt(category_key: str, accounts_data: str) -> str:
 
     category = DA_CATEGORIES[category_key]
 
-    prompt = f"""{DA_PREAMBLE}
+    # Use custom preamble if set
+    preamble = get_da_preamble()
+
+    prompt = f"""{preamble}
 
 TASK: Analyze the following Active Directory account descriptions for {category["name"]}.
 

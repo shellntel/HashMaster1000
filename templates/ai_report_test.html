@@ -80,11 +80,70 @@
         .freeform-data-tag:hover { background: rgba(0, 212, 255, 0.2); border-color: rgba(0, 212, 255, 0.5); }
         .freeform-data-tag.password-tag { background: rgba(74, 222, 128, 0.1); color: #4ade80; border-color: rgba(74, 222, 128, 0.3); }
         .freeform-data-tag.password-tag:hover { background: rgba(74, 222, 128, 0.2); border-color: rgba(74, 222, 128, 0.5); }
+        .freeform-data-tag.account-tag { background: rgba(251, 191, 36, 0.1); color: #fbbf24; border-color: rgba(251, 191, 36, 0.3); }
+        .freeform-data-tag.account-tag:hover { background: rgba(251, 191, 36, 0.2); border-color: rgba(251, 191, 36, 0.5); }
         .freeform-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
         .freeform-result { margin-top: 16px; padding: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
         .freeform-result-content { white-space: pre-wrap; line-height: 1.6; color: #e0e0e0; }
         .freeform-tag-section { margin-bottom: 8px; }
         .freeform-tag-label { color: #71717a; font-size: 0.8em; margin-bottom: 6px; display: block; }
+
+        /* Prompt Editor Styles */
+        .prompt-editor-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; min-height: 500px; }
+        @media (max-width: 900px) { .prompt-editor-layout { grid-template-columns: 1fr; } }
+
+        .prompt-editor-tree { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; overflow-y: auto; max-height: 600px; }
+        .prompt-tree-category { margin-bottom: 8px; }
+        .prompt-tree-category-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgba(0, 212, 255, 0.05); border-radius: 6px; cursor: pointer; user-select: none; }
+        .prompt-tree-category-header:hover { background: rgba(0, 212, 255, 0.1); }
+        .prompt-tree-category-header .expand-icon { color: #00d4ff; font-size: 0.8em; transition: transform 0.2s; width: 12px; }
+        .prompt-tree-category-header.expanded .expand-icon { transform: rotate(90deg); }
+        .prompt-tree-category-name { color: #00d4ff; font-weight: 600; flex: 1; }
+        .prompt-tree-category-count { color: #666; font-size: 0.8em; }
+        .prompt-tree-category-custom { color: #4ade80; font-size: 0.75em; margin-left: 4px; }
+        .prompt-tree-items { display: none; padding-left: 20px; margin-top: 4px; }
+        .prompt-tree-items.expanded { display: block; }
+        .prompt-tree-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 4px; cursor: pointer; margin-bottom: 2px; }
+        .prompt-tree-item:hover { background: rgba(255,255,255,0.05); }
+        .prompt-tree-item.selected { background: rgba(0, 212, 255, 0.15); border: 1px solid rgba(0, 212, 255, 0.3); }
+        .prompt-tree-item-name { color: #e0e0e0; font-size: 0.85em; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .prompt-tree-item-badge { font-size: 0.7em; padding: 2px 6px; border-radius: 3px; }
+        .prompt-tree-item-badge.custom { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+        .prompt-tree-item-badge.default { background: rgba(255,255,255,0.1); color: #666; }
+
+        .prompt-editor-panel { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; }
+        .prompt-editor-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; gap: 12px; }
+        .prompt-editor-title { color: #00d4ff; font-size: 1.1em; margin: 0; }
+        .prompt-editor-subtitle { color: #71717a; font-size: 0.85em; margin: 4px 0 0 0; }
+        .prompt-editor-status { display: flex; align-items: center; gap: 8px; }
+        .prompt-status-badge { padding: 4px 10px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        .prompt-status-badge.custom { background: rgba(74, 222, 128, 0.2); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); }
+        .prompt-status-badge.default { background: rgba(255,255,255,0.1); color: #888; border: 1px solid rgba(255,255,255,0.1); }
+
+        .prompt-editor-variables { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .prompt-variable-chip { background: rgba(147, 51, 234, 0.15); color: #a855f7; padding: 3px 8px; border-radius: 4px; font-family: monospace; font-size: 0.8em; border: 1px solid rgba(147, 51, 234, 0.3); }
+
+        .prompt-editor-textarea { flex: 1; width: 100%; min-height: 300px; background: rgba(0,0,0,0.4); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.85em; line-height: 1.5; resize: vertical; box-sizing: border-box; }
+        .prompt-editor-textarea:focus { outline: none; border-color: rgba(0, 212, 255, 0.5); box-shadow: 0 0 15px rgba(0, 212, 255, 0.2); }
+        .prompt-editor-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .prompt-editor-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        .prompt-editor-actions .spacer { flex: 1; }
+        .prompt-editor-message { padding: 10px 14px; border-radius: 6px; font-size: 0.9em; margin-top: 10px; }
+        .prompt-editor-message.success { background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); color: #4ade80; }
+        .prompt-editor-message.error { background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.3); color: #f87171; }
+        .prompt-editor-message.warning { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; }
+
+        .prompt-editor-empty { color: #555; font-style: italic; text-align: center; padding: 40px 20px; }
+        .prompt-editor-loading { color: #00d4ff; text-align: center; padding: 40px 20px; }
+
+        .prompt-vars-docs { margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+        .prompt-vars-docs summary { cursor: pointer; color: #00d4ff; font-size: 0.9em; }
+        .prompt-vars-docs-content { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        .prompt-var-doc { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .prompt-var-doc:last-child { border-bottom: none; }
+        .prompt-var-doc-name { font-family: monospace; color: #a855f7; min-width: 180px; font-size: 0.85em; }
+        .prompt-var-doc-desc { color: #888; font-size: 0.85em; }
     </style>
 </head>
 <body class="advanced-mode">
@@ -221,21 +280,6 @@ Yankees2024</textarea>
             </div>
         </div>
 
-        <!-- Saved Outputs -->
-        <div class="advanced-section">
-            <div class="advanced-section-header" style="cursor: pointer;" onclick="toggleOutputsList()">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <span class="advanced-section-icon">&#128190;</span>
-                    <h2 class="advanced-section-title">Saved Test Outputs</h2>
-                </div>
-                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" id="toggle-outputs-btn">Show</button>
-            </div>
-            <div class="advanced-section-content" id="outputs-list" style="display: none;">
-                <p style="color: #71717a; margin-bottom: 12px;">All test runs are automatically saved to <code class="advanced-code">test_outputs/</code> for comparison.</p>
-                <div id="outputs-content"><span style="color: #555; font-style: italic;">Loading...</span></div>
-            </div>
-        </div>
-
         <!-- Freeform Prompt -->
         <div class="advanced-section">
             <div class="advanced-section-header">
@@ -255,6 +299,14 @@ Yankees2024</textarea>
                             <span class="freeform-data-tag password-tag" onclick="insertTag('{% raw %}{{sampled2k_passwords}}{% endraw %}')" title="Up to 2000 sampled passwords">{% raw %}{{sampled2k_passwords}}{% endraw %}</span>
                             <span class="freeform-data-tag password-tag" onclick="insertTag('{% raw %}{{sampled1k_passwords}}{% endraw %}')" title="Up to 1000 sampled passwords">{% raw %}{{sampled1k_passwords}}{% endraw %}</span>
                             <span class="freeform-data-tag password-tag" onclick="insertTag('{% raw %}{{sampled500_passwords}}{% endraw %}')" title="Up to 500 sampled passwords">{% raw %}{{sampled500_passwords}}{% endraw %}</span>
+                        </div>
+                    </div>
+                    <div class="freeform-tag-section" style="width: 100%;">
+                        <span class="freeform-tag-label">Account Descriptions (requires ADD JSON):</span>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            <span class="freeform-data-tag account-tag" onclick="insertTag('{% raw %}{{account_descriptions}}{% endraw %}')" title="All accounts with descriptions (format: account: password: description)">{% raw %}{{account_descriptions}}{% endraw %}</span>
+                            <span class="freeform-data-tag account-tag" onclick="insertTag('{% raw %}{{account_descriptions_500}}{% endraw %}')" title="Up to 500 accounts with descriptions">{% raw %}{{account_descriptions_500}}{% endraw %}</span>
+                            <span class="freeform-data-tag account-tag" onclick="insertTag('{% raw %}{{account_descriptions_100}}{% endraw %}')" title="Up to 100 accounts with descriptions">{% raw %}{{account_descriptions_100}}{% endraw %}</span>
                         </div>
                     </div>
                     <div class="freeform-tag-section" style="width: 100%;">
@@ -308,6 +360,52 @@ List any sports-related passwords you find and categorize them by sport."></text
             </div>
         </div>
 
+        <!-- Prompt Editor -->
+        <div class="advanced-section">
+            <div class="advanced-section-header" style="cursor: pointer;" onclick="togglePromptEditor()">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="advanced-section-icon">&#9881;</span>
+                    <h2 class="advanced-section-title">Prompt Editor</h2>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span id="prompt-editor-stats" style="color: #666; font-size: 0.85em;"></span>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" id="toggle-prompt-editor-btn">Show</button>
+                </div>
+            </div>
+            <div class="advanced-section-content" id="prompt-editor-section" style="display: none;">
+                <p style="color: #71717a; margin-bottom: 16px;">Customize AI prompts. Changes apply to all future analyses. Custom prompts are saved globally.</p>
+
+                <div class="prompt-editor-layout">
+                    <!-- Tree Navigation -->
+                    <div class="prompt-editor-tree" id="prompt-tree">
+                        <div class="prompt-editor-loading">Loading prompts...</div>
+                    </div>
+
+                    <!-- Editor Panel -->
+                    <div class="prompt-editor-panel" id="prompt-editor">
+                        <div class="prompt-editor-empty">Select a prompt from the list to edit</div>
+                    </div>
+                </div>
+
+                <!-- Variable Documentation -->
+                <details class="prompt-vars-docs">
+                    <summary>Variable Reference</summary>
+                    <div class="prompt-vars-docs-content" id="prompt-vars-docs-content">
+                        <div class="prompt-editor-loading">Loading variable documentation...</div>
+                    </div>
+                </details>
+
+                <!-- Import/Export -->
+                <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button onclick="exportCustomPrompts()" class="advanced-btn advanced-btn-secondary advanced-btn-small">Export Custom Prompts</button>
+                    <label class="advanced-btn advanced-btn-secondary advanced-btn-small" style="cursor: pointer;">
+                        Import Prompts
+                        <input type="file" accept=".json" onchange="importCustomPrompts(event)" style="display: none;">
+                    </label>
+                </div>
+            </div>
+        </div>
+
         <!-- Report Sections -->
         <h2 style="color: #00d4ff; margin: 24px 0 16px 0;">Report Sections</h2>
         {% for section_id, config in sections_sorted %}
@@ -346,6 +444,21 @@ List any sports-related passwords you find and categorize them by sport."></text
             </div>
         </div>
         {% endfor %}
+
+        <!-- Saved Outputs -->
+        <div class="advanced-section">
+            <div class="advanced-section-header" style="cursor: pointer;" onclick="toggleOutputsList()">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="advanced-section-icon">&#128190;</span>
+                    <h2 class="advanced-section-title">Saved Test Outputs</h2>
+                </div>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" id="toggle-outputs-btn">Show</button>
+            </div>
+            <div class="advanced-section-content" id="outputs-list" style="display: none;">
+                <p style="color: #71717a; margin-bottom: 12px;">All test runs are automatically saved to <code class="advanced-code">test_outputs/</code> for comparison.</p>
+                <div id="outputs-content"><span style="color: #555; font-style: italic;">Loading...</span></div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -818,6 +931,417 @@ List any sports-related passwords you find and categorize them by sport."></text
                 clearInterval(freeformTimerInterval);
                 freeformTimerInterval = null;
             }
+        }
+
+        // =====================================================================
+        // Prompt Editor Functions
+        // =====================================================================
+
+        let promptEditorData = null;
+        let selectedPrompt = null;
+        let promptEditorLoaded = false;
+
+        async function togglePromptEditor() {
+            const section = document.getElementById('prompt-editor-section');
+            const btn = document.getElementById('toggle-prompt-editor-btn');
+            const isVisible = section.style.display !== 'none';
+
+            if (isVisible) {
+                section.style.display = 'none';
+                btn.textContent = 'Show';
+            } else {
+                section.style.display = 'block';
+                btn.textContent = 'Hide';
+                if (!promptEditorLoaded) {
+                    await loadPromptEditor();
+                }
+            }
+        }
+
+        async function loadPromptEditor() {
+            const treeDiv = document.getElementById('prompt-tree');
+
+            try {
+                // Load prompts list
+                const resp = await fetch('/api/ai/prompts');
+                const data = await resp.json();
+                promptEditorData = data;
+
+                // Update stats
+                const statsSpan = document.getElementById('prompt-editor-stats');
+                statsSpan.textContent = `${data.total_prompts} prompts (${data.total_custom} custom)`;
+
+                // Build tree
+                renderPromptTree(data.categories, data.custom_counts);
+
+                // Load variable docs
+                await loadVariableDocs();
+
+                promptEditorLoaded = true;
+            } catch (e) {
+                treeDiv.innerHTML = '<div class="prompt-editor-empty">Error loading prompts: ' + escapeHtml(e.message) + '</div>';
+            }
+        }
+
+        function renderPromptTree(categories, customCounts) {
+            const treeDiv = document.getElementById('prompt-tree');
+            const categoryOrder = ['preambles', 'spi', 'ci', 'da', 'main', 'validation', 'formatting'];
+            const categoryLabels = {
+                'preambles': 'Preambles',
+                'spi': 'SPI Categories',
+                'ci': 'Company Intel',
+                'da': 'Description Analysis',
+                'main': 'Main Prompts',
+                'validation': 'Validation',
+                'formatting': 'Formatting'
+            };
+
+            let html = '';
+            for (const category of categoryOrder) {
+                const prompts = categories[category] || [];
+                if (prompts.length === 0) continue;
+
+                const customCount = customCounts[category] || 0;
+                const customBadge = customCount > 0 ? `<span class="prompt-tree-category-custom">${customCount} custom</span>` : '';
+
+                html += `
+                    <div class="prompt-tree-category" data-category="${category}">
+                        <div class="prompt-tree-category-header" onclick="togglePromptCategory('${category}')">
+                            <span class="expand-icon">&#9654;</span>
+                            <span class="prompt-tree-category-name">${categoryLabels[category] || category}</span>
+                            <span class="prompt-tree-category-count">(${prompts.length})</span>
+                            ${customBadge}
+                        </div>
+                        <div class="prompt-tree-items" id="tree-items-${category}">`;
+
+                for (const prompt of prompts) {
+                    const badge = prompt.is_custom
+                        ? '<span class="prompt-tree-item-badge custom">Custom</span>'
+                        : '<span class="prompt-tree-item-badge default">Default</span>';
+
+                    html += `
+                        <div class="prompt-tree-item" data-category="${category}" data-name="${prompt.key}" onclick="selectPrompt('${category}', '${prompt.key}')">
+                            <span class="prompt-tree-item-name" title="${escapeHtml(prompt.description)}">${escapeHtml(prompt.name)}</span>
+                            ${badge}
+                        </div>`;
+                }
+
+                html += '</div></div>';
+            }
+
+            treeDiv.innerHTML = html;
+        }
+
+        function togglePromptCategory(category) {
+            const header = document.querySelector(`.prompt-tree-category[data-category="${category}"] .prompt-tree-category-header`);
+            const items = document.getElementById('tree-items-' + category);
+
+            header.classList.toggle('expanded');
+            items.classList.toggle('expanded');
+        }
+
+        async function selectPrompt(category, name) {
+            // Update selection in tree
+            document.querySelectorAll('.prompt-tree-item').forEach(el => el.classList.remove('selected'));
+            const selectedItem = document.querySelector(`.prompt-tree-item[data-category="${category}"][data-name="${name}"]`);
+            if (selectedItem) selectedItem.classList.add('selected');
+
+            // Load prompt details
+            const editorDiv = document.getElementById('prompt-editor');
+            editorDiv.innerHTML = '<div class="prompt-editor-loading">Loading prompt...</div>';
+
+            try {
+                const resp = await fetch(`/api/ai/prompts/${category}/${name}`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    editorDiv.innerHTML = '<div class="prompt-editor-empty">Error: ' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+
+                selectedPrompt = data;
+                renderPromptEditor(data);
+            } catch (e) {
+                editorDiv.innerHTML = '<div class="prompt-editor-empty">Error loading prompt: ' + escapeHtml(e.message) + '</div>';
+            }
+        }
+
+        function renderPromptEditor(data) {
+            const editorDiv = document.getElementById('prompt-editor');
+
+            const statusBadge = data.is_custom
+                ? '<span class="prompt-status-badge custom">Custom</span>'
+                : '<span class="prompt-status-badge default">Default</span>';
+
+            const variables = (data.variables || []).map(v =>
+                `<span class="prompt-variable-chip">${escapeHtml(v)}</span>`
+            ).join('');
+
+            let html = `
+                <div class="prompt-editor-header">
+                    <div>
+                        <h3 class="prompt-editor-title">${escapeHtml(data.display_name)}</h3>
+                        <p class="prompt-editor-subtitle">${escapeHtml(data.category)} / ${escapeHtml(data.key)}</p>
+                    </div>
+                    <div class="prompt-editor-status">
+                        ${statusBadge}
+                    </div>
+                </div>`;
+
+            if (variables) {
+                html += `
+                    <div class="prompt-editor-variables">
+                        <span style="color: #71717a; font-size: 0.85em; margin-right: 8px;">Variables:</span>
+                        ${variables}
+                    </div>`;
+            }
+
+            html += `
+                <textarea id="prompt-content-editor" class="prompt-editor-textarea">${escapeHtml(data.current_content)}</textarea>
+
+                <div class="prompt-editor-actions">
+                    <button onclick="saveCurrentPrompt()" class="advanced-btn advanced-btn-primary">Save Changes</button>
+                    <button onclick="revertCurrentPrompt()" class="advanced-btn advanced-btn-secondary" ${!data.is_custom ? 'disabled title="Already using default"' : ''}>Revert to Default</button>
+                    <div class="spacer"></div>
+                    <button onclick="showDefaultPrompt()" class="advanced-btn advanced-btn-secondary advanced-btn-small">View Default</button>
+                </div>
+
+                <div id="prompt-editor-message" style="display: none;"></div>`;
+
+            editorDiv.innerHTML = html;
+        }
+
+        async function saveCurrentPrompt() {
+            if (!selectedPrompt) return;
+
+            const content = document.getElementById('prompt-content-editor').value;
+            const messageDiv = document.getElementById('prompt-editor-message');
+
+            try {
+                const resp = await fetch(`/api/ai/prompts/${selectedPrompt.category}/${selectedPrompt.key}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ content: content })
+                });
+
+                const data = await resp.json();
+
+                if (data.success) {
+                    // Show success message
+                    messageDiv.className = 'prompt-editor-message success';
+                    let msg = 'Prompt saved successfully!';
+                    if (data.validation && data.validation.warnings && data.validation.warnings.length > 0) {
+                        messageDiv.className = 'prompt-editor-message warning';
+                        msg = 'Saved with warnings: ' + data.validation.warnings.join('; ');
+                    }
+                    messageDiv.textContent = msg;
+                    messageDiv.style.display = 'block';
+
+                    // Update selected prompt state
+                    selectedPrompt.is_custom = true;
+                    selectedPrompt.current_content = content;
+                    selectedPrompt.custom_content = content;
+
+                    // Re-render editor with updated status
+                    renderPromptEditor(selectedPrompt);
+
+                    // Update tree badge
+                    const treeItem = document.querySelector(`.prompt-tree-item[data-category="${selectedPrompt.category}"][data-name="${selectedPrompt.key}"]`);
+                    if (treeItem) {
+                        const badge = treeItem.querySelector('.prompt-tree-item-badge');
+                        if (badge) {
+                            badge.className = 'prompt-tree-item-badge custom';
+                            badge.textContent = 'Custom';
+                        }
+                    }
+
+                    // Reload tree to update custom counts
+                    promptEditorLoaded = false;
+                    await loadPromptEditor();
+
+                    // Re-select the item
+                    selectPrompt(selectedPrompt.category, selectedPrompt.key);
+                } else {
+                    messageDiv.className = 'prompt-editor-message error';
+                    messageDiv.textContent = 'Error: ' + (data.error || 'Failed to save');
+                    messageDiv.style.display = 'block';
+                }
+            } catch (e) {
+                messageDiv.className = 'prompt-editor-message error';
+                messageDiv.textContent = 'Error: ' + e.message;
+                messageDiv.style.display = 'block';
+            }
+
+            setTimeout(() => { messageDiv.style.display = 'none'; }, 5000);
+        }
+
+        async function revertCurrentPrompt() {
+            if (!selectedPrompt || !selectedPrompt.is_custom) return;
+
+            if (!confirm('Revert this prompt to the default? Your custom changes will be lost.')) return;
+
+            const messageDiv = document.getElementById('prompt-editor-message');
+
+            try {
+                const resp = await fetch(`/api/ai/prompts/${selectedPrompt.category}/${selectedPrompt.key}`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
+
+                const data = await resp.json();
+
+                if (data.success) {
+                    messageDiv.className = 'prompt-editor-message success';
+                    messageDiv.textContent = 'Reverted to default prompt';
+                    messageDiv.style.display = 'block';
+
+                    // Reload to show default
+                    promptEditorLoaded = false;
+                    await loadPromptEditor();
+                    selectPrompt(selectedPrompt.category, selectedPrompt.key);
+                } else {
+                    messageDiv.className = 'prompt-editor-message error';
+                    messageDiv.textContent = 'Error: ' + (data.error || 'Failed to revert');
+                    messageDiv.style.display = 'block';
+                }
+            } catch (e) {
+                messageDiv.className = 'prompt-editor-message error';
+                messageDiv.textContent = 'Error: ' + e.message;
+                messageDiv.style.display = 'block';
+            }
+
+            setTimeout(() => { messageDiv.style.display = 'none'; }, 5000);
+        }
+
+        function showDefaultPrompt() {
+            if (!selectedPrompt) return;
+
+            const textarea = document.getElementById('prompt-content-editor');
+            const currentContent = textarea.value;
+
+            // If already showing default, switch back to custom
+            if (selectedPrompt.is_custom && textarea.value === selectedPrompt.template) {
+                textarea.value = selectedPrompt.custom_content || selectedPrompt.current_content;
+                return;
+            }
+
+            // Show default
+            textarea.value = selectedPrompt.template;
+        }
+
+        async function loadVariableDocs() {
+            const docsDiv = document.getElementById('prompt-vars-docs-content');
+
+            try {
+                const resp = await fetch('/api/ai/prompts/variables');
+                const data = await resp.json();
+
+                let html = '';
+
+                // Main section variables
+                html += '<h4 style="color: #00d4ff; margin: 0 0 10px 0; font-size: 0.95em;">Main Section Variables</h4>';
+                for (const [name, desc] of Object.entries(data.main_section_variables || {})) {
+                    html += `<div class="prompt-var-doc">
+                        <span class="prompt-var-doc-name">${escapeHtml(name)}</span>
+                        <span class="prompt-var-doc-desc">${escapeHtml(desc)}</span>
+                    </div>`;
+                }
+
+                // SPI variables
+                html += '<h4 style="color: #00d4ff; margin: 16px 0 10px 0; font-size: 0.95em;">SPI Variables</h4>';
+                for (const [name, desc] of Object.entries(data.spi_variables || {})) {
+                    html += `<div class="prompt-var-doc">
+                        <span class="prompt-var-doc-name">${escapeHtml(name)}</span>
+                        <span class="prompt-var-doc-desc">${escapeHtml(desc)}</span>
+                    </div>`;
+                }
+
+                // CI variables
+                html += '<h4 style="color: #00d4ff; margin: 16px 0 10px 0; font-size: 0.95em;">Company Intel Variables</h4>';
+                for (const [name, desc] of Object.entries(data.ci_variables || {})) {
+                    html += `<div class="prompt-var-doc">
+                        <span class="prompt-var-doc-name">${escapeHtml(name)}</span>
+                        <span class="prompt-var-doc-desc">${escapeHtml(desc)}</span>
+                    </div>`;
+                }
+
+                // DA variables
+                html += '<h4 style="color: #00d4ff; margin: 16px 0 10px 0; font-size: 0.95em;">Description Analysis Variables</h4>';
+                for (const [name, desc] of Object.entries(data.da_variables || {})) {
+                    html += `<div class="prompt-var-doc">
+                        <span class="prompt-var-doc-name">${escapeHtml(name)}</span>
+                        <span class="prompt-var-doc-desc">${escapeHtml(desc)}</span>
+                    </div>`;
+                }
+
+                docsDiv.innerHTML = html;
+            } catch (e) {
+                docsDiv.innerHTML = '<div class="prompt-editor-empty">Error loading variable docs: ' + escapeHtml(e.message) + '</div>';
+            }
+        }
+
+        async function exportCustomPrompts() {
+            try {
+                const resp = await fetch('/api/ai/prompts/export');
+                const blob = await resp.blob();
+
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'custom_prompts.json';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            } catch (e) {
+                alert('Error exporting prompts: ' + e.message);
+            }
+        }
+
+        async function importCustomPrompts(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const json = e.target.result;
+                    const resp = await fetch('/api/ai/prompts/import', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({
+                            prompts_json: json,
+                            merge: true
+                        })
+                    });
+
+                    const data = await resp.json();
+
+                    if (data.success) {
+                        alert(`Imported ${data.imported_count} prompts successfully!`);
+                        promptEditorLoaded = false;
+                        await loadPromptEditor();
+                    } else {
+                        let msg = 'Import completed with errors:\n' + (data.errors || []).join('\n');
+                        if (data.imported_count > 0) {
+                            msg = `Imported ${data.imported_count} prompts. Errors:\n` + (data.errors || []).join('\n');
+                        }
+                        alert(msg);
+                    }
+                } catch (err) {
+                    alert('Error importing prompts: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+
+            // Reset file input
+            event.target.value = '';
         }
 
         document.addEventListener('DOMContentLoaded', init);

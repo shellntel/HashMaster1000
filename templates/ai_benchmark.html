@@ -232,10 +232,9 @@
                 <div class="data-warning" style="margin-bottom: 10px;">No password analysis data found.</div>
                 {% endif %}
                 <div class="preset-buttons">
-                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('weak-habits', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Weak Habits</button>
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('weak-habits', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>SPI (Weak Habits)</button>
                     <button class="preset-btn section-preset" onclick="setCompareSectionPreset('company-intel', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Company Intel</button>
-                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('user-behavior', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>User Behavior</button>
-                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('recommendations', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Recommendations</button>
+                    <button class="preset-btn section-preset" onclick="setCompareSectionPreset('description-analysis', this)" {% if not data_has_content %}disabled style="opacity: 0.5; cursor: not-allowed;"{% endif %}>Description Analysis</button>
                 </div>
                 <textarea id="compare-prompt" class="prompt-area" placeholder="Enter your prompt here..."></textarea>
 
@@ -420,8 +419,8 @@ Your response should contain ONLY the formatted output, nothing else. No explana
             }
         };
 
-        // Section tests (production prompts)
-        const SECTION_TESTS = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+        // Section tests (production prompts) - active AAIA pipelines
+        const SECTION_TESTS = ['weak-habits', 'company-intel', 'description-analysis'];
 
         let quickRunning = false;
         let quickStopped = false;
@@ -672,12 +671,11 @@ Your response should contain ONLY the formatted output, nothing else. No explana
                 return;
             }
 
-            const sections = ['weak-habits', 'company-intel', 'user-behavior', 'recommendations'];
+            const sections = ['weak-habits', 'company-intel', 'description-analysis'];
             const sectionNames = {
-                'weak-habits': 'Weak Password Habits',
+                'weak-habits': 'Semantic Password Intelligence',
                 'company-intel': 'Company Intelligence',
-                'user-behavior': 'User Behavior',
-                'recommendations': 'Recommendations'
+                'description-analysis': 'Account Description Inspector'
             };
 
             // Build matrix

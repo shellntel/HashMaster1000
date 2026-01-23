@@ -21,6 +21,17 @@ Your task is to identify information that reveals organizational identity, indus
 Be thorough but precise - only include findings you are confident about."""
 
 
+def get_ci_preamble() -> str:
+    """Get the CI preamble, checking for custom override."""
+    try:
+        from .prompt_manager import get_prompt_manager
+        manager = get_prompt_manager()
+        preamble, is_custom = manager.get_prompt("preambles", "CI_PREAMBLE")
+        return preamble
+    except Exception:
+        return CI_PREAMBLE
+
+
 def get_ci_prompt(category_key: str, passwords: list[str], accounts: list[str]) -> str:
     """
     Generate the full CI prompt for a category with the password and account list.
@@ -42,7 +53,10 @@ def get_ci_prompt(category_key: str, passwords: list[str], accounts: list[str]) 
     pw_count = len(passwords)
     acct_count = len(accounts)
 
-    prompt = f"""{CI_PREAMBLE}
+    # Use custom preamble if set
+    preamble = get_ci_preamble()
+
+    prompt = f"""{preamble}
 
 CATEGORY: {category['name']}
 {category['description']}

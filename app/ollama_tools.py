@@ -4,11 +4,10 @@ Ollama Integration Toolkit for HM1K
 This module provides AI-powered analysis capabilities using a local Ollama server.
 Currently a hidden/experimental feature for internal testing.
 
-Features:
-- Executive Summary Generation
-- Semantic Password Clustering
-- Natural Language Pattern Description
-- Attack Strategy Recommendations
+Active AAIA Pipelines (see respective modules):
+- Semantic Password Intelligence (SPI): app/spi_analyzer.py, app/spi_prompts.py
+- Company Intelligence (CI): app/company_intel_analyzer.py, app/company_intel_prompts.py
+- Account Description Inspector (DA): app/description_llm_analyzer.py, app/description_llm_prompts.py
 """
 
 import os
@@ -22,22 +21,7 @@ import re
 
 from app.ollama_prompts import (
     SYSTEM_PROMPT,
-    EXECUTIVE_SUMMARY_PROMPT,
-    PATTERN_DESCRIPTION_PROMPT,
-    SEMANTIC_CLUSTERING_PROMPT,
-    ATTACK_STRATEGY_PROMPT,
-    BATCH_ANALYSIS_PROMPTS,
-    # AI Report Section Prompts
-    WEAK_HABITS_PROMPT,
-    COMPANY_INTEL_PROMPT,
-    USER_BEHAVIOR_PROMPT,
-    RISK_ASSESSMENT_PROMPT,
-    RECOMMENDATIONS_PROMPT,
-    FULL_REPORT_PROMPT,
     AI_REPORT_SECTIONS,
-    # Pipeline Prompts (Phase 2 & 3) - section-specific
-    get_validation_prompt,
-    get_formatting_prompt,
     PHASE_CONFIG,
     get_phase_config,
 )
@@ -1170,284 +1154,15 @@ class AIReportAnalyzer:
         ))
         return sections
 
-    def analyze_weak_habits(
-        self,
-        cracked_passwords: str,
-        account_passwords: str,
-        password_reuse: str,
-        length_distribution: str,
-        org_context: str,
-        total_accounts: int,
-        cracked_count: int,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Analyze weak password habits using raw password data.
-
-        This method sends raw password data to the LLM for independent pattern
-        discovery, rather than relying on pre-processed categories.
-
-        Args:
-            cracked_passwords: All cracked passwords as formatted string
-            account_passwords: Account:password pairs for context
-            password_reuse: Password reuse details
-            length_distribution: Password length distribution stats
-            org_context: Organizational context (domains, account types)
-            total_accounts: Total number of accounts analyzed
-            cracked_count: Number of passwords cracked
-            model: Model to use (defaults to section recommendation)
-            temperature: Temperature setting (defaults to section recommendation)
-        """
-        config = self.get_section_config("weak-habits")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        prompt = WEAK_HABITS_PROMPT.format(
-            cracked_passwords=cracked_passwords,
-            account_passwords=account_passwords,
-            password_reuse=password_reuse,
-            length_distribution=length_distribution,
-            org_context=org_context,
-            total_accounts=total_accounts,
-            cracked_count=cracked_count
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
-
-    def analyze_company_intel(
-        self,
-        cracked_passwords: str,
-        account_names: str,
-        org_context: str,
-        total_accounts: int,
-        cracked_count: int,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Analyze passwords and account names to infer company information.
-
-        This method sends raw data to the LLM for independent discovery of
-        company-identifying information like company name, industry, location.
-
-        Args:
-            cracked_passwords: All cracked passwords as formatted string
-            account_names: All account names grouped by domain
-            org_context: Organizational context (domains, account types)
-            total_accounts: Total number of accounts analyzed
-            cracked_count: Number of passwords cracked
-            model: Model to use (defaults to section recommendation)
-            temperature: Temperature setting (defaults to section recommendation)
-        """
-        config = self.get_section_config("company-intel")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        prompt = COMPANY_INTEL_PROMPT.format(
-            cracked_passwords=cracked_passwords,
-            account_names=account_names,
-            org_context=org_context,
-            total_accounts=total_accounts,
-            cracked_count=cracked_count
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
-
-    def analyze_user_behavior(
-        self,
-        cracked_passwords: str,
-        account_passwords: str,
-        password_reuse: str,
-        length_distribution: str,
-        org_context: str,
-        total_accounts: int,
-        cracked_count: int,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Analyze user psychology and behavior patterns from raw password data.
-
-        This method sends raw password data to the LLM for independent behavioral
-        analysis, rather than relying on pre-processed categories.
-
-        Args:
-            cracked_passwords: All cracked passwords as formatted string
-            account_passwords: Account:password pairs for context
-            password_reuse: Password reuse details
-            length_distribution: Password length distribution stats
-            org_context: Organizational context (domains, account types)
-            total_accounts: Total number of accounts analyzed
-            cracked_count: Number of passwords cracked
-            model: Model to use (defaults to section recommendation)
-            temperature: Temperature setting (defaults to section recommendation)
-        """
-        config = self.get_section_config("user-behavior")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        prompt = USER_BEHAVIOR_PROMPT.format(
-            cracked_passwords=cracked_passwords,
-            account_passwords=account_passwords,
-            password_reuse=password_reuse,
-            length_distribution=length_distribution,
-            org_context=org_context,
-            total_accounts=total_accounts,
-            cracked_count=cracked_count
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
-
-    def analyze_risk(
-        self,
-        stats: Dict[str, Any],
-        policy_failures: Dict[str, int],
-        critical_findings: List[str],
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Generate risk assessment.
-
-        Args:
-            stats: Password audit statistics
-            policy_failures: Counts of policy failures by type
-            critical_findings: List of critical findings
-            model: Model to use
-            temperature: Temperature setting
-        """
-        config = self.get_section_config("risk-assessment")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        stats_text = "\n".join(f"- {k}: {v}" for k, v in stats.items())
-        failures_text = "\n".join(f"- {policy}: {count} accounts" for policy, count in policy_failures.items())
-        findings_text = "\n".join(f"- {f}" for f in critical_findings) if critical_findings else "None identified"
-
-        prompt = RISK_ASSESSMENT_PROMPT.format(
-            stats=stats_text,
-            policy_failures=failures_text,
-            critical_findings=findings_text
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
-
-    def generate_recommendations(
-        self,
-        key_findings: List[str],
-        current_policy: Dict[str, Any],
-        worst_practices: List[str],
-        audit_stats: str = "",
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Generate security recommendations.
-
-        Args:
-            key_findings: Summary of key findings
-            current_policy: Current password policy settings
-            worst_practices: Worst password practices observed
-            audit_stats: Audit statistics summary
-            model: Model to use
-            temperature: Temperature setting
-        """
-        config = self.get_section_config("recommendations")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        findings_text = "\n".join(f"- {f}" for f in key_findings)
-        policy_text = "\n".join(f"- {k}: {v}" for k, v in current_policy.items())
-        practices_text = "\n".join(f"- {p}" for p in worst_practices)
-
-        prompt = RECOMMENDATIONS_PROMPT.format(
-            audit_stats=audit_stats,
-            key_findings=findings_text,
-            current_policy=policy_text,
-            worst_practices=practices_text
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
-
-    def generate_full_report(
-        self,
-        audit_stats: str,
-        org_context: str,
-        weak_habits_analysis: str,
-        company_intel_analysis: str,
-        user_behavior_analysis: str,
-        risk_assessment_analysis: str,
-        recommendations_analysis: str,
-        raw_data_summary: str,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None
-    ) -> Optional[str]:
-        """
-        Generate a comprehensive security assessment report.
-
-        This method synthesizes all prior AI analyses into a cohesive,
-        board-ready report. It should be called after all other sections
-        have been generated.
-
-        Args:
-            audit_stats: Complete cracking statistics
-            org_context: Organizational context
-            weak_habits_analysis: Output from weak-habits section
-            company_intel_analysis: Output from company-intel section
-            user_behavior_analysis: Output from user-behavior section
-            risk_assessment_analysis: Output from risk-assessment section
-            recommendations_analysis: Output from recommendations section
-            raw_data_summary: Summary of raw JSON data
-            model: Model to use (defaults to section recommendation)
-            temperature: Temperature setting
-        """
-        config = self.get_section_config("full-report")
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
-
-        prompt = FULL_REPORT_PROMPT.format(
-            audit_stats=audit_stats,
-            org_context=org_context,
-            weak_habits_analysis=weak_habits_analysis or "[Not yet generated]",
-            company_intel_analysis=company_intel_analysis or "[Not yet generated]",
-            user_behavior_analysis=user_behavior_analysis or "[Not yet generated]",
-            risk_assessment_analysis=risk_assessment_analysis or "[Not yet generated]",
-            recommendations_analysis=recommendations_analysis or "[Not yet generated]",
-            raw_data_summary=raw_data_summary
-        )
-
-        return self.client.generate(
-            prompt=prompt,
-            model=model,
-            system=SYSTEM_PROMPT,
-            temperature=temperature
-        )
+    # =========================================================================
+    # REMOVED: Old main prompt methods (analyze_weak_habits, analyze_company_intel,
+    # analyze_user_behavior, analyze_risk, generate_recommendations, generate_full_report)
+    #
+    # The active AAIA pipelines now use their dedicated analyzers:
+    # - SPI: app/spi_analyzer.py (Semantic Password Intelligence)
+    # - CI: app/company_intel_analyzer.py (Company Intelligence)
+    # - DA: app/description_llm_analyzer.py (Description Analysis)
+    # =========================================================================
 
     def generate_section(
         self,
@@ -1457,11 +1172,15 @@ class AIReportAnalyzer:
         temperature: Optional[float] = None
     ) -> Optional[str]:
         """
-        Generic method to generate any section by ID.
+        Legacy method - active AAIA pipelines use their dedicated analyzers.
+
+        The active pipelines (SPI, CI, DA) all have their own specialized
+        analyzers and do not use this method. This is kept for potential
+        future use or custom pipeline integration.
 
         Args:
-            section_id: The section identifier (e.g., "weak-habits")
-            data: Dictionary containing all required data for the prompt
+            section_id: The section identifier
+            data: Dictionary containing data for the prompt
             model: Override model selection
             temperature: Override temperature
         """
@@ -1469,71 +1188,12 @@ class AIReportAnalyzer:
         if not config:
             return None
 
-        # Map section IDs to their analysis methods
-        section_methods = {
-            "weak-habits": lambda: self.analyze_weak_habits(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_passwords=data.get("account_passwords", ""),
-                password_reuse=data.get("password_reuse", ""),
-                length_distribution=data.get("length_distribution", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0),
-                model=model,
-                temperature=temperature
-            ),
-            "company-intel": lambda: self.analyze_company_intel(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_names=data.get("account_names", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0),
-                model=model,
-                temperature=temperature
-            ),
-            "user-behavior": lambda: self.analyze_user_behavior(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_passwords=data.get("account_passwords", ""),
-                password_reuse=data.get("password_reuse", ""),
-                length_distribution=data.get("length_distribution", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0),
-                model=model,
-                temperature=temperature
-            ),
-            "risk-assessment": lambda: self.analyze_risk(
-                stats=data.get("stats", {}),
-                policy_failures=data.get("policy_failures", {}),
-                critical_findings=data.get("critical_findings", []),
-                model=model,
-                temperature=temperature
-            ),
-            "recommendations": lambda: self.generate_recommendations(
-                key_findings=data.get("key_findings", []),
-                current_policy=data.get("current_policy", {}),
-                worst_practices=data.get("worst_practices", []),
-                audit_stats=data.get("audit_stats", ""),
-                model=model,
-                temperature=temperature
-            ),
-            "full-report": lambda: self.generate_full_report(
-                audit_stats=data.get("audit_stats", ""),
-                org_context=data.get("org_context", ""),
-                weak_habits_analysis=data.get("weak_habits_analysis", ""),
-                company_intel_analysis=data.get("company_intel_analysis", ""),
-                user_behavior_analysis=data.get("user_behavior_analysis", ""),
-                risk_assessment_analysis=data.get("risk_assessment_analysis", ""),
-                recommendations_analysis=data.get("recommendations_analysis", ""),
-                raw_data_summary=data.get("raw_data_summary", ""),
-                model=model,
-                temperature=temperature
-            )
-        }
+        # Active pipelines use their dedicated analyzers, not this method:
+        # - weak-habits (SPI): Uses SPIAnalyzer
+        # - company-intel: Uses CIAnalyzer
+        # - description-analysis: Uses DescriptionLLMAnalyzer
 
-        method = section_methods.get(section_id)
-        if method:
-            return method()
+        # Return None as no standard prompts remain
         return None
 
     def generate_section_with_usage(
@@ -1544,7 +1204,11 @@ class AIReportAnalyzer:
         temperature: Optional[float] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Generate a section and return response with token usage info.
+        Legacy method - active AAIA pipelines use their dedicated analyzers.
+
+        The active pipelines (SPI, CI, DA) all have their own specialized
+        analyzers that handle token tracking internally. This method is
+        kept for potential future use or custom pipeline integration.
 
         Returns dict with:
         - response: The generated analysis text
@@ -1552,70 +1216,16 @@ class AIReportAnalyzer:
         - completion_tokens: Number of tokens in the response
         - total_tokens: Total tokens used
         """
-        from app.ollama_prompts import (
-            SYSTEM_PROMPT, WEAK_HABITS_PROMPT, COMPANY_INTEL_PROMPT,
-            USER_BEHAVIOR_PROMPT, RECOMMENDATIONS_PROMPT
-        )
-
         config = self.get_section_config(section_id)
         if not config:
             return None
 
-        model = model or config["recommended_model"]
-        temperature = temperature if temperature is not None else config["temperature"]
+        # Active pipelines use their dedicated analyzers:
+        # - weak-habits (SPI): Uses SPIAnalyzer
+        # - company-intel: Uses CIAnalyzer
+        # - description-analysis: Uses DescriptionLLMAnalyzer
 
-        # Build the prompt based on section
-        prompt = None
-        if section_id == "weak-habits":
-            prompt = WEAK_HABITS_PROMPT.format(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_passwords=data.get("account_passwords", ""),
-                password_reuse=data.get("password_reuse", ""),
-                length_distribution=data.get("length_distribution", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0)
-            )
-        elif section_id == "company-intel":
-            prompt = COMPANY_INTEL_PROMPT.format(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_names=data.get("account_names", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0)
-            )
-        elif section_id == "user-behavior":
-            prompt = USER_BEHAVIOR_PROMPT.format(
-                cracked_passwords=data.get("cracked_passwords", ""),
-                account_passwords=data.get("account_passwords", ""),
-                password_reuse=data.get("password_reuse", ""),
-                length_distribution=data.get("length_distribution", ""),
-                org_context=data.get("org_context", ""),
-                total_accounts=data.get("total_accounts", 0),
-                cracked_count=data.get("cracked_count", 0)
-            )
-        elif section_id == "recommendations":
-            prompt = RECOMMENDATIONS_PROMPT.format(
-                audit_stats=data.get("audit_stats", ""),
-                key_findings=data.get("key_findings", []),
-                current_policy=data.get("current_policy", {}),
-                worst_practices=data.get("worst_practices", [])
-            )
-        else:
-            # Fallback to regular generation without usage info
-            result = self.generate_section(section_id, data, model, temperature)
-            if result:
-                return {"response": result, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            return None
-
-        if prompt:
-            return self.client.generate(
-                prompt=prompt,
-                model=model,
-                system=SYSTEM_PROMPT,
-                temperature=temperature,
-                include_usage=True
-            )
+        # Return None as no standard prompts remain
         return None
 
 
@@ -3119,12 +2729,12 @@ class Tier0Validator:
         "POLICY_LANGUAGE": re.compile(r'(policy\s+requires?|must\s+comply|compliance\s+mandate)', re.IGNORECASE),
     }
 
-    # Section-specific rules
+    # Section-specific rules for active AAIA pipelines
+    # Note: SPI, CI, and DA use Python-based validation in their dedicated analyzers
     SECTION_RULES = {
         "weak-habits": ["MASKED_PASSWORD", "SPECIFIC_PERCENTAGE", "SPECIFIC_COUNT"],
         "company-intel": ["MASKED_PASSWORD", "SPECIFIC_PERCENTAGE"],
-        "user-behavior": ["MASKED_PASSWORD", "UNWANTED_SECTION", "SPECIFIC_PERCENTAGE", "SPECIFIC_COUNT"],
-        "recommendations": ["CLOUD_TERM", "FORCED_ROTATION", "POLICY_LANGUAGE"],
+        "description-analysis": ["MASKED_PASSWORD"],
     }
 
     # Thresholds for routing decisions
@@ -3165,8 +2775,9 @@ class Tier0Validator:
             result.requires_llm_validation = True
             result.suggested_model = "deepseek-r1:671b"
 
-        # For user-behavior, extract claims for focused validation
-        if section_id == "user-behavior" and result.requires_llm_validation:
+        # For sections with many claims, extract them for focused validation
+        # (Note: Active AAIA pipelines use Python-based validation in their analyzers)
+        if result.requires_llm_validation and section_id in self.SECTION_RULES:
             result.extracted_claims = self._extract_claims(content)
             # If many claims, definitely need heavy model
             if len(result.extracted_claims) > self.CLAIM_THRESHOLD:
@@ -3520,8 +3131,8 @@ class AIPipelineRunner:
                     # Use Tier-0's model suggestion, or fall back to config
                     validation_model = tier0_result.suggested_model or phase2_config.get("model", "deepseek-r1:671b")
 
-                    # For user-behavior with extracted claims, use focused validation
-                    if section_id == "user-behavior" and tier0_result.extracted_claims:
+                    # For sections with extracted claims, use focused validation
+                    if tier0_result.extracted_claims:
                         validation = self._run_claim_validation(
                             section_id=section_id,
                             phase1_content=phase1_result,

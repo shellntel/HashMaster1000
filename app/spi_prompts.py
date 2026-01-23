@@ -17,6 +17,17 @@ Your task is to identify passwords that match a specific semantic category.
 Be thorough and precise - only include passwords you are confident belong to this category."""
 
 
+def get_spi_preamble() -> str:
+    """Get the SPI preamble, checking for custom override."""
+    try:
+        from .prompt_manager import get_prompt_manager
+        manager = get_prompt_manager()
+        preamble, is_custom = manager.get_prompt("preambles", "SPI_PREAMBLE")
+        return preamble
+    except Exception:
+        return SPI_PREAMBLE
+
+
 def get_spi_prompt(category_key: str, passwords: list[str]) -> str:
     """
     Generate the full SPI prompt for a category with the password list.
@@ -35,7 +46,10 @@ def get_spi_prompt(category_key: str, passwords: list[str]) -> str:
     password_list = "\n".join(passwords)
     count = len(passwords)
 
-    prompt = f"""{SPI_PREAMBLE}
+    # Use custom preamble if set
+    preamble = get_spi_preamble()
+
+    prompt = f"""{preamble}
 
 CATEGORY: {category['name']}
 {category['description']}

@@ -1865,11 +1865,16 @@ def process_validated() -> Response:
             # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
             "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
             "project_description": request.form.get("project_description", "").strip() or existing_options.get("project_description", ""),
+            # Mark as pwdump session for filter editing support
+            "input_format": "pwdump",
         }
         # Store in session for consistency
         session["analysis_options"] = options
     else:
         options = existing_options
+        # Ensure input_format is set for pwdump sessions
+        if "input_format" not in options:
+            options["input_format"] = "pwdump"
     pwdump_path = session.get("pwdump_path")
     potfile_path = session.get("potfile_path")
 
@@ -3942,10 +3947,15 @@ def process_add_validated() -> Response:
             # Preserve company_name/project_description from session if not in form (validate.html doesn't have these)
             "company_name": request.form.get("company_name", "").strip() or existing_options.get("company_name", ""),
             "project_description": request.form.get("project_description", "").strip() or existing_options.get("project_description", ""),
+            # Mark as ADD JSON session for filter editing support
+            "input_format": "add_json",
         }
         session["analysis_options"] = options
     else:
         options = existing_options
+        # Ensure input_format is set for ADD JSON sessions
+        if "input_format" not in options:
+            options["input_format"] = "add_json"
 
     try:
         # Reconstruct validation results from session
@@ -4143,6 +4153,16 @@ def process_add_validated() -> Response:
         pw_reuse_table = password_analysis_tools.check_pw_reuse_from_account_data(account_data)
         session_mgr.save_session_data("pw_reuse_table.json", pw_reuse_table, analysis_session.session_id)
         session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
+
+        # Save ADD validation data for session reload (enables editing filters after reload)
+        add_validation_path = session_mgr.get_session_data_path("add_validation.json", analysis_session.session_id)
+        logging.info(f"Saving add_validation.json to: {add_validation_path}")
+        session_mgr.save_session_data("add_validation.json", add_data, analysis_session.session_id)
+        logging.info(f"add_validation.json saved, exists: {os.path.exists(add_validation_path)}")
+
+        # Save potfile validation data if available (for filter editing support)
+        if potfile_data:
+            session_mgr.save_session_data("potfile_validation.json", potfile_data, analysis_session.session_id)
 
         # Run Kerberoast exposure analysis if raw user data is available
         if add_result.raw_users:
@@ -5356,9 +5376,9 @@ def ai_pipeline_stream() -> Response:
     # Determine sections to process
     all_sections = get_ai_report_sections()
 
-    # Filter to only enabled sections
+    # Filter to only enabled sections (the 3 active AAIA pipelines)
     enabled_sections = [
-        s for s in ["weak-habits", "company-intel", "description-analysis", "user-behavior", "recommendations"]
+        s for s in ["weak-habits", "company-intel", "description-analysis"]
         if s in all_sections and all_sections[s].get("enabled", True)
     ]
 
@@ -5367,7 +5387,6 @@ def ai_pipeline_stream() -> Response:
     else:
         sections = [s.strip() for s in sections_param.split(",")
                     if s.strip() in all_sections
-                    and s.strip() != "full-report"
                     and all_sections[s.strip()].get("enabled", True)]
         if not sections:
             sections = enabled_sections
@@ -6039,8 +6058,8 @@ def ai_pipeline_stream() -> Response:
 
                 start = time.time()
 
-                # For user-behavior with extracted claims, use focused validation
-                if section_id == "user-behavior" and tier0_result.extracted_claims:
+                # For sections with extracted claims, use focused validation
+                if tier0_result.extracted_claims:
                     validation = runner._run_claim_validation(
                         section_id=section_id,
                         phase1_content=phase1_content,
@@ -6815,6 +6834,11 @@ def regenerate_with_settings() -> Response:
         new_include_history = new_settings.get("include_history_in_reports", "false")
 
         current_options = session.get("analysis_options", {})
+        # If Flask session lost options, try loading from file
+        if not current_options:
+            current_options = session_mgr.load_session_data("analysis_options.json") or {}
+            if current_options:
+                session["analysis_options"] = current_options
         current_domain_filter = current_options.get("domain_filter", "all")
         current_ignore_disabled = current_options.get("ignore_disabled_accounts", "false")
         current_ignore_computer = current_options.get("ignore_computer_accounts", "false")
@@ -6830,45 +6854,48 @@ def regenerate_with_settings() -> Response:
 
         # If domain or account filter changed, need to rebuild account_data from original validation
         if domain_filter_changed or account_filter_changed:
-            # Domain filter change requires re-processing from validation data
-            # Try Flask session first, then fall back to session files
-            pwdump_data = session.get("pwdump_validation")
-            potfile_data = session.get("potfile_validation")
+            # Detect session type from session metadata
+            current = session_mgr.get_current_session()
+            session_metadata = session_mgr.get_session(current.get("session_id")) if current else None
+            is_add_json_session = session_metadata and session_metadata.source_files.get("add_json")
 
-            # If not in Flask session, try loading from session files
-            if not pwdump_data:
-                pwdump_data = session_mgr.load_session_data("pwdump_validation.json")
-            if not potfile_data:
-                potfile_data = session_mgr.load_session_data("potfile_validation.json")
+            app.logger.info(f"Filter change detected. Current session: {current}")
+            app.logger.info(f"Is ADD JSON session: {is_add_json_session}")
+            if session_metadata:
+                app.logger.info(f"Source files: {session_metadata.source_files}")
 
-            if pwdump_data and potfile_data:
-                # Rebuild account data with new domain filter
-                pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
+            # Check for ADD JSON validation data first
+            add_data = session.get("add_validation")
+            app.logger.info(f"add_validation from Flask session: {'found' if add_data else 'not found'}")
+            if not add_data:
+                add_data = session_mgr.load_session_data("add_validation.json")
+                app.logger.info(f"add_validation.json from file: {'found' if add_data else 'not found'}")
+                if not add_data and current:
+                    # Log the path we're looking for
+                    expected_path = session_mgr.get_session_data_path("add_validation.json")
+                    app.logger.info(f"Expected path: {expected_path}, exists: {os.path.exists(expected_path)}")
 
-                # Optimization: If using master potfile, use cached dict directly
-                cracked_hashes = None
-                if MASTER_POTFILE_ENABLED:
-                    cracked_hashes = get_cracked_hashes_direct(MASTER_POTFILE_PATH)
+            if add_data:
+                # ADD JSON session - rebuild account data using add_to_account_data
+                add_result = file_parser.dict_to_add_result(add_data)
 
-                if cracked_hashes is not None:
-                    # Use optimized path - direct cache access
-                    account_data_for_analysis = file_parser.build_account_data_with_cache(
-                        pwdump_result,
-                        cracked_hashes,
-                        ignore_disabled=new_ignore_disabled == "true",
-                        ignore_computer_accounts=new_ignore_computer == "true",
-                        ignore_history_accounts=new_include_history != "true",
-                    )
-                else:
-                    # Fall back to standard path
+                # Get potfile data if available
+                potfile_data = session.get("potfile_validation")
+                if not potfile_data:
+                    potfile_data = session_mgr.load_session_data("potfile_validation.json")
+
+                potfile_result = None
+                if potfile_data:
                     potfile_result = file_parser.dict_to_potfile_result(potfile_data)
-                    account_data_for_analysis = file_parser.build_account_data(
-                        pwdump_result,
-                        potfile_result,
-                        ignore_disabled=new_ignore_disabled == "true",
-                        ignore_computer_accounts=new_ignore_computer == "true",
-                        ignore_history_accounts=new_include_history != "true",
-                    )
+
+                # Rebuild account data with new filter settings
+                account_data_for_analysis, _ = file_parser.add_to_account_data(
+                    add_result,
+                    potfile_result,
+                    ignore_disabled=new_ignore_disabled == "true",
+                    ignore_computer_accounts=new_ignore_computer == "true",
+                    include_historical=new_include_history == "true",
+                )
 
                 # Apply new domain filter
                 if new_domain_filter and new_domain_filter.lower() != "all":
@@ -6881,9 +6908,67 @@ def regenerate_with_settings() -> Response:
                 # Update the saved account data
                 session_mgr.save_session_data("account_data.json", account_data_for_analysis)
             else:
-                return jsonify({"success": False, "error": "Cannot change account filters - validation data not available"}), 400
-        else:
-            account_data_for_analysis = account_data if isinstance(account_data, dict) else {entry["username"]: entry for entry in account_data}
+                # Standard pwdump+potfile session
+                # Try Flask session first, then fall back to session files
+                pwdump_data = session.get("pwdump_validation")
+                potfile_data = session.get("potfile_validation")
+
+                # If not in Flask session, try loading from session files
+                if not pwdump_data:
+                    pwdump_data = session_mgr.load_session_data("pwdump_validation.json")
+                if not potfile_data:
+                    potfile_data = session_mgr.load_session_data("potfile_validation.json")
+
+                if is_add_json_session:
+                    # ADD JSON session but validation data not saved (older session)
+                    # Cannot rebuild - would need to re-parse the original file
+                    return jsonify({
+                        "success": False,
+                        "error": "Cannot change account filters for this session. This session was created before filter editing was supported. Please re-import your ADD JSON file to create a new session with filter editing support."
+                    }), 400
+
+                if pwdump_data and potfile_data:
+                    # Rebuild account data with new domain filter
+                    pwdump_result = file_parser.dict_to_validation_result(pwdump_data)
+
+                    # Optimization: If using master potfile, use cached dict directly
+                    cracked_hashes = None
+                    if MASTER_POTFILE_ENABLED:
+                        cracked_hashes = get_cracked_hashes_direct(MASTER_POTFILE_PATH)
+
+                    if cracked_hashes is not None:
+                        # Use optimized path - direct cache access
+                        account_data_for_analysis = file_parser.build_account_data_with_cache(
+                            pwdump_result,
+                            cracked_hashes,
+                            ignore_disabled=new_ignore_disabled == "true",
+                            ignore_computer_accounts=new_ignore_computer == "true",
+                            ignore_history_accounts=new_include_history != "true",
+                        )
+                    else:
+                        # Fall back to standard path
+                        potfile_result = file_parser.dict_to_potfile_result(potfile_data)
+                        account_data_for_analysis = file_parser.build_account_data(
+                            pwdump_result,
+                            potfile_result,
+                            ignore_disabled=new_ignore_disabled == "true",
+                            ignore_computer_accounts=new_ignore_computer == "true",
+                            ignore_history_accounts=new_include_history != "true",
+                        )
+
+                    # Apply new domain filter
+                    if new_domain_filter and new_domain_filter.lower() != "all":
+                        account_data_for_analysis = filter_accounts_by_domain(account_data_for_analysis, new_domain_filter)
+                        app.logger.info(f"Applied domain filter '{new_domain_filter}', {len(account_data_for_analysis)} accounts remaining")
+
+                    if not account_data_for_analysis:
+                        return jsonify({"success": False, "error": "No accounts match the selected domain filter"}), 400
+
+                    # Update the saved account data
+                    session_mgr.save_session_data("account_data.json", account_data_for_analysis)
+                else:
+                    return jsonify({"success": False, "error": "Cannot change account filters - validation data not available"}), 400
+        # else: account_data_for_analysis already set correctly at the beginning
 
         # Update session options
         options = {
@@ -7155,9 +7240,9 @@ def aaia_get_config() -> Response:
         server["running"] = client.get_running_models()
         server["version"] = client.get_version()
 
-    # AAIA sections (excluding risk-assessment and full-report for now)
+    # Active AAIA sections (SPI, CI, DA)
     # Only include enabled sections
-    all_aaia_sections = ["weak-habits", "company-intel", "description-analysis", "user-behavior", "recommendations"]
+    all_aaia_sections = ["weak-habits", "company-intel", "description-analysis"]
     aaia_sections = [s for s in all_aaia_sections if AI_REPORT_SECTIONS.get(s, {}).get("enabled", True)]
 
     sections_config = []
@@ -7216,6 +7301,283 @@ def aaia_get_config() -> Response:
         "total_accounts": total_accounts,
         "accounts_with_descriptions": accounts_with_descriptions
     })
+
+
+# =============================================================================
+# Prompt Management API Endpoints
+# =============================================================================
+
+
+@app.route("/api/ai/prompts", methods=["GET"])
+@login_required
+def list_prompts() -> Response:
+    """
+    List all prompts with their status (custom vs default).
+
+    Returns JSON with categories and their prompts:
+    {
+        "categories": {
+            "main": [{"key": "WEAK_HABITS_PROMPT", "name": "...", "is_custom": false}, ...],
+            "spi": [...],
+            ...
+        },
+        "custom_counts": {"main": 0, "spi": 2, ...},
+        "total_prompts": 31,
+        "total_custom": 2
+    }
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+    all_prompts = manager.list_all_prompts()
+    custom_counts = manager.get_custom_prompts_count()
+
+    total_prompts = sum(len(prompts) for prompts in all_prompts.values())
+    total_custom = sum(custom_counts.values())
+
+    return jsonify({
+        "categories": all_prompts,
+        "custom_counts": custom_counts,
+        "total_prompts": total_prompts,
+        "total_custom": total_custom
+    })
+
+
+@app.route("/api/ai/prompts/<category>/<name>", methods=["GET"])
+@login_required
+def get_prompt(category: str, name: str) -> Response:
+    """
+    Get a specific prompt with full details.
+
+    Returns JSON with:
+    {
+        "category": "spi",
+        "name": "sports",
+        "display_name": "Sports References",
+        "description": "...",
+        "template": "...",  # Default template
+        "current_content": "...",  # Current content (custom if set)
+        "is_custom": false,
+        "custom_content": null,
+        "variables": ["{passwords}"]
+    }
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+
+    try:
+        info = manager.get_prompt_info(category, name)
+        return jsonify({
+            "category": category,
+            "key": name,
+            "display_name": info.get("name", name),
+            "description": info.get("description", ""),
+            "template": info.get("template", ""),
+            "current_content": info.get("current_content", ""),
+            "is_custom": info.get("is_custom", False),
+            "custom_content": info.get("custom_content"),
+            "variables": info.get("variables", [])
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/api/ai/prompts/<category>/<name>", methods=["PUT"])
+@login_required
+def save_prompt(category: str, name: str) -> Response:
+    """
+    Save a custom prompt.
+
+    Request body:
+    {
+        "content": "Custom prompt text..."
+    }
+
+    Returns:
+    {
+        "success": true,
+        "message": "Prompt saved",
+        "validation": {...}  # Optional validation results
+    }
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+    data = request.get_json() or {}
+    content = data.get("content", "")
+
+    if not content:
+        return jsonify({"error": "Content is required"}), 400
+
+    try:
+        # Get expected variables for validation
+        expected_vars = manager.get_prompt_variables(category, name)
+        validation = manager.validate_prompt(content, expected_vars)
+
+        # Save the prompt
+        manager.save_prompt(category, name, content)
+
+        return jsonify({
+            "success": True,
+            "message": "Prompt saved",
+            "validation": validation
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logging.error(f"Error saving prompt: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/prompts/<category>/<name>", methods=["DELETE"])
+@login_required
+def revert_prompt(category: str, name: str) -> Response:
+    """
+    Revert to default prompt (removes custom override).
+
+    Returns:
+    {
+        "success": true,
+        "message": "Prompt reverted to default"
+    }
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+
+    try:
+        manager.revert_prompt(category, name)
+        return jsonify({
+            "success": True,
+            "message": "Prompt reverted to default"
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logging.error(f"Error reverting prompt: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/prompts/variables", methods=["GET"])
+@login_required
+def get_prompt_variables_docs() -> Response:
+    """
+    Get variable documentation for all prompt types.
+
+    Returns comprehensive documentation of available template variables
+    and what data each one contains.
+    """
+    variables_docs = {
+        "main_section_variables": {
+            "{cracked_passwords}": "List of all cracked passwords (may be sampled for large datasets)",
+            "{account_passwords}": "Passwords with associated account names (username:password pairs)",
+            "{password_reuse}": "Accounts sharing the same passwords with reuse counts",
+            "{length_distribution}": "Password length statistics and distribution",
+            "{org_context}": "Organization name and domain info derived from the data",
+            "{total_accounts}": "Total number of accounts analyzed",
+            "{cracked_count}": "Number of cracked accounts",
+            "{account_names}": "List of account/usernames for analysis",
+            "{stats}": "Summary statistics from the password audit",
+            "{policy_failures}": "List of policy compliance failures",
+            "{critical_findings}": "Critical security findings from the audit",
+            "{audit_stats}": "Complete cracking statistics",
+            "{key_findings}": "Key findings from the analysis",
+            "{current_policy}": "Current password policy settings",
+            "{worst_practices}": "Worst password practices found"
+        },
+        "spi_variables": {
+            "{passwords}": "Newline-separated list of unique passwords to analyze for semantic patterns"
+        },
+        "ci_variables": {
+            "{passwords}": "Newline-separated list of unique passwords",
+            "{accounts}": "Newline-separated list of account names for organizational analysis"
+        },
+        "da_variables": {
+            "{accounts_data}": "Account:Description pairs for AD description analysis"
+        },
+        "validation_variables": {
+            "{evidence_pack}": "Evidence data for validating claims",
+            "{content_to_validate}": "Content to be validated"
+        },
+        "formatting_variables": {
+            "{validated_content}": "Content to format for presentation"
+        },
+        "categories": {
+            "main": "Main analysis prompts (weak habits, company intel, user behavior, recommendations)",
+            "spi": "Semantic Password Intelligence - 11 categories for pattern detection",
+            "ci": "Company Intelligence - 3 categories (identity, industry, location)",
+            "da": "Description Analysis - 3 categories (passwords, PII, credentials)",
+            "validation": "Phase 2 validation prompts for fact-checking",
+            "formatting": "Phase 3 formatting prompts for presentation",
+            "preambles": "System prompts and context-setting preambles"
+        }
+    }
+
+    return jsonify(variables_docs)
+
+
+@app.route("/api/ai/prompts/export", methods=["GET"])
+@login_required
+def export_prompts() -> Response:
+    """
+    Export all custom prompts as JSON.
+
+    Returns downloadable JSON with all custom prompt overrides.
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+    export_data = manager.export_custom_prompts()
+
+    response = Response(
+        export_data,
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment;filename=custom_prompts.json"}
+    )
+    return response
+
+
+@app.route("/api/ai/prompts/import", methods=["POST"])
+@login_required
+def import_prompts() -> Response:
+    """
+    Import custom prompts from JSON.
+
+    Request body:
+    {
+        "prompts_json": "...",  # JSON string or parsed object
+        "merge": true  # If true, merge with existing. If false, replace all.
+    }
+
+    Returns:
+    {
+        "success": true,
+        "imported_count": 5,
+        "errors": []
+    }
+    """
+    from app.prompt_manager import get_prompt_manager
+
+    manager = get_prompt_manager()
+    data = request.get_json() or {}
+
+    prompts_json = data.get("prompts_json", "")
+    merge = data.get("merge", True)
+
+    if not prompts_json:
+        return jsonify({"error": "prompts_json is required"}), 400
+
+    # Handle both string and dict input
+    if isinstance(prompts_json, dict):
+        prompts_json = json.dumps(prompts_json)
+
+    result = manager.import_custom_prompts(prompts_json, merge=merge)
+
+    if result["success"]:
+        return jsonify(result)
+    else:
+        return jsonify(result), 400
 
 
 @app.route("/api/ai/report/outputs", methods=["GET"])
@@ -7470,25 +7832,23 @@ def ai_report_section_prompt(section_id: str) -> Response:
 
     Returns the prompt template with data filled in, so users can see
     exactly what will be sent to the AI.
+
+    Active pipelines: spi (weak-habits), company_intel, description_llm
     """
-    from app.ollama_tools import get_ai_data_loader, get_ai_report_sections
-    from app.ollama_prompts import (
-        SYSTEM_PROMPT, WEAK_HABITS_PROMPT, COMPANY_INTEL_PROMPT,
-        USER_BEHAVIOR_PROMPT, RISK_ASSESSMENT_PROMPT, RECOMMENDATIONS_PROMPT,
-        EXECUTIVE_SUMMARY_PROMPT
-    )
+    from app.ollama_tools import get_ai_report_sections
+    from app.ollama_prompts import SYSTEM_PROMPT
 
     sections = get_ai_report_sections()
     if section_id not in sections:
         return jsonify({"error": f"Unknown section: {section_id}"}), 400
 
     section_config = sections[section_id]
-    pipeline = section_config.get("pipeline", "standard")
+    pipeline = section_config.get("pipeline", "unknown")
 
     session_mgr = get_session_manager()
     session_dir = session_mgr.get_session_dir()
 
-    # Handle specialized pipelines with their own prompts
+    # Handle SPI pipeline
     if pipeline == "spi":
         from app.spi_analyzer import SPIAnalyzer
         from app.spi_prompts import get_spi_prompt, SPI_PREAMBLE, get_all_category_keys
@@ -7534,6 +7894,7 @@ Below is an example prompt for the '{example_category}' category:
             "note": f"Showing example prompt for '{example_category}' category. All {len(categories)} categories use similar prompts with {len(passwords)} passwords."
         })
 
+    # Handle Company Intel pipeline
     elif pipeline == "company_intel":
         from app.company_intel_analyzer import CIAnalyzer
         from app.company_intel_prompts import get_ci_prompt, CI_PREAMBLE, get_all_category_keys
@@ -7579,54 +7940,66 @@ Below is an example prompt for the '{example_category}' category:
             "note": f"Showing example prompt for '{example_category}' category. All {len(categories)} categories use similar prompts."
         })
 
-    # Standard pipeline - use generic loader
-    # Map section IDs to their prompt templates
-    PROMPTS = {
-        "weak-habits": WEAK_HABITS_PROMPT,
-        "company-intel": COMPANY_INTEL_PROMPT,
-        "user-behavior": USER_BEHAVIOR_PROMPT,
-        "risk-assessment": RISK_ASSESSMENT_PROMPT,
-        "recommendations": RECOMMENDATIONS_PROMPT,
-        "executive-summary": EXECUTIVE_SUMMARY_PROMPT
-    }
+    # Handle Description Analysis pipeline
+    elif pipeline == "description_llm":
+        from app.description_llm_analyzer import DescriptionLLMAnalyzer
+        from app.description_llm_prompts import get_da_prompt, DA_PREAMBLE, get_all_category_keys
 
-    prompt_template = PROMPTS.get(section_id)
-    if not prompt_template:
-        return jsonify({"error": f"No prompt template for section: {section_id}"}), 400
+        analyzer = DescriptionLLMAnalyzer(session_dir)
+        users_with_desc = analyzer.get_users_with_descriptions()
 
-    loader = get_ai_data_loader(session_dir)
+        if not users_with_desc:
+            return jsonify({
+                "section_id": section_id,
+                "system_prompt": DA_PREAMBLE,
+                "prompt_template": None,
+                "formatted_prompt": None,
+                "has_data": False,
+                "message": "No account descriptions available. This check requires ADD JSON data with user descriptions."
+            })
 
-    # Load section data
-    session_data = {
-        "analysis_options": session.get("analysis_options", {})
-    }
+        # Show example prompt for first category (passwords)
+        example_category = "passwords"
+        # Format a sample of accounts for the example
+        sample_accounts = users_with_desc[:5]
+        accounts_data = "\n".join([
+            f"[{u.get('SamAccountName', u.get('sam_account_name', ''))}]: {u.get('Description', u.get('description', ''))[:100]}"
+            for u in sample_accounts
+        ])
+        example_prompt = get_da_prompt(example_category, accounts_data)
 
-    if loader.has_analysis_data():
-        data = loader.load_section_data(section_id, session_data)
-    else:
-        # Return template with placeholder indicators
+        # Build explanation
+        categories = get_all_category_keys()
+        explanation = f"""=== Account Description Inspector Multi-Prompt Approach ===
+
+Description Analysis runs {len(categories)} separate LLM calls, one for each category:
+{', '.join(categories)}
+
+Each prompt sends account descriptions in chunks and asks the LLM to identify sensitive information for that category.
+
+Found {len(users_with_desc)} accounts with descriptions.
+
+Below is an example prompt for the '{example_category}' category (showing first 5 accounts):
+
+{'='*60}
+
+{example_prompt}"""
+
         return jsonify({
             "section_id": section_id,
-            "system_prompt": SYSTEM_PROMPT,
-            "prompt_template": prompt_template,
-            "formatted_prompt": None,
-            "has_data": False,
-            "message": "No analysis data available. Run a password analysis to see the formatted prompt."
+            "system_prompt": DA_PREAMBLE,
+            "prompt_template": f"DA uses {len(categories)} category-specific prompts",
+            "formatted_prompt": explanation,
+            "has_data": True,
+            "note": f"Showing example prompt for '{example_category}' category with {len(users_with_desc)} accounts."
         })
 
-    # Format the prompt with actual data
-    try:
-        formatted_prompt = prompt_template.format(**data)
-    except KeyError as e:
-        formatted_prompt = f"Error formatting prompt: missing key {e}\n\nTemplate:\n{prompt_template}"
-
+    # Unknown pipeline
     return jsonify({
+        "error": f"Unknown pipeline type: {pipeline}",
         "section_id": section_id,
-        "system_prompt": SYSTEM_PROMPT,
-        "prompt_template": prompt_template,
-        "formatted_prompt": formatted_prompt,
-        "has_data": True
-    })
+        "has_data": False
+    }), 400
 
 
 @app.route("/api/ai/report/freeform", methods=["POST"])
@@ -7717,32 +8090,54 @@ def ai_report_freeform_prompt() -> Response:
             chars = loader._load_json_file("pw_character_classes")
             replacements[placeholder] = json.dumps(chars, indent=2) if chars else "No character class data available"
         elif placeholder == "account_descriptions":
-            # Load account descriptions from ADD JSON
+            # Load account descriptions from ADD JSON with passwords from account_data
+            # Format: account_name: password: description
             add_data = loader._load_json_file("add_data")
+            account_data = loader._load_json_file("account_data")
             if add_data and "Users" in add_data:
+                # Build a map of sam_name -> password from account_data
+                pw_map: dict[str, str] = {}
+                if account_data:
+                    for username, data in account_data.items():
+                        simple_name = username.split("\\")[-1] if "\\" in username else username
+                        pw = data.get("cracked_pw", "")
+                        if pw:
+                            pw_map[simple_name.lower()] = pw
                 lines = []
                 for user in add_data["Users"]:
                     sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
                     description = user.get("Description", user.get("description", ""))
                     if sam_name and description and description.strip():
-                        lines.append(f"{sam_name}: {description}")
+                        password = pw_map.get(sam_name.lower(), "")
+                        lines.append(f"{sam_name}: {password}: {description}")
                 replacements[placeholder] = "\n".join(lines) if lines else "No account descriptions found"
             else:
                 replacements[placeholder] = "No ADD data available. Upload an ADD JSON file to use this placeholder."
         elif placeholder.startswith("account_descriptions_"):
             # Support sampled versions: account_descriptions_100, account_descriptions_500, etc.
+            # Format: account_name: password: description
             try:
                 limit = int(placeholder.split("_")[-1])
             except ValueError:
                 limit = 100
             add_data = loader._load_json_file("add_data")
+            account_data = loader._load_json_file("account_data")
             if add_data and "Users" in add_data:
+                # Build a map of sam_name -> password from account_data
+                pw_map: dict[str, str] = {}
+                if account_data:
+                    for username, data in account_data.items():
+                        simple_name = username.split("\\")[-1] if "\\" in username else username
+                        pw = data.get("cracked_pw", "")
+                        if pw:
+                            pw_map[simple_name.lower()] = pw
                 lines = []
                 for user in add_data["Users"]:
                     sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
                     description = user.get("Description", user.get("description", ""))
                     if sam_name and description and description.strip():
-                        lines.append(f"{sam_name}: {description}")
+                        password = pw_map.get(sam_name.lower(), "")
+                        lines.append(f"{sam_name}: {password}: {description}")
                         if len(lines) >= limit:
                             break
                 if lines:
@@ -8016,11 +8411,9 @@ def ai_benchmark_page() -> str:
         </div>
         '''
 
-    # Build section options (exclude full-report)
+    # Build section options for active AAIA pipelines
     section_checkboxes = ""
     for section_id, config in sorted(sections.items(), key=lambda x: x[1].get("order", 99)):
-        if section_id == "full-report":
-            continue
         section_checkboxes += f'''
         <div class="test-item">
             <input type="checkbox" id="test-{section_id}" checked>

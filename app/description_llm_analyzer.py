@@ -245,6 +245,9 @@ class DescriptionLLMAnalyzer:
         """
         Parse LLM response into structured findings.
 
+        Uses structured format parsing first, then falls back to regex-based
+        extraction if no structured findings are found.
+
         Args:
             response: Raw LLM response text
             category_key: The category being analyzed
@@ -284,6 +287,15 @@ class DescriptionLLMAnalyzer:
                 # End of a finding block
                 if current_finding.get("account"):
                     account_name = current_finding["account"]
+                    desc = desc_lookup.get(account_name.lower(), "")
+
+                    # Validate account exists in input
+                    if account_name.lower() not in desc_lookup:
+                        # Hallucinated account - skip this finding
+                        current_finding = {}
+                        current_field = None
+                        continue
+
                     finding = LLMDescriptionFinding(
                         category=current_finding.get("category", category_key),
                         value=current_finding.get("value", ""),
@@ -292,12 +304,19 @@ class DescriptionLLMAnalyzer:
                         reasoning=current_finding.get("reasoning", "")
                     )
 
+                    # Validate finding against description (hallucination detection)
+                    is_valid, validation_reason = self._validate_finding(finding, account_name, desc)
+                    if not is_valid:
+                        # Finding appears to be hallucinated - skip it
+                        current_finding = {}
+                        current_field = None
+                        continue
+
                     # Find or create account result
                     existing = next((r for r in results if r.sam_account_name.lower() == account_name.lower()), None)
                     if existing:
                         existing.findings.append(finding)
                     else:
-                        desc = desc_lookup.get(account_name.lower(), "")
                         results.append(LLMAccountResult(
                             sam_account_name=account_name,
                             description=desc,
@@ -329,24 +348,97 @@ class DescriptionLLMAnalyzer:
         # Handle last finding if no trailing ---
         if current_finding.get("account"):
             account_name = current_finding["account"]
-            finding = LLMDescriptionFinding(
-                category=current_finding.get("category", category_key),
-                value=current_finding.get("value", ""),
-                raw_value=current_finding.get("value", ""),
-                confidence=self._parse_confidence(current_finding.get("confidence", "0.8")),
-                reasoning=current_finding.get("reasoning", "")
-            )
+            desc = desc_lookup.get(account_name.lower(), "")
 
-            existing = next((r for r in results if r.sam_account_name.lower() == account_name.lower()), None)
-            if existing:
-                existing.findings.append(finding)
-            else:
-                desc = desc_lookup.get(account_name.lower(), "")
-                results.append(LLMAccountResult(
-                    sam_account_name=account_name,
-                    description=desc,
-                    findings=[finding]
-                ))
+            # Validate account exists in input
+            if account_name.lower() in desc_lookup:
+                finding = LLMDescriptionFinding(
+                    category=current_finding.get("category", category_key),
+                    value=current_finding.get("value", ""),
+                    raw_value=current_finding.get("value", ""),
+                    confidence=self._parse_confidence(current_finding.get("confidence", "0.8")),
+                    reasoning=current_finding.get("reasoning", "")
+                )
+
+                # Validate finding against description (hallucination detection)
+                is_valid, _ = self._validate_finding(finding, account_name, desc)
+                if is_valid:
+                    existing = next((r for r in results if r.sam_account_name.lower() == account_name.lower()), None)
+                    if existing:
+                        existing.findings.append(finding)
+                    else:
+                        results.append(LLMAccountResult(
+                            sam_account_name=account_name,
+                            description=desc,
+                            findings=[finding]
+                        ))
+
+        # Fallback: If no structured findings were parsed, try regex extraction
+        # This handles cases where LLM doesn't follow the exact format
+        if not results:
+            results = self._fallback_parse_response(response, category_key, desc_lookup)
+
+        return results
+
+    def _fallback_parse_response(
+        self,
+        response: str,
+        category_key: str,
+        desc_lookup: dict[str, str]
+    ) -> list[LLMAccountResult]:
+        """
+        Fallback parser for when LLM doesn't follow the structured format.
+
+        Attempts to extract findings by looking for account names from
+        the input data mentioned in the response.
+        """
+        results: list[LLMAccountResult] = []
+
+        # Look for any account names from the input mentioned in the response
+        response_lower = response.lower()
+
+        for account_name_lower, description in desc_lookup.items():
+            # Skip if account not mentioned in response
+            if account_name_lower not in response_lower:
+                continue
+
+            # Try to find context around the account mention
+            # Look for password/credential/PII indicators near the account name
+            category_indicators = {
+                "passwords": ["password", "pwd", "pass", "credential", "temp"],
+                "pii": ["ssn", "social", "dob", "birth", "phone", "cell", "email"],
+                "credentials": ["api", "key", "token", "pin", "secret", "webhook"]
+            }
+
+            indicators = category_indicators.get(category_key, [])
+            has_indicator = any(ind in response_lower for ind in indicators)
+
+            if has_indicator and description:
+                # Create a finding with lower confidence since format wasn't followed
+                finding = LLMDescriptionFinding(
+                    category=category_key,
+                    value="[extracted from unstructured response]",
+                    raw_value="",
+                    confidence=0.6,  # Lower confidence for fallback parsing
+                    reasoning="Extracted from unstructured LLM response"
+                )
+
+                # Still validate against the description
+                is_valid, _ = self._validate_finding(finding, account_name_lower, description)
+                if is_valid:
+                    # Get original case account name
+                    original_name = next(
+                        (u.get("SamAccountName", u.get("sam_account_name", ""))
+                         for u in self._users_with_desc or []
+                         if u.get("SamAccountName", u.get("sam_account_name", "")).lower() == account_name_lower),
+                        account_name_lower
+                    )
+
+                    results.append(LLMAccountResult(
+                        sam_account_name=original_name,
+                        description=description,
+                        findings=[finding]
+                    ))
 
         return results
 
@@ -361,6 +453,115 @@ class DescriptionLLMAnalyzer:
             return min(1.0, max(0.0, conf))
         except (ValueError, IndexError):
             return 0.8  # Default confidence
+
+    def _validate_finding(
+        self,
+        finding: LLMDescriptionFinding,
+        account_name: str,
+        description: str
+    ) -> tuple[bool, str]:
+        """
+        Validate that a finding is not hallucinated.
+
+        Checks that the finding value or related content actually appears
+        in the account's description.
+
+        Args:
+            finding: The finding to validate
+            account_name: Account name from the finding
+            description: The actual description for this account
+
+        Returns:
+            Tuple of (is_valid, reason)
+        """
+        if not description:
+            return False, "Account has no description"
+
+        desc_lower = description.lower()
+
+        # Extract the actual value from the finding (remove masking if present)
+        value = finding.value.strip()
+        raw_value = finding.raw_value.strip() if finding.raw_value else value
+
+        # Skip validation for empty values
+        if not value or value in ("N/A", "[redacted]", "[masked]"):
+            return False, "Finding has no value to validate"
+
+        # Try multiple validation strategies
+
+        # 1. Direct value match (exact or case-insensitive)
+        if value.lower() in desc_lower or raw_value.lower() in desc_lower:
+            return True, "Value found in description"
+
+        # 2. For masked values like "Wel********" or "***-**-6789", extract unmasked parts
+        unmasked_parts = self._extract_unmasked_parts(value)
+        if unmasked_parts:
+            matches = [part for part in unmasked_parts if part.lower() in desc_lower]
+            if matches:
+                return True, f"Unmasked portions found: {', '.join(matches)}"
+
+        # 3. For category-specific validation
+        category_lower = finding.category.lower()
+
+        # Password findings - look for password-related keywords near a value
+        if "password" in category_lower or "credential" in category_lower:
+            password_indicators = ["password", "pwd", "pass", "p/w", "pw:", "temp"]
+            if any(ind in desc_lower for ind in password_indicators):
+                return True, "Password-related keywords found in description"
+
+        # PII findings - look for PII-related keywords
+        if "pii" in category_lower or "ssn" in category_lower:
+            pii_indicators = ["ssn", "social", "dob", "birth", "phone", "cell", "mobile"]
+            if any(ind in desc_lower for ind in pii_indicators):
+                return True, "PII-related keywords found in description"
+
+        # PIN findings
+        if "pin" in category_lower:
+            pin_indicators = ["pin", "code", "voicemail", "access"]
+            if any(ind in desc_lower for ind in pin_indicators):
+                return True, "PIN-related keywords found in description"
+
+        # API/Token findings
+        if "api" in category_lower or "token" in category_lower or "webhook" in category_lower:
+            api_indicators = ["api", "key", "token", "secret", "webhook", "bearer"]
+            if any(ind in desc_lower for ind in api_indicators):
+                return True, "API/credential keywords found in description"
+
+        # 4. Check if any significant word from the value appears in description
+        # (for multi-word values or values embedded in context)
+        value_words = [w for w in re.split(r'[\s\-_@#!$%^&*()+=\[\]{}|\\:";\'<>,.?/~`]+', value) if len(w) >= 3]
+        if value_words:
+            word_matches = [w for w in value_words if w.lower() in desc_lower]
+            if word_matches:
+                return True, f"Value components found: {', '.join(word_matches)}"
+
+        # Validation failed - likely hallucination
+        return False, "Value not found in description"
+
+    def _extract_unmasked_parts(self, value: str) -> list[str]:
+        """
+        Extract unmasked portions from a partially masked value.
+
+        Examples:
+            "Wel********" -> ["Wel"]
+            "***-**-6789" -> ["6789"]
+            "sk_live_...xyz" -> ["sk_live_", "xyz"]
+        """
+        parts = []
+
+        # Remove common masking characters and extract remaining parts
+        # Split on sequences of *, x (when repeating), dots
+        segments = re.split(r'[\*]+|\.{3,}|[xX]{3,}', value)
+
+        for seg in segments:
+            seg = seg.strip('-_. ')
+            if seg and len(seg) >= 2 and not seg.replace('-', '').replace('_', '').isdigit():
+                parts.append(seg)
+            elif seg and len(seg) >= 3:
+                # Include longer numeric portions (like last 4 of SSN)
+                parts.append(seg)
+
+        return parts
 
     def analyze_category(
         self,
