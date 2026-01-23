@@ -27,6 +27,7 @@ class FindingCategory(str, Enum):
     CREDENTIAL_API_KEY = "API Key"
     CREDENTIAL_TOKEN = "Token"
     CREDENTIAL_PIN = "PIN"
+    LEGAL_HOLD = "Legal Hold"
 
 
 @dataclass
@@ -89,6 +90,7 @@ class DescriptionAnalysisSummary:
     api_key_count: int = 0
     token_count: int = 0
     pin_count: int = 0
+    legal_hold_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -114,6 +116,7 @@ class DescriptionAnalysisReport:
     findings: list[AccountDescriptionAnalysis]
     chart_data: dict[str, Any]
     sample_descriptions: list[SampleDescription] = field(default_factory=list)
+    all_descriptions: list[SampleDescription] = field(default_factory=list)  # For search functionality
     generated_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -122,6 +125,7 @@ class DescriptionAnalysisReport:
             "findings": [f.to_dict() for f in self.findings if f.has_findings],
             "chart_data": self.chart_data,
             "sample_descriptions": [s.to_dict() for s in self.sample_descriptions],
+            "all_descriptions": [s.to_dict() for s in self.all_descriptions],
             "generated_at": self.generated_at
         }
 
@@ -167,6 +171,12 @@ TOKEN_PATTERNS = [
     re.compile(r"(?i)(?:token|bearer|access[_-]?token)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-\.]{20,})['\"]?"),
     re.compile(r"(?i)(?:auth[_-]?token)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-\.]{20,})['\"]?"),
 ]
+
+# Legal hold / litigation patterns - accounts with special legal requirements
+LEGAL_HOLD_PATTERN = re.compile(
+    r"(?i)\b(litigation|legal\s*hold|legal\s*matter|e-?discovery|preserve|"
+    r"do\s*not\s*delete|dnd|retain|custodian|lawsuit|subpoena)\b"
+)
 
 
 def mask_sensitive_value(value: str, category: str) -> str:
@@ -345,6 +355,17 @@ def analyze_description_regex(description: str) -> list[DescriptionFinding]:
                 detection_method="regex"
             ))
 
+    # Check for legal hold / litigation markers
+    for match in LEGAL_HOLD_PATTERN.finditer(description):
+        raw_value = match.group(1)
+        findings.append(DescriptionFinding(
+            category=FindingCategory.LEGAL_HOLD.value,
+            value=raw_value,  # No masking needed - just the keyword
+            raw_value=raw_value,
+            confidence=0.9,
+            detection_method="regex"
+        ))
+
     return findings
 
 
@@ -370,12 +391,13 @@ def determine_severity(findings: list[DescriptionFinding]) -> str:
         FindingCategory.PII_DOB.value,
         FindingCategory.PII_EMAIL.value
     ] for f in findings)
+    has_legal = any(f.category == FindingCategory.LEGAL_HOLD.value for f in findings)
 
     if has_password or has_ssn:
         return "Critical"
     if has_credential:
         return "High"
-    if has_pii:
+    if has_pii or has_legal:
         return "Medium"
     return "Low"
 
@@ -452,6 +474,10 @@ def generate_chart_data(
         category_labels.append("PINs")
         category_counts.append(summary.pin_count)
 
+    if summary.legal_hold_count > 0:
+        category_labels.append("Legal Hold")
+        category_counts.append(summary.legal_hold_count)
+
     category_distribution = {
         "labels": category_labels,
         "datasets": [{
@@ -466,6 +492,7 @@ def generate_chart_data(
                 "rgba(168, 85, 247, 0.8)",  # Purple for API keys
                 "rgba(236, 72, 153, 0.8)",  # Pink for tokens
                 "rgba(107, 114, 128, 0.8)", # Gray for PINs
+                "rgba(14, 165, 233, 0.8)",  # Sky blue for legal hold
             ][:len(category_labels)],
             "borderColor": [
                 "rgba(239, 68, 68, 1)",
@@ -476,6 +503,7 @@ def generate_chart_data(
                 "rgba(168, 85, 247, 1)",
                 "rgba(236, 72, 153, 1)",
                 "rgba(107, 114, 128, 1)",
+                "rgba(14, 165, 233, 1)",
             ][:len(category_labels)],
             "borderWidth": 1
         }]
@@ -550,14 +578,21 @@ def analyze_descriptions(
     summary = DescriptionAnalysisSummary()
     all_findings: list[AccountDescriptionAnalysis] = []
     sample_descriptions: list[SampleDescription] = []
+    all_descriptions: list[SampleDescription] = []  # All accounts with descriptions for search
 
     summary.total_accounts_analyzed = len(users)
 
     for user in users:
         description = user.get("Description", user.get("description", ""))
+        sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
 
         if description and description.strip():
             summary.accounts_with_description += 1
+            # Collect all descriptions for search functionality
+            all_descriptions.append(SampleDescription(
+                account_name=sam_name,
+                description=description  # Full description for search
+            ))
         else:
             summary.accounts_without_description += 1
 
@@ -592,11 +627,12 @@ def analyze_descriptions(
                 elif finding.category == FindingCategory.CREDENTIAL_PIN.value:
                     summary.pin_count += 1
                     summary.credential_findings += 1
+                elif finding.category == FindingCategory.LEGAL_HOLD.value:
+                    summary.legal_hold_count += 1
         else:
             # Collect sample descriptions from accounts without findings
             # (as proof the analysis ran)
             if description and description.strip() and len(sample_descriptions) < max_samples:
-                sam_name = user.get("SamAccountName", user.get("sam_account_name", ""))
                 # Truncate long descriptions for display
                 truncated_desc = description[:100] + "..." if len(description) > 100 else description
                 sample_descriptions.append(SampleDescription(
@@ -611,5 +647,6 @@ def analyze_descriptions(
         findings=all_findings,
         chart_data=chart_data,
         sample_descriptions=sample_descriptions,
+        all_descriptions=all_descriptions,
         generated_at=datetime.now().isoformat()
     )

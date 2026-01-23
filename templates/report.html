@@ -90,18 +90,18 @@
 			<div class="report-nav-label">Jump to:</div>
 			<div class="report-nav-buttons">
 				<button class="report-nav-btn" onclick="scrollToSection('enhancedStatsSection')">Statistics</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
+				<button class="report-nav-btn" id="navMaxAge" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
 				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topDictionaryWordsChart')">Dictionary Words</button>
 				<button class="report-nav-btn" onclick="scrollToSection('badPracticesChart')">Bad Practices</button>
 				<button class="report-nav-btn" onclick="scrollToSection('tableSection')">Password Reuse</button>
-				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
-				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
 				<button class="report-nav-btn" id="navBlankPasswords" onclick="scrollToSection('policyBlankSection')">Blank Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
 				<button class="report-nav-btn" id="navPasswordHistory" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
-				<button class="report-nav-btn" id="navMaxAge" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
 				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
@@ -304,6 +304,114 @@
 			<p class="section-description" style="margin: 20px 0 0 0; font-size: 13px; color: #888; text-align: center; font-style: italic; width: 100%;">
 				<strong>Note:</strong> Account count may exceed unique hash count due to blank/duplicate passwords or disabled accounts.
 			</p>
+		</section>
+
+		<!-- Section for the (Accounts) Passwords Failing Min Length Table -->
+		<section id="policyMinLengthSection">
+			<h2>Accounts Failing Minimum Length Password Policy</h2>
+			<table
+				id="passwordFailsMinLengthTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Password</th>
+						<th>Length</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsMinLengthCSV"
+					onclick="downloadCSV('pw_fails_min_length', 'Fails_Min_Length.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="togglePasswordFailsMinLengthTable"
+					class="toggle-visibility-button"
+					onclick="togglePasswordBlur('passwordFailsMinLengthTable')"
+				>
+					Blur Passwords
+				</button>
+			</div>
+		</section>
+		<!-- Section for the (Accounts) Passwords Failing Complexity Table -->
+		<section id="policyComplexitySection">
+			<h2>Accounts Failing Password Complexity Policy</h2>
+			<table
+				id="passwordFailsComplexityTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Password</th>
+						<th># of Categories</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsComplexityCSV"
+					onclick="downloadCSV('pw_fails_complexity', 'Fails_Complexity.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="togglePasswordFailsComplexityTable"
+					class="toggle-visibility-button"
+					onclick="togglePasswordBlur('passwordFailsComplexityTable')"
+				>
+					Blur Passwords
+				</button>
+			</div>
+		</section>
+		<!-- Section for the (Accounts) Passwords Failing Max Age Table (ADD JSON only) -->
+		<section id="policyMaxAgeSection" style="display: none;">
+			<h2>Accounts Failing Maximum Age Password Policy</h2>
+			<table
+				id="passwordFailsMaxAgeTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Last Changed</th>
+						<th>Age</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadFailsMaxAgeCSV"
+					onclick="downloadCSV('pw_fails_max_age', 'Expired_Passwords.csv')"
+				>
+					Download CSV
+				</button>
+			</div>
 		</section>
 
 		<!-- Create Password Length Distribution Bar Chart -->
@@ -551,82 +659,6 @@
 				</button>
 			</div>
 		</section>
-		<!-- Section for the (Accounts) Passwords Failing Min Length Table -->
-		<section id="policyMinLengthSection">
-			<h2>Accounts Failing Minimum Length Password Policy</h2>
-			<table
-				id="passwordFailsMinLengthTable"
-				class="display"
-				style="width: 100%"
-			>
-				<thead>
-					<tr>
-						<th>Account</th>
-						<th>Password</th>
-						<th>Length</th>
-					</tr>
-				</thead>
-				<tbody>
-					<!-- Table content will be populated by JavaScript -->
-				</tbody>
-			</table>
-			<div
-				class="button-container"
-				style="text-align: center; margin-top: 10px"
-			>
-				<button
-					id="downloadFailsMinLengthCSV"
-					onclick="downloadCSV('pw_fails_min_length', 'Fails_Min_Length.csv')"
-				>
-					Download CSV
-				</button>
-				<button
-					id="togglePasswordFailsMinLengthTable"
-					class="toggle-visibility-button"
-					onclick="togglePasswordBlur('passwordFailsMinLengthTable')"
-				>
-					Blur Passwords
-				</button>
-			</div>
-		</section>
-		<!-- Section for the (Accounts) Passwords Failing Complexity Table -->
-		<section id="policyComplexitySection">
-			<h2>Accounts Failing Password Complexity Policy</h2>
-			<table
-				id="passwordFailsComplexityTable"
-				class="display"
-				style="width: 100%"
-			>
-				<thead>
-					<tr>
-						<th>Account</th>
-						<th>Password</th>
-						<th># of Categories</th>
-					</tr>
-				</thead>
-				<tbody>
-					<!-- Table content will be populated by JavaScript -->
-				</tbody>
-			</table>
-			<div
-				class="button-container"
-				style="text-align: center; margin-top: 10px"
-			>
-				<button
-					id="downloadFailsComplexityCSV"
-					onclick="downloadCSV('pw_fails_complexity', 'Fails_Complexity.csv')"
-				>
-					Download CSV
-				</button>
-				<button
-					id="togglePasswordFailsComplexityTable"
-					class="toggle-visibility-button"
-					onclick="togglePasswordBlur('passwordFailsComplexityTable')"
-				>
-					Blur Passwords
-				</button>
-			</div>
-		</section>
 		<!-- Section for Accounts with Blank Passwords Table -->
 		<section id="policyBlankSection">
 			<h2>Accounts With Blank Passwords</h2>
@@ -761,38 +793,6 @@
 
 			<div class="button-container" style="text-align: center; margin-top: 10px">
 				<button id="downloadPasswordHistoryCSV" onclick="downloadPasswordHistoryCSV()">Download CSV</button>
-			</div>
-		</section>
-
-		<!-- Section for the (Accounts) Passwords Failing Max Age Table (ADD JSON only) -->
-		<section id="policyMaxAgeSection" style="display: none;">
-			<h2>Accounts Failing Maximum Age Password Policy</h2>
-			<table
-				id="passwordFailsMaxAgeTable"
-				class="display"
-				style="width: 100%"
-			>
-				<thead>
-					<tr>
-						<th>Account</th>
-						<th>Last Changed</th>
-						<th>Age</th>
-					</tr>
-				</thead>
-				<tbody>
-					<!-- Table content will be populated by JavaScript -->
-				</tbody>
-			</table>
-			<div
-				class="button-container"
-				style="text-align: center; margin-top: 10px"
-			>
-				<button
-					id="downloadFailsMaxAgeCSV"
-					onclick="downloadCSV('pw_fails_max_age', 'Expired_Passwords.csv')"
-				>
-					Download CSV
-				</button>
 			</div>
 		</section>
 
@@ -1251,45 +1251,27 @@
 				<p style="margin-top: 8px; font-size: 0.9rem;">This analysis scans Active Directory account descriptions for sensitive information such as passwords, PII, and credentials.</p>
 			</div>
 
-			<!-- No findings panel -->
-			<div id="descriptionNoFindings" class="desc-no-findings" style="display: none;">
-				<div class="desc-success-icon">✓</div>
-				<h3>No Sensitive Information Found in Descriptions</h3>
-				<p>Good news! None of the <strong id="descTotalScanned">0</strong> account descriptions analyzed contain detectable sensitive information.</p>
-
-				<!-- Summary Stats (shown even when no findings) -->
-				<div class="desc-summary-grid desc-summary-compact">
-					<div class="desc-summary-card">
-						<div class="desc-stat-value" id="descNoFindingsWithDesc">0</div>
-						<div class="desc-stat-label">Accounts with Descriptions</div>
-					</div>
-					<div class="desc-summary-card">
-						<div class="desc-stat-value" id="descNoFindingsWithoutDesc">0</div>
-						<div class="desc-stat-label">Accounts without Descriptions</div>
-					</div>
+			<!-- No findings panel (compact version) -->
+			<div id="descriptionNoFindings" class="desc-no-findings desc-no-findings-compact" style="display: none;">
+				<div class="desc-compact-header">
+					<span class="desc-success-icon-small">✓</span>
+					<span class="desc-compact-title">No Sensitive Information Found</span>
+					<span class="desc-compact-stats">
+						<span id="descNoFindingsWithDesc">0</span> with descriptions
+						<span class="desc-stat-divider">|</span>
+						<span id="descNoFindingsWithoutDesc">0</span> without
+					</span>
 				</div>
-
-				<div class="desc-what-checked">
-					<h4>What was scanned:</h4>
-					<ul>
-						<li>Password disclosures (password:, pwd:, temp password:)</li>
-						<li>Social Security Numbers (SSN patterns)</li>
-						<li>Phone numbers</li>
-						<li>Dates of birth</li>
-						<li>API keys and tokens</li>
-						<li>PINs</li>
-					</ul>
-				</div>
-
-				<!-- Sample descriptions to prove the check ran -->
-				<div class="desc-examples" id="descExamplesContainer" style="display: none;">
-					<h4>Sample Descriptions Analyzed:</h4>
-					<ul id="descExamplesList">
+				<!-- Search descriptions manually -->
+				<div class="desc-search-container" id="descSearchContainer" style="display: none;">
+					<div class="desc-search-header">
+						<input type="text" id="descSearchInput" placeholder="Search account descriptions..." class="desc-search-input">
+						<span id="descSearchCount" class="desc-search-count"></span>
+					</div>
+					<div id="descSearchResults" class="desc-search-results" style="display: none;">
 						<!-- Populated by JavaScript -->
-					</ul>
+					</div>
 				</div>
-
-				<p class="desc-recommendation">Continue monitoring account descriptions during user provisioning and audits.</p>
 			</div>
 
 			<!-- Results when findings exist -->
@@ -1547,18 +1529,18 @@
 			<div class="report-nav-label">Jump to:</div>
 			<div class="report-nav-buttons">
 				<button class="report-nav-btn" onclick="scrollToSection('enhancedStatsSection')">Statistics</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
+				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
+				<button class="report-nav-btn" id="navMaxAgeBottom" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
 				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topDictionaryWordsChart')">Dictionary Words</button>
 				<button class="report-nav-btn" onclick="scrollToSection('badPracticesChart')">Bad Practices</button>
 				<button class="report-nav-btn" onclick="scrollToSection('tableSection')">Password Reuse</button>
-				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
-				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
 				<button class="report-nav-btn" id="navBlankPasswordsBottom" onclick="scrollToSection('policyBlankSection')">Blank Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('lmHashSection')">LM Hashes</button>
 				<button class="report-nav-btn" id="navPasswordHistoryBottom" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
-				<button class="report-nav-btn" id="navMaxAgeBottom" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
 				<button class="report-nav-btn" id="navPrivilegedAccountsBottom" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navHIBPBottom" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoastBottom" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
@@ -3233,37 +3215,87 @@
 				}
 			}
 
-			// Display "no findings" message with summary stats and sample descriptions
+			// Store all descriptions for search
+			let allDescriptions = [];
+
+			// Display "no findings" message with compact stats and search
 			function displayDescriptionNoFindings(data) {
 				document.getElementById('descriptionNotAvailable').style.display = 'none';
 				document.getElementById('descriptionResults').style.display = 'none';
 				document.getElementById('descriptionNoFindings').style.display = 'block';
 
 				const summary = data.summary || {};
-				const totalScanned = summary.total_accounts_analyzed || 0;
 				const withDesc = summary.accounts_with_description || 0;
 				const withoutDesc = summary.accounts_without_description || 0;
 
-				document.getElementById('descTotalScanned').textContent = totalScanned.toLocaleString();
 				document.getElementById('descNoFindingsWithDesc').textContent = withDesc.toLocaleString();
 				document.getElementById('descNoFindingsWithoutDesc').textContent = withoutDesc.toLocaleString();
 
-				// Show sample descriptions if available
-				const sampleDescriptions = data.sample_descriptions || [];
-				const examplesContainer = document.getElementById('descExamplesContainer');
-				const examplesList = document.getElementById('descExamplesList');
+				// Store all descriptions for search (if provided)
+				allDescriptions = data.all_descriptions || data.sample_descriptions || [];
 
-				if (sampleDescriptions.length > 0) {
-					examplesList.innerHTML = '';
-					sampleDescriptions.forEach(sample => {
-						const li = document.createElement('li');
-						li.innerHTML = `<strong>${escapeHtml(sample.account_name)}:</strong> ${escapeHtml(sample.description)}`;
-						examplesList.appendChild(li);
-					});
-					examplesContainer.style.display = 'block';
-				} else {
-					examplesContainer.style.display = 'none';
+				// Enable search if we have descriptions
+				if (allDescriptions.length > 0) {
+					document.getElementById('descSearchContainer').style.display = 'block';
+					setupDescriptionSearch();
 				}
+			}
+
+			// Setup description search functionality
+			function setupDescriptionSearch() {
+				const searchInput = document.getElementById('descSearchInput');
+				const searchResults = document.getElementById('descSearchResults');
+				const searchCount = document.getElementById('descSearchCount');
+
+				let searchTimeout = null;
+
+				searchInput.addEventListener('input', function() {
+					clearTimeout(searchTimeout);
+					const query = this.value.trim().toLowerCase();
+
+					if (query.length < 2) {
+						searchResults.style.display = 'none';
+						searchCount.textContent = '';
+						return;
+					}
+
+					searchTimeout = setTimeout(() => {
+						const matches = allDescriptions.filter(item => {
+							const account = (item.account_name || item.account || '').toLowerCase();
+							const desc = (item.description || '').toLowerCase();
+							return account.includes(query) || desc.includes(query);
+						});
+
+						searchCount.textContent = `${matches.length} match${matches.length !== 1 ? 'es' : ''}`;
+
+						if (matches.length > 0) {
+							searchResults.innerHTML = matches.slice(0, 50).map(item => {
+								const account = item.account_name || item.account || '';
+								const desc = item.description || '';
+								const highlightedDesc = highlightSearchTerm(desc, query);
+								return `<div class="desc-search-result">
+									<div class="desc-search-account">${escapeHtml(account)}</div>
+									<div class="desc-search-desc">${highlightedDesc}</div>
+								</div>`;
+							}).join('');
+							if (matches.length > 50) {
+								searchResults.innerHTML += `<div class="desc-search-no-results">Showing first 50 of ${matches.length} matches</div>`;
+							}
+							searchResults.style.display = 'block';
+						} else {
+							searchResults.innerHTML = '<div class="desc-search-no-results">No matches found</div>';
+							searchResults.style.display = 'block';
+						}
+					}, 200);
+				});
+			}
+
+			// Highlight search term in text
+			function highlightSearchTerm(text, term) {
+				if (!term) return escapeHtml(text);
+				const escaped = escapeHtml(text);
+				const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+				return escaped.replace(regex, '<span class="desc-search-highlight">$1</span>');
 			}
 
 			// Display description analysis results

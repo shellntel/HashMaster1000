@@ -24,9 +24,10 @@
 16. [AS-REP Exposure Analysis](#as-rep-exposure-analysis)
 17. [Historical Trend Analysis](#historical-trend-analysis)
 18. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
-19. [Advanced Mode](#advanced-mode)
-20. [Environment Configuration](#environment-configuration)
-21. [Licensing](#licensing)
+19. [AD Description Analysis](#ad-description-analysis)
+20. [Advanced Mode](#advanced-mode)
+21. [Environment Configuration](#environment-configuration)
+22. [Licensing](#licensing)
 
 ---
 
@@ -69,6 +70,7 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 - **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
 - **Historical Trend Analysis**: Track password security improvements across multiple assessment sessions with visual trend charts
 - **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama models with 3-phase pipeline
+- **AD Description Analysis**: Regex and AI-powered analysis of Active Directory description fields to detect sensitive information like embedded passwords, API keys, PII, and legal hold markers
 
 ---
 
@@ -1025,6 +1027,71 @@ AI_PIPELINE_DEBUG=true  # Save debug output for each phase
 ```
 
 For detailed prompt documentation, see `docs/PROMPTS.md`.
+
+---
+
+## **AD Description Analysis**
+
+Hash Master 1000 includes powerful analysis of Active Directory description fields to detect sensitive information that may have been inadvertently stored in account descriptions. This feature uses both regex-based pattern matching and optional AI-powered analysis.
+
+### **Why Analyze Descriptions?**
+
+Active Directory description fields are often overlooked during security audits, yet they frequently contain:
+
+- **Embedded passwords** written by administrators for convenience
+- **API keys and tokens** from service account documentation
+- **Personally identifiable information (PII)** like SSNs, phone numbers, and email addresses
+- **Network information** including IP addresses and hostnames
+- **Legal hold markers** indicating accounts involved in litigation
+
+### **Detection Categories**
+
+The regex-based analyzer detects the following sensitive information types:
+
+| Category | Examples | Severity |
+|----------|----------|----------|
+| **Embedded Passwords** | "password: Summer2024", "pw=admin123" | Critical |
+| **API Keys/Tokens** | API keys, bearer tokens, secrets | Critical |
+| **SSN** | Social Security Numbers (XXX-XX-XXXX format) | Critical |
+| **Credit Card** | Credit card numbers | Critical |
+| **Legal Hold** | "litigation", "legal hold", "e-discovery", "subpoena" | Medium |
+| **PII** | Phone numbers, email addresses, dates of birth | Medium |
+| **Network Info** | IP addresses, hostnames | Low |
+
+### **How It Works**
+
+1. **Automatic Detection**: When ADD JSON data is processed, descriptions are automatically scanned
+2. **Pattern Matching**: Regex patterns identify potential sensitive data
+3. **Severity Classification**: Findings are categorized by severity (Critical, High, Medium, Low)
+4. **Summary Statistics**: Dashboard shows counts by category with visual charts
+5. **Searchable Interface**: When no findings exist, a search function lets you explore descriptions for custom keywords
+
+### **AI-Powered Analysis (Optional)**
+
+When AAIA is enabled, the Description Inspector can use AI models to detect:
+
+- Context-sensitive password references that regex might miss
+- Semantic PII patterns (names, addresses in various formats)
+- Credential patterns beyond standard formats
+- Organizational-specific sensitive terms
+
+### **Viewing Results**
+
+Navigate to the **AD Description Inspector** section in the report to see:
+
+- **Summary Card**: Total accounts scanned, findings by category
+- **Category Distribution Chart**: Visual breakdown of finding types
+- **Findings Table**: Detailed list with account names, finding types, and masked values
+- **Description Search**: Search accounts by description keywords when no sensitive findings exist
+
+### **Security Recommendations**
+
+Based on findings, prioritize:
+
+1. **Critical Findings**: Immediately rotate any exposed passwords or API keys
+2. **PII Exposure**: Review data handling policies; consider clearing descriptions
+3. **Legal Hold Markers**: Ensure proper preservation procedures are followed
+4. **Network Information**: Evaluate if internal topology should be documented elsewhere
 
 ---
 
