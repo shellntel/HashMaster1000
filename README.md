@@ -24,11 +24,12 @@
 16. [AS-REP Exposure Analysis](#as-rep-exposure-analysis)
 17. [Historical Trend Analysis](#historical-trend-analysis)
 18. [Top 25 Group Memberships](#top-25-group-memberships)
-19. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
-20. [AD Description Analysis](#ad-description-analysis)
-21. [Advanced Mode](#advanced-mode)
-22. [Environment Configuration](#environment-configuration)
-23. [Licensing](#licensing)
+19. [Days Since Last Login Analysis](#days-since-last-login-analysis)
+20. [Advanced AI Analysis (AAIA)](#advanced-ai-analysis-aaia)
+21. [AD Description Analysis](#ad-description-analysis)
+22. [Advanced Mode](#advanced-mode)
+23. [Environment Configuration](#environment-configuration)
+24. [Licensing](#licensing)
 
 ---
 
@@ -70,7 +71,8 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 - **Kerberoast Exposure Analysis**: Automated identification and risk scoring of service accounts vulnerable to Kerberoasting attacks
 - **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
 - **Historical Trend Analysis**: Track password security improvements across multiple assessment sessions with visual trend charts
-- **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama models with 3-phase pipeline
+- **Days Since Last Login Analysis**: Identify stale accounts with no login activity over 90 days for security review
+- **Advanced AI Analysis (AAIA)**: AI-powered insights using local Ollama or OpenAI-compatible API models with 3-phase pipeline
 - **AD Description Analysis**: Regex and AI-powered analysis of Active Directory description fields to detect sensitive information like embedded passwords, API keys, PII, and legal hold markers
 
 ---
@@ -1025,6 +1027,56 @@ Based on the analysis, consider:
 
 ---
 
+## **Days Since Last Login Analysis**
+
+Hash Master 1000 identifies accounts with extended periods of inactivity based on their last login timestamp. This analysis helps identify stale, dormant, or potentially orphaned accounts that may pose security risks.
+
+### **Requirements**
+
+This feature requires ADD JSON input with the `LastLogonTimestamp` field populated.
+
+### **How It Works**
+
+When ADD JSON data is processed with login timestamps, Hash Master 1000:
+
+1. **Calculates Login Age**: Determines days since each account's last login
+2. **Filters Stale Accounts**: Identifies accounts with no login activity in over 90 days
+3. **Correlates with Crack Status**: Shows which stale accounts have cracked passwords
+4. **Provides Account Context**: Displays account status (Enabled/Disabled) and cracked password if available
+
+### **Report Output**
+
+The Days Since Last Login section displays:
+
+- **Summary Statistics**: Total accounts analyzed, accounts with login data, stale account count
+- **Stale Accounts Table**: Sortable/searchable table showing:
+  - Account name
+  - Days since last login
+  - Account status (Enabled/Disabled)
+  - Cracked password (blurred by default for privacy)
+- **CSV Export**: Download the full data for offline analysis
+- **Show Passwords Toggle**: Reveal blurred passwords when needed
+
+### **Security Implications**
+
+Stale accounts (90+ days without login) can indicate:
+
+- **Orphaned Accounts**: Accounts belonging to former employees that were never disabled
+- **Service Account Issues**: Automated accounts that may have stopped functioning
+- **Shared Account Problems**: Accounts that were abandoned after being shared
+- **Compliance Risks**: Accounts that should have been disabled per policy
+
+### **Recommendations**
+
+Based on the analysis, consider:
+
+1. **Disable Stale Accounts**: Accounts with no recent login should be disabled pending review
+2. **Prioritize Cracked Stale Accounts**: These are high-risk since attackers could use abandoned accounts
+3. **Investigate Enabled Stale Accounts**: Why hasn't the user logged in? Have they left the organization?
+4. **Implement Dormant Account Policies**: Automatically disable accounts after extended inactivity periods
+
+---
+
 ## **Advanced AI Analysis (AAIA)**
 
 Hash Master 1000 includes an optional AI-powered analysis feature that generates executive-ready insights from your password audit data.
@@ -1041,9 +1093,36 @@ Hash Master 1000 includes an optional AI-powered analysis feature that generates
 
 ### **Requirements**
 
-- **Ollama Server**: Local or remote Ollama instance
-- **Recommended Models**: `deepseek-r1:671b` (reasoning), `llama3.1:70b` (fast)
+- **AI Backend**: Either a local/remote Ollama instance OR an OpenAI-compatible API endpoint
+- **Recommended Models**: `deepseek-r1:671b` (reasoning), `llama3.1:70b` (fast), or cloud models via OpenAI API
 - **Configuration**: Set `OLLAMA_ENABLED=true` in `.env`
+
+### **OpenAI-Compatible API Support**
+
+AAIA supports any OpenAI-compatible API endpoint, enabling use with:
+
+- **OpenAI**: GPT-4, GPT-4o, GPT-3.5-turbo
+- **OpenRouter**: Access to Claude, Gemini, Llama, Mistral, and other models
+- **vLLM**: Self-hosted OpenAI-compatible server
+- **LM Studio**: Local models with OpenAI API compatibility
+- **Azure OpenAI**: Microsoft's hosted OpenAI models
+
+Configure an OpenAI-compatible endpoint:
+
+```bash
+# OpenAI
+OLLAMA_HOST="https://api.openai.com/v1"
+OPENAI_API_KEY="sk-..."
+
+# OpenRouter
+OLLAMA_HOST="https://openrouter.ai/api/v1"
+OPENAI_API_KEY="sk-or-..."
+
+# Local vLLM/LM Studio
+OLLAMA_HOST="http://localhost:8000/v1"
+```
+
+The system auto-detects API type based on response format and adjusts accordingly.
 
 ### **3-Phase Pipeline**
 

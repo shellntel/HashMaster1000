@@ -292,13 +292,25 @@
         }
 
         async function loadStatus() {
-            try {
-                const response = await fetch('/api/hibp/download/info');
-                const data = await response.json();
+            const dbStatus = document.getElementById('dbStatus');
+            const hashCount = document.getElementById('hashCount');
+            const configuredPath = document.getElementById('configuredPath');
 
-                const dbStatus = document.getElementById('dbStatus');
-                const hashCount = document.getElementById('hashCount');
-                const configuredPath = document.getElementById('configuredPath');
+            try {
+                // Add timeout to prevent hanging
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+                const response = await fetch('/api/hibp/download/info', {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
 
                 if (data.local_database.loaded) {
                     dbStatus.textContent = 'Loaded';
@@ -322,6 +334,14 @@
                 }
             } catch (error) {
                 console.error('Failed to load status:', error);
+                // Show error state instead of leaving "Checking..."
+                dbStatus.textContent = 'Error Loading';
+                dbStatus.style.color = '#fbbf24';
+                dbStatus.style.textShadow = '0 0 10px rgba(251, 191, 36, 0.4)';
+                hashCount.textContent = '-';
+                configuredPath.textContent = error.name === 'AbortError' ? '(request timeout - click to retry)' : `(error: ${error.message})`;
+                configuredPath.style.cursor = 'pointer';
+                configuredPath.onclick = () => { configuredPath.onclick = null; configuredPath.style.cursor = ''; loadStatus(); };
             }
         }
 
@@ -666,13 +686,30 @@
         // Update loadStatus to include SQLite info
         const originalLoadStatus = loadStatus;
         loadStatus = async function() {
-            try {
-                const response = await fetch('/api/hibp/download/info');
-                const data = await response.json();
+            const dbStatus = document.getElementById('dbStatus');
+            const hashCount = document.getElementById('hashCount');
+            const configuredPath = document.getElementById('configuredPath');
 
-                const dbStatus = document.getElementById('dbStatus');
-                const hashCount = document.getElementById('hashCount');
-                const configuredPath = document.getElementById('configuredPath');
+            // Show loading state
+            dbStatus.textContent = 'Checking...';
+            dbStatus.style.color = '#71717a';
+            dbStatus.style.textShadow = 'none';
+
+            try {
+                // Add timeout to prevent hanging
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+                const response = await fetch('/api/hibp/download/info', {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
 
                 if (data.local_database.loaded) {
                     const modeLabel = data.local_database.mode === 'sqlite' ? ' (SQLite)' : ' (Text)';
@@ -688,6 +725,8 @@
                 }
 
                 configuredPath.textContent = data.configured_path || '(not configured)';
+                configuredPath.style.cursor = '';
+                configuredPath.onclick = null;
 
                 // Update SQLite UI
                 updateSqliteUI(data);
@@ -700,6 +739,14 @@
                 }
             } catch (error) {
                 console.error('Failed to load status:', error);
+                // Show error state instead of leaving "Checking..."
+                dbStatus.textContent = 'Error Loading';
+                dbStatus.style.color = '#fbbf24';
+                dbStatus.style.textShadow = '0 0 10px rgba(251, 191, 36, 0.4)';
+                hashCount.textContent = '-';
+                configuredPath.textContent = error.name === 'AbortError' ? '(request timeout - click to retry)' : `(error: ${error.message})`;
+                configuredPath.style.cursor = 'pointer';
+                configuredPath.onclick = () => { configuredPath.onclick = null; configuredPath.style.cursor = ''; loadStatus(); };
             }
         };
 
