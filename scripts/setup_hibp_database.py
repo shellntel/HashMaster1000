@@ -72,7 +72,9 @@ def format_time(seconds: float) -> str:
 
 
 def progress_callback(state: SQLiteConversionState) -> None:
-    """Print progress during conversion."""
+    """Print progress during conversion and optionally write to status file."""
+    import json
+
     pct = state.progress_percentage
     processed = state.processed_lines
     total = state.total_lines
@@ -88,6 +90,30 @@ def progress_callback(state: SQLiteConversionState) -> None:
 
     print(f"\r  Progress: {pct:.1f}% ({processed:,}/{total:,} lines) - "
           f"Elapsed: {elapsed} - Remaining: {remaining_str}    ", end="", flush=True)
+
+    # Write to status file if running as subprocess
+    status_file = os.environ.get('HIBP_CONVERSION_STATUS_FILE')
+    if status_file:
+        try:
+            status_data = {
+                'status': state.status,
+                'started_at': state.started_at.isoformat() if state.started_at else None,
+                'completed_at': state.completed_at.isoformat() if state.completed_at else None,
+                'input_path': state.input_path,
+                'output_path': state.output_path,
+                'total_lines': total,
+                'processed_lines': processed,
+                'inserted_rows': state.inserted_rows,
+                'progress_percentage': pct,
+                'elapsed_seconds': round(state.elapsed_seconds, 1),
+                'output_size_bytes': state.output_size_bytes,
+                'error_message': state.error_message,
+                'pid': os.getpid(),
+            }
+            with open(status_file, 'w') as f:
+                json.dump(status_data, f)
+        except Exception:
+            pass  # Don't fail conversion due to status file issues
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
@@ -147,6 +173,9 @@ def cmd_convert(args: argparse.Namespace) -> int:
     print()  # New line after progress
     print()
 
+    # Write final status to status file if running as subprocess
+    status_file = os.environ.get('HIBP_CONVERSION_STATUS_FILE')
+
     if success:
         elapsed = time.time() - start_time
         db_size = os.path.getsize(result_path) if result_path else 0
@@ -168,9 +197,53 @@ def cmd_convert(args: argparse.Namespace) -> int:
         else:
             print("  Warning: Could not verify database")
 
+        # Write success status
+        if status_file:
+            try:
+                import json
+                from datetime import datetime
+                status_data = {
+                    'status': 'complete',
+                    'started_at': None,  # Will be read from existing file
+                    'completed_at': datetime.now().isoformat(),
+                    'input_path': text_file,
+                    'output_path': result_path,
+                    'output_size_bytes': db_size,
+                    'total_lines': db_info['hash_count'] if db_info else 0,
+                    'processed_lines': db_info['hash_count'] if db_info else 0,
+                    'inserted_rows': db_info['hash_count'] if db_info else 0,
+                    'progress_percentage': 100.0,
+                    'elapsed_seconds': round(elapsed, 1),
+                    'error_message': None,
+                    'pid': os.getpid(),
+                }
+                with open(status_file, 'w') as f:
+                    json.dump(status_data, f)
+            except Exception as e:
+                print(f"  Warning: Could not write status file: {e}")
+
         return 0
     else:
         print(f"Error: {message}")
+
+        # Write error status
+        if status_file:
+            try:
+                import json
+                from datetime import datetime
+                status_data = {
+                    'status': 'error',
+                    'completed_at': datetime.now().isoformat(),
+                    'input_path': text_file,
+                    'output_path': db_path,
+                    'error_message': message,
+                    'pid': os.getpid(),
+                }
+                with open(status_file, 'w') as f:
+                    json.dump(status_data, f)
+            except Exception:
+                pass
+
         return 1
 
 

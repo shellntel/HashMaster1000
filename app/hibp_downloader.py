@@ -982,25 +982,149 @@ class SQLiteConversionState:
         }
 
 
-def get_conversion_status() -> dict:
-    """Get the current SQLite conversion status."""
+def get_conversion_status(text_file_path: str | None = None) -> dict:
+    """
+    Get the current SQLite conversion status.
+
+    First checks for subprocess-based conversion status file,
+    then falls back to in-memory state for backwards compatibility.
+
+    Args:
+        text_file_path: Optional path to the input file (to find status file)
+
+    Returns:
+        Status dictionary with conversion progress
+    """
     global _conversion_state
 
+    # Try to find status file
+    status_file = None
+
+    if text_file_path:
+        status_file = _get_conversion_status_file(text_file_path)
+    else:
+        # Try to find any active conversion status file in common locations
+        common_paths = [
+            os.environ.get("HIBP_LOCAL_DB_PATH", ""),
+            "data/pwnedpasswords-ntlm.txt",
+        ]
+        for path in common_paths:
+            if path:
+                candidate = _get_conversion_status_file(path)
+                if os.path.exists(candidate):
+                    status_file = candidate
+                    break
+
+    # Read from status file if it exists
+    if status_file and os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                status_data = json.load(f)
+
+            # Check if the process is still running
+            if status_data.get('status') == 'converting':
+                pid = status_data.get('pid')
+                if pid and not _is_process_running(pid):
+                    # Process died unexpectedly
+                    status_data['status'] = 'error'
+                    status_data['error_message'] = f'Conversion process (PID {pid}) terminated unexpectedly'
+                    # Update status file
+                    try:
+                        with open(status_file, 'w') as f:
+                            json.dump(status_data, f)
+                    except IOError:
+                        pass
+
+            return status_data
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to read conversion status file: {e}")
+
+    # Fall back to in-memory state (for direct convert_text_to_sqlite calls)
     with _conversion_lock:
         if _conversion_state is None:
             return {"status": "idle"}
         return _conversion_state.to_dict()
 
 
-def cancel_conversion() -> bool:
-    """Request cancellation of an active conversion."""
-    global _conversion_state
+def cancel_conversion(text_file_path: str | None = None) -> bool:
+    """
+    Request cancellation of an active conversion.
 
+    For subprocess-based conversions, sends SIGTERM to the process.
+    For in-memory conversions, sets the cancel flag.
+
+    Args:
+        text_file_path: Optional path to the input file (to find status file)
+
+    Returns:
+        True if cancellation was requested, False otherwise
+    """
+    global _conversion_state
+    import signal
+
+    # Try subprocess cancellation first
+    status_file = None
+    if text_file_path:
+        status_file = _get_conversion_status_file(text_file_path)
+    else:
+        # Try to find any active conversion
+        common_paths = [
+            os.environ.get("HIBP_LOCAL_DB_PATH", ""),
+            "data/pwnedpasswords-ntlm.txt",
+        ]
+        for path in common_paths:
+            if path:
+                candidate = _get_conversion_status_file(path)
+                if os.path.exists(candidate):
+                    status_file = candidate
+                    break
+
+    if status_file and os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                status_data = json.load(f)
+
+            if status_data.get('status') == 'converting':
+                pid = status_data.get('pid')
+                if pid and _is_process_running(pid):
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        logger.info(f"Sent SIGTERM to conversion process (PID {pid})")
+
+                        # Update status file
+                        status_data['status'] = 'cancelled'
+                        status_data['error_message'] = 'Cancelled by user'
+                        with open(status_file, 'w') as f:
+                            json.dump(status_data, f)
+
+                        return True
+                    except OSError as e:
+                        logger.error(f"Failed to kill conversion process: {e}")
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Failed to read conversion status file: {e}")
+
+    # Fall back to in-memory cancellation
     with _conversion_lock:
         if _conversion_state is None or _conversion_state.status != "converting":
             return False
         _conversion_state.cancel_requested = True
         return True
+
+
+def _get_conversion_status_file(text_file_path: str) -> str:
+    """Get the path to the conversion status file for a given input file."""
+    # Put status file next to the database file
+    base_path = os.path.splitext(text_file_path)[0]
+    return base_path + ".conversion_status.json"
+
+
+def _is_process_running(pid: int) -> bool:
+    """Check if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def convert_text_to_sqlite(
@@ -1258,31 +1382,123 @@ def start_conversion_background(
     skip_vacuum: bool = True
 ) -> bool:
     """
-    Start SQLite conversion in a background thread.
+    Start SQLite conversion as a detached subprocess.
+
+    This spawns an independent process that continues even if the web server
+    worker is recycled, which is essential for long-running conversions
+    (70GB+ files can take 30+ minutes).
 
     Args:
         text_file_path: Path to the HIBP text file
         db_output_path: Path for the output SQLite database
-        progress_callback: Optional callback for progress updates
+        progress_callback: Optional callback for progress updates (not used in subprocess mode)
         skip_vacuum: Skip VACUUM optimization (default True - saves disk space)
 
     Returns:
         True if conversion started, False if already running
     """
+    import subprocess
+    import sys
+
     global _conversion_state
 
-    with _conversion_lock:
-        if _conversion_state is not None and _conversion_state.status == "converting":
-            return False
+    # Check if already running via status file
+    status_file = _get_conversion_status_file(text_file_path)
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                status_data = json.load(f)
+            if status_data.get('status') == 'converting':
+                # Check if the process is actually still running
+                pid = status_data.get('pid')
+                if pid and _is_process_running(pid):
+                    return False
+                # Process died, clean up stale status
+                logger.warning(f"Found stale conversion status file (PID {pid} not running), cleaning up")
+        except (json.JSONDecodeError, IOError):
+            pass
 
-    thread = threading.Thread(
-        target=convert_text_to_sqlite,
-        args=(text_file_path, db_output_path, 100000, progress_callback, skip_vacuum),
-        daemon=True
-    )
-    thread.start()
+    # Determine output path
+    if db_output_path is None:
+        base_path = os.path.splitext(text_file_path)[0]
+        db_output_path = base_path + ".db"
 
-    return True
+    # Find the conversion script
+    # Look relative to the app directory
+    app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script_path = os.path.join(app_dir, 'scripts', 'setup_hibp_database.py')
+
+    if not os.path.exists(script_path):
+        logger.error(f"Conversion script not found: {script_path}")
+        return False
+
+    # Find python executable (use the same one running this code)
+    python_exe = sys.executable
+
+    # Build command
+    cmd = [
+        python_exe,
+        script_path,
+        '--convert', text_file_path,
+        '--output', db_output_path,
+        '--force',  # Overwrite if exists
+        '--yes',    # Skip confirmation
+    ]
+
+    # Write initial status file
+    status_data = {
+        'status': 'starting',
+        'started_at': datetime.now().isoformat(),
+        'input_path': text_file_path,
+        'output_path': db_output_path,
+        'total_lines': 0,
+        'processed_lines': 0,
+        'progress_percentage': 0,
+        'pid': None,
+        'error_message': None
+    }
+
+    try:
+        with open(status_file, 'w') as f:
+            json.dump(status_data, f)
+    except IOError as e:
+        logger.error(f"Failed to write status file: {e}")
+        return False
+
+    # Spawn detached subprocess
+    try:
+        # Use start_new_session=True to fully detach from parent process group
+        # This ensures the conversion continues even if Gunicorn worker dies
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            cwd=app_dir,
+            env={
+                **os.environ,
+                'HIBP_CONVERSION_STATUS_FILE': status_file,
+            }
+        )
+
+        # Update status with PID
+        status_data['status'] = 'converting'
+        status_data['pid'] = process.pid
+        with open(status_file, 'w') as f:
+            json.dump(status_data, f)
+
+        logger.info(f"Started HIBP conversion subprocess (PID {process.pid}): {text_file_path} -> {db_output_path}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to start conversion subprocess: {e}")
+        # Clean up status file
+        try:
+            os.remove(status_file)
+        except IOError:
+            pass
+        return False
 
 
 def get_sqlite_db_info(db_path: str) -> dict | None:
