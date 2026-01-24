@@ -1469,6 +1469,11 @@ def start_conversion_background(
     try:
         # Use start_new_session=True to fully detach from parent process group
         # This ensures the conversion continues even if Gunicorn worker dies
+        # Set PYTHONPATH so the script can import the app module
+        env = os.environ.copy()
+        env['HIBP_CONVERSION_STATUS_FILE'] = status_file
+        env['PYTHONPATH'] = app_dir + os.pathsep + env.get('PYTHONPATH', '')
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -1476,10 +1481,7 @@ def start_conversion_background(
             stdin=subprocess.DEVNULL,
             start_new_session=True,
             cwd=app_dir,
-            env={
-                **os.environ,
-                'HIBP_CONVERSION_STATUS_FILE': status_file,
-            }
+            env=env,
         )
 
         # Update status with PID
