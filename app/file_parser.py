@@ -1498,6 +1498,7 @@ class ADDAccountEntry:
     user_account_control: list[str]  # Flags like "NORMAL_ACCOUNT", "ACCOUNT_DISABLED"
     is_disabled: bool
     pwd_last_set: str | None
+    last_logon: str | None  # Last logon timestamp from AD
 
     # Privilege detection (computed)
     is_privileged: bool = False
@@ -1529,6 +1530,7 @@ class ADDAccountEntry:
             "user_account_control": self.user_account_control,
             "is_disabled": self.is_disabled,
             "pwd_last_set": self.pwd_last_set,
+            "last_logon": self.last_logon,
             "is_privileged": self.is_privileged,
             "privilege_level": self.privilege_level,
             "privilege_groups": self.privilege_groups,
@@ -1573,6 +1575,7 @@ class ADDAccountEntry:
             user_account_control=data.get("user_account_control", []),
             is_disabled=data.get("is_disabled", False),
             pwd_last_set=data.get("pwd_last_set"),
+            last_logon=data.get("last_logon"),
             is_privileged=data.get("is_privileged", False),
             privilege_level=data.get("privilege_level", "standard"),
             privilege_groups=data.get("privilege_groups", []),
@@ -1940,6 +1943,10 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             if domain_part:
                 domains_seen.add(domain_part)
 
+        # Parse last logon (can be "0" for never logged in, or a date string)
+        last_logon_raw = user.get("LastLogon", "0")
+        last_logon = None if last_logon_raw in ("0", "", None) else str(last_logon_raw)
+
         # Create entry
         entry = ADDAccountEntry(
             sam_account_name=sam_account_name,
@@ -1954,6 +1961,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             user_account_control=user_account_control,
             is_disabled=is_disabled,
             pwd_last_set=user.get("PwdLastSet"),
+            last_logon=last_logon,
             is_privileged=is_privileged,
             privilege_level=privilege_level,
             privilege_groups=privilege_groups,
@@ -2065,6 +2073,7 @@ def add_to_account_data(
             "locked": None,
             "disabled": entry.is_disabled,
             "last_pw_change": entry.pwd_last_set,
+            "last_logon": entry.last_logon,
             "rid": entry.rid,
             # Extended fields from ADD
             "is_privileged": entry.is_privileged,

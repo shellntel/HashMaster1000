@@ -634,6 +634,76 @@ def crack_stats_single_pass(
     return report
 
 
+def stale_login_analysis(
+    account_data: dict[str, Any],
+    max_days: int = 90,
+) -> dict[str, Any]:
+    """
+    Analyze accounts by days since last login.
+
+    Args:
+        account_data: Dictionary of account entries with last_logon field.
+        max_days: Maximum days since login threshold (default 90 days).
+
+    Returns:
+        Dictionary with stale_logins data for all accounts exceeding the threshold,
+        sorted by days since last login (descending).
+    """
+    from datetime import datetime, date
+
+    today = date.today()
+    stale_accounts: dict[str, dict[str, Any]] = {}
+
+    for account_name, account_info in account_data.items():
+        # Skip historical entries
+        if account_info.get("is_historical"):
+            continue
+
+        last_logon = account_info.get("last_logon")
+        if not last_logon or last_logon in ("0", ""):
+            continue
+
+        # Parse the last logon date
+        logon_date = None
+        if isinstance(last_logon, str):
+            # Try multiple date formats
+            for fmt in ["%m/%d/%Y", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d", "%d/%m/%Y"]:
+                try:
+                    logon_date = datetime.strptime(last_logon.split()[0] if " " in last_logon and fmt == "%m/%d/%Y" else last_logon, fmt).date()
+                    break
+                except ValueError:
+                    continue
+
+        if logon_date is None:
+            continue
+
+        days_since_login = (today - logon_date).days
+
+        # Only include accounts exceeding the 90-day threshold
+        if days_since_login > max_days:
+            # Get account status and cracked password
+            is_disabled = account_info.get("disabled", False)
+            cracked_pw = account_info.get("cracked_pw")
+
+            stale_accounts[account_name] = {
+                "last_logon": last_logon,
+                "days_since_login": days_since_login,
+                "is_enabled": not is_disabled,
+                "cracked_password": cracked_pw if cracked_pw else None,
+            }
+
+    # Sort by days_since_login descending (return all accounts, not just top N)
+    sorted_accounts = dict(
+        sorted(
+            stale_accounts.items(),
+            key=lambda x: x[1]["days_since_login"],
+            reverse=True
+        )
+    )
+
+    return sorted_accounts
+
+
 def substring_analysis(
     entries: list[dict[str, str]],
     min_length: int = 4,

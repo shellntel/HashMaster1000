@@ -2095,6 +2095,12 @@ def process_validated() -> Response:
         session_mgr.save_session_data("analysis_options.json", options, analysis_session.session_id)
         session_mgr.save_session_data("password_history_patterns.json", history_pattern_results, analysis_session.session_id)
 
+        # Calculate stale logins (days since last login exceeding 90 days)
+        stale_logins = password_analysis_tools.stale_login_analysis(
+            account_data, max_days=90
+        )
+        session_mgr.save_session_data("stale_logins.json", stale_logins, analysis_session.session_id)
+
         # Save validation data for domain filter changes later
         session_mgr.save_session_data("pwdump_validation.json", pwdump_data, analysis_session.session_id)
         session_mgr.save_session_data("potfile_validation.json", potfile_data, analysis_session.session_id)
@@ -2479,6 +2485,16 @@ def pw_blank_table() -> Response:
 @login_required
 def pw_max_age_table() -> Response:
     data = _load_session_json("pw_fails_max_age.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for Stale Logins (Days Since Last Login)
+@app.route("/stale_logins")
+@login_required
+def stale_logins_table() -> Response:
+    data = _load_session_json("stale_logins.json")
     if data is None:
         return jsonify({"error": "No data available"}), 404
     return jsonify(data)
@@ -4144,6 +4160,12 @@ def process_add_validated() -> Response:
         session_mgr.save_session_data("pw_lm_hashes.json", stats_report["pw_lm_hashes"], analysis_session.session_id)
         session_mgr.save_session_data("pw_bad_practices.json", bad_practices, analysis_session.session_id)
         session_mgr.save_session_data("account_data.json", account_data, analysis_session.session_id)
+
+        # Calculate stale logins (days since last login exceeding 90 days)
+        stale_logins = password_analysis_tools.stale_login_analysis(
+            account_data, max_days=90
+        )
+        session_mgr.save_session_data("stale_logins.json", stale_logins, analysis_session.session_id)
 
         # Save ADD-specific data files
         if add_result.domain_policy:

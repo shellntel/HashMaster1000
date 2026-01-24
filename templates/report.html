@@ -93,6 +93,7 @@
 				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
 				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
 				<button class="report-nav-btn" id="navMaxAge" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
+				<button class="report-nav-btn" id="navStaleLogins" onclick="scrollToSection('staleLoginsSection')" style="display: none;">Stale Logins</button>
 				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
@@ -411,6 +412,50 @@
 					onclick="downloadCSV('pw_fails_max_age', 'Expired_Passwords.csv')"
 				>
 					Download CSV
+				</button>
+			</div>
+		</section>
+
+		<!-- Section for Days Since Last Login Table (ADD JSON only) -->
+		<section id="staleLoginsSection" style="display: none;">
+			<h2>Days Since Last Login</h2>
+			<p class="section-description">
+				Accounts that have not logged in for more than 90 days, sorted by days since last login.
+			</p>
+			<table
+				id="staleLoginsTable"
+				class="display"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Last Login</th>
+						<th>Days Since Login</th>
+						<th>Status</th>
+						<th>Cracked Password</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadStaleLoginsCSV"
+					onclick="downloadCSV('stale_logins', 'Stale_Logins.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="toggleStaleLoginsPasswords"
+					class="toggle-visibility-button"
+					onclick="toggleStaleLoginsPasswordVisibility()"
+				>
+					Show Passwords
 				</button>
 			</div>
 		</section>
@@ -1576,6 +1621,7 @@
 				<button class="report-nav-btn" onclick="scrollToSection('policyMinLengthSection')">Min Length</button>
 				<button class="report-nav-btn" onclick="scrollToSection('policyComplexitySection')">Complexity</button>
 				<button class="report-nav-btn" id="navMaxAgeBottom" onclick="scrollToSection('policyMaxAgeSection')" style="display: none;">Max Age</button>
+				<button class="report-nav-btn" id="navStaleLoginsBottom" onclick="scrollToSection('staleLoginsSection')" style="display: none;">Stale Logins</button>
 				<button class="report-nav-btn" onclick="scrollToSection('passwordLengthChart')">Length Distribution</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topPasswordsChart')">Top Passwords</button>
 				<button class="report-nav-btn" onclick="scrollToSection('topSubstringsChart')">Substrings</button>
@@ -6501,7 +6547,7 @@
 								}
 							}
 						],
-						order: [[1, "asc"], [0, "asc"]], // Sort by status first (Enabled < Disabled alphabetically), then account name
+						order: [[1, "desc"], [0, "asc"]], // Sort by status first (Enabled before Disabled), then account name
 						responsive: false,
 						destroy: true,
 					});
@@ -6607,6 +6653,100 @@
 					// Silently ignore - this is expected for non-ADD JSON sessions
 					console.log("Max age data not available (expected for non-ADD JSON sources)");
 				});
+
+			// Fetch and populate the Stale Logins table (ADD JSON only)
+			fetch("stale_logins")
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error('No stale logins data available');
+					}
+					return response.json();
+				})
+				.then((data) => {
+					// Only show section if there's data (from ADD JSON source)
+					if (!data || Object.keys(data).length === 0) {
+						return;
+					}
+
+					// Show the section and nav button (top and bottom)
+					document.getElementById('staleLoginsSection').style.display = 'block';
+					document.getElementById('navStaleLogins').style.display = 'inline-block';
+					document.getElementById('navStaleLoginsBottom').style.display = 'inline-block';
+
+					// Transform JSON data into the structure required for DataTables
+					const transformedData = Object.entries(data).map(
+						([account, details]) => ({
+							Account: account,
+							LastLogin: details.last_logon,
+							DaysSinceLogin: details.days_since_login,
+							Status: details.is_enabled ? "Enabled" : "Disabled",
+							CrackedPassword: details.cracked_password || "-",
+						})
+					);
+
+					// Initialize the DataTable
+					$("#staleLoginsTable").DataTable({
+						data: transformedData,
+						columns: [
+							{ title: "Account", data: "Account" },
+							{ title: "Last Login", data: "LastLogin", className: "dt-center" },
+							{ title: "Days Since Login", data: "DaysSinceLogin", className: "dt-center" },
+							{
+								title: "Status",
+								data: "Status",
+								className: "dt-center",
+								render: function(data) {
+									if (data === "Enabled") {
+										return '<span style="color: #22c55e;">Enabled</span>';
+									} else {
+										return '<span style="color: #ef4444;">Disabled</span>';
+									}
+								}
+							},
+							{
+								title: "Cracked Password",
+								data: "CrackedPassword",
+								render: function(data) {
+									if (data && data !== "-") {
+										// Show first 2 and last 2 chars, blur middle
+										var first = data.substring(0, 2);
+										var last = data.length > 4 ? data.substring(data.length - 2) : '';
+										var middle = data.length > 4 ? data.substring(2, data.length - 2) : (data.length > 2 ? data.substring(2) : '');
+										return '<code class="stale-login-password" style="background: #1a1a2e; padding: 2px 6px; border-radius: 3px;">' +
+											first +
+											'<span class="stale-login-password-middle" style="filter: blur(5px); transition: filter 0.2s;">' + middle + '</span>' +
+											last +
+											'</code>';
+									}
+									return '<span style="color: #666;">-</span>';
+								}
+							},
+						],
+						order: [[2, "desc"]], // Sort by Days Since Login in descending order
+						pageLength: 10,
+						lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+						responsive: false,
+						destroy: true,
+					});
+				})
+				.catch((error) => {
+					// Silently ignore - this is expected for non-ADD JSON sessions
+					console.log("Stale logins data not available (expected for non-ADD JSON sources)");
+				});
+
+			// Toggle password visibility for stale logins table
+			window.staleLoginsPasswordsVisible = false;
+			function toggleStaleLoginsPasswordVisibility() {
+				window.staleLoginsPasswordsVisible = !window.staleLoginsPasswordsVisible;
+				const middleParts = document.querySelectorAll('.stale-login-password-middle');
+				const button = document.getElementById('toggleStaleLoginsPasswords');
+
+				middleParts.forEach(el => {
+					el.style.filter = window.staleLoginsPasswordsVisible ? 'none' : 'blur(5px)';
+				});
+
+				button.textContent = window.staleLoginsPasswordsVisible ? 'Hide Passwords' : 'Show Passwords';
+			}
 		</script>
 
 		<!-- Bad Practices Details Modal -->
