@@ -51,8 +51,5 @@ hm_domainoutput.json
 # Deployment scripts (environment-specific)
 update_hm1k.sh
 
-# Internal files (not for public release)
-internal/
-
 # Pre-production test templates (not for public release)
 templates/agents_test.html
