@@ -47,9 +47,13 @@ keepalive = 5
 
 # SSL/HTTPS
 # When running behind nginx, SSL is handled by nginx - no certs needed here
-# For local development with HTTPS, enable these:
-certfile = os.path.join(_app_dir, "cert.pem")
-keyfile = os.path.join(_app_dir, "key.pem")
+# Set HM1K_SSL=true for local development with HTTPS (not behind nginx)
+if os.environ.get("HM1K_SSL", "").lower() in ("true", "1", "yes"):
+    certfile = os.path.join(_app_dir, "cert.pem")
+    keyfile = os.path.join(_app_dir, "key.pem")
+else:
+    certfile = None
+    keyfile = None
 
 # Logging
 accesslog = os.path.join(_log_dir, "gunicorn_access.log")
