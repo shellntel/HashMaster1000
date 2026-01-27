@@ -1308,13 +1308,45 @@ def validate_files_endpoint() -> Response:
         # Retrieve file uploads
         pwdump_file = request.files.get("pwdump_file")
         potfile = request.files.get("potfile")
+        use_master = request.form.get("use_master_potfile", "false").lower() == "true"
 
-        if not pwdump_file or not potfile:
-            logging.error("Missing file uploads.")
+        # Pwdump file is always required
+        if not pwdump_file:
+            logging.error("Missing pwdump file upload.")
             return Response(
                 render_template(
                     "message.html",
-                    message="Valid pwdump and potfile (both) uploads are required.",
+                    message="A valid pwdump/NTDS/ADD JSON file upload is required.",
+                    message_type="error-message",
+                    status_code=400,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=400,
+            )
+
+        # Potfile is required unless using master potfile
+        if not potfile and not use_master:
+            logging.error("Missing potfile upload and not using master.")
+            return Response(
+                render_template(
+                    "message.html",
+                    message="A potfile is required. Either upload a potfile or use the master potfile.",
+                    message_type="error-message",
+                    status_code=400,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=400,
+            )
+
+        # Check if master potfile is available when requested
+        if use_master and (not MASTER_POTFILE_ENABLED or not os.path.exists(MASTER_POTFILE_PATH)):
+            logging.error("Master potfile requested but not available.")
+            return Response(
+                render_template(
+                    "message.html",
+                    message="Master potfile is not available. Please upload a potfile instead.",
                     message_type="error-message",
                     status_code=400,
                     referrer="Start",
@@ -1325,12 +1357,15 @@ def validate_files_endpoint() -> Response:
 
         # Use secure_filename to prevent path traversal attacks
         pwdump_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(pwdump_file.filename))
-        potfile_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(potfile.filename))
+        potfile_path = None
+        if potfile and potfile.filename:
+            potfile_path = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(potfile.filename))
 
         # Save files
         try:
             pwdump_file.save(pwdump_path)
-            potfile.save(potfile_path)
+            if potfile_path:
+                potfile.save(potfile_path)
         except Exception as e:
             return Response(
                 render_template(
@@ -1349,20 +1384,37 @@ def validate_files_endpoint() -> Response:
         if is_add_json:
             # Parse as ADD JSON format
             add_result = file_parser.parse_add_json(pwdump_path)
-            potfile_result = file_parser.validate_potfile(potfile_path)
 
             # Extract hashes for session-optimized potfile filtering
             add_hashes = extract_hashes_from_add(add_result)
 
-            # Handle master potfile merge if enabled (with session filtering)
-            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
+            if use_master:
+                # Use master potfile only (no user potfile)
+                final_potfile_result, merge_stats = load_master_potfile_only(add_hashes)
+                if not final_potfile_result:
+                    return Response(
+                        render_template(
+                            "message.html",
+                            message="Failed to load master potfile.",
+                            message_type="error-message",
+                            status_code=500,
+                            referrer="Start",
+                            referrer_url=url_for("index"),
+                        ),
+                        status=500,
+                    )
+            else:
+                # Validate user's potfile and merge with master if enabled
+                potfile_result = file_parser.validate_potfile(potfile_path)
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
 
             # Store ADD validation results in session
             session["add_validation"] = file_parser.add_result_to_dict(add_result)
             session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
             session["pwdump_path"] = pwdump_path
-            session["potfile_path"] = potfile_path
+            session["potfile_path"] = potfile_path if potfile_path else MASTER_POTFILE_PATH
             session["input_format"] = "add_json"
+            session["use_master_potfile"] = use_master
             if merge_stats:
                 session["master_potfile_merge"] = merge_stats
 
@@ -1388,7 +1440,6 @@ def validate_files_endpoint() -> Response:
         else:
             # Standard pwdump format
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
-            potfile_result = file_parser.validate_potfile(potfile_path)
             item_count = pwdump_result.total_lines
 
             # Extract hashes for session-optimized potfile filtering
@@ -1401,23 +1452,49 @@ def validate_files_endpoint() -> Response:
                 item_count=len(pwdump_hashes)
             )
 
-            # Handle master potfile merge if enabled (with session filtering)
-            merge_start = time_module.time()
-            final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
-            merge_duration = time_module.time() - merge_start
-            if merge_stats:
-                timing.record_sample(
-                    operation=TimingStats.MASTER_POTFILE_MERGE,
-                    duration_seconds=merge_duration,
-                    item_count=merge_stats.get("total", 0)
-                )
+            if use_master:
+                # Use master potfile only (no user potfile)
+                merge_start = time_module.time()
+                final_potfile_result, merge_stats = load_master_potfile_only(pwdump_hashes)
+                merge_duration = time_module.time() - merge_start
+                if not final_potfile_result:
+                    return Response(
+                        render_template(
+                            "message.html",
+                            message="Failed to load master potfile.",
+                            message_type="error-message",
+                            status_code=500,
+                            referrer="Start",
+                            referrer_url=url_for("index"),
+                        ),
+                        status=500,
+                    )
+                if merge_stats:
+                    timing.record_sample(
+                        operation=TimingStats.MASTER_POTFILE_MERGE,
+                        duration_seconds=merge_duration,
+                        item_count=merge_stats.get("total", 0)
+                    )
+            else:
+                # Validate user's potfile and merge with master if enabled
+                potfile_result = file_parser.validate_potfile(potfile_path)
+                merge_start = time_module.time()
+                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
+                merge_duration = time_module.time() - merge_start
+                if merge_stats:
+                    timing.record_sample(
+                        operation=TimingStats.MASTER_POTFILE_MERGE,
+                        duration_seconds=merge_duration,
+                        item_count=merge_stats.get("total", 0)
+                    )
 
             # Store validation results in session
             session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
             session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
             session["pwdump_path"] = pwdump_path
-            session["potfile_path"] = potfile_path
+            session["potfile_path"] = potfile_path if potfile_path else MASTER_POTFILE_PATH
             session["input_format"] = "pwdump"
+            session["use_master_potfile"] = use_master
             if merge_stats:
                 session["master_potfile_merge"] = merge_stats
 
@@ -1477,12 +1554,42 @@ def validate_local_files() -> Response:
     try:
         pwdump_path = request.form.get("pwdump_path", "").strip()
         potfile_path = request.form.get("potfile_path", "").strip()
+        use_master = request.form.get("use_master_potfile", "false").lower() == "true"
 
-        if not pwdump_path or not potfile_path:
+        # Pwdump path is always required
+        if not pwdump_path:
             return Response(
                 render_template(
                     "message.html",
-                    message="Both pwdump and potfile paths are required.",
+                    message="A pwdump/NTDS/ADD JSON file path is required.",
+                    message_type="error-message",
+                    status_code=400,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=400,
+            )
+
+        # Potfile path is required unless using master potfile
+        if not potfile_path and not use_master:
+            return Response(
+                render_template(
+                    "message.html",
+                    message="A potfile path is required. Either provide a path or use the master potfile.",
+                    message_type="error-message",
+                    status_code=400,
+                    referrer="Start",
+                    referrer_url=url_for("index"),
+                ),
+                status=400,
+            )
+
+        # Check if master potfile is available when requested
+        if use_master and (not MASTER_POTFILE_ENABLED or not os.path.exists(MASTER_POTFILE_PATH)):
+            return Response(
+                render_template(
+                    "message.html",
+                    message="Master potfile is not available. Please provide a potfile path instead.",
                     message_type="error-message",
                     status_code=400,
                     referrer="Start",
@@ -1505,7 +1612,7 @@ def validate_local_files() -> Response:
                 status=403,
             )
 
-        if not is_allowed_path(potfile_path):
+        if potfile_path and not use_master and not is_allowed_path(potfile_path):
             return Response(
                 render_template(
                     "message.html",
@@ -1532,7 +1639,7 @@ def validate_local_files() -> Response:
                 status=400,
             )
 
-        if not os.path.isfile(potfile_path):
+        if potfile_path and not use_master and not os.path.isfile(potfile_path):
             return Response(
                 render_template(
                     "message.html",
@@ -1551,24 +1658,43 @@ def validate_local_files() -> Response:
         if is_add_json:
             # Parse as ADD JSON format
             add_result = file_parser.parse_add_json(pwdump_path)
-            potfile_result = file_parser.validate_potfile(potfile_path)
 
             # Extract hashes for session-optimized potfile filtering
             add_hashes = extract_hashes_from_add(add_result)
 
-            # Handle master potfile merge if enabled (with session filtering)
-            if MASTER_POTFILE_ENABLED:
-                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
-                session["master_potfile_merge"] = merge_stats
+            if use_master:
+                # Use master potfile only (no user potfile)
+                final_potfile_result, merge_stats = load_master_potfile_only(add_hashes)
+                if not final_potfile_result:
+                    return Response(
+                        render_template(
+                            "message.html",
+                            message="Failed to load master potfile.",
+                            message_type="error-message",
+                            status_code=500,
+                            referrer="Start",
+                            referrer_url=url_for("index"),
+                        ),
+                        status=500,
+                    )
+                if merge_stats:
+                    session["master_potfile_merge"] = merge_stats
             else:
-                final_potfile_result = potfile_result
+                # Validate user's potfile and merge with master if enabled
+                potfile_result = file_parser.validate_potfile(potfile_path)
+                if MASTER_POTFILE_ENABLED:
+                    final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, add_hashes)
+                    session["master_potfile_merge"] = merge_stats
+                else:
+                    final_potfile_result = potfile_result
 
             # Store ADD validation results in session
             session["add_validation"] = file_parser.add_result_to_dict(add_result)
             session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
             session["pwdump_path"] = pwdump_path
-            session["potfile_path"] = potfile_path
+            session["potfile_path"] = potfile_path if potfile_path else MASTER_POTFILE_PATH
             session["input_format"] = "add_json"
+            session["use_master_potfile"] = use_master
 
             # Store form options for later processing (includes company/project info)
             session["analysis_options"] = {
@@ -1592,7 +1718,6 @@ def validate_local_files() -> Response:
         else:
             # Standard pwdump format
             pwdump_result = file_parser.validate_pwdump_file(pwdump_path)
-            potfile_result = file_parser.validate_potfile(potfile_path)
             item_count = pwdump_result.total_lines
 
             # Extract hashes for session-optimized potfile filtering
@@ -1605,26 +1730,53 @@ def validate_local_files() -> Response:
                 item_count=len(pwdump_hashes)
             )
 
-            # Handle master potfile merge if enabled (with session filtering)
-            if MASTER_POTFILE_ENABLED:
+            if use_master:
+                # Use master potfile only (no user potfile)
                 merge_start = time_module.time()
-                final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
+                final_potfile_result, merge_stats = load_master_potfile_only(pwdump_hashes)
                 merge_duration = time_module.time() - merge_start
-                timing.record_sample(
-                    operation=TimingStats.MASTER_POTFILE_MERGE,
-                    duration_seconds=merge_duration,
-                    item_count=merge_stats.get("total", 0) if merge_stats else 0
-                )
-                session["master_potfile_merge"] = merge_stats
+                if not final_potfile_result:
+                    return Response(
+                        render_template(
+                            "message.html",
+                            message="Failed to load master potfile.",
+                            message_type="error-message",
+                            status_code=500,
+                            referrer="Start",
+                            referrer_url=url_for("index"),
+                        ),
+                        status=500,
+                    )
+                if merge_stats:
+                    timing.record_sample(
+                        operation=TimingStats.MASTER_POTFILE_MERGE,
+                        duration_seconds=merge_duration,
+                        item_count=merge_stats.get("total", 0)
+                    )
+                    session["master_potfile_merge"] = merge_stats
             else:
-                final_potfile_result = potfile_result
+                # Validate user's potfile and merge with master if enabled
+                potfile_result = file_parser.validate_potfile(potfile_path)
+                if MASTER_POTFILE_ENABLED:
+                    merge_start = time_module.time()
+                    final_potfile_result, merge_stats = handle_master_potfile_merge(potfile_result, pwdump_hashes)
+                    merge_duration = time_module.time() - merge_start
+                    timing.record_sample(
+                        operation=TimingStats.MASTER_POTFILE_MERGE,
+                        duration_seconds=merge_duration,
+                        item_count=merge_stats.get("total", 0) if merge_stats else 0
+                    )
+                    session["master_potfile_merge"] = merge_stats
+                else:
+                    final_potfile_result = potfile_result
 
             # Store validation results in session
             session["pwdump_validation"] = file_parser.validation_result_to_dict(pwdump_result)
             session["potfile_validation"] = file_parser.potfile_result_to_dict(final_potfile_result)
             session["pwdump_path"] = pwdump_path
-            session["potfile_path"] = potfile_path
+            session["potfile_path"] = potfile_path if potfile_path else MASTER_POTFILE_PATH
             session["input_format"] = "pwdump"
+            session["use_master_potfile"] = use_master
 
             # Store form options for later processing (includes company/project info)
             session["analysis_options"] = {
@@ -2183,6 +2335,10 @@ def process_validated() -> Response:
         )
         session_mgr.save_session_data("stale_logins.json", stale_logins, analysis_session.session_id)
 
+        # Generate all cracked accounts list
+        cracked_accounts_list = _generate_cracked_accounts_list(account_data)
+        session_mgr.save_session_data("pw_cracked_accounts.json", cracked_accounts_list, analysis_session.session_id)
+
         # Save validation data for domain filter changes later
         session_mgr.save_session_data("pwdump_validation.json", pwdump_data, analysis_session.session_id)
         session_mgr.save_session_data("potfile_validation.json", potfile_data, analysis_session.session_id)
@@ -2405,6 +2561,61 @@ def _load_session_json(filename: str) -> dict | None:
     return data
 
 
+def _generate_cracked_accounts_list(account_data: dict) -> list[dict]:
+    """
+    Generate a list of all cracked accounts with password, age, and status.
+
+    Args:
+        account_data: Dictionary of account data from analysis
+
+    Returns:
+        List of dicts with account, password, password_age, and status
+    """
+    from datetime import date, datetime
+
+    today = date.today()
+    cracked_accounts = []
+
+    for account_name, account in account_data.items():
+        cracked_pw = account.get("cracked_pw")
+        if not cracked_pw:
+            continue
+
+        # Calculate password age
+        pw_age = None
+        last_pw_change = account.get("last_pw_change")
+        if last_pw_change and last_pw_change not in ("0", ""):
+            try:
+                pw_change_date = None
+                if isinstance(last_pw_change, str):
+                    for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%d/%m/%Y"]:
+                        try:
+                            pw_change_date = datetime.strptime(last_pw_change, fmt).date()
+                            break
+                        except ValueError:
+                            continue
+                if pw_change_date:
+                    pw_age = (today - pw_change_date).days
+            except (ValueError, TypeError):
+                pass
+
+        # Determine status
+        is_disabled = account.get("disabled")
+        status = "Disabled" if is_disabled else "Enabled"
+
+        cracked_accounts.append({
+            "account": account_name,
+            "password": cracked_pw,
+            "password_age": pw_age,
+            "status": status,
+        })
+
+    # Sort by account name
+    cracked_accounts.sort(key=lambda x: x["account"].lower())
+
+    return cracked_accounts
+
+
 # Endpoint for Project Statistics Table
 @app.route("/cracking_stats_table")
 @login_required
@@ -2475,6 +2686,41 @@ def master_potfile_status() -> Response:
         "enabled": True,
         "count": count
     })
+
+
+# Endpoint to use master potfile instead of uploading one
+@app.route("/api/use_master_potfile", methods=["POST"])
+@login_required
+def use_master_potfile() -> Response:
+    """
+    Return master potfile validation data for use instead of uploading a potfile.
+    This allows users to skip providing a potfile when master potfile is available.
+    """
+    if not MASTER_POTFILE_ENABLED:
+        return jsonify({"error": "Master potfile is not enabled"}), 400
+
+    if not os.path.exists(MASTER_POTFILE_PATH):
+        return jsonify({"error": "Master potfile not found"}), 404
+
+    try:
+        # Load cached master potfile
+        cache = get_master_cache()
+        cached_potfile = cache.load(MASTER_POTFILE_PATH)
+
+        if not cached_potfile:
+            return jsonify({"error": "Failed to load master potfile"}), 500
+
+        return jsonify({
+            "valid": True,
+            "file_path": MASTER_POTFILE_PATH,
+            "ntlm_count": cached_potfile.ntlm_count,
+            "total_lines": cached_potfile.total_entries,
+            "use_master": True
+        })
+
+    except Exception as e:
+        logging.error(f"Error loading master potfile: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # Endpoint for Password Length Distribution Bar Chart data
@@ -2592,6 +2838,16 @@ def pw_lm_hashes_table() -> Response:
 @login_required
 def pw_bad_practices() -> Response:
     data = _load_session_json("pw_bad_practices.json")
+    if data is None:
+        return jsonify({"error": "No data available"}), 404
+    return jsonify(data)
+
+
+# Endpoint for All Cracked Accounts Table
+@app.route("/pw_cracked_accounts")
+@login_required
+def pw_cracked_accounts() -> Response:
+    data = _load_session_json("pw_cracked_accounts.json")
     if data is None:
         return jsonify({"error": "No data available"}), 404
     return jsonify(data)
@@ -4243,6 +4499,10 @@ def process_add_validated() -> Response:
             account_data, max_days=90
         )
         session_mgr.save_session_data("stale_logins.json", stale_logins, analysis_session.session_id)
+
+        # Generate all cracked accounts list
+        cracked_accounts_list = _generate_cracked_accounts_list(account_data)
+        session_mgr.save_session_data("pw_cracked_accounts.json", cracked_accounts_list, analysis_session.session_id)
 
         # Save ADD-specific data files
         if add_result.domain_policy:

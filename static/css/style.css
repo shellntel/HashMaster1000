@@ -2026,6 +2026,16 @@ body#reportPage .app-header {
 	transform: none;
 }
 
+/* Use Master Potfile Button */
+.use-master-btn {
+	background: #8b5cf6;
+	margin-left: 8px;
+}
+
+.use-master-btn:hover {
+	background: #7c3aed;
+}
+
 /* Validation Status Icons */
 .validation-status-icon {
 	display: inline-flex;
@@ -11103,6 +11113,34 @@ body:not(.advanced-mode):not(#reportPage) .validate-btn:disabled {
     cursor: not-allowed;
     transform: none;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Use Master Potfile Button - Enhanced */
+body:not(.advanced-mode):not(#reportPage) .use-master-btn {
+    background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 50%, #6d28d9 100%);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    color: #ffffff;
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: all 0.3s ease;
+}
+
+body:not(.advanced-mode):not(#reportPage) .use-master-btn:hover {
+    background: linear-gradient(180deg, #a78bfa 0%, #8b5cf6 50%, #7c3aed 100%);
+    border-color: rgba(167, 139, 250, 0.5);
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.3),
+        0 0 12px rgba(139, 92, 246, 0.3);
+    transform: translateY(-1px);
+}
+
+body:not(.advanced-mode):not(#reportPage) .use-master-btn:active {
+    transform: translateY(0);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.2),
+        inset 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 /* ==================== ENHANCED STEP CIRCLES ==================== */

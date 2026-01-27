@@ -111,6 +111,7 @@
 				<button class="report-nav-btn" id="navDescriptionAnalysis" onclick="scrollToSection('descriptionAnalysisSection')" style="display: none;">Descriptions</button>
 				<button class="report-nav-btn" id="navTrendAnalysis" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
 				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysis" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
+				<button class="report-nav-btn" onclick="scrollToSection('crackedAccountsSection')">Cracked Accounts</button>
 			</div>
 		</nav>
 
@@ -1613,6 +1614,47 @@
 			</div>
 		</section>
 
+		<!-- Section for All Cracked Accounts Table -->
+		<section id="crackedAccountsSection">
+			<h2>All Cracked Accounts</h2>
+			<p class="section-description" style="font-style: italic; color: #888;">Complete list of all accounts with cracked passwords, including password age and account status.</p>
+			<table
+				id="crackedAccountsTable"
+				class="display blurred"
+				style="width: 100%"
+			>
+				<thead>
+					<tr>
+						<th>Account</th>
+						<th>Password</th>
+						<th>Password Age (Days)</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					<!-- Table content will be populated by JavaScript -->
+				</tbody>
+			</table>
+			<div
+				class="button-container"
+				style="text-align: center; margin-top: 10px"
+			>
+				<button
+					id="downloadCrackedAccountsCSV"
+					onclick="downloadCSV('pw_cracked_accounts', 'Cracked_Accounts.csv')"
+				>
+					Download CSV
+				</button>
+				<button
+					id="toggleCrackedAccountsBlur"
+					class="toggle-visibility-button"
+					onclick="toggleCrackedAccountsPasswordVisibility()"
+				>
+					Show Passwords
+				</button>
+			</div>
+		</section>
+
 		<!-- Bottom Report Section Navigation -->
 		<nav class="report-nav report-nav-bottom">
 			<div class="report-nav-label">Jump to:</div>
@@ -1638,6 +1680,7 @@
 				<button class="report-nav-btn" id="navASREPBottom" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
 				<button class="report-nav-btn" id="navTrendAnalysisBottom" onclick="scrollToSection('trendAnalysisSection')" style="display: none;">Trend Analysis</button>
 				<button class="report-nav-btn report-nav-btn-ai" id="navAIAnalysisBottom" onclick="scrollToSection('aaiaResultsSection')" style="display: none;">AI Analysis</button>
+				<button class="report-nav-btn" onclick="scrollToSection('crackedAccountsSection')">Cracked Accounts</button>
 			</div>
 			<button class="report-nav-btn report-nav-btn-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">↑ Back to Top</button>
 		</nav>
@@ -6746,6 +6789,96 @@
 				});
 
 				button.textContent = window.staleLoginsPasswordsVisible ? 'Hide Passwords' : 'Show Passwords';
+			}
+
+			// Fetch and populate the All Cracked Accounts table
+			fetch("pw_cracked_accounts")
+				.then((response) => {
+					if (!response.ok) {
+						throw new Error('No cracked accounts data available');
+					}
+					return response.json();
+				})
+				.then((data) => {
+					if (!data || data.length === 0) {
+						document.getElementById('crackedAccountsSection').style.display = 'none';
+						return;
+					}
+
+					// Transform JSON data into the structure required for DataTables
+					const transformedData = data.map((item) => ({
+						Account: item.account,
+						Password: item.password,
+						PasswordAge: item.password_age,
+						Status: item.status,
+					}));
+
+					// Initialize the DataTable
+					$("#crackedAccountsTable").DataTable({
+						data: transformedData,
+						columns: [
+							{ title: "Account", data: "Account" },
+							{
+								title: "Password",
+								data: "Password",
+								render: function(data) {
+									if (!data) return "-";
+									// Show first 2 and last 2 chars, blur middle
+									var first = data.substring(0, 2);
+									var last = data.length > 4 ? data.substring(data.length - 2) : '';
+									var middle = data.length > 4 ? data.substring(2, data.length - 2) : (data.length > 2 ? data.substring(2) : '');
+									return '<code class="cracked-account-password" style="background: #1a1a2e; padding: 2px 6px; border-radius: 3px;">' +
+										first +
+										'<span class="cracked-account-password-middle" style="filter: blur(5px);">' + middle + '</span>' +
+										last + '</code>';
+								}
+							},
+							{
+								title: "Password Age (Days)",
+								data: "PasswordAge",
+								className: "dt-center",
+								render: function(data) {
+									if (data === null || data === undefined) return "-";
+									return data.toLocaleString();
+								}
+							},
+							{
+								title: "Status",
+								data: "Status",
+								className: "dt-center",
+								render: function(data) {
+									if (data === "Enabled") {
+										return '<span class="status-enabled" style="color: #22c55e;">Enabled</span>';
+									} else {
+										return '<span class="status-disabled" style="color: #ef4444;">Disabled</span>';
+									}
+								}
+							},
+						],
+						order: [[0, "asc"]], // Sort by account name
+						lengthMenu: [[25, 50, 100, -1], [25, 50, 100, "All"]],
+						pageLength: 25,
+						responsive: false,
+						destroy: true,
+					});
+				})
+				.catch((error) => {
+					console.error("Error loading cracked accounts:", error);
+					document.getElementById('crackedAccountsSection').style.display = 'none';
+				});
+
+			// Toggle password visibility for cracked accounts table
+			window.crackedAccountsPasswordsVisible = false;
+			function toggleCrackedAccountsPasswordVisibility() {
+				window.crackedAccountsPasswordsVisible = !window.crackedAccountsPasswordsVisible;
+				const middleParts = document.querySelectorAll('.cracked-account-password-middle');
+				const button = document.getElementById('toggleCrackedAccountsBlur');
+
+				middleParts.forEach(el => {
+					el.style.filter = window.crackedAccountsPasswordsVisible ? 'none' : 'blur(5px)';
+				});
+
+				button.textContent = window.crackedAccountsPasswordsVisible ? 'Hide Passwords' : 'Show Passwords';
 			}
 		</script>
 

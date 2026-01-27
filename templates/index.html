@@ -190,6 +190,11 @@
 									<button type="button" class="validate-btn" id="potfile_validate_btn" onclick="validateSingleFile('potfile', 'potfile')">
 										Validate
 									</button>
+									{% if master_potfile_enabled and master_potfile_count > 0 %}
+									<button type="button" class="validate-btn use-master-btn" id="potfile_use_master_btn" onclick="useMasterPotfile('upload')">
+										Use Master
+									</button>
+									{% endif %}
 									<span id="potfile_status_icon" class="validation-status-icon" style="display: none;"></span>
 								</div>
 								<div id="potfile_status" class="file-status pending">
@@ -244,6 +249,11 @@
 									<button type="button" class="validate-btn" id="local_potfile_validate_btn" onclick="validateLocalFile('potfile', 'potfile_path')">
 										Validate
 									</button>
+									{% if master_potfile_enabled and master_potfile_count > 0 %}
+									<button type="button" class="validate-btn use-master-btn" id="local_potfile_use_master_btn" onclick="useMasterPotfile('local')">
+										Use Master
+									</button>
+									{% endif %}
 									<span id="local_potfile_status_icon" class="validation-status-icon" style="display: none;"></span>
 								</div>
 								<div id="local_potfile_status" class="file-status pending">
@@ -273,6 +283,7 @@
 
 							<input type="hidden" name="input_method" id="input_method" value="upload" />
 							<input type="hidden" name="restore_session_id" id="restore_session_id" value="" />
+							<input type="hidden" name="use_master_potfile" id="use_master_potfile" value="false" />
 
 							<div class="step-navigation">
 								<div></div>
@@ -1251,6 +1262,113 @@
 					validationState[fileType] = { validated: true, valid: false, data: null };
 					statusDiv.className = 'file-status invalid';
 					statusDiv.innerHTML = '<span class="file-status-icon">✗</span><span>Validation failed</span>';
+					updateContinueButton();
+				}
+			}
+
+			// Use master potfile instead of uploading/specifying a potfile
+			async function useMasterPotfile(section) {
+				const isUpload = section === 'upload';
+				const statusIconId = isUpload ? 'potfile_status_icon' : 'local_potfile_status_icon';
+				const statusDivId = isUpload ? 'potfile_status' : 'local_potfile_status';
+				const validateBtnId = isUpload ? 'potfile_validate_btn' : 'local_potfile_validate_btn';
+				const useMasterBtnId = isUpload ? 'potfile_use_master_btn' : 'local_potfile_use_master_btn';
+
+				const statusIcon = document.getElementById(statusIconId);
+				const statusDiv = document.getElementById(statusDivId);
+				const validateBtn = document.getElementById(validateBtnId);
+				const useMasterBtn = document.getElementById(useMasterBtnId);
+
+				// Show loading state
+				if (validateBtn) validateBtn.style.display = 'none';
+				if (useMasterBtn) useMasterBtn.style.display = 'none';
+				statusIcon.style.display = 'inline-flex';
+				statusIcon.className = 'validation-status-icon loading';
+				statusIcon.innerHTML = '...';
+				statusIcon.title = 'Loading master potfile...';
+
+				if (isUpload) {
+					updateFileStatus('potfile', 'pending', 'Loading master potfile...');
+				} else {
+					statusDiv.className = 'file-status pending';
+					statusDiv.innerHTML = '<span class="file-status-icon">○</span><span>Loading master potfile...</span>';
+				}
+
+				try {
+					const response = await fetch('/api/use_master_potfile', {
+						method: 'POST',
+						headers: getHeaders()
+					});
+
+					const data = await response.json();
+
+					if (data.error) {
+						// Show error icon
+						statusIcon.className = 'validation-status-icon error';
+						statusIcon.innerHTML = '✕';
+						statusIcon.title = 'Failed: ' + data.error;
+						if (validateBtn) validateBtn.style.display = '';
+						if (useMasterBtn) useMasterBtn.style.display = '';
+						validationState['potfile'] = { validated: true, valid: false, data: null };
+
+						if (isUpload) {
+							updateFileStatus('potfile', 'invalid', 'Master potfile not available');
+						} else {
+							statusDiv.className = 'file-status invalid';
+							statusDiv.innerHTML = '<span class="file-status-icon">✗</span><span>Master potfile not available</span>';
+						}
+						updateContinueButton();
+						return;
+					}
+
+					// Success - mark potfile as validated using master
+					document.getElementById('use_master_potfile').value = 'true';
+
+					// Clear the file input/path since we're using master
+					if (isUpload) {
+						document.getElementById('potfile').value = '';
+					} else {
+						document.getElementById('potfile_path').value = '';
+					}
+
+					validationState['potfile'] = {
+						validated: true,
+						valid: true,
+						data: data,
+						useMaster: true
+					};
+
+					const statusMessage = `Master potfile: ${data.ntlm_count.toLocaleString()} hashes`;
+
+					// Green success checkmark
+					statusIcon.className = 'validation-status-icon success';
+					statusIcon.innerHTML = '✓';
+					statusIcon.title = statusMessage;
+
+					if (isUpload) {
+						updateFileStatus('potfile', 'valid', statusMessage);
+					} else {
+						statusDiv.className = 'file-status valid';
+						statusDiv.innerHTML = '<span class="file-status-icon">✓</span><span>' + statusMessage + '</span>';
+					}
+
+					updateContinueButton();
+
+				} catch (error) {
+					console.error('Use master potfile error:', error);
+					statusIcon.className = 'validation-status-icon error';
+					statusIcon.innerHTML = '✕';
+					statusIcon.title = 'Error: ' + error.message;
+					if (validateBtn) validateBtn.style.display = '';
+					if (useMasterBtn) useMasterBtn.style.display = '';
+					validationState['potfile'] = { validated: true, valid: false, data: null };
+
+					if (isUpload) {
+						updateFileStatus('potfile', 'invalid', 'Failed to load master potfile');
+					} else {
+						statusDiv.className = 'file-status invalid';
+						statusDiv.innerHTML = '<span class="file-status-icon">✗</span><span>Failed to load master potfile</span>';
+					}
 					updateContinueButton();
 				}
 			}

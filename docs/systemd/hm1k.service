@@ -15,6 +15,10 @@ WorkingDirectory=/opt/hm1k
 
 # Virtual environment Python and Gunicorn - update paths to match your installation
 Environment="PATH=/opt/hm1k/.venv/bin"
+# SSL is handled by nginx reverse proxy, so disable gunicorn SSL
+Environment="HM1K_SSL=false"
+# Production server worker count (default caps at 8 for portability)
+Environment="HM1K_WORKERS=12"
 ExecStart=/opt/hm1k/.venv/bin/gunicorn -c gunicorn.conf.py hm1k:app
 
 # Restart policy

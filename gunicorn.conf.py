@@ -28,10 +28,9 @@ bind = "0.0.0.0:8443"
 backlog = 2048
 
 # Worker Processes
-# Calculate workers based on CPU cores: (2 x num_cores) + 1
-# workers = multiprocessing.cpu_count() * 2 + 1
-# Optimized for high-performance server (i9-13900K, 64GB RAM)
-workers = 12  # 12 workers × 2 threads = 24 concurrent request capacity
+# Default: 4 workers for small/single-user deployments
+# Set HM1K_WORKERS environment variable to increase for high-traffic servers
+workers = int(os.environ.get("HM1K_WORKERS", 4))
 
 # Worker Class
 # 'gthread' = hybrid threading model (best for I/O-bound operations like AAIA)
@@ -46,14 +45,14 @@ graceful_timeout = 30
 keepalive = 5
 
 # SSL/HTTPS
-# When running behind nginx, SSL is handled by nginx - no certs needed here
-# Set HM1K_SSL=true for local development with HTTPS (not behind nginx)
-if os.environ.get("HM1K_SSL", "").lower() in ("true", "1", "yes"):
-    certfile = os.path.join(_app_dir, "cert.pem")
-    keyfile = os.path.join(_app_dir, "key.pem")
-else:
+# SSL is enabled by default for secure standalone deployments
+# Set HM1K_SSL=false when running behind a reverse proxy (nginx) that handles SSL
+if os.environ.get("HM1K_SSL", "").lower() in ("false", "0", "no"):
     certfile = None
     keyfile = None
+else:
+    certfile = os.path.join(_app_dir, "cert.pem")
+    keyfile = os.path.join(_app_dir, "key.pem")
 
 # Logging
 accesslog = os.path.join(_log_dir, "gunicorn_access.log")
