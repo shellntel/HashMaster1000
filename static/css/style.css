@@ -13897,8 +13897,15 @@ body.matrix-mode .matrix-trigger {
 
 .agent-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 12px;
+}
+
+.agent-actions .advanced-btn {
+    flex: 1 1 auto;
+    min-width: 70px;
+    text-align: center;
 }
 
 .agent-loading-spinner {
