@@ -13739,3 +13739,517 @@ body.matrix-mode .matrix-trigger {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
 }
+
+/* ============================================
+   Agent Testing Page Styles
+   ============================================ */
+
+.agents-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.agent-card {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 8px;
+    padding: 16px;
+    transition: all 0.3s ease;
+}
+
+.agent-card:hover {
+    border-color: rgba(0, 212, 255, 0.6);
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+}
+
+.agent-card.online {
+    border-left: 3px solid #22c55e;
+}
+
+.agent-card.offline {
+    border-left: 3px solid #ef4444;
+}
+
+.agent-card.busy {
+    border-left: 3px solid #f59e0b;
+}
+
+.agent-card.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #666;
+    min-height: 150px;
+}
+
+.agent-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.agent-name {
+    font-weight: bold;
+    color: #00d4ff;
+    font-size: 1.1rem;
+}
+
+.agent-status-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.agent-status-badge.online { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.agent-status-badge.offline { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.agent-status-badge.busy { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+
+.agent-info {
+    font-size: 0.9rem;
+    color: #999;
+    margin-bottom: 12px;
+}
+
+.agent-info-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.agent-hardware {
+    font-size: 0.85rem;
+    color: #666;
+    padding: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.agent-job-info {
+    padding: 10px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.agent-job-info:hover {
+    background: rgba(0, 212, 255, 0.15) !important;
+    border-color: rgba(0, 212, 255, 0.4) !important;
+}
+
+.agent-progress-bar {
+    height: 6px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
+}
+
+.agent-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d4ff, #22c55e);
+    transition: width 0.3s ease;
+}
+
+.agent-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.agent-loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(0, 212, 255, 0.3);
+    border-top-color: #00d4ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Job Form Styles */
+.job-submit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.form-row label {
+    min-width: 150px;
+    color: #999;
+    font-size: 0.9rem;
+}
+
+.form-hint {
+    font-size: 0.8rem;
+    color: #666;
+    width: 100%;
+    margin-left: 162px;
+    margin-top: -8px;
+}
+
+/* Active Jobs */
+.job-card {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.job-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.job-id {
+    font-family: monospace;
+    color: #00d4ff;
+}
+
+.job-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin: 12px 0;
+}
+
+.job-stat {
+    text-align: center;
+    padding: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 4px;
+}
+
+.job-stat-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #00d4ff;
+}
+
+.job-stat-label {
+    font-size: 0.75rem;
+    color: #666;
+    text-transform: uppercase;
+}
+
+.no-jobs-message, .no-results-message {
+    text-align: center;
+    color: #666;
+    padding: 30px;
+    font-style: italic;
+}
+
+/* Results */
+.job-results-container {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.result-entry {
+    font-family: monospace;
+    padding: 8px 12px;
+    background: rgba(34, 197, 94, 0.1);
+    border-left: 3px solid #22c55e;
+    margin-bottom: 4px;
+    font-size: 0.9rem;
+}
+
+/* Console */
+.console-log {
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 4px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+
+.console-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.console-entry.info { color: #999; }
+.console-entry.success { color: #22c55e; }
+.console-entry.error { color: #ef4444; }
+.console-entry.warning { color: #f59e0b; }
+
+/* Hash source tabs */
+.hash-source-tabs {
+    display: flex;
+    gap: 0;
+}
+
+.hash-tab {
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    color: #999;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.hash-tab:first-child {
+    border-radius: 4px 0 0 4px;
+}
+
+.hash-tab:last-child {
+    border-radius: 0 4px 4px 0;
+    border-left: none;
+}
+
+.hash-tab.active {
+    background: rgba(0, 212, 255, 0.2);
+    border-color: #00d4ff;
+    color: #00d4ff;
+}
+
+.hash-tab:hover:not(.active) {
+    background: rgba(0, 212, 255, 0.1);
+}
+
+/* File upload area */
+.file-upload-area {
+    border: 2px dashed rgba(0, 212, 255, 0.3);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.file-upload-area:hover {
+    border-color: #00d4ff;
+    background: rgba(0, 212, 255, 0.05);
+}
+
+.file-upload-area.dragover {
+    border-color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.file-upload-icon {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    opacity: 0.6;
+}
+
+.file-upload-text {
+    color: #ccc;
+    margin-bottom: 5px;
+}
+
+.file-upload-hint {
+    font-size: 0.8rem;
+    color: #666;
+}
+
+/* Workflow spinner */
+.workflow-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(245, 158, 11, 0.3);
+    border-top-color: #f59e0b;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Job History Styles */
+.job-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.job-history-table th,
+.job-history-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+}
+
+.job-history-table th {
+    color: #00d4ff;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.3);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+}
+
+.job-history-table tr:hover {
+    background: rgba(0, 212, 255, 0.05);
+}
+
+.job-history-table .job-id-cell {
+    font-family: monospace;
+    color: #00d4ff;
+}
+
+.job-history-table .crack-rate {
+    font-weight: bold;
+}
+
+.job-history-table .crack-rate.high { color: #22c55e; }
+.job-history-table .crack-rate.medium { color: #f59e0b; }
+.job-history-table .crack-rate.low { color: #ef4444; }
+.job-history-table .crack-rate.none { color: #666; }
+
+.job-status-badge {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.job-status-badge.completed { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.job-status-badge.failed { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.job-status-badge.cancelled { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+
+.job-history-empty {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+    font-style: italic;
+}
+
+.job-history-loading {
+    text-align: center;
+    padding: 30px;
+    color: #999;
+}
+
+.job-potfile-preview {
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(34, 197, 94, 0.1);
+    border-left: 3px solid #22c55e;
+    font-family: monospace;
+    font-size: 0.8rem;
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.job-row-expandable {
+    cursor: pointer;
+}
+
+.job-details-row {
+    display: none;
+}
+
+.job-details-row.expanded {
+    display: table-row;
+}
+
+.job-details-cell {
+    padding: 0 12px 15px 12px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+/* Notification Toast (Agent Page) */
+.notification-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.notification {
+    padding: 16px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    animation: slideIn 0.3s ease-out;
+    min-width: 300px;
+    max-width: 450px;
+}
+
+.notification.success {
+    background: rgba(34, 197, 94, 0.95);
+    border: 1px solid #22c55e;
+    color: #fff;
+}
+
+.notification.error {
+    background: rgba(239, 68, 68, 0.95);
+    border: 1px solid #ef4444;
+    color: #fff;
+}
+
+.notification.warning {
+    background: rgba(245, 158, 11, 0.95);
+    border: 1px solid #f59e0b;
+    color: #fff;
+}
+
+.notification-title {
+    font-weight: bold;
+    font-size: 1rem;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.notification-message {
+    font-size: 0.85rem;
+    opacity: 0.9;
+}
+
+.notification-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 1.2rem;
+    opacity: 0.7;
+}
+
+.notification-close:hover {
+    opacity: 1;
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}

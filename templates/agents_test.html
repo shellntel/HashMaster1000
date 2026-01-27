@@ -1,0 +1,2614 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Hashcat Agent Testing</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Hashcat Agent Testing</h1>
+                <p class="advanced-subtitle">Test and verify hashcat agent connectivity, job submission, and monitoring</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Pre-Production Testing
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link active">Agents</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Agent Status Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128421;</span>
+                <h2 class="advanced-section-title">Agent Status</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshAllAgents()" style="margin-left: auto;">&#8635; Refresh All</button>
+            </div>
+            <div class="advanced-section-content">
+                <div class="agents-grid" id="agents-grid">
+                    <!-- Agent cards will be populated by JavaScript -->
+                    <div class="agent-card loading">
+                        <div class="agent-loading-spinner"></div>
+                        <span>Loading agents...</span>
+                    </div>
+                </div>
+
+                <!-- Agent Info Banner -->
+                <div class="agent-info-banner" style="margin-top: 20px; padding: 15px; background: rgba(0,100,200,0.15); border-radius: 8px; border: 1px solid rgba(0,212,255,0.3);">
+                    <p style="margin: 0; color: #999; font-size: 0.9rem;">
+                        <span style="color: #00d4ff;">&#9432;</span>
+                        Agents auto-register when they connect to the server. Configure agents with the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Submission Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#9881;</span>
+                <h2 class="advanced-section-title">Submit Test Job</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="job-submit-form">
+                    <div class="form-row">
+                        <label>Target Agent:</label>
+                        <select id="job-agent" class="advanced-input" style="flex: 1;">
+                            <option value="">-- Select Agent --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-row" style="flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom: 8px;">Hash File:</label>
+                        <div class="hash-source-tabs" style="display: flex; gap: 0; margin-bottom: 10px;">
+                            <button type="button" class="hash-tab active" data-tab="upload" onclick="switchHashTab('upload')">Upload File</button>
+                            <button type="button" class="hash-tab" data-tab="path" onclick="switchHashTab('path')">Remote Path</button>
+                        </div>
+                        <div id="hash-upload-panel" class="hash-panel" style="width: 100%;">
+                            <div class="file-upload-area" id="file-drop-zone" onclick="document.getElementById('job-hash-upload').click()">
+                                <input type="file" id="job-hash-upload" style="display: none;" onchange="handleFileSelect(this)">
+                                <div class="file-upload-icon">&#128196;</div>
+                                <div class="file-upload-text">Click to select or drag & drop hash file</div>
+                                <div class="file-upload-hint">Supports .txt, .hash, .hashes files</div>
+                            </div>
+                            <div id="selected-file-info" style="display: none; margin-top: 10px; padding: 10px; background: rgba(0,212,255,0.1); border-radius: 4px; border: 1px solid rgba(0,212,255,0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span id="selected-file-name" style="font-family: monospace;"></span>
+                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile()">Remove</button>
+                                </div>
+                                <div id="selected-file-stats" style="font-size: 0.85rem; color: #999; margin-top: 5px;"></div>
+                            </div>
+                        </div>
+                        <div id="hash-path-panel" class="hash-panel" style="width: 100%; display: none;">
+                            <input type="text" id="job-hash-file" placeholder="/var/lib/hm1k-agent/jobs/hashes.txt" class="advanced-input" style="width: 100%;">
+                            <span class="form-hint" style="margin-left: 0;">Path to hash file on the agent machine</span>
+                        </div>
+                    </div>
+
+                    <!-- Hash Type Selector -->
+                    <div class="form-row">
+                        <label>Hash Type:</label>
+                        <select id="job-hash-type" class="advanced-input" style="flex: 1; max-width: 400px;" onchange="updateHashcatArgs()">
+                            <option value="">-- Select Hash Type --</option>
+                            <option value="1000">NTLM (Windows)</option>
+                            <option value="3000">LM (Legacy Windows)</option>
+                            <option value="1800">SHA-512 (Unix)</option>
+                            <option value="500">MD5 (Unix)</option>
+                            <option value="1400">SHA-256</option>
+                            <option value="0">MD5</option>
+                            <option value="100">SHA-1</option>
+                            <option value="3200">bcrypt</option>
+                            <option value="1700">SHA-512</option>
+                            <option value="13100">Kerberos 5 TGS-REP (etype 23)</option>
+                            <option value="18200">Kerberos 5 AS-REP (etype 23)</option>
+                            <option value="5600">NetNTLMv2</option>
+                            <option value="5500">NetNTLMv1</option>
+                            <option value="22000">WPA-PBKDF2-PMKID+EAPOL</option>
+                        </select>
+                    </div>
+
+                    <!-- Attack Mode & Resources -->
+                    <div class="form-row">
+                        <label>Attack Mode:</label>
+                        <select id="job-attack-mode" class="advanced-input" style="width: 200px;" onchange="updateAttackMode()">
+                            <option value="0">Dictionary (Wordlist)</option>
+                            <option value="3">Brute Force / Mask</option>
+                            <option value="6">Hybrid Wordlist + Mask</option>
+                            <option value="7">Hybrid Mask + Wordlist</option>
+                        </select>
+                    </div>
+
+                    <!-- Wordlist Selector (shown for dictionary attacks) -->
+                    <div class="form-row" id="wordlist-row">
+                        <label>Wordlist:</label>
+                        <select id="job-wordlist" class="advanced-input" style="flex: 1;" onchange="updateHashcatArgs()">
+                            <option value="">-- Select Wordlist --</option>
+                        </select>
+                    </div>
+
+                    <!-- Rules Selector -->
+                    <div class="form-row" id="rules-row">
+                        <label>Rules (optional):</label>
+                        <select id="job-rules" class="advanced-input" style="flex: 1;" onchange="updateHashcatArgs()">
+                            <option value="">-- No Rules --</option>
+                        </select>
+                    </div>
+
+                    <!-- Mask Input (shown for mask attacks) -->
+                    <div class="form-row" id="mask-row" style="display: none;">
+                        <label>Mask:</label>
+                        <input type="text" id="job-mask" placeholder="?a?a?a?a?a?a" class="advanced-input" style="flex: 1;" oninput="updateHashcatArgs()">
+                        <span class="form-hint">?l=lowercase ?u=uppercase ?d=digit ?s=special ?a=all</span>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Hashcat Arguments:</label>
+                        <input type="text" id="job-hashcat-args" placeholder="Auto-generated from selections above" class="advanced-input" style="flex: 1;">
+                        <span class="form-hint">Auto-generated. Edit for advanced options.</span>
+                    </div>
+
+                    <!-- Hashcat Options -->
+                    <div class="form-row" style="flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom: 8px;">Options:</label>
+                        <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                <input type="checkbox" id="opt-username" style="width: 16px; height: 16px;">
+                                <span>--username</span>
+                                <span style="color: #888; font-size: 0.85rem;">(pwdump/user:hash format)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                <input type="checkbox" id="opt-potfile-disable" style="width: 16px; height: 16px;">
+                                <span>--potfile-disable</span>
+                                <span style="color: #888; font-size: 0.85rem;">(don't use potfile)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal;">
+                                <input type="checkbox" id="opt-optimized" style="width: 16px; height: 16px;">
+                                <span>-O</span>
+                                <span style="color: #888; font-size: 0.85rem;">(optimized kernels)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Job ID (optional):</label>
+                        <input type="text" id="job-id" placeholder="auto-generated if empty" class="advanced-input" style="flex: 1;">
+                    </div>
+
+                    <!-- Template Library -->
+                    <div class="form-row">
+                        <label>Template:</label>
+                        <select id="job-template" class="advanced-input" style="flex: 1;" onchange="applySelectedTemplate()">
+                            <option value="">-- Select Template (optional) --</option>
+                        </select>
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadJobTemplates()" title="Refresh templates">&#8635;</button>
+                    </div>
+
+                    <div style="margin-top: 20px;">
+                        <button class="advanced-btn advanced-btn-primary" onclick="submitJob()" style="padding: 12px 30px;">
+                            &#9654; Submit Job
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LM -> NTLM Workflow Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128279;</span>
+                <h2 class="advanced-section-title">LM &rarr; NTLM Workflow</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadWorkflows()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div style="margin-bottom: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border-radius: 8px; border: 1px solid rgba(0, 212, 255, 0.2);">
+                    <p style="margin: 0 0 10px 0; color: #aaa; font-size: 0.9rem;">
+                        <strong style="color: #00d4ff;">Multi-step automated cracking:</strong>
+                        Upload a pwdump file with LM hashes. The workflow will:
+                    </p>
+                    <ol style="margin: 0; padding-left: 20px; color: #888; font-size: 0.85rem;">
+                        <li>Extract and crack LM hash halves (brute force ?u?d?s, 1-7 chars)</li>
+                        <li>Combine cracked halves into uppercase plaintexts</li>
+                        <li>Use toggle rules to recover case-sensitive NTLM passwords</li>
+                    </ol>
+                </div>
+
+                <div class="form-row">
+                    <label>Agent:</label>
+                    <select id="workflow-agent" class="advanced-input" style="flex: 1; max-width: 300px;">
+                        <option value="">Select agent...</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Pwdump File:</label>
+                    <div style="flex: 1;">
+                        <input type="file" id="workflow-file" accept=".txt,.pwdump,.hash" style="display: none;" onchange="handleWorkflowFile(this)">
+                        <div class="file-upload-zone" onclick="document.getElementById('workflow-file').click()" id="workflow-drop-zone" style="padding: 15px; border: 2px dashed rgba(0, 212, 255, 0.3); border-radius: 8px; text-align: center; cursor: pointer;">
+                            <div id="workflow-file-status">Click to select pwdump file</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="advanced-btn advanced-btn-primary" onclick="startWorkflow()" style="padding: 12px 30px;">
+                        &#128640; Start LM &rarr; NTLM Workflow
+                    </button>
+                </div>
+
+                <!-- Active Workflows -->
+                <div id="workflows-container" style="margin-top: 25px;">
+                    <h4 style="color: #00d4ff; margin-bottom: 10px;">Active Workflows</h4>
+                    <div id="workflows-list">
+                        <div style="color: #666; font-style: italic;">No workflows yet. Start one above.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Jobs Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#9201;</span>
+                <h2 class="advanced-section-title">Active Jobs</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshJobs()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="active-jobs">
+                    <div class="no-jobs-message">No active jobs. Submit a job above to start cracking.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job History Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128203;</span>
+                <h2 class="advanced-section-title">Job History</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadJobHistory()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="job-history-container">
+                    <div class="job-history-loading">Loading job history...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cracked Passwords Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128273;</span>
+                <h2 class="advanced-section-title">Cracked Passwords</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearResults()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="job-results" class="job-results-container">
+                    <div class="no-results-message">No cracked passwords yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Log Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128214;</span>
+                <h2 class="advanced-section-title">Console Log</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearConsole()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="console-log" class="console-log">
+                    <div class="console-entry info">[INFO] Agent testing console initialized</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Agents loaded from server
+        let agents = [];
+        let jobPollingInterval = null;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAgentsFromServer();
+            loadJobTemplates();
+            loadWordlistsForDropdown();
+            loadRulesForDropdown();
+            updateAttackMode();  // Initialize visibility
+
+            // Handle Exit Advanced Mode referrer
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer) {
+                document.querySelector('.exit-link').href = referrer;
+            }
+            // Store referrer if coming from main app (not from Advanced Mode pages)
+            if (document.referrer && !document.referrer.includes('/agents') &&
+                !document.referrer.includes('/ai-') && !document.referrer.includes('/timing-stats') &&
+                !document.referrer.includes('/hidden') && !document.referrer.includes('/hibp')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        });
+
+        // Load wordlists from server for dropdown
+        async function loadWordlistsForDropdown() {
+            try {
+                const response = await fetch('/api/resources/wordlists');
+                if (response.ok) {
+                    const data = await response.json();
+                    const select = document.getElementById('job-wordlist');
+                    // Keep the first option (-- Select Wordlist --)
+                    select.innerHTML = '<option value="">-- Select Wordlist --</option>';
+                    (data.resources || []).forEach(resource => {
+                        const option = document.createElement('option');
+                        option.value = resource.file_path;
+                        const sizeStr = formatFileSize(resource.size_bytes);
+                        const lineCount = resource.line_count ? ` (${resource.line_count.toLocaleString()} entries)` : '';
+                        option.textContent = `${resource.name}${lineCount} - ${sizeStr}`;
+                        option.title = resource.description || resource.file_path;
+                        select.appendChild(option);
+                    });
+                    // Update args after dropdown is populated
+                    updateHashcatArgs();
+                }
+            } catch (error) {
+                console.warn('Failed to load wordlists:', error);
+            }
+        }
+
+        // Load rules from server for dropdown
+        async function loadRulesForDropdown() {
+            try {
+                const response = await fetch('/api/resources/rules');
+                if (response.ok) {
+                    const data = await response.json();
+                    const select = document.getElementById('job-rules');
+                    // Keep the first option (-- No Rules --)
+                    select.innerHTML = '<option value="">-- No Rules --</option>';
+                    (data.resources || []).forEach(resource => {
+                        const option = document.createElement('option');
+                        option.value = resource.file_path;
+                        const lineCount = resource.line_count ? ` (${resource.line_count.toLocaleString()} rules)` : '';
+                        option.textContent = `${resource.name}${lineCount}`;
+                        option.title = resource.description || resource.file_path;
+                        select.appendChild(option);
+                    });
+                    // Update args after dropdown is populated
+                    updateHashcatArgs();
+                }
+            } catch (error) {
+                console.warn('Failed to load rules:', error);
+            }
+        }
+
+        // Update attack mode UI visibility
+        function updateAttackMode() {
+            const attackMode = document.getElementById('job-attack-mode').value;
+            const wordlistRow = document.getElementById('wordlist-row');
+            const rulesRow = document.getElementById('rules-row');
+            const maskRow = document.getElementById('mask-row');
+
+            // Attack modes: 0=dictionary, 3=brute force/mask, 6=hybrid wordlist+mask, 7=hybrid mask+wordlist
+            if (attackMode === '0') {
+                // Dictionary attack: show wordlist and rules
+                wordlistRow.style.display = 'flex';
+                rulesRow.style.display = 'flex';
+                maskRow.style.display = 'none';
+            } else if (attackMode === '3') {
+                // Brute force/mask: hide wordlist/rules, show mask
+                wordlistRow.style.display = 'none';
+                rulesRow.style.display = 'none';
+                maskRow.style.display = 'flex';
+            } else if (attackMode === '6') {
+                // Hybrid wordlist+mask: show wordlist and mask, hide rules
+                wordlistRow.style.display = 'flex';
+                rulesRow.style.display = 'none';
+                maskRow.style.display = 'flex';
+            } else if (attackMode === '7') {
+                // Hybrid mask+wordlist: show wordlist and mask, hide rules
+                wordlistRow.style.display = 'flex';
+                rulesRow.style.display = 'none';
+                maskRow.style.display = 'flex';
+            }
+
+            updateHashcatArgs();
+        }
+
+        // Update hashcat arguments based on dropdown selections
+        function updateHashcatArgs() {
+            const hashType = document.getElementById('job-hash-type').value;
+            const attackMode = document.getElementById('job-attack-mode').value;
+            const wordlist = document.getElementById('job-wordlist').value;
+            const rules = document.getElementById('job-rules').value;
+            const mask = document.getElementById('job-mask').value;
+
+            let args = [];
+
+            // Add hash type
+            if (hashType) {
+                args.push(`-m ${hashType}`);
+            }
+
+            // Add attack mode
+            args.push(`-a ${attackMode}`);
+
+            // Helper to quote paths with spaces
+            const quotePath = (path) => path.includes(' ') ? `"${path}"` : path;
+
+            // Add resources based on attack mode
+            if (attackMode === '0') {
+                // Dictionary attack
+                if (wordlist) {
+                    args.push(quotePath(wordlist));
+                }
+                if (rules) {
+                    args.push(`-r ${quotePath(rules)}`);
+                }
+            } else if (attackMode === '3') {
+                // Brute force/mask attack
+                if (mask) {
+                    args.push(mask);
+                } else {
+                    args.push('?a?a?a?a?a?a');  // Default mask
+                }
+            } else if (attackMode === '6') {
+                // Hybrid wordlist+mask
+                if (wordlist) {
+                    args.push(quotePath(wordlist));
+                }
+                if (mask) {
+                    args.push(mask);
+                } else {
+                    args.push('?d?d?d');  // Default mask suffix
+                }
+            } else if (attackMode === '7') {
+                // Hybrid mask+wordlist
+                if (mask) {
+                    args.push(mask);
+                } else {
+                    args.push('?d?d?d');  // Default mask prefix
+                }
+                if (wordlist) {
+                    args.push(quotePath(wordlist));
+                }
+            }
+
+            document.getElementById('job-hashcat-args').value = args.join(' ');
+        }
+
+        // Format file size helper
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        // Console logging
+        function log(message, type = 'info') {
+            const console = document.getElementById('console-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `console-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            console.appendChild(entry);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console-log').innerHTML = '<div class="console-entry info">[INFO] Console cleared</div>';
+        }
+
+        // Notification system
+        function showNotification(title, type = 'info', message = '') {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.style.position = 'relative';
+
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+
+            notification.innerHTML = `
+                <button class="notification-close" onclick="this.parentElement.remove()">×</button>
+                <div class="notification-title">${icon} ${title}</div>
+                ${message ? `<div class="notification-message">${message}</div>` : ''}
+            `;
+
+            container.appendChild(notification);
+
+            // Auto-remove after 6 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.style.animation = 'slideOut 0.3s ease-in forwards';
+                    setTimeout(() => notification.remove(), 300);
+                }
+            }, 6000);
+        }
+
+        // Load agents from server API
+        async function loadAgentsFromServer() {
+            log('Loading agents from server...', 'info');
+
+            try {
+                const response = await fetch('/api/agent/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    agents = data.agents || [];
+                    log(`Loaded ${agents.length} agent(s) from server`, 'success');
+                    renderAgents();
+                    populateAgentDropdown();
+
+                    // Start polling if any agents have active jobs
+                    if (agents.some(a => a.current_job)) {
+                        startJobPolling();
+                    }
+                } else {
+                    log(`Failed to load agents: HTTP ${response.status}`, 'error');
+                    renderAgents();
+                }
+            } catch (error) {
+                log(`Error loading agents: ${error.message}`, 'error');
+                renderAgents();
+            }
+        }
+
+        // Benchmark status cache per agent
+        const agentBenchmarkStatus = {};
+
+        function renderAgents() {
+            const grid = document.getElementById('agents-grid');
+
+            if (agents.length === 0) {
+                grid.innerHTML = `
+                    <div class="agent-card" style="grid-column: 1 / -1; text-align: center; color: #666;">
+                        <p>No agents registered. Deploy the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes to register agents.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = agents.map(agent => {
+                const statusClass = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                const statusLabel = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                const hardware = agent.hardware || {};
+                const job = agent.current_job;
+                const benchStatus = agentBenchmarkStatus[agent.id];
+
+                // Benchmark warning HTML
+                let benchmarkWarning = '';
+                if (benchStatus && benchStatus.needs_benchmark && !benchStatus.has_any_benchmarks) {
+                    benchmarkWarning = `
+                        <div class="agent-benchmark-warning" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
+                            <div style="color: #f59e0b; margin-bottom: 4px;">&#9888; No benchmarks</div>
+                            <div style="color: #999;">Run benchmarks to enable job time estimates</div>
+                        </div>
+                    `;
+                } else if (benchStatus && benchStatus.needs_benchmark) {
+                    benchmarkWarning = `
+                        <div class="agent-benchmark-info" style="background: rgba(0, 100, 200, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; font-size: 0.75rem; color: #888;">
+                            &#9432; ${benchStatus.benchmarked_modes}/${benchStatus.total_recommended_modes} hash types benchmarked
+                        </div>
+                    `;
+                }
+
+                return `
+                <div class="agent-card ${statusClass}" id="card-${agent.id}">
+                    <div class="agent-header">
+                        <span class="agent-name">${agent.name || agent.id}</span>
+                        <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
+                    </div>
+                    <div class="agent-info">
+                        <div class="agent-info-row">
+                            <span>Agent ID:</span>
+                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.id.substring(0, 8)}...</span>
+                        </div>
+                        <div class="agent-info-row">
+                            <span>Last Seen:</span>
+                            <span>${formatLastSeen(agent.last_heartbeat)}</span>
+                        </div>
+                    </div>
+                    ${benchmarkWarning}
+                    ${hardware.cpu || hardware.gpu || hardware.ram ? `
+                        <div class="agent-hardware">
+                            ${hardware.cpu ? `<div>CPU: ${hardware.cpu}</div>` : ''}
+                            ${hardware.gpu ? `<div>GPU: ${hardware.gpu}</div>` : ''}
+                            ${hardware.ram ? `<div>RAM: ${hardware.ram}</div>` : ''}
+                            ${hardware.disk_free_gb !== undefined ? `
+                                <div class="agent-disk-info" style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span>Disk:</span>
+                                        <span style="color: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'}">
+                                            ${hardware.disk_free_gb.toFixed(1)} GB free
+                                        </span>
+                                    </div>
+                                    <div class="disk-usage-bar" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 4px; overflow: hidden;">
+                                        <div style="height: 100%; width: ${hardware.disk_used_percent}%; background: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'};"></div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    ${job ? `
+                        <div class="agent-job-info" onclick="showJobDetailModal('${agent.id}')" style="cursor: pointer;" title="Click for detailed job status">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span>Job: ${job.job_id || 'N/A'}</span>
+                                <span>${job.status || 'running'}</span>
+                            </div>
+                            <div class="agent-progress-bar">
+                                <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
+                                <span>${(job.progress_percent || 0).toFixed(1)}%</span>
+                                <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
+                                <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #777;">
+                                ${job.gpu_temps && job.gpu_temps.length > 0 ? `<span title="GPU Temperature">🌡️ ${formatGpuTemps(job.gpu_temps)}</span>` : ''}
+                                ${job.eta_seconds ? `<span title="Estimated Time Remaining">⏱️ ${formatEtaFromTimestamp(job.eta_seconds)}</span>` : ''}
+                                <span style="color: #00d4ff; font-size: 0.7rem;">▶ Click for details</span>
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="agent-actions">
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()">&#8635; Refresh</button>
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data">&#128200;</button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark">&#9881; Benchmark</button>` : ''}
+                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent">&#128230; Deploy</button>` : ''}
+                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">Stop Job</button>` : ''}
+                    </div>
+                </div>
+            `}).join('');
+
+            // Fetch benchmark status for each agent
+            loadBenchmarkStatus();
+        }
+
+        async function loadBenchmarkStatus() {
+            for (const agent of agents) {
+                try {
+                    const response = await fetch(`/api/agent/${agent.id}/benchmark/status`);
+                    if (response.ok) {
+                        agentBenchmarkStatus[agent.id] = await response.json();
+                    }
+                } catch (error) {
+                    console.warn(`Failed to load benchmark status for ${agent.id}:`, error);
+                }
+            }
+            // Re-render to show benchmark status (without infinite loop)
+            updateBenchmarkWarnings();
+        }
+
+        function updateBenchmarkWarnings() {
+            // Update benchmark warnings without full re-render
+            for (const agent of agents) {
+                const benchStatus = agentBenchmarkStatus[agent.id];
+                const card = document.getElementById(`card-${agent.id}`);
+                if (!card || !benchStatus) continue;
+
+                // Find or create benchmark warning element
+                let warningEl = card.querySelector('.agent-benchmark-warning, .agent-benchmark-info');
+                const agentInfoEl = card.querySelector('.agent-info');
+                if (!agentInfoEl) continue;
+
+                if (benchStatus.needs_benchmark && !benchStatus.has_any_benchmarks) {
+                    if (!warningEl) {
+                        warningEl = document.createElement('div');
+                        warningEl.className = 'agent-benchmark-warning';
+                        agentInfoEl.insertAdjacentElement('afterend', warningEl);
+                    }
+                    warningEl.className = 'agent-benchmark-warning';
+                    warningEl.style.cssText = 'background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;';
+                    warningEl.innerHTML = `
+                        <div style="color: #f59e0b; margin-bottom: 4px;">&#9888; No benchmarks</div>
+                        <div style="color: #999;">Run benchmarks to enable job time estimates</div>
+                    `;
+                } else if (benchStatus.needs_benchmark) {
+                    if (!warningEl) {
+                        warningEl = document.createElement('div');
+                        warningEl.className = 'agent-benchmark-info';
+                        agentInfoEl.insertAdjacentElement('afterend', warningEl);
+                    }
+                    warningEl.className = 'agent-benchmark-info';
+                    warningEl.style.cssText = 'background: rgba(0, 100, 200, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; font-size: 0.75rem; color: #888;';
+                    warningEl.innerHTML = `&#9432; ${benchStatus.benchmarked_modes}/${benchStatus.total_recommended_modes} hash types benchmarked`;
+                } else if (warningEl) {
+                    warningEl.remove();
+                }
+            }
+        }
+
+        // Track agents with running benchmarks
+        const runningBenchmarks = new Set();
+
+        async function runBenchmark(agentId) {
+            if (!confirm('Run hashcat benchmark on this agent? This will test multiple hash types and may take several minutes.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/benchmark/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({}),
+                });
+
+                // Check content type before parsing
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response. You may need to log in again.');
+                }
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to start benchmark');
+                }
+
+                // Track running benchmark
+                runningBenchmarks.add(agentId);
+                updateBenchmarkRunIndicator(agentId, 'running', data.hash_modes?.length || 11);
+
+                showNotification('Benchmark Started', 'success', `Running benchmarks for ${data.hash_modes?.length || 11} hash types. This may take a few minutes.`);
+
+                // Auto-refresh will handle detecting completion
+            } catch (error) {
+                showNotification('Benchmark Failed', 'error', error.message);
+            }
+        }
+
+        function updateBenchmarkRunIndicator(agentId, status, totalModes = 0, completedModes = 0) {
+            const card = document.getElementById(`card-${agentId}`);
+            if (!card) return;
+
+            // Remove existing indicator
+            const existing = card.querySelector('.benchmark-run-indicator');
+            if (existing) existing.remove();
+
+            if (status === 'running') {
+                // Add running indicator before actions
+                const actions = card.querySelector('.agent-actions');
+                if (actions) {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'benchmark-run-indicator';
+                    indicator.style.cssText = 'background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(0, 150, 200, 0.15)); border: 1px solid rgba(0, 212, 255, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.85rem;';
+                    indicator.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 8px; color: #00d4ff;">
+                            <span class="spinner" style="width: 14px; height: 14px; border: 2px solid rgba(0,212,255,0.3); border-top-color: #00d4ff; border-radius: 50%; animation: spin 1s linear infinite;"></span>
+                            <span>Benchmarking...</span>
+                        </div>
+                        <div style="color: #888; font-size: 0.75rem; margin-top: 4px;">Testing ${totalModes} hash types</div>
+                    `;
+                    actions.parentNode.insertBefore(indicator, actions);
+
+                    // Disable the benchmark button
+                    const benchBtn = card.querySelector('button[onclick*="runBenchmark"]');
+                    if (benchBtn) {
+                        benchBtn.disabled = true;
+                        benchBtn.style.opacity = '0.5';
+                    }
+                }
+            } else if (status === 'completed') {
+                // Re-enable benchmark button
+                const benchBtn = card.querySelector('button[onclick*="runBenchmark"]');
+                if (benchBtn) {
+                    benchBtn.disabled = false;
+                    benchBtn.style.opacity = '1';
+                }
+            }
+        }
+
+        // Benchmark completion is now handled by auto-refresh in updateRunningBenchmarks()
+
+        async function viewAgentPerformance(agentId) {
+            try {
+                const response = await fetch(`/api/agent/${agentId}/performance`);
+                if (!response.ok) throw new Error('Failed to load performance data');
+
+                const data = await response.json();
+                showPerformanceModal(data);
+            } catch (error) {
+                showNotification('Failed to load performance data', 'error', error.message);
+            }
+        }
+
+        function showPerformanceModal(data) {
+            // Create modal to show performance data
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            modal.tabIndex = -1; // Make modal focusable
+
+            // Close modal function
+            const closeModal = () => {
+                modal.remove();
+                document.body.focus();
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            // Close on Escape key
+            modal.onkeydown = (e) => { if (e.key === 'Escape') closeModal(); };
+
+            const benchmarksHtml = data.benchmarks.length > 0
+                ? data.benchmarks.map(b => `
+                    <tr>
+                        <td style="padding: 6px 12px;">${b.hash_mode}</td>
+                        <td style="padding: 6px 12px;">${formatSpeed(b.total_speed_hs)}</td>
+                        <td style="padding: 6px 12px; color: #888;">${b.timestamp ? new Date(b.timestamp).toLocaleDateString() : 'N/A'}</td>
+                    </tr>
+                `).join('')
+                : '<tr><td colspan="3" style="padding: 12px; color: #666; text-align: center;">No benchmarks yet</td></tr>';
+
+            const jobsHtml = data.recent_jobs.length > 0
+                ? data.recent_jobs.slice(0, 5).map(j => `
+                    <tr>
+                        <td style="padding: 6px 12px; font-family: monospace; font-size: 0.8rem;">${j.job_id.substring(0, 12)}...</td>
+                        <td style="padding: 6px 12px;">${j.hash_mode}</td>
+                        <td style="padding: 6px 12px;">${formatSpeed(j.avg_speed_hs)}</td>
+                        <td style="padding: 6px 12px;">${j.hashes_cracked}/${j.total_hashes}</td>
+                        <td style="padding: 6px 12px;">${formatDuration(j.duration_seconds)}</td>
+                    </tr>
+                `).join('')
+                : '<tr><td colspan="5" style="padding: 12px; color: #666; text-align: center;">No job history</td></tr>';
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 700px; max-height: 80vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #fff;">Agent Performance: ${data.agent_id.substring(0, 8)}...</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <div style="margin-bottom: 20px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+                        <div style="color: ${data.benchmark_status.needs_benchmark ? '#f59e0b' : '#22c55e'}; margin-bottom: 8px;">
+                            ${data.benchmark_status.needs_benchmark ? '&#9888;' : '&#10003;'} ${data.benchmark_status.recommendation}
+                        </div>
+                        <div style="color: #888; font-size: 0.9rem;">
+                            ${data.benchmark_status.benchmarked_modes} of ${data.benchmark_status.total_recommended_modes} recommended hash types benchmarked
+                        </div>
+                    </div>
+
+                    <h4 style="color: #00d4ff; margin: 0 0 10px 0;">Benchmark Results</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9rem;">
+                        <thead style="background: rgba(0,212,255,0.1);">
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Hash Mode</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Speed</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody style="color: #ccc;">
+                            ${benchmarksHtml}
+                        </tbody>
+                    </table>
+
+                    <h4 style="color: #00d4ff; margin: 0 0 10px 0;">Recent Jobs</h4>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead style="background: rgba(0,212,255,0.1);">
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Job ID</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Mode</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Avg Speed</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Cracked</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody style="color: #ccc;">
+                            ${jobsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Add close button handler and focus modal
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+            modal.focus();
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds) return 'N/A';
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+            return `${Math.round(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`;
+        }
+
+        function populateAgentDropdown() {
+            const select = document.getElementById('job-agent');
+            const availableAgents = agents.filter(a => a.status === 'online' || a.status === 'working');
+            select.innerHTML = '<option value="">-- Select Agent --</option>' +
+                availableAgents.map(a => `<option value="${a.id}">${a.name || a.id} ${a.current_job ? '(busy)' : ''}</option>`).join('');
+        }
+
+        async function refreshAllAgents() {
+            await loadAgentsFromServer();
+        }
+
+        function formatLastSeen(timestamp) {
+            if (!timestamp) return 'Never';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+
+            if (diffSec < 60) return `${diffSec}s ago`;
+            if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+            if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+            return date.toLocaleDateString();
+        }
+
+        // File Upload Handling
+        let selectedFile = null;
+        let selectedFileContent = null;
+
+        function switchHashTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.hash-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+
+            // Show/hide panels
+            document.getElementById('hash-upload-panel').style.display = tab === 'upload' ? 'block' : 'none';
+            document.getElementById('hash-path-panel').style.display = tab === 'path' ? 'block' : 'none';
+        }
+
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+
+            // Read file content
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                selectedFileContent = e.target.result;
+
+                // Count lines (hashes)
+                const lines = selectedFileContent.split('\n').filter(l => l.trim()).length;
+
+                // Update UI
+                document.getElementById('selected-file-name').textContent = file.name;
+                document.getElementById('selected-file-stats').textContent =
+                    `${formatFileSize(file.size)} • ${lines.toLocaleString()} hash${lines !== 1 ? 'es' : ''}`;
+                document.getElementById('selected-file-info').style.display = 'block';
+                document.getElementById('file-drop-zone').style.display = 'none';
+
+                log(`File loaded: ${file.name} (${lines} hashes)`, 'success');
+            };
+            reader.onerror = () => {
+                log(`Failed to read file: ${file.name}`, 'error');
+                clearSelectedFile();
+            };
+            reader.readAsText(file);
+        }
+
+        function clearSelectedFile() {
+            selectedFile = null;
+            selectedFileContent = null;
+            document.getElementById('job-hash-upload').value = '';
+            document.getElementById('selected-file-info').style.display = 'none';
+            document.getElementById('file-drop-zone').style.display = 'block';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Drag and drop handlers
+        document.addEventListener('DOMContentLoaded', () => {
+            const dropZone = document.getElementById('file-drop-zone');
+            if (dropZone) {
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('dragover');
+                });
+                dropZone.addEventListener('dragleave', () => {
+                    dropZone.classList.remove('dragover');
+                });
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('dragover');
+                    if (e.dataTransfer.files.length) {
+                        document.getElementById('job-hash-upload').files = e.dataTransfer.files;
+                        handleFileSelect(document.getElementById('job-hash-upload'));
+                    }
+                });
+            }
+        });
+
+        // Job Templates from Template Library
+        let jobTemplates = [];
+
+        async function loadJobTemplates() {
+            try {
+                const response = await fetch('/api/agent/templates', {
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    jobTemplates = data.templates || [];
+                    populateTemplateDropdown();
+                    log(`Loaded ${jobTemplates.length} templates`, 'info');
+                }
+            } catch (error) {
+                console.error('Failed to load templates:', error);
+            }
+        }
+
+        function populateTemplateDropdown() {
+            const select = document.getElementById('job-template');
+            if (!select) return;
+
+            // Group templates by category
+            const byCategory = {};
+            jobTemplates.forEach(t => {
+                const cat = t.category || 'Other';
+                if (!byCategory[cat]) byCategory[cat] = [];
+                byCategory[cat].push(t);
+            });
+
+            let html = '<option value="">-- Select Template (optional) --</option>';
+            Object.keys(byCategory).sort().forEach(category => {
+                html += `<optgroup label="${category}">`;
+                byCategory[category].forEach(t => {
+                    const hashMode = t.hash_mode !== null ? ` (mode ${t.hash_mode})` : '';
+                    html += `<option value="${t.id}">${t.name}${hashMode}</option>`;
+                });
+                html += '</optgroup>';
+            });
+            select.innerHTML = html;
+        }
+
+        function applySelectedTemplate() {
+            const select = document.getElementById('job-template');
+            const templateId = select.value;
+            if (!templateId) return;
+
+            const template = jobTemplates.find(t => t.id === templateId);
+            if (!template) return;
+
+            applyTemplateObject(template);
+        }
+
+        function applyTemplateObject(template) {
+            const argsInput = document.getElementById('job-hashcat-args');
+            const optOptimized = document.getElementById('opt-optimized');
+
+            // Helper to quote paths with spaces
+            const quotePath = (path) => path.includes(' ') ? `"${path}"` : path;
+
+            // Build hashcat arguments from template
+            let args = [];
+
+            // Hash mode
+            if (template.hash_mode !== null) {
+                args.push(`-m ${template.hash_mode}`);
+            }
+
+            // Attack mode
+            args.push(`-a ${template.attack_mode}`);
+
+            // Attack-specific settings
+            if (template.attack_mode === 0 && template.wordlist) {
+                // Wordlist attack
+                args.push(quotePath(template.wordlist));
+            } else if (template.attack_mode === 3 && template.mask) {
+                // Brute force / mask attack
+                if (template.custom_charset_1) {
+                    args.push(`-1 ${template.custom_charset_1}`);
+                }
+                if (template.increment) {
+                    args.push('--increment');
+                    if (template.increment_min) args.push(`--increment-min ${template.increment_min}`);
+                    if (template.increment_max) args.push(`--increment-max ${template.increment_max}`);
+                }
+                args.push(template.mask);
+            }
+
+            // Rules
+            if (template.rules && template.rules.length > 0) {
+                template.rules.forEach(rule => {
+                    args.push(`-r ${quotePath(rule)}`);
+                });
+            }
+
+            argsInput.value = args.join(' ');
+
+            // Set optimized kernels option
+            optOptimized.checked = template.optimized_kernels || false;
+
+            log(`Applied template: ${template.name}`, 'info');
+        }
+
+        // Legacy quick templates (for backwards compatibility)
+        function applyTemplate(template) {
+            const argsInput = document.getElementById('job-hashcat-args');
+            const optOptimized = document.getElementById('opt-optimized');
+
+            // Reset options
+            optOptimized.checked = false;
+
+            switch (template) {
+                case 'ntlm-brute':
+                    argsInput.value = '-m 1000 -a 3 ?a?a?a?a';
+                    optOptimized.checked = true;
+                    break;
+                case 'lm-brute':
+                    argsInput.value = '-m 3000 -a 3 -1 ?u?d?s ?1?1?1?1?1?1?1 -i --increment-min 1 --increment-max 7';
+                    break;
+                case 'ntlm-wordlist':
+                    argsInput.value = '-m 1000 -a 0 /opt/wordlists/rockyou.txt';
+                    break;
+                case 'sha256-brute':
+                    argsInput.value = '-m 1400 -a 3 ?a?a?a?a?a';
+                    optOptimized.checked = true;
+                    break;
+            }
+            log(`Applied template: ${template}`, 'info');
+        }
+
+        // Job Submission - routes through HM1K server
+        async function submitJob() {
+            const agentId = document.getElementById('job-agent').value;
+            const hashFile = document.getElementById('job-hash-file').value.trim();
+            const argsStr = document.getElementById('job-hashcat-args').value.trim();
+            const jobId = document.getElementById('job-id').value.trim();
+
+            // Check which tab is active
+            const isUploadMode = document.querySelector('.hash-tab[data-tab="upload"]').classList.contains('active');
+
+            if (!agentId) {
+                log('Please select an agent', 'error');
+                return;
+            }
+
+            // Validate hash source
+            if (isUploadMode) {
+                if (!selectedFileContent) {
+                    log('Please select a hash file to upload', 'error');
+                    return;
+                }
+            } else {
+                if (!hashFile) {
+                    log('Please enter a hash file path', 'error');
+                    return;
+                }
+            }
+
+            if (!argsStr) {
+                log('Please enter hashcat arguments', 'error');
+                return;
+            }
+
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent) {
+                log('Agent not found', 'error');
+                return;
+            }
+
+            // Parse args string into array
+            const hashcatArgs = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+
+            // Add checked options
+            if (document.getElementById('opt-username').checked) {
+                hashcatArgs.push('--username');
+            }
+            if (document.getElementById('opt-potfile-disable').checked) {
+                hashcatArgs.push('--potfile-disable');
+            }
+            if (document.getElementById('opt-optimized').checked) {
+                hashcatArgs.push('-O');
+            }
+
+            const payload = {
+                hashcat_args: hashcatArgs
+            };
+
+            if (isUploadMode) {
+                // Include hash content for upload mode
+                payload.hash_content = selectedFileContent;
+                payload.hash_filename = selectedFile.name;
+                log(`Uploading ${selectedFile.name} to agent...`, 'info');
+            } else {
+                // Use remote path
+                payload.hash_file = hashFile;
+            }
+
+            if (jobId) {
+                payload.job_id = jobId;
+            }
+
+            log(`Submitting job to ${agent.name || agent.id}...`, 'info');
+            log(`Command: hashcat ${hashcatArgs.join(' ')}`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/job`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Job submitted successfully: ${data.job_id}`, 'success');
+                    showNotification(`Job queued: ${data.job_id}`, 'success', 'Job will start on next agent heartbeat (~30s)');
+                    startJobPolling();
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                    setTimeout(() => loadJobHistory(), 35000);  // Refresh history after job likely completes
+                } else {
+                    log(`Failed to submit job: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification('Job submission failed', 'error', data.error || 'Unknown error');
+                }
+            } catch (error) {
+                log(`Error submitting job: ${error.message}`, 'error');
+            }
+        }
+
+        // Job Monitoring
+        function startJobPolling() {
+            if (jobPollingInterval) return;
+
+            jobPollingInterval = setInterval(async () => {
+                await loadAgentsFromServer();
+
+                const anyBusy = agents.some(a => a.current_job);
+                if (!anyBusy) {
+                    stopJobPolling();
+                }
+
+                updateActiveJobs();
+            }, 5000);
+
+            log('Started job monitoring (5s interval)', 'info');
+        }
+
+        function stopJobPolling() {
+            if (jobPollingInterval) {
+                clearInterval(jobPollingInterval);
+                jobPollingInterval = null;
+                log('Stopped job monitoring', 'info');
+            }
+        }
+
+        function refreshJobs() {
+            loadAgentsFromServer();
+        }
+
+        function updateActiveJobs() {
+            const container = document.getElementById('active-jobs');
+            const busyAgents = agents.filter(a => a.current_job);
+
+            if (busyAgents.length === 0) {
+                container.innerHTML = '<div class="no-jobs-message">No active jobs. Submit a job above to start cracking.</div>';
+                return;
+            }
+
+            container.innerHTML = busyAgents.map(agent => {
+                const job = agent.current_job;
+
+                // Format ETA - eta_seconds is a Unix timestamp of estimated completion
+                let etaDisplay = 'N/A';
+                if (job.eta_seconds && job.eta_seconds > 0) {
+                    const nowSecs = Math.floor(Date.now() / 1000);
+                    // If eta_seconds looks like a Unix timestamp (> 1 billion), calculate remaining
+                    if (job.eta_seconds > 1000000000) {
+                        const remaining = job.eta_seconds - nowSecs;
+                        if (remaining > 0) {
+                            etaDisplay = formatEta(remaining);
+                        } else {
+                            etaDisplay = 'Finishing...';
+                        }
+                    } else {
+                        // Fall back to treating as seconds remaining
+                        etaDisplay = formatEta(job.eta_seconds);
+                    }
+                }
+
+                // Format GPU info
+                let gpuInfo = '';
+                if (job.gpu_temps && job.gpu_temps.length > 0) {
+                    const maxTemp = Math.max(...job.gpu_temps.filter(t => t > 0));
+                    const tempColor = maxTemp > 80 ? '#ef4444' : maxTemp > 65 ? '#f59e0b' : '#22c55e';
+                    gpuInfo += `<span style="color: ${tempColor};">${maxTemp}°C</span>`;
+                }
+                if (job.gpu_utils && job.gpu_utils.length > 0) {
+                    const maxUtil = Math.max(...job.gpu_utils.filter(u => u > 0));
+                    if (gpuInfo) gpuInfo += ' / ';
+                    gpuInfo += `${maxUtil}%`;
+                }
+
+                // Updated timestamp
+                let lastUpdateStr = '';
+                if (job.updated_at) {
+                    const updated = new Date(job.updated_at);
+                    const secondsAgo = Math.floor((Date.now() - updated.getTime()) / 1000);
+                    lastUpdateStr = secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`;
+                }
+
+                return `
+                <div class="job-card">
+                    <div class="job-header">
+                        <span class="job-id">${job.job_id || 'N/A'}</span>
+                        <span style="display: flex; align-items: center; gap: 10px;">
+                            <span>on ${agent.name || agent.id}</span>
+                            ${lastUpdateStr ? `<span style="font-size: 0.75rem; color: #666;">Updated ${lastUpdateStr}</span>` : ''}
+                        </span>
+                    </div>
+                    <div class="agent-progress-bar" style="height: 10px;">
+                        <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                    </div>
+                    <div class="job-stats">
+                        <div class="job-stat">
+                            <div class="job-stat-value">${(job.progress_percent || 0).toFixed(1)}%</div>
+                            <div class="job-stat-label">Progress</div>
+                        </div>
+                        <div class="job-stat">
+                            <div class="job-stat-value">${formatSpeed(job.speed_hashes_per_sec)}</div>
+                            <div class="job-stat-label">Speed</div>
+                        </div>
+                        <div class="job-stat">
+                            <div class="job-stat-value">${job.recovered_hashes || 0}/${job.total_hashes || 0}</div>
+                            <div class="job-stat-label">Cracked</div>
+                        </div>
+                        <div class="job-stat">
+                            <div class="job-stat-value">${etaDisplay}</div>
+                            <div class="job-stat-label">ETA</div>
+                        </div>
+                        ${gpuInfo ? `
+                        <div class="job-stat">
+                            <div class="job-stat-value">${gpuInfo}</div>
+                            <div class="job-stat-label">GPU</div>
+                        </div>
+                        ` : ''}
+                        <div class="job-stat">
+                            <div class="job-stat-value" style="text-transform: capitalize;">${job.status || 'running'}</div>
+                            <div class="job-stat-label">State</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">Stop Job</button>
+                        <button class="advanced-btn advanced-btn-warning advanced-btn-small" onclick="pauseJob('${agent.id}')">Pause</button>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function formatEta(seconds) {
+            if (!seconds || seconds <= 0) return 'N/A';
+            if (seconds < 60) return `${Math.round(seconds)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+            if (seconds < 86400) {
+                const hours = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                return `${hours}h ${mins}m`;
+            }
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            return `${days}d ${hours}h`;
+        }
+
+        async function stopJob(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent) return;
+
+            log(`Stopping job on ${agent.name || agent.id}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/stop`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    // Likely HTML response (login redirect or error page)
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Stop command queued for ${agent.name || agent.id} (job: ${data.job_id})`, 'success');
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to stop job: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error stopping job: ${error.message}`, 'error');
+            }
+        }
+
+        async function pauseJob(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent) return;
+
+            log(`Pausing job on ${agent.name || agent.id}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/pause`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Pause command queued for ${agent.name || agent.id} (job: ${data.job_id})`, 'success');
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to pause job: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error pausing job: ${error.message}`, 'error');
+            }
+        }
+
+        // Results
+        function addResult(hash, password) {
+            const container = document.getElementById('job-results');
+            const noResults = container.querySelector('.no-results-message');
+            if (noResults) noResults.remove();
+
+            const entry = document.createElement('div');
+            entry.className = 'result-entry';
+            entry.textContent = `${hash}:${password}`;
+            container.insertBefore(entry, container.firstChild);
+        }
+
+        function clearResults() {
+            document.getElementById('job-results').innerHTML = '<div class="no-results-message">No results yet.</div>';
+        }
+
+        // Utility
+        function formatSpeed(speed) {
+            if (!speed) return '0 H/s';
+            if (speed >= 1e12) return (speed / 1e12).toFixed(2) + ' TH/s';
+            if (speed >= 1e9) return (speed / 1e9).toFixed(2) + ' GH/s';
+            if (speed >= 1e6) return (speed / 1e6).toFixed(2) + ' MH/s';
+            if (speed >= 1e3) return (speed / 1e3).toFixed(2) + ' KH/s';
+            return speed + ' H/s';
+        }
+
+        function formatGpuTemps(temps) {
+            if (!temps || temps.length === 0) return 'N/A';
+            // Show max temp if multiple GPUs, or single value if one GPU
+            if (temps.length === 1) return `${temps[0]}°C`;
+            const maxTemp = Math.max(...temps);
+            return `${maxTemp}°C (max)`;
+        }
+
+        function formatGpuUtils(utils) {
+            if (!utils || utils.length === 0) return 'N/A';
+            if (utils.length === 1) return `${utils[0]}%`;
+            const avgUtil = Math.round(utils.reduce((a, b) => a + b, 0) / utils.length);
+            return `${avgUtil}% (avg)`;
+        }
+
+        // Convert eta_seconds (Unix timestamp or seconds) to remaining time string
+        function formatEtaFromTimestamp(etaValue) {
+            if (!etaValue || etaValue <= 0) return null;
+            const nowSecs = Math.floor(Date.now() / 1000);
+            // If value looks like a Unix timestamp (> year 2001), calculate remaining
+            if (etaValue > 1000000000) {
+                const remaining = etaValue - nowSecs;
+                if (remaining > 0) {
+                    return formatEta(remaining);
+                } else {
+                    return 'Finishing...';
+                }
+            }
+            // Otherwise treat as seconds remaining
+            return formatEta(etaValue);
+        }
+
+        // Live job detail modal
+        let jobDetailModalInterval = null;
+
+        function showJobDetailModal(agentId) {
+            // Find the agent
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent || !agent.current_job) {
+                showNotification('No active job', 'info', 'This agent does not have a running job.');
+                return;
+            }
+
+            // Remove any existing modal
+            const existing = document.getElementById('job-detail-modal');
+            if (existing) {
+                clearInterval(jobDetailModalInterval);
+                existing.remove();
+            }
+
+            // Create modal
+            const modal = document.createElement('div');
+            modal.id = 'job-detail-modal';
+            modal.className = 'modal-overlay';
+            modal.tabIndex = -1;
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+            const closeModal = () => {
+                clearInterval(jobDetailModalInterval);
+                jobDetailModalInterval = null;
+                modal.remove();
+                document.body.focus();
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+            modal.onkeydown = (e) => { if (e.key === 'Escape') closeModal(); };
+
+            modal.innerHTML = `
+                <div class="modal-content" style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 650px; width: 95%; max-height: 90vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2rem;">📊</span> Live Job Status
+                            <span class="job-detail-live-indicator" style="font-size: 0.7rem; padding: 3px 8px; background: rgba(34, 197, 94, 0.2); color: #22c55e; border-radius: 12px; animation: pulse 2s infinite;">● LIVE</span>
+                        </h2>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #999; font-size: 1.5rem; cursor: pointer; padding: 4px 8px;">×</button>
+                    </div>
+                    <div id="job-detail-content">
+                        ${renderJobDetailContent(agent)}
+                    </div>
+                    <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agentId}'); document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Stop Job</button>
+                        <button class="advanced-btn advanced-btn-secondary" onclick="document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Close</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+            modal.focus();
+
+            // Start auto-refresh every 2 seconds
+            jobDetailModalInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/agent/list');
+                    if (response.ok) {
+                        const data = await response.json();
+                        const updatedAgent = (data.agents || []).find(a => a.id === agentId);
+                        if (updatedAgent && updatedAgent.current_job) {
+                            // Update our local agents array too
+                            const idx = agents.findIndex(a => a.id === agentId);
+                            if (idx >= 0) agents[idx] = updatedAgent;
+
+                            const contentEl = document.getElementById('job-detail-content');
+                            if (contentEl) {
+                                contentEl.innerHTML = renderJobDetailContent(updatedAgent);
+                            }
+                        } else {
+                            // Job completed - show notification and close
+                            clearInterval(jobDetailModalInterval);
+                            const contentEl = document.getElementById('job-detail-content');
+                            if (contentEl) {
+                                contentEl.innerHTML = `
+                                    <div style="text-align: center; padding: 40px; color: #22c55e;">
+                                        <div style="font-size: 3rem; margin-bottom: 15px;">✓</div>
+                                        <h3>Job Completed</h3>
+                                        <p style="color: #999;">The job has finished. Check job history for results.</p>
+                                    </div>
+                                `;
+                            }
+                            // Update live indicator
+                            const indicator = modal.querySelector('.job-detail-live-indicator');
+                            if (indicator) {
+                                indicator.textContent = 'COMPLETED';
+                                indicator.style.background = 'rgba(100,100,100,0.2)';
+                                indicator.style.color = '#999';
+                                indicator.style.animation = 'none';
+                            }
+                            // Refresh agent list
+                            loadAgentsFromServer();
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Failed to refresh job status:', err);
+                }
+            }, 2000);
+
+            log(`Opened live job monitor for ${agent.name || agentId}`, 'info');
+        }
+
+        function renderJobDetailContent(agent) {
+            const job = agent.current_job;
+            if (!job) return '<p style="color: #999;">No active job</p>';
+
+            const updatedAt = job.updated_at ? new Date(job.updated_at).toLocaleTimeString() : 'N/A';
+            const gpuTemps = job.gpu_temps || [];
+            const gpuUtils = job.gpu_utils || [];
+
+            return `
+                <div class="job-detail-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <!-- Job Info -->
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Job Information</h4>
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Job ID</span>
+                                <span style="color: #fff; font-family: monospace;">${job.job_id || 'N/A'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Status</span>
+                                <span style="color: ${job.status === 'running' ? '#22c55e' : '#f59e0b'};">${job.status || 'unknown'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Agent</span>
+                                <span style="color: #fff;">${agent.name || agent.id.substring(0, 8)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Last Update</span>
+                                <span style="color: #fff;">${updatedAt}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Progress -->
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Progress</h4>
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Cracked</span>
+                                <span style="color: #22c55e; font-weight: bold;">${job.recovered_hashes || 0} / ${job.total_hashes || 0}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Keyspace</span>
+                                <span style="color: #fff;">${(job.progress_percent || 0).toFixed(2)}%</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">ETA</span>
+                                <span style="color: #fff;">${job.eta_seconds ? formatEtaFromTimestamp(job.eta_seconds) : 'Calculating...'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Speed -->
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Performance</h4>
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Speed</span>
+                                <span style="color: #fff; font-weight: bold;">${formatSpeed(job.speed_hashes_per_sec)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GPU Stats -->
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">GPU Status</h4>
+                        ${gpuTemps.length > 0 || gpuUtils.length > 0 ? `
+                            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                                ${gpuTemps.map((temp, i) => `
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="color: #888;">GPU ${i}</span>
+                                        <span>
+                                            <span style="color: ${temp > 80 ? '#ef4444' : temp > 70 ? '#f59e0b' : '#22c55e'};">🌡️ ${temp}°C</span>
+                                            ${gpuUtils[i] !== undefined ? `<span style="color: #888; margin-left: 12px;">⚡ ${gpuUtils[i]}%</span>` : ''}
+                                        </span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div style="color: #666; font-size: 0.85rem;">GPU metrics not available</div>
+                        `}
+                    </div>
+                </div>
+
+                <!-- Large Progress Bar -->
+                <div style="margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
+                        <span style="color: #888;">Overall Progress</span>
+                        <span style="color: #fff; font-weight: bold;">${(job.progress_percent || 0).toFixed(2)}%</span>
+                    </div>
+                    <div style="height: 24px; background: rgba(0,0,0,0.4); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,212,255,0.2);">
+                        <div style="height: 100%; width: ${job.progress_percent || 0}%; background: linear-gradient(90deg, #00d4ff, #0064ff); transition: width 0.5s ease; display: flex; align-items: center; justify-content: center;">
+                            ${(job.progress_percent || 0) > 15 ? `<span style="color: #fff; font-size: 0.75rem; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${(job.progress_percent || 0).toFixed(1)}%</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                ${job.hashcat_args && job.hashcat_args.length > 0 ? `
+                <!-- Hashcat Command -->
+                <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Hashcat Command</h4>
+                    <code style="display: block; background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #22c55e; word-break: break-all; border: 1px solid rgba(0,212,255,0.2);">hashcat ${job.hashcat_args.join(' ')}</code>
+                </div>
+                ` : ''}
+            `;
+        }
+
+        // Job History
+        let jobHistory = [];
+
+        async function loadJobHistory() {
+            const container = document.getElementById('job-history-container');
+            container.innerHTML = '<div class="job-history-loading">Loading job history...</div>';
+
+            try {
+                const response = await fetch('/api/agent/history?limit=25');
+                if (response.ok) {
+                    const data = await response.json();
+                    jobHistory = data.jobs || [];
+                    renderJobHistory();
+                } else {
+                    container.innerHTML = '<div class="job-history-empty">Failed to load job history</div>';
+                    log(`Failed to load job history: HTTP ${response.status}`, 'error');
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="job-history-empty">Error loading job history</div>';
+                log(`Error loading job history: ${error.message}`, 'error');
+            }
+        }
+
+        function renderJobHistory() {
+            const container = document.getElementById('job-history-container');
+
+            if (jobHistory.length === 0) {
+                container.innerHTML = '<div class="job-history-empty">No job history yet. Complete a job to see it here.</div>';
+                return;
+            }
+
+            let html = `
+                <table class="job-history-table">
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Cracked</th>
+                            <th>Total Hashes</th>
+                            <th>Duration</th>
+                            <th>Completed</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            jobHistory.forEach((job, index) => {
+                const stats = job.stats || {};
+                const recovered = stats.recovered || 0;
+                const total = stats.total_hashes || 0;
+                const crackRate = total > 0 ? (recovered / total * 100) : 0;
+                const duration = formatDuration(stats.duration_seconds);
+                const completedAt = formatCompletedAt(job.completed_at);
+                const state = stats.state || 'unknown';
+                const hasPotfile = job.potfile && job.potfile.trim();
+
+                // Determine crack rate color class
+                let rateClass = 'none';
+                if (crackRate >= 50) rateClass = 'high';
+                else if (crackRate >= 10) rateClass = 'medium';
+                else if (crackRate > 0) rateClass = 'low';
+
+                html += `
+                    <tr class="job-row-expandable" onclick="toggleJobDetails(${index})">
+                        <td class="job-id-cell">${job.job_id || 'N/A'}</td>
+                        <td class="crack-rate ${rateClass}">${recovered} (${crackRate.toFixed(1)}%)</td>
+                        <td>${total.toLocaleString()}</td>
+                        <td>${duration}</td>
+                        <td>${completedAt}</td>
+                        <td><span class="job-status-badge ${state}">${state}</span></td>
+                    </tr>
+                    <tr class="job-details-row" id="job-details-${index}">
+                        <td colspan="6" class="job-details-cell">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding-top: 10px;">
+                                <div>
+                                    <strong style="color: #00d4ff;">Agent ID:</strong><br>
+                                    <span style="font-family: monospace; font-size: 0.8rem;">${job.agent_id || 'N/A'}</span>
+                                </div>
+                                <div>
+                                    <strong style="color: #00d4ff;">Full Job ID:</strong><br>
+                                    <span style="font-family: monospace; font-size: 0.8rem;">${job.job_id || 'N/A'}</span>
+                                </div>
+                                ${job.hashcat_args ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #00d4ff;">Hashcat Command:</strong><br>
+                                    <code style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap;">hashcat ${job.hashcat_args.join(' ')}</code>
+                                </div>
+                                ` : ''}
+                                ${stats.error_message ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #ef4444;">Error:</strong><br>
+                                    <span style="color: #ef4444;">${escapeHtml(stats.error_message)}</span>
+                                </div>
+                                ` : ''}
+                                ${job.error_info ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #ef4444;">Error Details:</strong><br>
+                                    <span style="color: #ef4444;">${escapeHtml(job.error_info.error || 'Unknown error')}</span>
+                                    ${job.error_info.logs ? `
+                                    <details style="margin-top: 8px;">
+                                        <summary style="color: #f59e0b; cursor: pointer;">Hashcat Output (click to expand)</summary>
+                                        <pre style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-size: 0.75rem; max-height: 300px; overflow: auto; margin-top: 8px; white-space: pre-wrap;">${escapeHtml(job.error_info.logs)}</pre>
+                                    </details>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${!job.error_info && job.hashcat_logs ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <details style="margin-top: 8px;">
+                                        <summary style="color: #f59e0b; cursor: pointer;">Hashcat Output (click to expand)</summary>
+                                        <pre style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-size: 0.75rem; max-height: 300px; overflow: auto; margin-top: 8px; white-space: pre-wrap;">${escapeHtml(job.hashcat_logs)}</pre>
+                                    </details>
+                                </div>
+                                ` : ''}
+                            </div>
+                            ${hasPotfile ? `
+                            <div style="margin-top: 12px;">
+                                <strong style="color: #22c55e;">Cracked Passwords:</strong>
+                                <div class="job-potfile-preview">${escapeHtml(job.potfile)}</div>
+                            </div>
+                            ` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function toggleJobDetails(index) {
+            const row = document.getElementById(`job-details-${index}`);
+            if (row) {
+                row.classList.toggle('expanded');
+            }
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds) return 'N/A';
+            if (seconds < 60) return `${seconds.toFixed(1)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${mins}m`;
+        }
+
+        function formatCompletedAt(isoDate) {
+            if (!isoDate) return 'N/A';
+            const date = new Date(isoDate);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffHours = diffMs / (1000 * 60 * 60);
+
+            if (diffHours < 24) {
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+                   date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load job history on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(loadJobHistory, 500);  // Load after agents
+        });
+
+        // ============================================================
+        // LM -> NTLM Workflow Functions
+        // ============================================================
+
+        let workflowFileContent = null;
+        let workflowFileName = null;
+        let workflowPollingInterval = null;
+
+        function startWorkflowPolling() {
+            if (workflowPollingInterval) return;
+            workflowPollingInterval = setInterval(() => {
+                loadWorkflows();
+                loadJobHistory();  // Also refresh job history
+            }, 5000);  // Poll every 5 seconds
+            log('Workflow auto-refresh enabled (every 5s)', 'info');
+        }
+
+        function stopWorkflowPolling() {
+            if (workflowPollingInterval) {
+                clearInterval(workflowPollingInterval);
+                workflowPollingInterval = null;
+                log('Workflow auto-refresh disabled', 'info');
+            }
+        }
+
+        function handleWorkflowFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                workflowFileContent = e.target.result;
+                workflowFileName = file.name;
+
+                const lines = workflowFileContent.split('\n').filter(l => l.trim());
+                document.getElementById('workflow-file-status').innerHTML =
+                    `<strong style="color: #22c55e;">${file.name}</strong><br>` +
+                    `<span style="color: #888; font-size: 0.85rem;">${lines.length} lines</span>`;
+
+                log(`Loaded pwdump file: ${file.name} (${lines.length} lines)`, 'info');
+            };
+            reader.readAsText(file);
+        }
+
+        async function startWorkflow() {
+            const agentId = document.getElementById('workflow-agent').value;
+
+            if (!agentId) {
+                log('Please select an agent for the workflow', 'error');
+                showNotification('Select Agent', 'error', 'Please select an agent to run the workflow');
+                return;
+            }
+
+            if (!workflowFileContent) {
+                log('Please select a pwdump file', 'error');
+                showNotification('Select File', 'error', 'Please select a pwdump file with LM hashes');
+                return;
+            }
+
+            log(`Starting LM->NTLM workflow on agent ${agentId}...`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/workflow/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        pwdump_content: workflowFileContent
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Workflow created: ${data.workflow_id}`, 'success');
+                    log(`  - Users with LM hashes: ${data.total_users_with_lm}`, 'info');
+                    log(`  - Unique LM halves: ${data.total_unique_halves}`, 'info');
+                    log(`  - LM job queued: ${data.lm_job_id}`, 'info');
+
+                    showNotification(
+                        `Workflow Started: ${data.workflow_id}`,
+                        'success',
+                        `Cracking ${data.total_unique_halves} LM halves from ${data.total_users_with_lm} users`
+                    );
+
+                    // Clear the file selection
+                    workflowFileContent = null;
+                    workflowFileName = null;
+                    document.getElementById('workflow-file').value = '';
+                    document.getElementById('workflow-file-status').textContent = 'Click to select pwdump file';
+
+                    // Refresh workflows list and start auto-refresh
+                    loadWorkflows();
+                    startJobPolling();
+                    startWorkflowPolling();
+                } else {
+                    log(`Failed to create workflow: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification('Workflow Failed', 'error', data.error || 'Unknown error');
+                }
+            } catch (error) {
+                log(`Error creating workflow: ${error.message}`, 'error');
+                showNotification('Workflow Error', 'error', error.message);
+            }
+        }
+
+        async function loadWorkflows() {
+            try {
+                const response = await fetch('/api/agent/workflow/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    renderWorkflows(data.workflows || []);
+                } else {
+                    log(`Failed to load workflows: HTTP ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Error loading workflows: ${error.message}`, 'error');
+            }
+        }
+
+        function renderWorkflows(workflows) {
+            const container = document.getElementById('workflows-list');
+
+            if (workflows.length === 0) {
+                container.innerHTML = '<div style="color: #666; font-style: italic;">No workflows yet. Start one above.</div>';
+                stopWorkflowPolling();
+                return;
+            }
+
+            // Check if any workflows are still running
+            const hasRunning = workflows.some(w => w.status === 'running' || w.status === 'pending');
+            if (!hasRunning) {
+                stopWorkflowPolling();
+            }
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+
+            workflows.forEach(w => {
+                const statusColor = {
+                    'running': '#f59e0b',
+                    'completed': '#22c55e',
+                    'failed': '#ef4444',
+                    'pending': '#666'
+                }[w.status] || '#666';
+
+                const stepLabel = {
+                    'lm_brute': 'Step 1: Cracking LM halves...',
+                    'ntlm_toggle': 'Step 2: Case permutation on NTLM...',
+                    'completed': 'Complete',
+                    'failed': 'Failed'
+                }[w.current_step] || w.current_step;
+
+                const isRunning = w.status === 'running';
+                const spinnerHtml = isRunning ? '<span class="workflow-spinner"></span>' : '';
+
+                // Calculate progress percentages
+                const lmProgress = w.total_unique_halves > 0
+                    ? ((w.lm_halves_cracked || 0) / w.total_unique_halves * 100).toFixed(1)
+                    : 0;
+                // Use unique_ntlm_hashes (deduplicated) for accurate percentage
+                const ntlmDenominator = w.unique_ntlm_hashes || w.users_both_halves_cracked || 0;
+                const ntlmProgress = ntlmDenominator > 0
+                    ? ((w.ntlm_passwords_cracked || 0) / ntlmDenominator * 100).toFixed(1)
+                    : 0;
+
+                html += `
+                    <div style="padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px; border-left: 3px solid ${statusColor};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-family: monospace; color: #00d4ff;">${w.workflow_id}</span>
+                            <span style="color: ${statusColor}; text-transform: uppercase; font-size: 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                                ${spinnerHtml}
+                                ${w.status}
+                            </span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: #888; margin-bottom: 8px;">
+                            ${stepLabel}
+                        </div>
+
+                        <!-- Progress bars -->
+                        <div style="margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 3px;">
+                                <span style="color: #888;">LM Halves: ${w.lm_halves_cracked || 0}/${w.total_unique_halves}</span>
+                                <span style="color: #00d4ff;">${lmProgress}%</span>
+                            </div>
+                            <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                                <div style="height: 100%; width: ${lmProgress}%; background: linear-gradient(90deg, #00d4ff, #0099cc); transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+
+                        ${w.current_step === 'ntlm_toggle' || w.current_step === 'completed' ? `
+                        <div style="margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 3px;">
+                                <span style="color: #888;">NTLM Cracked: ${w.ntlm_passwords_cracked || 0}/${ntlmDenominator} unique hashes</span>
+                                <span style="color: #22c55e;">${ntlmProgress}%</span>
+                            </div>
+                            <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                                <div style="height: 100%; width: ${ntlmProgress}%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-size: 0.8rem;">
+                            <div>
+                                <span style="color: #666;">Total Users:</span>
+                                <span style="color: #fff;">${w.total_users_with_lm}</span>
+                            </div>
+                            <div>
+                                <span style="color: #666;">LM Combined:</span>
+                                <span style="color: #f59e0b;">${w.users_both_halves_cracked || 0}</span>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Recovered:</span>
+                                <span style="color: #22c55e;">${w.final_passwords_recovered || w.ntlm_passwords_cracked || 0}</span>
+                            </div>
+                        </div>
+                        ${w.error_message ? `
+                        <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; color: #ef4444; font-size: 0.8rem;">
+                            Error: ${w.error_message}
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // Update workflow agent dropdown when agents load
+        function updateWorkflowAgentDropdown() {
+            const select = document.getElementById('workflow-agent');
+            select.innerHTML = '<option value="">Select agent...</option>';
+
+            agents.filter(a => a.status === 'online' || a.status === 'working').forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent.id;
+                option.textContent = agent.name || agent.id.substring(0, 8) + '...';
+                select.appendChild(option);
+            });
+        }
+
+        // Hook into agent loading to update workflow dropdown
+        const originalLoadAgents = loadAgentsFromServer;
+        loadAgentsFromServer = async function() {
+            await originalLoadAgents();
+            updateWorkflowAgentDropdown();
+            loadWorkflows();
+        };
+
+        // ===========================================
+        // Auto-refresh agent status (always on)
+        // ===========================================
+        let autoRefreshInterval = null;
+        const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) return;
+
+            autoRefreshInterval = setInterval(async () => {
+                await refreshAgentStatusQuiet();
+            }, AUTO_REFRESH_INTERVAL);
+
+            log('Agent auto-refresh enabled (10s)', 'info');
+        }
+
+        async function refreshAgentStatusQuiet() {
+            try {
+                const response = await fetch('/api/agent/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    const newAgents = data.agents || [];
+
+                    // Update agents array
+                    agents = newAgents;
+
+                    // Update agent cards without full re-render (to preserve state)
+                    updateAgentCards();
+
+                    // Update benchmark status for running benchmarks
+                    await updateRunningBenchmarks();
+
+                    // Update active jobs display
+                    updateActiveJobs();
+
+                    // Start job polling if needed
+                    if (agents.some(a => a.current_job) && !jobPollingInterval) {
+                        startJobPolling();
+                    }
+                }
+            } catch (error) {
+                console.warn('Auto-refresh failed:', error);
+            }
+        }
+
+        function updateAgentCards() {
+            agents.forEach(agent => {
+                const card = document.getElementById(`card-${agent.id}`);
+                if (!card) return;
+
+                // Update status badge
+                const statusBadge = card.querySelector('.agent-status-badge');
+                if (statusBadge) {
+                    const statusClass = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                    const statusLabel = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                    statusBadge.className = `agent-status-badge ${statusClass}`;
+                    statusBadge.textContent = statusLabel;
+                }
+
+                // Update last seen
+                const infoRows = card.querySelectorAll('.agent-info-row');
+                infoRows.forEach(row => {
+                    if (row.textContent.includes('Last Seen:')) {
+                        row.querySelector('span:last-child').textContent = formatLastSeen(agent.last_heartbeat);
+                    }
+                });
+
+                // Update job info if present
+                const job = agent.current_job;
+                let jobInfo = card.querySelector('.agent-job-info');
+
+                if (job) {
+                    if (!jobInfo) {
+                        // Create job info section
+                        const actions = card.querySelector('.agent-actions');
+                        jobInfo = document.createElement('div');
+                        jobInfo.className = 'agent-job-info';
+                        jobInfo.style.cursor = 'pointer';
+                        jobInfo.title = 'Click for detailed job status';
+                        jobInfo.onclick = () => showJobDetailModal(agent.id);
+                        actions.parentNode.insertBefore(jobInfo, actions);
+                    }
+
+                    jobInfo.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>Job: ${job.job_id || 'N/A'}</span>
+                            <span>${job.status || 'running'}</span>
+                        </div>
+                        <div class="agent-progress-bar">
+                            <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
+                            <span>${(job.progress_percent || 0).toFixed(1)}%</span>
+                            <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
+                            <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #777;">
+                            ${job.gpu_temps && job.gpu_temps.length > 0 ? `<span title="GPU Temperature">🌡️ ${formatGpuTemps(job.gpu_temps)}</span>` : ''}
+                            ${job.eta_seconds ? `<span title="Estimated Time Remaining">⏱️ ${formatEtaFromTimestamp(job.eta_seconds)}</span>` : ''}
+                            <span style="color: #00d4ff; font-size: 0.7rem;">▶ Click for details</span>
+                        </div>
+                    `;
+                } else if (jobInfo) {
+                    jobInfo.remove();
+                }
+            });
+        }
+
+        async function updateRunningBenchmarks() {
+            // Check ALL agents for benchmark status (not just those we started)
+            for (const agent of agents) {
+                const agentId = agent.id;
+                try {
+                    const response = await fetch(`/api/agent/${agentId}/benchmark/status`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const prevStatus = agentBenchmarkStatus[agentId];
+                        agentBenchmarkStatus[agentId] = data;
+
+                        if (data.benchmark_run) {
+                            if (data.benchmark_run.status === 'running') {
+                                // Benchmark is running - show indicator if not already shown
+                                if (!runningBenchmarks.has(agentId)) {
+                                    runningBenchmarks.add(agentId);
+                                    updateBenchmarkRunIndicator(agentId, 'running', data.benchmark_run.total_modes);
+                                }
+                            } else if (data.benchmark_run.status === 'completed') {
+                                // Benchmark completed
+                                if (runningBenchmarks.has(agentId)) {
+                                    runningBenchmarks.delete(agentId);
+                                    updateBenchmarkRunIndicator(agentId, 'completed');
+                                    updateBenchmarkWarnings();
+                                    showNotification('Benchmark Complete', 'success', `Completed ${data.benchmark_run.completed_modes} benchmark tests. Results saved.`);
+                                } else {
+                                    // Was already completed, just make sure indicator is cleared
+                                    updateBenchmarkRunIndicator(agentId, 'completed');
+                                }
+                            }
+                        } else {
+                            // No benchmark_run data - clear any indicator
+                            if (runningBenchmarks.has(agentId)) {
+                                runningBenchmarks.delete(agentId);
+                                updateBenchmarkRunIndicator(agentId, 'completed');
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`Failed to check benchmark status for ${agentId}:`, error);
+                }
+            }
+        }
+
+        // ============================================
+        // Resource Deployment Modal Functions
+        // ============================================
+
+        let deployModalData = {
+            agentId: null,
+            agentName: null,
+            agentFreeSpace: 0,
+            categories: null,
+            selectedResources: new Set(),
+            pendingWarning: null,
+        };
+
+        async function openDeployModal(agentId, agentName, freeSpaceGb) {
+            deployModalData.agentId = agentId;
+            deployModalData.agentName = agentName;
+            deployModalData.agentFreeSpace = freeSpaceGb;
+            deployModalData.selectedResources = new Set();
+            deployModalData.pendingWarning = null;
+
+            // Create modal
+            const modal = document.createElement('div');
+            modal.id = 'deploy-modal';
+            modal.className = 'modal-overlay';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            modal.innerHTML = `
+                <div class="modal-content" style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; color: #00d4ff;">Deploy Resources to ${agentName}</h2>
+                        <button onclick="closeDeployModal()" style="background: none; border: none; color: #999; font-size: 1.5rem; cursor: pointer;">×</button>
+                    </div>
+
+                    <div style="background: rgba(0,100,200,0.1); border: 1px solid rgba(0,212,255,0.3); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; color: #ccc;">
+                            <span>Agent Free Space:</span>
+                            <span style="color: ${freeSpaceGb < 50 ? '#ef4444' : freeSpaceGb < 200 ? '#f59e0b' : '#22c55e'}; font-weight: bold;">${freeSpaceGb.toFixed(1)} GB</span>
+                        </div>
+                        <div id="deploy-selected-size" style="display: flex; justify-content: space-between; color: #ccc; margin-top: 8px;">
+                            <span>Selected:</span>
+                            <span>0 files (0 GB)</span>
+                        </div>
+                    </div>
+
+                    <div id="deploy-warning" style="display: none; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 8px; padding: 12px; margin-bottom: 20px; color: #fca5a5;"></div>
+
+                    <div id="deploy-categories" style="margin-bottom: 20px;">
+                        <div style="text-align: center; color: #888; padding: 40px;">Loading wordlists...</div>
+                    </div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px;">
+                        <button class="advanced-btn advanced-btn-secondary" onclick="closeDeployModal()">Cancel</button>
+                        <button id="deploy-btn" class="advanced-btn advanced-btn-primary" onclick="deploySelectedResources()">Deploy Selected</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Close on background click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeDeployModal();
+            });
+
+            // Load categories
+            await loadDeployCategories();
+        }
+
+        function closeDeployModal() {
+            const modal = document.getElementById('deploy-modal');
+            if (modal) modal.remove();
+            deployModalData.pendingWarning = null;
+        }
+
+        async function loadDeployCategories() {
+            try {
+                const response = await fetch('/api/resources/categories');
+                const data = await response.json();
+                deployModalData.categories = data;
+                renderDeployCategories(data);
+            } catch (error) {
+                document.getElementById('deploy-categories').innerHTML = `
+                    <div style="color: #ef4444; padding: 20px; text-align: center;">
+                        Failed to load wordlists: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderDeployCategories(data) {
+            const container = document.getElementById('deploy-categories');
+            const { categories, totals } = data;
+
+            const categoryLabels = {
+                small: { label: 'Small', desc: '< 100 MB', color: '#22c55e' },
+                medium: { label: 'Medium', desc: '100 MB - 1 GB', color: '#3b82f6' },
+                large: { label: 'Large', desc: '1 - 10 GB', color: '#f59e0b' },
+                extra_large: { label: 'Extra Large', desc: '> 10 GB', color: '#ef4444' },
+            };
+
+            container.innerHTML = `
+                <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('small')" style="border-color: #22c55e;">Select Small (${totals.small.total_size_gb} GB)</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('medium')" style="border-color: #3b82f6;">Select Medium (${totals.medium.total_size_gb} GB)</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('small', 'medium')" style="border-color: #a855f7;">Select Small + Medium</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectAllResources()">Select All</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearSelection()">Clear All</button>
+                </div>
+
+                ${Object.entries(categories).map(([cat, resources]) => {
+                    const info = categoryLabels[cat];
+                    if (resources.length === 0) return '';
+                    return `
+                        <div style="margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span style="color: ${info.color}; font-weight: bold;">${info.label}</span>
+                                <span style="color: #888; font-size: 0.85rem;">(${info.desc})</span>
+                                <span style="color: #888; font-size: 0.85rem; margin-left: auto;">${resources.length} files, ${totals[cat].total_size_gb} GB total</span>
+                            </div>
+                            <div style="display: grid; gap: 6px; max-height: 200px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                                ${resources.map(r => `
+                                    <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; cursor: pointer;">
+                                        <input type="checkbox" class="deploy-checkbox" data-id="${r.resource_id}" data-size="${r.size_bytes}" data-name="${r.name}" onchange="updateDeploySelection()">
+                                        <span style="flex: 1; font-family: monospace; font-size: 0.85rem; color: #ccc;">${r.name}</span>
+                                        <span style="color: ${info.color}; font-size: 0.8rem; white-space: nowrap;">${r.size_mb < 1024 ? r.size_mb.toFixed(1) + ' MB' : r.size_gb.toFixed(2) + ' GB'}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            `;
+        }
+
+        function selectCategory(...cats) {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => {
+                const id = cb.dataset.id;
+                const resource = findResourceById(id);
+                if (resource && cats.includes(resource.category)) {
+                    cb.checked = true;
+                }
+            });
+            updateDeploySelection();
+        }
+
+        function selectAllResources() {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => cb.checked = true);
+            updateDeploySelection();
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => cb.checked = false);
+            updateDeploySelection();
+        }
+
+        function findResourceById(id) {
+            if (!deployModalData.categories) return null;
+            for (const [cat, resources] of Object.entries(deployModalData.categories.categories)) {
+                const found = resources.find(r => r.resource_id === id);
+                if (found) return { ...found, category: cat };
+            }
+            return null;
+        }
+
+        function updateDeploySelection() {
+            deployModalData.selectedResources = new Set();
+            let totalSize = 0;
+            let count = 0;
+
+            document.querySelectorAll('.deploy-checkbox:checked').forEach(cb => {
+                deployModalData.selectedResources.add(cb.dataset.id);
+                totalSize += parseInt(cb.dataset.size) || 0;
+                count++;
+            });
+
+            const totalGb = totalSize / (1024 ** 3);
+            document.getElementById('deploy-selected-size').innerHTML = `
+                <span>Selected:</span>
+                <span style="color: #00d4ff; font-weight: bold;">${count} files (${totalGb.toFixed(2)} GB)</span>
+            `;
+
+            // Check disk space
+            const warningDiv = document.getElementById('deploy-warning');
+            const freeAfter = deployModalData.agentFreeSpace - totalGb;
+            const percentUsed = ((deployModalData.agentFreeSpace > 0) ? ((deployModalData.agentFreeSpace - freeAfter) / deployModalData.agentFreeSpace) * 100 : 100);
+
+            if (freeAfter < 0) {
+                warningDiv.style.display = 'block';
+                warningDiv.innerHTML = `
+                    <strong>&#9888; Not Enough Space!</strong><br>
+                    Selected files (${totalGb.toFixed(2)} GB) exceed available space (${deployModalData.agentFreeSpace.toFixed(1)} GB).
+                `;
+            } else if (percentUsed > 90 || freeAfter < 10) {
+                warningDiv.style.display = 'block';
+                warningDiv.innerHTML = `
+                    <strong>&#9888; Low Disk Space Warning</strong><br>
+                    After deployment, agent will have only ${freeAfter.toFixed(1)} GB free.
+                    You will be asked to confirm before proceeding.
+                `;
+            } else {
+                warningDiv.style.display = 'none';
+            }
+        }
+
+        async function deploySelectedResources(force = false) {
+            const resourceIds = Array.from(deployModalData.selectedResources);
+            if (resourceIds.length === 0) {
+                showNotification('No Selection', 'warning', 'Please select at least one wordlist to deploy.');
+                return;
+            }
+
+            const btn = document.getElementById('deploy-btn');
+            btn.disabled = true;
+            btn.textContent = 'Deploying...';
+
+            try {
+                const response = await fetch(`/api/agent/${deployModalData.agentId}/deploy-resources`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        resource_ids: resourceIds,
+                        force: force,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.requires_confirmation && !force) {
+                    // Show confirmation dialog
+                    deployModalData.pendingWarning = data.warning;
+                    if (confirm(`${data.warning}\n\nAre you sure you want to proceed?`)) {
+                        // Second confirmation for extra safety
+                        if (confirm('This is your final confirmation. The agent may run out of disk space. Continue?')) {
+                            await deploySelectedResources(true);
+                            return;
+                        }
+                    }
+                    btn.disabled = false;
+                    btn.textContent = 'Deploy Selected';
+                    return;
+                }
+
+                if (data.success) {
+                    showNotification('Deployment Queued', 'success', `${data.queued} wordlist(s) (${data.total_size_gb} GB) queued for sync to ${deployModalData.agentName}.`);
+                    closeDeployModal();
+                } else if (data.error) {
+                    showNotification('Deployment Failed', 'error', data.error);
+                }
+            } catch (error) {
+                showNotification('Error', 'error', `Failed to deploy: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Deploy Selected';
+            }
+        }
+
+        // Start auto-refresh when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            startAutoRefresh();
+            // Check for any running benchmarks on page load (after initial agent load)
+            setTimeout(() => updateRunningBenchmarks(), 2000);
+        });
+    </script>
+</body>
+</html>

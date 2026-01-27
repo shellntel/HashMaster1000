@@ -9675,6 +9675,15 @@ def list_agents() -> Response:
             if hardware_raw.get("memory_total_mb"):
                 ram_gb = round(hardware_raw["memory_total_mb"] / 1024)
                 hardware["ram"] = f"{ram_gb}GB"
+            # Extract disk info
+            if hardware_raw.get("disk"):
+                # Use root disk for summary, include all disks in detail
+                root_disk = next((d for d in hardware_raw["disk"] if d.get("path") == "/"), None)
+                if root_disk:
+                    hardware["disk_free_gb"] = round(root_disk.get("free_gb", 0), 1)
+                    hardware["disk_total_gb"] = round(root_disk.get("total_gb", 0), 1)
+                    hardware["disk_used_percent"] = round(root_disk.get("used_percent", 0), 1)
+                hardware["disk_details"] = hardware_raw["disk"]
 
         # Get agent name from state if available
         agent_name = state.get("agent_name") or agent_data.get("name") or f"Agent-{agent_id[:8]}"
@@ -10786,6 +10795,192 @@ def agent_get_resource_meta(resource_type: str, resource_id: str) -> Response:
     except Exception as e:
         logging.error(f"Failed to get resource metadata for agent: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/deploy-resources", methods=["POST"])
+@login_required
+def deploy_resources_to_agent(agent_id: str) -> Response:
+    """
+    Deploy selected resources to an agent.
+
+    Request body:
+    {
+        "resource_ids": ["id1", "id2"],
+        "force": false  // Set to true to bypass disk space warnings
+    }
+
+    Response:
+    {
+        "success": true,
+        "queued": 5,
+        "total_size_gb": 12.5,
+        "warning": "Low disk space...",  // Only if space is tight
+        "requires_confirmation": true     // True if warning present and force=false
+    }
+    """
+    # Reload agents to get latest state
+    _load_agents()
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    data = request.get_json() or {}
+    resource_ids = data.get("resource_ids", [])
+    force = data.get("force", False)
+
+    if not resource_ids:
+        return jsonify({"error": "No resource_ids provided"}), 400
+
+    # Get resource details and calculate total size
+    manager = _get_resource_manager()
+    resources = []
+    total_size_bytes = 0
+
+    for rid in resource_ids:
+        resource = manager.get_resource(rid)
+        if resource:
+            resources.append(resource)
+            total_size_bytes += resource.size_bytes
+
+    if not resources:
+        return jsonify({"error": "No valid resources found"}), 400
+
+    total_size_gb = total_size_bytes / (1024 ** 3)
+
+    # Get agent's available disk space
+    agent_data = _agent_registry[agent_id]
+    hardware = agent_data.get("state", {}).get("hardware", {})
+    disk_info = hardware.get("disk", [])
+
+    # Find root disk or first available disk
+    root_disk = next((d for d in disk_info if d.get("path") == "/"), None)
+    if not root_disk and disk_info:
+        root_disk = disk_info[0]
+
+    warning = None
+    requires_confirmation = False
+
+    if root_disk:
+        free_gb = root_disk.get("free_gb", 0)
+        total_gb = root_disk.get("total_gb", 1)
+
+        # Calculate space after deployment
+        space_after = free_gb - total_size_gb
+        percent_used_after = ((total_gb - space_after) / total_gb) * 100 if total_gb > 0 else 100
+
+        # Check if deployment would exceed 90% usage
+        if percent_used_after > 90:
+            warning = (
+                f"Warning: This deployment ({total_size_gb:.1f} GB) would leave the agent "
+                f"with only {space_after:.1f} GB free ({percent_used_after:.1f}% disk used). "
+                f"Agent currently has {free_gb:.1f} GB free."
+            )
+            requires_confirmation = not force
+    else:
+        warning = "Warning: Unable to determine agent disk space. Proceed with caution."
+        requires_confirmation = not force
+
+    # If warning and not forced, return without deploying
+    if requires_confirmation:
+        return jsonify({
+            "success": False,
+            "warning": warning,
+            "requires_confirmation": True,
+            "total_size_gb": round(total_size_gb, 2),
+            "resource_count": len(resources),
+        })
+
+    # Queue resource sync command to agent
+    _queue_agent_command(agent_id, {
+        "type": "resource:sync",
+        "data": {
+            "resource_ids": [r.resource_id for r in resources],
+        }
+    })
+
+    return jsonify({
+        "success": True,
+        "queued": len(resources),
+        "total_size_gb": round(total_size_gb, 2),
+        "warning": warning,
+        "requires_confirmation": False,
+    })
+
+
+@app.route("/api/resources/categories", methods=["GET"])
+@login_required
+def get_resource_categories() -> Response:
+    """
+    Get resources organized by size category.
+
+    Categories:
+    - small: < 100 MB
+    - medium: 100 MB - 1 GB
+    - large: 1 GB - 10 GB
+    - extra_large: > 10 GB
+    """
+    manager = _get_resource_manager()
+    wordlists = manager.list_resources(resource_type="wordlists")
+
+    # Define size thresholds (in bytes)
+    SMALL_MAX = 100 * 1024 * 1024         # 100 MB
+    MEDIUM_MAX = 1 * 1024 * 1024 * 1024   # 1 GB
+    LARGE_MAX = 10 * 1024 * 1024 * 1024   # 10 GB
+
+    categories = {
+        "small": [],
+        "medium": [],
+        "large": [],
+        "extra_large": [],
+    }
+
+    for wl in wordlists:
+        size = wl.size_bytes
+        wl_dict = wl.to_dict()
+        wl_dict["size_gb"] = round(size / (1024 ** 3), 2)
+        wl_dict["size_mb"] = round(size / (1024 ** 2), 1)
+
+        if size < SMALL_MAX:
+            wl_dict["category"] = "small"
+            categories["small"].append(wl_dict)
+        elif size < MEDIUM_MAX:
+            wl_dict["category"] = "medium"
+            categories["medium"].append(wl_dict)
+        elif size < LARGE_MAX:
+            wl_dict["category"] = "large"
+            categories["large"].append(wl_dict)
+        else:
+            wl_dict["category"] = "extra_large"
+            categories["extra_large"].append(wl_dict)
+
+    # Sort each category by size
+    for cat in categories:
+        categories[cat].sort(key=lambda x: x["size_bytes"])
+
+    # Calculate totals
+    totals = {
+        "small": {
+            "count": len(categories["small"]),
+            "total_size_gb": round(sum(w["size_bytes"] for w in categories["small"]) / (1024 ** 3), 2),
+        },
+        "medium": {
+            "count": len(categories["medium"]),
+            "total_size_gb": round(sum(w["size_bytes"] for w in categories["medium"]) / (1024 ** 3), 2),
+        },
+        "large": {
+            "count": len(categories["large"]),
+            "total_size_gb": round(sum(w["size_bytes"] for w in categories["large"]) / (1024 ** 3), 2),
+        },
+        "extra_large": {
+            "count": len(categories["extra_large"]),
+            "total_size_gb": round(sum(w["size_bytes"] for w in categories["extra_large"]) / (1024 ** 3), 2),
+        },
+    }
+
+    return jsonify({
+        "categories": categories,
+        "totals": totals,
+    })
 
 
 # Comparison results storage directory

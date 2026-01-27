@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import subprocess
 from dataclasses import dataclass, field
@@ -63,6 +64,26 @@ class CPUInfo:
 
 
 @dataclass
+class DiskInfo:
+    """Information about disk storage for a specific path."""
+
+    path: str
+    total_gb: float
+    used_gb: float
+    free_gb: float
+    used_percent: float
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "total_gb": round(self.total_gb, 2),
+            "used_gb": round(self.used_gb, 2),
+            "free_gb": round(self.free_gb, 2),
+            "used_percent": round(self.used_percent, 1),
+        }
+
+
+@dataclass
 class SystemInfo:
     """Complete system hardware information."""
 
@@ -73,6 +94,7 @@ class SystemInfo:
     gpus: list[GPUInfo] = field(default_factory=list)
     memory_total_mb: int = 0
     memory_available_mb: int = 0
+    disk: list[DiskInfo] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -83,6 +105,7 @@ class SystemInfo:
             "gpus": [gpu.to_dict() for gpu in self.gpus],
             "memory_total_mb": self.memory_total_mb,
             "memory_available_mb": self.memory_available_mb,
+            "disk": [d.to_dict() for d in self.disk],
         }
 
     def gpu_summary(self) -> str:
@@ -289,6 +312,64 @@ def detect_os() -> tuple[str, str]:
     return (os_name, os_version)
 
 
+def detect_disk(paths: list[str] | None = None) -> list[DiskInfo]:
+    """
+    Detect disk usage for specified paths.
+
+    Args:
+        paths: List of paths to check. Defaults to ["/", "/var/lib/hm1k-agent"]
+
+    Returns:
+        List of DiskInfo objects for each valid path
+    """
+    if paths is None:
+        paths = ["/"]
+        # Add agent data dir if it exists
+        agent_data_dir = "/var/lib/hm1k-agent"
+        if os.path.exists(agent_data_dir):
+            paths.append(agent_data_dir)
+
+    disks = []
+    seen_devices = set()
+
+    for path in paths:
+        try:
+            if not os.path.exists(path):
+                continue
+
+            usage = shutil.disk_usage(path)
+
+            # Get device for this path to avoid duplicates
+            try:
+                stat_info = os.stat(path)
+                device = stat_info.st_dev
+                if device in seen_devices:
+                    continue
+                seen_devices.add(device)
+            except OSError:
+                pass
+
+            total_gb = usage.total / (1024**3)
+            used_gb = usage.used / (1024**3)
+            free_gb = usage.free / (1024**3)
+            used_percent = (usage.used / usage.total) * 100 if usage.total > 0 else 0
+
+            disks.append(
+                DiskInfo(
+                    path=path,
+                    total_gb=total_gb,
+                    used_gb=used_gb,
+                    free_gb=free_gb,
+                    used_percent=used_percent,
+                )
+            )
+
+        except Exception as e:
+            logger.warning(f"Error detecting disk for {path}: {e}")
+
+    return disks
+
+
 def detect_system() -> SystemInfo:
     """
     Detect all system hardware information.
@@ -301,6 +382,7 @@ def detect_system() -> SystemInfo:
     cpu = detect_cpu()
     gpus = detect_gpus()
     memory_total, memory_available = detect_memory()
+    disk = detect_disk()
 
     return SystemInfo(
         hostname=hostname,
@@ -310,6 +392,7 @@ def detect_system() -> SystemInfo:
         gpus=gpus,
         memory_total_mb=memory_total,
         memory_available_mb=memory_available,
+        disk=disk,
     )
 
 
@@ -337,7 +420,7 @@ def get_system_info(refresh: bool = False) -> SystemInfo:
 
 def refresh_dynamic_info(info: SystemInfo) -> None:
     """
-    Refresh dynamic hardware info (temperature, utilization, memory).
+    Refresh dynamic hardware info (temperature, utilization, memory, disk).
 
     Updates the SystemInfo object in place with current values.
     """
@@ -353,3 +436,8 @@ def refresh_dynamic_info(info: SystemInfo) -> None:
 
     # Refresh memory
     info.memory_total_mb, info.memory_available_mb = detect_memory()
+
+    # Refresh disk stats
+    paths = [d.path for d in info.disk] if info.disk else None
+    fresh_disk = detect_disk(paths)
+    info.disk = fresh_disk
