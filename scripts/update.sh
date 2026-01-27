@@ -89,6 +89,25 @@ update_dependencies() {
     log_info "Dependencies updated"
 }
 
+# Sync systemd service file if changed
+sync_service_file() {
+    local repo_service="$APP_DIR/docs/systemd/hm1k.service"
+    local system_service="/etc/systemd/system/hm1k.service"
+
+    if [[ ! -f "$repo_service" ]]; then
+        log_warn "Service file not found in repo: $repo_service"
+        return
+    fi
+
+    # Check if service file differs
+    if ! diff -q "$repo_service" "$system_service" >/dev/null 2>&1; then
+        log_info "Syncing systemd service file..."
+        sudo cp "$repo_service" "$system_service"
+        sudo systemctl daemon-reload
+        log_info "Service file updated"
+    fi
+}
+
 # Start the service
 start_service() {
     log_info "Starting $SERVICE_NAME service..."
@@ -122,6 +141,7 @@ main() {
     stop_service
     update_code
     update_dependencies
+    sync_service_file
     start_service
     show_status
 
