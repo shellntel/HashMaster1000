@@ -96,8 +96,8 @@ pip install gunicorn
 ### 2. Update paths in service file
 
 Edit `docs/systemd/hm1k.service` and change:
-- `User=njoyzrd` → Your username
-- `Group=njoyzrd` → Your group
+- `User=hm1k` → Your service user (or keep as `hm1k`)
+- `Group=hm1k` → Your service group (or keep as `hm1k`)
 - `WorkingDirectory=...` → Your HM1K installation path
 - `Environment="PATH=..."` → Your virtualenv path
 - `ExecStart=...` → Your virtualenv gunicorn path

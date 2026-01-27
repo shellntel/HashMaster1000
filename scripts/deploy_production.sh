@@ -10,6 +10,11 @@
 # - Hashcat installation with multi-version support
 # - Common wordlists and rules
 #
+# Designed to work on:
+# - Fresh Ubuntu 24.04 LTS installations
+# - Older Ubuntu/Debian systems (18.04+)
+# - Systems with broken/missing packages
+#
 # Usage:
 #   sudo ./deploy_production.sh [options]
 #
@@ -20,12 +25,13 @@
 #   --help             Show this help message
 #
 # Requirements:
-#   - Ubuntu 22.04+ or Debian 12+
+#   - Ubuntu 18.04+ or Debian 10+
 #   - Root/sudo access
 #   - Git repository cloned or files copied to server
 #
 
-set -e  # Exit on error
+# Don't exit on error - we handle errors ourselves
+set +e
 
 # =============================================================================
 # Configuration
@@ -55,12 +61,20 @@ GUNICORN_THREADS=2        # Threads per worker for I/O-bound operations
 GUNICORN_TIMEOUT=300      # 5 minutes for large file processing
 GUNICORN_BIND="127.0.0.1:8000"
 
+# Minimum Python version required
+MIN_PYTHON_MAJOR=3
+MIN_PYTHON_MINOR=10
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Track errors for summary
+declare -a ERRORS=()
+declare -a WARNINGS=()
 
 # =============================================================================
 # Helper Functions
@@ -76,10 +90,12 @@ log_success() {
 
 log_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
+    WARNINGS+=("$1")
 }
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+    ERRORS+=("$1")
 }
 
 check_root() {
@@ -89,9 +105,42 @@ check_root() {
     fi
 }
 
+detect_os() {
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS_ID="$ID"
+        OS_VERSION="$VERSION_ID"
+        OS_NAME="$PRETTY_NAME"
+    else
+        OS_ID="unknown"
+        OS_VERSION="unknown"
+        OS_NAME="Unknown Linux"
+    fi
+
+    log_info "Detected OS: ${OS_NAME}"
+
+    # Check if supported
+    case "$OS_ID" in
+        ubuntu|debian)
+            PKG_MANAGER="apt-get"
+            ;;
+        rhel|centos|fedora|rocky|almalinux)
+            PKG_MANAGER="dnf"
+            if ! command -v dnf &>/dev/null; then
+                PKG_MANAGER="yum"
+            fi
+            log_warn "RHEL-based systems have limited testing. Some steps may need manual adjustment."
+            ;;
+        *)
+            log_warn "Unsupported OS: $OS_ID. Attempting apt-get..."
+            PKG_MANAGER="apt-get"
+            ;;
+    esac
+}
+
 detect_cpu_info() {
-    CPU_CORES=$(nproc)
-    CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
+    CPU_CORES=$(nproc 2>/dev/null || echo 2)
+    CPU_MODEL=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo "Unknown")
 
     # Calculate optimal workers: (2 x cores) + 1, but cap at 17
     OPTIMAL_WORKERS=$(( (CPU_CORES * 2) + 1 ))
@@ -107,30 +156,189 @@ detect_cpu_info() {
 }
 
 # =============================================================================
+# Package Management - Handle Broken Systems
+# =============================================================================
+
+fix_broken_packages() {
+    log_info "Checking for broken packages..."
+
+    # Fix dpkg interruptions
+    if [[ -f /var/lib/dpkg/lock-frontend ]]; then
+        # Check if dpkg is actually running
+        if ! fuser /var/lib/dpkg/lock-frontend &>/dev/null; then
+            log_info "Removing stale dpkg lock..."
+            rm -f /var/lib/dpkg/lock-frontend
+            rm -f /var/lib/dpkg/lock
+            rm -f /var/cache/apt/archives/lock
+        fi
+    fi
+
+    # Configure any unconfigured packages
+    dpkg --configure -a 2>/dev/null || true
+
+    # Fix broken dependencies
+    apt-get install -f -y 2>/dev/null || true
+
+    # Clean package cache
+    apt-get clean 2>/dev/null || true
+    apt-get autoclean 2>/dev/null || true
+
+    log_success "Package system checked"
+}
+
+update_package_lists() {
+    log_info "Updating package lists..."
+
+    # Try to update, but don't fail if some repos are unavailable
+    if ! apt-get update 2>&1 | tee /tmp/apt_update.log; then
+        if grep -q "Failed to fetch" /tmp/apt_update.log; then
+            log_warn "Some package repositories failed to update. Continuing with available repos..."
+        fi
+    fi
+
+    rm -f /tmp/apt_update.log
+    log_success "Package lists updated"
+}
+
+# =============================================================================
+# Python Version Management
+# =============================================================================
+
+get_python_version() {
+    local python_cmd="$1"
+    if command -v "$python_cmd" &>/dev/null; then
+        "$python_cmd" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null
+    fi
+}
+
+check_python_version() {
+    log_info "Checking Python version..."
+
+    # Try python3 first
+    PYTHON_CMD=""
+    PYTHON_VERSION=""
+
+    for cmd in python3 python3.12 python3.11 python3.10; do
+        if command -v "$cmd" &>/dev/null; then
+            version=$(get_python_version "$cmd")
+            if [[ -n "$version" ]]; then
+                major=$(echo "$version" | cut -d. -f1)
+                minor=$(echo "$version" | cut -d. -f2)
+
+                if [[ "$major" -ge "$MIN_PYTHON_MAJOR" ]] && [[ "$minor" -ge "$MIN_PYTHON_MINOR" ]]; then
+                    PYTHON_CMD="$cmd"
+                    PYTHON_VERSION="$version"
+                    break
+                fi
+            fi
+        fi
+    done
+
+    if [[ -z "$PYTHON_CMD" ]]; then
+        log_warn "Python ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR}+ not found. Will attempt to install..."
+        return 1
+    fi
+
+    log_success "Found Python ${PYTHON_VERSION} at $(which $PYTHON_CMD)"
+    return 0
+}
+
+install_python() {
+    log_info "Installing Python ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR}+..."
+
+    case "$OS_ID" in
+        ubuntu)
+            # Add deadsnakes PPA for newer Python on older Ubuntu
+            if [[ "${OS_VERSION%%.*}" -lt 22 ]]; then
+                log_info "Adding deadsnakes PPA for newer Python..."
+                apt-get install -y software-properties-common 2>/dev/null || true
+                add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null || true
+                apt-get update
+            fi
+
+            # Try to install Python 3.12, then 3.11, then 3.10
+            for pyver in python3.12 python3.11 python3.10; do
+                if apt-get install -y "$pyver" "${pyver}-venv" "${pyver}-dev" 2>/dev/null; then
+                    PYTHON_CMD="$pyver"
+                    PYTHON_VERSION=$(get_python_version "$pyver")
+                    log_success "Installed $pyver"
+                    break
+                fi
+            done
+            ;;
+        debian)
+            # Debian usually has recent Python in backports
+            apt-get install -y python3 python3-venv python3-dev 2>/dev/null || true
+            ;;
+        *)
+            apt-get install -y python3 python3-venv python3-dev 2>/dev/null || true
+            ;;
+    esac
+
+    # Verify installation
+    if ! check_python_version; then
+        log_error "Failed to install Python ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR}+. Please install manually."
+        log_error "On Ubuntu: sudo apt install python3.11 python3.11-venv python3.11-dev"
+        return 1
+    fi
+
+    return 0
+}
+
+# =============================================================================
 # System Preparation
 # =============================================================================
 
 install_system_dependencies() {
     log_info "Installing system dependencies..."
 
-    apt-get update
-    apt-get install -y \
-        python3 \
-        python3-pip \
-        python3-venv \
-        python3-dev \
-        build-essential \
-        git \
-        curl \
-        wget \
-        nginx \
-        openssl \
-        libssl-dev \
-        libffi-dev \
-        libcurl4-openssl-dev \
-        zlib1g-dev \
-        p7zip-full \
+    # Core packages - install in groups to handle failures better
+    local core_packages=(
+        python3-pip
+        python3-venv
+        python3-dev
+        build-essential
+        git
+        curl
+        wget
+        openssl
+        libssl-dev
+        libffi-dev
+    )
+
+    local web_packages=(
+        nginx
+    )
+
+    local optional_packages=(
+        libcurl4-openssl-dev
+        zlib1g-dev
+        p7zip-full
         unzip
+        rsync
+    )
+
+    # Install core packages
+    log_info "Installing core packages..."
+    for pkg in "${core_packages[@]}"; do
+        if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+            apt-get install -y "$pkg" 2>/dev/null || log_warn "Could not install: $pkg"
+        fi
+    done
+
+    # Install web packages
+    log_info "Installing web server..."
+    for pkg in "${web_packages[@]}"; do
+        if ! dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+            apt-get install -y "$pkg" 2>/dev/null || log_warn "Could not install: $pkg"
+        fi
+    done
+
+    # Install optional packages (don't fail if unavailable)
+    log_info "Installing optional packages..."
+    for pkg in "${optional_packages[@]}"; do
+        apt-get install -y "$pkg" 2>/dev/null || true
+    done
 
     log_success "System dependencies installed"
 }
@@ -154,12 +362,13 @@ setup_hm1k_user() {
 setup_directories() {
     log_info "Setting up directories..."
 
-    # Create HM1K home if needed
+    # Create HM1K directories
     mkdir -p "$HM1K_HOME"
     mkdir -p "$LOG_DIR"
     mkdir -p "$DATA_DIR"
     mkdir -p "${DATA_DIR}/sessions"
     mkdir -p "${DATA_DIR}/uploads"
+    mkdir -p "${HM1K_HOME}/flask_session"
 
     # Create hashcat directories
     mkdir -p "$HASHCAT_HOME"
@@ -184,20 +393,34 @@ deploy_hm1k_files() {
     if [[ -f "${REPO_DIR}/hm1k.py" ]]; then
         log_info "Copying files from repository at: $REPO_DIR"
 
-        # Copy application files (excluding dev files)
-        rsync -av --exclude='.git' \
-                  --exclude='.venv' \
-                  --exclude='__pycache__' \
-                  --exclude='*.pyc' \
-                  --exclude='.env' \
-                  --exclude='cert.pem' \
-                  --exclude='key.pem' \
-                  --exclude='data/sessions/*' \
-                  --exclude='testData' \
-                  "$REPO_DIR/" "$HM1K_HOME/"
+        # Check for rsync
+        if command -v rsync &>/dev/null; then
+            rsync -av --exclude='.git' \
+                      --exclude='.venv' \
+                      --exclude='__pycache__' \
+                      --exclude='*.pyc' \
+                      --exclude='.env' \
+                      --exclude='cert.pem' \
+                      --exclude='key.pem' \
+                      --exclude='data/sessions/*' \
+                      --exclude='testData' \
+                      --exclude='internal' \
+                      "$REPO_DIR/" "$HM1K_HOME/"
+        else
+            # Fallback to cp if rsync not available
+            log_warn "rsync not available, using cp (may copy unwanted files)"
+            cp -r "$REPO_DIR"/* "$HM1K_HOME/"
+            # Clean up unwanted files
+            rm -rf "${HM1K_HOME}/.git"
+            rm -rf "${HM1K_HOME}/.venv"
+            rm -rf "${HM1K_HOME}/__pycache__"
+            rm -f "${HM1K_HOME}/.env"
+            rm -rf "${HM1K_HOME}/testData"
+            rm -rf "${HM1K_HOME}/internal"
+        fi
     else
         log_error "Cannot find HM1K repository. Run this script from the repo or copy files manually to $HM1K_HOME"
-        exit 1
+        return 1
     fi
 
     log_success "Application files deployed"
@@ -206,19 +429,71 @@ deploy_hm1k_files() {
 setup_python_environment() {
     log_info "Setting up Python virtual environment..."
 
+    # Determine Python command to use
+    local python_to_use="${PYTHON_CMD:-python3}"
+
     # Create venv
-    python3 -m venv "$VENV_PATH"
+    if ! "$python_to_use" -m venv "$VENV_PATH" 2>/dev/null; then
+        # Try with --without-pip if venv module has issues
+        log_warn "Standard venv creation failed, trying alternative..."
+        "$python_to_use" -m venv --without-pip "$VENV_PATH"
+
+        # Install pip manually
+        curl -sS https://bootstrap.pypa.io/get-pip.py | "$VENV_PATH/bin/python"
+    fi
 
     # Upgrade pip
-    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools
+    "$VENV_PATH/bin/pip" install --upgrade pip wheel setuptools 2>/dev/null || true
 
     # Install requirements
-    "$VENV_PATH/bin/pip" install -r "${HM1K_HOME}/requirements.txt"
+    if [[ -f "${HM1K_HOME}/requirements.txt" ]]; then
+        log_info "Installing Python requirements..."
+        if ! "$VENV_PATH/bin/pip" install -r "${HM1K_HOME}/requirements.txt"; then
+            log_error "Failed to install some Python requirements"
+            # Try installing one by one to identify problem packages
+            while IFS= read -r requirement; do
+                # Skip comments and empty lines
+                [[ "$requirement" =~ ^#.*$ ]] && continue
+                [[ -z "$requirement" ]] && continue
+                "$VENV_PATH/bin/pip" install "$requirement" 2>/dev/null || log_warn "Could not install: $requirement"
+            done < "${HM1K_HOME}/requirements.txt"
+        fi
+    else
+        log_error "requirements.txt not found at ${HM1K_HOME}/requirements.txt"
+    fi
 
     # Install Gunicorn for production
     "$VENV_PATH/bin/pip" install gunicorn
 
+    # Ensure flask-compress is installed (common missing dependency)
+    "$VENV_PATH/bin/pip" install flask-compress 2>/dev/null || true
+
     log_success "Python environment configured"
+}
+
+download_nltk_data() {
+    log_info "Downloading NLTK data..."
+
+    # Download NLTK data needed by HM1K
+    "$VENV_PATH/bin/python" -c "
+import nltk
+import os
+
+# Set download directory
+nltk_data_dir = '/usr/share/nltk_data'
+os.makedirs(nltk_data_dir, exist_ok=True)
+
+# Download required datasets
+datasets = ['words', 'names', 'averaged_perceptron_tagger', 'punkt']
+for dataset in datasets:
+    try:
+        nltk.download(dataset, download_dir=nltk_data_dir, quiet=True)
+        print(f'Downloaded: {dataset}')
+    except Exception as e:
+        print(f'Warning: Could not download {dataset}: {e}')
+" 2>/dev/null || log_warn "Could not download some NLTK data. This may affect some features."
+
+    log_success "NLTK data downloaded"
 }
 
 configure_hm1k_env() {
@@ -227,7 +502,7 @@ configure_hm1k_env() {
     ENV_FILE="${HM1K_HOME}/.env"
 
     # Generate secure secret key
-    SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+    SECRET_KEY=$("$VENV_PATH/bin/python" -c 'import secrets; print(secrets.token_hex(32))' 2>/dev/null || openssl rand -hex 32)
 
     if [[ ! -f "$ENV_FILE" ]]; then
         cat > "$ENV_FILE" << EOF
@@ -264,7 +539,6 @@ SESSION_LIFETIME=86400
 ADVANCED_OPTIONS_ENABLED="false"
 EOF
         log_success "Created .env file with secure secret key"
-        log_warn "IMPORTANT: Change the admin password in $ENV_FILE"
     else
         log_info ".env file already exists, skipping"
     fi
@@ -280,6 +554,7 @@ set_permissions() {
     # Protect sensitive files
     chmod 600 "${HM1K_HOME}/.env" 2>/dev/null || true
     chmod 700 "$DATA_DIR"
+    chmod 700 "${HM1K_HOME}/flask_session"
 
     log_success "Permissions configured"
 }
@@ -303,12 +578,15 @@ generate_ssl_certificate() {
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout "$KEY_FILE" \
         -out "$CERT_FILE" \
-        -subj "/C=US/ST=State/L=City/O=Organization/OU=Security/CN=hm1k.local"
+        -subj "/C=US/ST=State/L=City/O=Organization/OU=Security/CN=hm1k.local" 2>/dev/null
 
-    chmod 600 "$KEY_FILE"
-
-    log_success "SSL certificate generated"
-    log_warn "This is a self-signed certificate. Replace with a proper cert for production."
+    if [[ $? -eq 0 ]]; then
+        chmod 600 "$KEY_FILE"
+        log_success "SSL certificate generated"
+        log_warn "This is a self-signed certificate. Replace with a proper cert for production."
+    else
+        log_error "Failed to generate SSL certificate"
+    fi
 }
 
 # =============================================================================
@@ -356,7 +634,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${HM1K_HOME}/data ${LOG_DIR}
+ReadWritePaths=${HM1K_HOME}/data ${LOG_DIR} ${HM1K_HOME}/flask_session
 
 [Install]
 WantedBy=multi-user.target
@@ -475,9 +753,11 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
 
     # Test configuration
-    nginx -t
-
-    log_success "Nginx configured"
+    if nginx -t 2>/dev/null; then
+        log_success "Nginx configured"
+    else
+        log_error "Nginx configuration test failed. Check: nginx -t"
+    fi
 }
 
 # =============================================================================
@@ -496,7 +776,7 @@ install_hashcat_dependencies() {
         ocl-icd-opencl-dev \
         opencl-headers \
         pocl-opencl-icd \
-        clinfo
+        clinfo 2>/dev/null || true
 
     log_success "Hashcat dependencies installed"
 }
@@ -520,6 +800,11 @@ install_hashcat_version() {
     git clone --branch "v${VERSION}" --depth 1 https://github.com/hashcat/hashcat.git "hashcat-${VERSION}" 2>/dev/null || \
     git clone --branch "${VERSION}" --depth 1 https://github.com/hashcat/hashcat.git "hashcat-${VERSION}"
 
+    if [[ $? -ne 0 ]]; then
+        log_warn "Could not clone hashcat ${VERSION}"
+        return
+    fi
+
     cd "hashcat-${VERSION}"
     make -j$(nproc)
 
@@ -540,7 +825,7 @@ install_hashcat_version() {
 install_hashcat_latest() {
     log_info "Installing latest hashcat from apt (as default)..."
 
-    apt-get install -y hashcat
+    apt-get install -y hashcat 2>/dev/null
 
     # Get version
     INSTALLED_VERSION=$(hashcat --version 2>/dev/null | head -1 || echo "unknown")
@@ -552,7 +837,13 @@ install_hashcat_utils() {
 
     cd /tmp
     rm -rf hashcat-utils
-    git clone --depth 1 https://github.com/hashcat/hashcat-utils.git
+    git clone --depth 1 https://github.com/hashcat/hashcat-utils.git 2>/dev/null
+
+    if [[ ! -d hashcat-utils ]]; then
+        log_warn "Could not clone hashcat-utils"
+        return
+    fi
+
     cd hashcat-utils
 
     # Check if Makefile works, otherwise build individual tools
@@ -720,10 +1011,12 @@ download_wordlists() {
     if [[ ! -d "SecLists" ]]; then
         log_info "Cloning SecLists password lists..."
         git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/danielmiessler/SecLists.git
-        cd SecLists
-        git sparse-checkout set Passwords
-        cd ..
+            https://github.com/danielmiessler/SecLists.git 2>/dev/null
+        if [[ -d "SecLists" ]]; then
+            cd SecLists
+            git sparse-checkout set Passwords 2>/dev/null || true
+            cd ..
+        fi
     fi
 
     # Create index
@@ -755,31 +1048,31 @@ download_rules() {
     # OneRuleToRuleThemAll
     if [[ ! -f "OneRuleToRuleThemAll.rule" ]]; then
         wget -q --show-progress -O OneRuleToRuleThemAll.rule \
-            "https://raw.githubusercontent.com/NotSoSecure/password_cracking_rules/master/OneRuleToRuleThemAll.rule"
+            "https://raw.githubusercontent.com/NotSoSecure/password_cracking_rules/master/OneRuleToRuleThemAll.rule" 2>/dev/null || true
     fi
 
     # Best64
     if [[ ! -f "best64.rule" ]]; then
         wget -q --show-progress -O best64.rule \
-            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/best64.rule"
+            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/best64.rule" 2>/dev/null || true
     fi
 
     # d3ad0ne
     if [[ ! -f "d3ad0ne.rule" ]]; then
         wget -q --show-progress -O d3ad0ne.rule \
-            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/d3ad0ne.rule"
+            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/d3ad0ne.rule" 2>/dev/null || true
     fi
 
     # dive
     if [[ ! -f "dive.rule" ]]; then
         wget -q --show-progress -O dive.rule \
-            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/dive.rule"
+            "https://raw.githubusercontent.com/hashcat/hashcat/master/rules/dive.rule" 2>/dev/null || true
     fi
 
     # Hob0Rules
     if [[ ! -f "hob064.rule" ]]; then
         wget -q --show-progress -O hob064.rule \
-            "https://raw.githubusercontent.com/praetorian-inc/Hob0Rules/master/hob064.rule"
+            "https://raw.githubusercontent.com/praetorian-inc/Hob0Rules/master/hob064.rule" 2>/dev/null || true
     fi
 
     # Corporate rules (common password policies)
@@ -835,20 +1128,124 @@ start_services() {
 
     # Reload and start Nginx
     systemctl enable nginx
-    systemctl reload nginx
+    systemctl reload nginx || systemctl restart nginx
 
     # Check status
-    sleep 2
+    sleep 3
     if systemctl is-active --quiet hm1k; then
         log_success "HM1K service is running"
     else
-        log_error "HM1K service failed to start. Check: journalctl -u hm1k"
+        log_error "HM1K service failed to start. Check: journalctl -u hm1k -n 50"
     fi
 
     if systemctl is-active --quiet nginx; then
         log_success "Nginx is running"
     else
         log_error "Nginx failed to start. Check: nginx -t"
+    fi
+}
+
+# =============================================================================
+# Admin Credential Setup
+# =============================================================================
+
+setup_admin_credentials() {
+    echo ""
+    echo "============================================"
+    echo "       Admin Credential Setup"
+    echo "============================================"
+    echo ""
+    echo "The default admin credentials are:"
+    echo "  Username: admin"
+    echo "  Password: Winter2025##"
+    echo ""
+
+    read -p "Would you like to set a custom admin username and password now? (y/N): " setup_creds
+
+    if [[ "${setup_creds,,}" == "y" || "${setup_creds,,}" == "yes" ]]; then
+        echo ""
+
+        # Get username
+        read -p "Enter admin username [admin]: " new_username
+        new_username="${new_username:-admin}"
+
+        # Get password (with confirmation)
+        while true; do
+            read -s -p "Enter admin password: " new_password
+            echo ""
+
+            if [[ -z "$new_password" ]]; then
+                echo "Password cannot be empty. Please try again."
+                continue
+            fi
+
+            if [[ ${#new_password} -lt 8 ]]; then
+                echo "Password must be at least 8 characters. Please try again."
+                continue
+            fi
+
+            read -s -p "Confirm admin password: " confirm_password
+            echo ""
+
+            if [[ "$new_password" != "$confirm_password" ]]; then
+                echo "Passwords do not match. Please try again."
+                continue
+            fi
+
+            break
+        done
+
+        # Generate bcrypt hash
+        log_info "Generating password hash..."
+        password_hash=$("$VENV_PATH/bin/python" -c "
+import bcrypt
+password = '''$new_password'''
+salt = bcrypt.gensalt(rounds=12)
+hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+print(hashed.decode('utf-8'))
+" 2>/dev/null)
+
+        if [[ -z "$password_hash" ]]; then
+            log_error "Failed to generate password hash. Please update .env manually."
+            return
+        fi
+
+        # Update .env file
+        ENV_FILE="${HM1K_HOME}/.env"
+
+        # Escape special characters for sed
+        escaped_hash=$(printf '%s\n' "$password_hash" | sed 's/[&/\$]/\\&/g')
+
+        # Update username and password hash
+        sed -i "s/^ADMIN_USERNAME=.*/ADMIN_USERNAME=\"$new_username\"/" "$ENV_FILE"
+        sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=\"$escaped_hash\"|" "$ENV_FILE"
+
+        # Remove the default password comment
+        sed -i '/# Default password: Winter2025##/d' "$ENV_FILE"
+
+        log_success "Admin credentials updated!"
+        echo ""
+        echo "New admin credentials:"
+        echo "  Username: $new_username"
+        echo "  Password: ********** (as entered)"
+        echo ""
+
+        # Restart service to apply changes
+        log_info "Restarting HM1K service to apply changes..."
+        systemctl restart hm1k
+        sleep 2
+
+        if systemctl is-active --quiet hm1k; then
+            log_success "HM1K service restarted successfully"
+        else
+            log_error "HM1K service failed to restart. Check: journalctl -u hm1k -n 50"
+        fi
+    else
+        echo ""
+        log_warn "Using default credentials. Please change them in ${HM1K_HOME}/.env"
+        echo ""
+        echo "To change credentials later, edit ${HM1K_HOME}/.env and run:"
+        echo "  sudo systemctl restart hm1k"
     fi
 }
 
@@ -867,18 +1264,21 @@ verify_installation() {
 
     # HM1K
     echo "HM1K Service:"
-    systemctl status hm1k --no-pager -l | head -10
+    systemctl status hm1k --no-pager -l 2>/dev/null | head -10 || echo "  Service status unavailable"
     echo ""
 
     # Nginx
     echo "Nginx Status:"
-    systemctl status nginx --no-pager | head -5
+    systemctl status nginx --no-pager 2>/dev/null | head -5 || echo "  Nginx status unavailable"
     echo ""
 
     # Test local connection
     echo "Testing local connection..."
-    if curl -sk https://localhost/health 2>/dev/null | grep -q "ok\|healthy"; then
+    sleep 2
+    if curl -sk https://localhost/ 2>/dev/null | grep -qi "hash\|master\|login"; then
         log_success "HM1K responding on https://localhost"
+    elif curl -sk http://127.0.0.1:8000/ 2>/dev/null | grep -qi "hash\|master\|login"; then
+        log_success "HM1K responding on http://127.0.0.1:8000 (direct)"
     else
         log_warn "Could not verify HM1K response (may still be starting)"
     fi
@@ -899,13 +1299,19 @@ verify_installation() {
     echo "OpenCL devices:"
     clinfo -l 2>/dev/null || echo "  (clinfo not available)"
     echo ""
+}
 
-    # Summary
+print_summary() {
+    echo ""
     echo "============================================"
     echo "       Installation Summary"
     echo "============================================"
     echo ""
-    echo "HM1K URL:        https://$(hostname -I | awk '{print $1}')"
+
+    # Get IP address
+    IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+
+    echo "HM1K URL:        https://${IP_ADDR}"
     echo "HM1K Home:       ${HM1K_HOME}"
     echo "HM1K Logs:       ${LOG_DIR}"
     echo "HM1K Config:     ${HM1K_HOME}/.env"
@@ -920,8 +1326,30 @@ verify_installation() {
     echo "  systemctl status hm1k   - Check HM1K status"
     echo "  journalctl -u hm1k -f   - Follow HM1K logs"
     echo ""
-    log_warn "IMPORTANT: Change the default admin password in ${HM1K_HOME}/.env"
-    echo ""
+
+    # Print errors if any
+    if [[ ${#ERRORS[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${RED}============================================${NC}"
+        echo -e "${RED}       Errors During Installation${NC}"
+        echo -e "${RED}============================================${NC}"
+        for err in "${ERRORS[@]}"; do
+            echo -e "${RED}  - $err${NC}"
+        done
+        echo ""
+    fi
+
+    # Print warnings if any
+    if [[ ${#WARNINGS[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}============================================${NC}"
+        echo -e "${YELLOW}       Warnings During Installation${NC}"
+        echo -e "${YELLOW}============================================${NC}"
+        for warn in "${WARNINGS[@]}"; do
+            echo -e "${YELLOW}  - $warn${NC}"
+        done
+        echo ""
+    fi
 }
 
 # =============================================================================
@@ -986,7 +1414,17 @@ main() {
     echo ""
 
     check_root
+    detect_os
     detect_cpu_info
+
+    # Fix any broken packages first
+    fix_broken_packages
+    update_package_lists
+
+    # Check Python version
+    if ! check_python_version; then
+        install_python
+    fi
 
     # System prep
     install_system_dependencies
@@ -999,6 +1437,7 @@ main() {
         setup_hm1k_user
         deploy_hm1k_files
         setup_python_environment
+        download_nltk_data
         configure_hm1k_env
         set_permissions
         generate_ssl_certificate
@@ -1045,7 +1484,19 @@ main() {
     echo ""
     verify_installation
 
-    log_success "Deployment complete!"
+    # Setup admin credentials interactively
+    if [[ "$DEPLOY_HM1K" == "true" ]]; then
+        setup_admin_credentials
+    fi
+
+    # Print summary
+    print_summary
+
+    if [[ ${#ERRORS[@]} -eq 0 ]]; then
+        log_success "Deployment complete!"
+    else
+        log_warn "Deployment complete with ${#ERRORS[@]} error(s). Please review above."
+    fi
 }
 
 main "$@"

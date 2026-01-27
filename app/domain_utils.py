@@ -50,7 +50,8 @@ class DomainInfo:
             "accounts_with_domain": self.accounts_with_domain,
             "accounts_without_domain": self.accounts_without_domain,
             "domain_count": self.domain_count,
-            "has_multiple_domains": self.has_multiple_domains
+            "has_multiple_domains": self.has_multiple_domains,
+            "all_domains": self.all_domains
         }
 
     @classmethod

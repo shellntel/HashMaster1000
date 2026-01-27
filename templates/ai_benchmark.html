@@ -3,84 +3,6 @@
 <head>
     <title>HM1K - AI Benchmark Suite</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <style>
-        /* Benchmark-specific styles extending advanced-mode */
-        .bench-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }
-        .bench-controls label { color: #71717a; }
-        .bench-controls select { min-width: 180px; }
-        .bench-controls input[type="range"] { width: 80px; }
-        .bench-temp-value { color: #00d4ff; font-weight: 600; min-width: 35px; }
-
-        .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 10px; margin: 15px 0; }
-        .test-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
-        .test-item:hover { border-color: rgba(0, 212, 255, 0.4); }
-        .test-item input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; cursor: pointer; accent-color: #00d4ff; }
-        .test-item label { cursor: pointer; flex: 1; line-height: 1.4; }
-        .test-item label strong { color: #00d4ff; }
-        .test-item label span { color: #71717a; }
-
-        .bench-progress { margin: 15px 0; }
-
-        .results-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        .results-table th, .results-table td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .results-table th { color: #71717a; font-weight: normal; font-size: 0.9em; }
-        .results-table tr:hover { background: rgba(0, 212, 255, 0.05); }
-
-        .summary-stats { display: flex; gap: 30px; padding: 15px; background: rgba(0,0,0,0.3); border-radius: 6px; margin-top: 15px; flex-wrap: wrap; }
-        .summary-stat .label { color: #71717a; font-size: 0.85em; }
-        .summary-stat .value { color: #00d4ff; font-weight: bold; font-size: 1.15em; margin-top: 4px; }
-
-        .matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 15px; }
-        .matrix-item { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 14px; border: 2px solid rgba(255,255,255,0.1); transition: all 0.2s; }
-        .matrix-item.running { border-color: #00d4ff; animation: item-pulse 1s infinite; }
-        .matrix-item.complete { border-color: rgba(74, 222, 128, 0.5); }
-        .matrix-item.error { border-color: rgba(248, 113, 113, 0.5); }
-        .matrix-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .matrix-item-title { font-weight: 600; color: #00d4ff; }
-        .matrix-item-model { color: #71717a; font-family: monospace; font-size: 0.85em; }
-        .matrix-item-time { color: #555; font-size: 0.85em; margin-top: 6px; }
-        @keyframes item-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-
-        .model-select-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 15px 0; max-height: 200px; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
-        .model-checkbox { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(0,0,0,0.3); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; transition: all 0.2s; }
-        .model-checkbox:hover { border-color: #f59e0b; }
-        .model-checkbox.selected { border-color: #f59e0b; background: rgba(245, 158, 11, 0.15); }
-        .model-checkbox input { display: none; }
-        .model-checkbox .model-label { font-family: monospace; font-size: 0.9em; color: #a0a0a0; }
-
-        .prompt-area { width: 100%; min-height: 150px; background: rgba(0,0,0,0.4); color: #e0e0e0; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 14px; font-family: monospace; font-size: 0.9em; resize: vertical; box-sizing: border-box; }
-        .prompt-area:focus { border-color: rgba(245, 158, 11, 0.5); outline: none; box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
-
-        .preset-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-        .preset-btn { background: rgba(0,0,0,0.3); color: #a0a0a0; border: 1px solid rgba(255,255,255,0.1); padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
-        .preset-btn:hover { background: rgba(255,255,255,0.05); border-color: rgba(245, 158, 11, 0.5); }
-        .preset-btn.active { background: #f59e0b; color: #000; border-color: #f59e0b; }
-        .preset-btn.section-preset { border-color: rgba(139, 92, 246, 0.3); }
-        .preset-btn.section-preset:hover { border-color: rgba(139, 92, 246, 0.6); }
-        .preset-btn.section-preset.active { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
-
-        .compare-result { background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.08); }
-        .compare-result.running { border-color: #00d4ff; }
-        .compare-result.complete { border-color: rgba(74, 222, 128, 0.4); }
-        .compare-result.error { border-color: rgba(248, 113, 113, 0.4); }
-        .compare-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .compare-result-model { font-weight: 600; color: #f59e0b; font-family: monospace; }
-        .compare-result-stats { display: flex; gap: 20px; font-size: 0.85em; color: #71717a; }
-        .compare-result-content { background: rgba(0,0,0,0.3); border-radius: 4px; padding: 14px; max-height: 300px; overflow-y: auto; font-size: 0.9em; line-height: 1.6; white-space: pre-wrap; }
-
-        .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
-        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); }
-        .history-item:hover { border-color: rgba(245, 158, 11, 0.4); }
-        .history-item-info { flex: 1; }
-        .history-item-date { color: #71717a; font-size: 0.85em; }
-        .history-item-models { color: #f59e0b; font-family: monospace; font-size: 0.9em; margin-top: 4px; }
-        .history-item-prompt { color: #555; font-size: 0.85em; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
-
-        .data-warning { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; color: #fbbf24; }
-
-        .compare-section .advanced-section-title { color: #f59e0b !important; }
-        .matrix-section .advanced-section-title { color: #4ade80 !important; }
-    </style>
 </head>
 <body class="advanced-mode">
     <!-- Corner decorations -->
@@ -111,7 +33,7 @@
             <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
             <a href="/timing/stats" class="advanced-nav-link">Timing Stats</a>
             <div class="advanced-nav-divider"></div>
-            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
         </nav>
 
         <!-- Ollama Servers Status -->

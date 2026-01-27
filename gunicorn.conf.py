@@ -30,8 +30,8 @@ backlog = 2048
 # Worker Processes
 # Calculate workers based on CPU cores: (2 x num_cores) + 1
 # workers = multiprocessing.cpu_count() * 2 + 1
-# For small teams (2-5 users), you can use a fixed number:
-workers = 8  # Good for 2-10 concurrent users, lower memory usage
+# Optimized for high-performance server (i9-13900K, 64GB RAM)
+workers = 12  # 12 workers × 2 threads = 24 concurrent request capacity
 
 # Worker Class
 # 'gthread' = hybrid threading model (best for I/O-bound operations like AAIA)
@@ -46,8 +46,8 @@ graceful_timeout = 30
 keepalive = 5
 
 # SSL/HTTPS
-# Uses the same SSL certificates as Flask dev server
-# Use absolute paths for production (systemd service)
+# When running behind nginx, SSL is handled by nginx - no certs needed here
+# For local development with HTTPS, enable these:
 certfile = os.path.join(_app_dir, "cert.pem")
 keyfile = os.path.join(_app_dir, "key.pem")
 
@@ -73,8 +73,8 @@ max_requests = 1000  # Restart workers after N requests (prevents memory leaks)
 max_requests_jitter = 50  # Add randomness to prevent all workers restarting at once
 
 # SSL/Security
-forwarded_allow_ips = "*"  # Trust all proxies (adjust if behind Nginx)
-# For production behind Nginx, set: forwarded_allow_ips = "127.0.0.1"
+# Trust nginx reverse proxy for X-Forwarded-* headers
+forwarded_allow_ips = "127.0.0.1"
 
 # Preload Application
 # Load application code before worker processes are forked

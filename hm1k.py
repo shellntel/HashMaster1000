@@ -52,6 +52,16 @@ from app.domain_utils import filter_accounts_by_domain, detect_cross_domain_pass
 from app import password_history
 # Import potfile cache for efficient master potfile operations
 from app.potfile_cache import get_master_cache, build_cracked_hashes_fast, get_cracked_hashes_direct
+# Import LM-NTLM pairing tools for LM hash cracking workflow
+from app import lm_ntlm_tools
+# Import LM->NTLM multi-step workflow manager
+from app.lm_ntlm_workflow import LMtoNTLMWorkflow, WorkflowStep
+from app.job_templates import JobTemplateManager, JobTemplate, JobSequence, JobSequenceStep
+from app.performance_tracker import (
+    PerformanceTracker, BenchmarkResult, JobPerformanceMetrics, GPUMetrics, BENCHMARK_HASH_MODES
+)
+from app.resource_manager import ResourceManager, Resource
+from app.potfile_manager import PotfileManager
 
 # Helper function to ensure SECRET_KEY exists in .env file
 def _ensure_secret_key() -> None:
@@ -396,6 +406,21 @@ def _apply_duplicate_handling(
 app = Flask(__name__, static_folder="static", template_folder="templates")
 Compress(app)  # Enable gzip/brotli compression for static assets
 
+# Track app start time for health endpoint
+_app_start_time = time.time()
+
+# Track active user sessions (username -> last_activity_timestamp)
+# Updated on each authenticated request via @before_request
+_user_activity: dict[str, float] = {}
+
+# Configure logging to show INFO level messages
+# This ensures agent commands, benchmark status, etc. are visible in logs
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 # Validate and set SECRET_KEY immediately - required for WSGI imports
 # The _ensure_secret_key() function should have already generated one if missing
 _secret_key = os.getenv("SECRET_KEY")
@@ -423,6 +448,56 @@ def is_history_account(username: str | None) -> bool:
     """Jinja test to check if a username is a password history entry (ends with _historyN)."""
     import re
     return bool(username and re.search(r'_history\d+$', username, re.IGNORECASE))
+
+# Advanced Mode pages - used to avoid circular return URLs
+ADVANCED_MODE_PATHS = {
+    '/hidden', '/hiddenpages', '/api/ai/report/test', '/api/ai/benchmark',
+    '/api/ai/servers/manage', '/hibp/download', '/timing/stats', '/agents/jobs',
+    '/agents/wordlists', '/agents/rules', '/users', '/users/create'
+}
+
+
+def get_advanced_mode_return_url() -> str:
+    """
+    Get a safe return URL for exiting Advanced Mode pages.
+
+    Checks the HTTP Referer header and validates it's:
+    - From the same origin (internal URL)
+    - Not another Advanced Mode page (to avoid circular navigation)
+
+    Returns "/" as the default if no valid return URL is found.
+    """
+    referer = request.headers.get('Referer', '')
+
+    if not referer:
+        return "/"
+
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+
+        # Only accept same-origin URLs (no scheme/host or matching host)
+        request_host = request.host.split(':')[0]  # Remove port
+        referer_host = parsed.netloc.split(':')[0] if parsed.netloc else ''
+
+        if referer_host and referer_host != request_host:
+            return "/"
+
+        # Get the path
+        path = parsed.path or "/"
+
+        # Don't return to another Advanced Mode page or user edit pages
+        if any(path.startswith(adv_path) for adv_path in ADVANCED_MODE_PATHS):
+            return "/"
+
+        # Don't return to login/logout/change-password
+        if path in {'/login', '/logout', '/change-password'}:
+            return "/"
+
+        return path
+    except Exception:
+        return "/"
+
 
 # Context processor to make global variables available to all templates
 @app.context_processor
@@ -480,6 +555,13 @@ def ratelimit_handler(e: Exception) -> tuple[str, int]:
         referrer="Login",
         referrer_url=url_for("login"),
     ), 429
+
+
+@app.before_request
+def track_user_activity() -> None:
+    """Track last activity time for authenticated users."""
+    if current_user.is_authenticated:
+        _user_activity[current_user.id] = time.time()
 
 
 # Ensure the upload and data folders exists
@@ -2171,7 +2253,7 @@ def report() -> str:
 @login_required
 def sessions_page() -> str:
     """Session management page with sorting, grouping, and bulk operations."""
-    return render_template("sessions.html", advanced_options_enabled=ADVANCED_OPTIONS_ENABLED)
+    return render_template("sessions.html", advanced_options_enabled=ADVANCED_OPTIONS_ENABLED, return_url=get_advanced_mode_return_url())
 
 
 @app.route("/hiddenpages")
@@ -2193,7 +2275,8 @@ def hidden_pages_index() -> str:
         'hidden_index.html',
         ollama_enabled=ollama_enabled,
         servers=servers,
-        servers_from_cache=cached_status is not None
+        servers_from_cache=cached_status is not None,
+        return_url=get_advanced_mode_return_url()
     )
 
 
@@ -2201,14 +2284,14 @@ def hidden_pages_index() -> str:
 @login_required
 def hibp_download_page() -> str:
     """HIBP database download management page."""
-    return render_template('hibp_download.html')
+    return render_template('hibp_download.html', return_url=get_advanced_mode_return_url())
 
 
 @app.route("/timing/stats")
 @login_required
 def timing_stats_page() -> str:
     """Timing statistics page."""
-    return render_template('timing_stats.html')
+    return render_template('timing_stats.html', return_url=get_advanced_mode_return_url())
 
 
 @app.route("/api/timing/status")
@@ -2383,16 +2466,10 @@ def master_potfile_status() -> Response:
             "count": 0
         })
 
-    # Use cache for fast count lookup
+    # Load cache (will reload if file mtime changed, e.g., from agent merges)
     cache = get_master_cache()
-    stats = cache.get_stats()
-    if stats:
-        count = stats["ntlm_count"]
-    else:
-        # Cache not loaded yet, load it
-        cache.load(MASTER_POTFILE_PATH)
-        stats = cache.get_stats()
-        count = stats["ntlm_count"] if stats else 0
+    cached_potfile = cache.load(MASTER_POTFILE_PATH)
+    count = cached_potfile.ntlm_count if cached_potfile else 0
 
     return jsonify({
         "enabled": True,
@@ -8381,7 +8458,8 @@ def ai_report_test_page() -> str:
         sections_sorted=sections_sorted,
         data_summary=data_summary,
         all_models=all_models,
-        recommended_models=recommended_models
+        recommended_models=recommended_models,
+        return_url=get_advanced_mode_return_url()
     )
 
 
@@ -8413,7 +8491,8 @@ def ai_servers_manage_page() -> str:
     return render_template(
         'ai_servers_manage.html',
         servers=servers,
-        library_models=library_models
+        library_models=library_models,
+        return_url=get_advanced_mode_return_url()
     )
 
 
@@ -8497,8 +8576,2216 @@ def ai_benchmark_page() -> str:
         server_options=server_options,
         model_options=model_options,
         section_checkboxes=section_checkboxes,
-        data_has_content=data_has_content
+        data_has_content=data_has_content,
+        return_url=get_advanced_mode_return_url()
     )
+
+
+@app.route("/agents/test")
+@login_required
+def agents_test_page() -> str:
+    """Hashcat Agent Testing Page - pre-production testing interface."""
+    return render_template("agents_test.html")
+
+
+@app.route("/agents/jobs")
+@login_required
+def job_manager_page() -> str:
+    """Job Manager Page - create and manage hashcat job templates and sequences."""
+    return render_template("job_manager.html", return_url=get_advanced_mode_return_url())
+
+
+# =============================================================================
+# Hashcat Agent API
+# =============================================================================
+
+# In-memory agent registry (will be replaced with database storage later)
+_agent_registry: dict[str, dict] = {}
+_agent_jobs: dict[str, dict] = {}  # agent_id -> current job info
+_agent_benchmarks: dict[str, dict] = {}  # agent_id -> benchmark status tracking
+_job_metadata: dict[str, dict] = {}  # job_id -> job metadata (hashcat_args, etc.)
+_stopped_jobs: set[str] = set()  # job_ids that have been stopped (ignore stale updates)
+# Note: _agent_sse_queues is now file-backed for multi-worker support
+
+
+def _get_agent_data_dir() -> str:
+    """Get directory for agent data persistence."""
+    data_dir = os.path.join(os.path.dirname(__file__), "data", "agents")
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
+
+
+def _load_agents() -> None:
+    """Load agents from disk on startup."""
+    global _agent_registry
+    agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
+    if os.path.exists(agents_file):
+        try:
+            with open(agents_file, "r") as f:
+                _agent_registry = json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to load agents: {e}")
+
+
+def _save_agents() -> None:
+    """Save agents to disk."""
+    agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
+    try:
+        with open(agents_file, "w") as f:
+            json.dump(_agent_registry, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save agents: {e}")
+
+
+def _get_job_metadata_file() -> str:
+    """Get path to job metadata file."""
+    return os.path.join(_get_agent_data_dir(), "job_metadata.json")
+
+
+def _load_job_metadata() -> dict:
+    """Load job metadata from disk."""
+    global _job_metadata
+    metadata_file = _get_job_metadata_file()
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, "r") as f:
+                _job_metadata = json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to load job metadata: {e}")
+    return _job_metadata
+
+
+def _save_job_metadata() -> None:
+    """Save job metadata to disk."""
+    metadata_file = _get_job_metadata_file()
+    try:
+        with open(metadata_file, "w") as f:
+            json.dump(_job_metadata, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save job metadata: {e}")
+
+
+def _store_job_metadata(job_id: str, metadata: dict) -> None:
+    """Store metadata for a job."""
+    _load_job_metadata()
+    _job_metadata[job_id] = metadata
+    _save_job_metadata()
+
+
+def _get_job_metadata(job_id: str) -> dict:
+    """Get metadata for a job."""
+    _load_job_metadata()
+    return _job_metadata.get(job_id, {})
+
+
+def _get_stopped_jobs_file() -> str:
+    """Get path to stopped jobs file."""
+    return os.path.join(_get_agent_data_dir(), "stopped_jobs.json")
+
+
+def _load_stopped_jobs() -> set:
+    """Load stopped jobs from disk (for multi-worker support)."""
+    global _stopped_jobs
+    stopped_file = _get_stopped_jobs_file()
+    if os.path.exists(stopped_file):
+        try:
+            with open(stopped_file, "r") as f:
+                data = json.load(f)
+                _stopped_jobs = set(data.get("job_ids", []))
+        except Exception as e:
+            logging.error(f"Failed to load stopped jobs: {e}")
+    return _stopped_jobs
+
+
+def _save_stopped_jobs() -> None:
+    """Save stopped jobs to disk."""
+    stopped_file = _get_stopped_jobs_file()
+    try:
+        with open(stopped_file, "w") as f:
+            json.dump({"job_ids": list(_stopped_jobs)}, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save stopped jobs: {e}")
+
+
+def _mark_job_stopped(job_id: str) -> None:
+    """Mark a job as stopped to ignore future stale status updates."""
+    global _stopped_jobs
+    _load_stopped_jobs()
+    _stopped_jobs.add(job_id)
+    # Limit size to prevent unbounded growth (keep last 100)
+    if len(_stopped_jobs) > 100:
+        _stopped_jobs = set(list(_stopped_jobs)[-100:])
+    _save_stopped_jobs()
+
+
+def _is_job_stopped(job_id: str) -> bool:
+    """Check if a job has been stopped."""
+    _load_stopped_jobs()
+    return job_id in _stopped_jobs
+
+
+def _get_job_queue_file() -> str:
+    """Get path to job queue file."""
+    return os.path.join(_get_agent_data_dir(), "job_queue.json")
+
+
+def _load_job_queue() -> dict:
+    """Load job queue from disk (for multi-worker support)."""
+    queue_file = _get_job_queue_file()
+    if os.path.exists(queue_file):
+        try:
+            with open(queue_file, "r") as f:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            logging.error(f"Failed to load job queue: {e}")
+    return {}
+
+
+def _save_job_queue(queue: dict) -> None:
+    """Save job queue to disk (for multi-worker support)."""
+    queue_file = _get_job_queue_file()
+    try:
+        with open(queue_file, "w") as f:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                json.dump(queue, f)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        logging.error(f"Failed to save job queue: {e}")
+
+
+def _queue_agent_command(agent_id: str, command: dict) -> None:
+    """Add a command to an agent's queue (file-backed for multi-worker)."""
+    queue = _load_job_queue()
+    if agent_id not in queue:
+        queue[agent_id] = []
+    queue[agent_id].append(command)
+    _save_job_queue(queue)
+    logging.info(f"Queued command for agent {agent_id}: {command.get('type')}")
+
+
+def _pop_agent_commands(agent_id: str) -> list:
+    """Pop all commands for an agent from the queue (file-backed)."""
+    queue = _load_job_queue()
+    commands = queue.pop(agent_id, [])
+    if commands:
+        _save_job_queue(queue)
+        logging.info(f"Delivering {len(commands)} command(s) to agent {agent_id}")
+    return commands
+
+
+def _get_benchmark_status_file() -> str:
+    """Get path to benchmark status file."""
+    return os.path.join(_get_agent_data_dir(), "benchmark_status.json")
+
+
+def _load_benchmark_status() -> dict:
+    """Load benchmark status from disk (for multi-worker support)."""
+    status_file = _get_benchmark_status_file()
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, "r") as f:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            logging.error(f"Failed to load benchmark status: {e}")
+    return {}
+
+
+def _save_benchmark_status(status: dict) -> None:
+    """Save benchmark status to disk (for multi-worker support)."""
+    status_file = _get_benchmark_status_file()
+    try:
+        with open(status_file, "w") as f:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                json.dump(status, f)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        logging.error(f"Failed to save benchmark status: {e}")
+
+
+def _set_benchmark_status(agent_id: str, status_data: dict) -> None:
+    """Set benchmark status for an agent (file-backed)."""
+    all_status = _load_benchmark_status()
+    all_status[agent_id] = status_data
+    _save_benchmark_status(all_status)
+
+
+def _get_benchmark_status(agent_id: str) -> dict | None:
+    """Get benchmark status for an agent (file-backed)."""
+    all_status = _load_benchmark_status()
+    return all_status.get(agent_id)
+
+
+def _clear_benchmark_status(agent_id: str) -> None:
+    """Clear benchmark status for an agent (file-backed)."""
+    all_status = _load_benchmark_status()
+    if agent_id in all_status:
+        del all_status[agent_id]
+        _save_benchmark_status(all_status)
+
+
+# Load agents on module import
+_load_agents()
+
+
+@app.route("/api/agent/ping", methods=["GET"])
+def agent_ping() -> Response:
+    """
+    Connection test endpoint for agents.
+    Returns server version and whether the agent is recognized.
+    """
+    agent_id = request.headers.get("User-Agent", "").split("/")[-1] if "hm1k-agent" in request.headers.get("User-Agent", "") else None
+
+    return jsonify({
+        "status": "ok",
+        "version": "2.0.0",
+        "agent_recognized": agent_id in _agent_registry if agent_id else False,
+        "server_time": datetime.now().isoformat(),
+    })
+
+
+# Agent download directory (relative to app root)
+AGENT_FILES_DIR = os.path.join(os.path.dirname(__file__), "internal", "hm1k-agent")
+
+
+@app.route("/agent/<path:filename>", methods=["GET"])
+def serve_agent_file(filename: str) -> Response:
+    """
+    Serve agent installation files.
+    No authentication required for easy curl/wget access.
+
+    Available files:
+    - /agent/install.sh - Bootstrap installer script
+    - /agent/deploy.sh - Full deployment script
+    - /agent/config.example.yaml - Example configuration
+    - /agent/hm1k_agent-*.whl - Python wheel package
+    """
+    from flask import send_from_directory, abort
+
+    # Allowed files for security (prevent directory traversal)
+    allowed_files = [
+        "install.sh",
+        "deploy.sh",
+        "config.example.yaml",
+    ]
+
+    # Also allow wheel files from dist/
+    if filename.endswith(".whl"):
+        dist_dir = os.path.join(AGENT_FILES_DIR, "dist")
+        wheel_path = os.path.join(dist_dir, filename)
+        if os.path.isfile(wheel_path):
+            return send_from_directory(dist_dir, filename)
+        abort(404)
+
+    if filename not in allowed_files:
+        abort(404)
+
+    file_path = os.path.join(AGENT_FILES_DIR, filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+
+    return send_from_directory(AGENT_FILES_DIR, filename)
+
+
+@app.route("/agent/", methods=["GET"])
+def list_agent_files() -> Response:
+    """List available agent files for download."""
+    files = []
+
+    # List main files
+    for f in ["install.sh", "deploy.sh", "config.example.yaml"]:
+        path = os.path.join(AGENT_FILES_DIR, f)
+        if os.path.isfile(path):
+            files.append({
+                "name": f,
+                "url": f"/agent/{f}",
+                "size": os.path.getsize(path),
+            })
+
+    # List wheel files from dist/
+    dist_dir = os.path.join(AGENT_FILES_DIR, "dist")
+    if os.path.isdir(dist_dir):
+        for f in os.listdir(dist_dir):
+            if f.endswith(".whl"):
+                path = os.path.join(dist_dir, f)
+                files.append({
+                    "name": f,
+                    "url": f"/agent/{f}",
+                    "size": os.path.getsize(path),
+                })
+
+    return jsonify({
+        "files": files,
+        "install_command": "curl -sSL https://192.168.8.88/agent/install.sh | sudo bash",
+    })
+
+
+@app.route("/api/health", methods=["GET"])
+def health_check() -> Response:
+    """
+    Health check endpoint for monitoring.
+    Returns server status, worker info, and basic metrics.
+    No authentication required for external monitoring systems.
+    """
+    import os
+
+    # Count connected agents
+    connected_agents = sum(
+        1 for agent in _agent_registry.values()
+        if agent.get("sse_connected", False)
+    )
+
+    # Count active jobs
+    active_jobs = sum(
+        1 for agent in _agent_registry.values()
+        if agent.get("current_job") is not None
+    )
+
+    # Get potfile stats if available
+    potfile_count = 0
+    if MASTER_POTFILE_ENABLED:
+        try:
+            cache = get_master_cache()
+            if cache:
+                cached_potfile = cache.load(MASTER_POTFILE_PATH)
+                potfile_count = cached_potfile.ntlm_count
+        except Exception:
+            pass
+
+    # Worker info - read from gunicorn config or use defaults
+    workers_configured = 12  # Default from gunicorn.conf.py
+    threads_configured = 2
+    try:
+        # Try to read from gunicorn config
+        import importlib.util
+        gunicorn_conf_path = os.path.join(os.path.dirname(__file__), "gunicorn.conf.py")
+        if os.path.exists(gunicorn_conf_path):
+            spec = importlib.util.spec_from_file_location("gunicorn_conf", gunicorn_conf_path)
+            if spec and spec.loader:
+                gunicorn_conf = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(gunicorn_conf)
+                workers_configured = getattr(gunicorn_conf, "workers", 12)
+                threads_configured = getattr(gunicorn_conf, "threads", 2)
+    except Exception:
+        pass
+
+    # Active user sessions - users active in the last hour
+    now = time.time()
+    session_timeout = 3600  # Consider sessions active if seen in last hour
+    active_users = [
+        username for username, last_seen in _user_activity.items()
+        if (now - last_seen) < session_timeout
+    ]
+
+    # Count Flask session files modified in last hour for session count
+    session_count = 0
+    try:
+        session_dir = app.config.get("SESSION_FILE_DIR", "flask_session")
+        if os.path.isdir(session_dir):
+            for fname in os.listdir(session_dir):
+                fpath = os.path.join(session_dir, fname)
+                if os.path.isfile(fpath):
+                    mtime = os.path.getmtime(fpath)
+                    if (now - mtime) < session_timeout:
+                        session_count += 1
+    except Exception:
+        pass
+
+    return jsonify({
+        "status": "healthy",
+        "version": "2.0.0",
+        "uptime_seconds": int(time.time() - _app_start_time),
+        "workers": {
+            "configured": workers_configured,
+            "threads_per_worker": threads_configured,
+            "total_capacity": workers_configured * threads_configured,
+            "current_pid": os.getpid(),
+        },
+        "users": {
+            "active_sessions": session_count,
+            "logged_in": sorted(active_users),
+        },
+        "agents": {
+            "total": len(_agent_registry),
+            "connected": connected_agents,
+            "active_jobs": active_jobs,
+        },
+        "potfile": {
+            "entries": potfile_count,
+        },
+        "server_time": datetime.now().isoformat(),
+    })
+
+
+@app.route("/api/agent/heartbeat", methods=["POST"])
+@csrf.exempt
+def agent_heartbeat() -> Response:
+    """
+    Agent heartbeat endpoint.
+    Registers or updates agent status and returns any pending commands.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return jsonify({"error": "agent_id required"}), 400
+
+    state = data.get("state", {})
+
+    # Get agent name from User-Agent header or state
+    user_agent = request.headers.get("User-Agent", "")
+
+    # Register or update agent
+    now = datetime.now().isoformat()
+    if agent_id not in _agent_registry:
+        _agent_registry[agent_id] = {
+            "id": agent_id,
+            "name": state.get("name", f"Agent-{agent_id[:8]}"),
+            "first_seen": now,
+            "last_heartbeat": now,
+            "state": state,
+            "status": "online",
+        }
+        logging.info(f"New agent registered: {agent_id}")
+    else:
+        _agent_registry[agent_id]["last_heartbeat"] = now
+        _agent_registry[agent_id]["state"] = state
+        # Preserve "working" status if agent has an active job (check file-backed current_job)
+        if _agent_registry[agent_id].get("current_job"):
+            _agent_registry[agent_id]["status"] = "working"
+        else:
+            _agent_registry[agent_id]["status"] = "online"
+
+    _save_agents()
+
+    # Return any pending commands for this agent (file-backed for multi-worker)
+    commands = _pop_agent_commands(agent_id)
+
+    return jsonify({
+        "status": "ok",
+        "server_time": now,
+        "commands": commands,
+    })
+
+
+@app.route("/api/agent/status", methods=["POST"])
+@csrf.exempt
+def agent_job_status() -> Response:
+    """
+    Receive job status updates from agent.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    agent_id = data.get("agent_id")
+    job_id = data.get("job_id")
+
+    if not agent_id or not job_id:
+        return jsonify({"error": "agent_id and job_id required"}), 400
+
+    # Check if this job was stopped - ignore stale updates from agent
+    if _is_job_stopped(job_id):
+        logging.debug(f"Ignoring stale status update for stopped job {job_id}")
+        return jsonify({"status": "ok", "ignored": True, "reason": "job_stopped"})
+
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    # Check if this update is newer than existing (avoid progress going backwards)
+    now = datetime.now()
+    now_iso = now.isoformat()
+    existing_job = _agent_registry.get(agent_id, {}).get("current_job", {})
+    if existing_job and existing_job.get("job_id") == job_id:
+        # Only update if progress is higher or it's been more than 5 seconds
+        existing_progress = existing_job.get("progress_percent", 0)
+        new_progress = data.get("progress_percent", 0)
+        existing_updated = existing_job.get("updated_at", "")
+        if existing_updated:
+            try:
+                existing_time = datetime.fromisoformat(existing_updated)
+                time_diff = (now - existing_time).total_seconds()
+                # Accept update if: progress increased, or 5+ seconds passed, or recovered hashes increased
+                if (new_progress < existing_progress and
+                    time_diff < 5 and
+                    data.get("recovered_hashes", 0) <= existing_job.get("recovered_hashes", 0)):
+                    # Skip this stale update
+                    return jsonify({"status": "ok", "skipped": True})
+            except (ValueError, TypeError):
+                pass  # Can't parse timestamp, accept update
+
+    # Store job status
+    _agent_jobs[agent_id] = {
+        "job_id": job_id,
+        "status": data.get("status"),
+        "progress_percent": data.get("progress_percent", 0),
+        "speed_hashes_per_sec": data.get("speed_hashes_per_sec", 0),
+        "recovered_hashes": data.get("recovered_hashes", 0),
+        "total_hashes": data.get("total_hashes", 0),
+        "eta_seconds": data.get("eta_seconds"),
+        "gpu_temps": data.get("gpu_temps"),
+        "gpu_utils": data.get("gpu_utils"),
+        "updated_at": now_iso,
+    }
+
+    # Update agent state and persist to file
+    if agent_id in _agent_registry:
+        _agent_registry[agent_id]["current_job"] = _agent_jobs[agent_id]
+        _agent_registry[agent_id]["status"] = "working"
+        _save_agents()
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/agent/job/complete", methods=["POST"])
+@csrf.exempt
+def agent_job_complete() -> Response:
+    """
+    Receive job completion notification from agent.
+
+    Handles:
+    - Standard jobs: saves results
+    - LM jobs: processes potfile through LM pairing logic
+    - Workflow jobs: chains to next step automatically
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    agent_id = data.get("agent_id")
+    job_id = data.get("job_id")
+    potfile = data.get("potfile", "")
+    stats = data.get("stats", {})
+
+    if not agent_id or not job_id:
+        return jsonify({"error": "agent_id and job_id required"}), 400
+
+    # Log completion
+    logging.info(f"Job {job_id} completed by agent {agent_id}")
+    logging.info(f"Recovered: {stats.get('recovered', 0)}/{stats.get('total_hashes', 0)}")
+
+    # Store results
+    results_dir = os.path.join(_get_agent_data_dir(), "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Check if this is a workflow job (job_id pattern: workflow_id-lm or workflow_id-ntlm)
+    workflow_id = None
+    workflow_step = None
+    if job_id.endswith("-lm"):
+        workflow_id = job_id[:-3]  # Remove "-lm"
+        workflow_step = "lm_brute"
+    elif job_id.endswith("-ntlm"):
+        workflow_id = job_id[:-5]  # Remove "-ntlm"
+        workflow_step = "ntlm_toggle"
+
+    # Handle workflow job completion
+    if workflow_id:
+        try:
+            workflow_mgr = _get_workflow_manager()
+
+            if workflow_step == "lm_brute":
+                # LM step complete - process and potentially chain NTLM step
+                state, next_job_data = workflow_mgr.on_lm_job_complete(
+                    workflow_id, potfile, stats
+                )
+
+                if next_job_data:
+                    # Queue the NTLM job
+                    _queue_agent_command(agent_id, {
+                        "type": "job:assigned",
+                        "data": next_job_data
+                    })
+                    logging.info(
+                        f"Workflow {workflow_id}: LM complete, queued NTLM toggle job"
+                    )
+
+                # Add workflow info to stats
+                stats["workflow"] = {
+                    "workflow_id": workflow_id,
+                    "step": "lm_brute",
+                    "users_both_halves_cracked": state.users_both_halves_cracked,
+                    "next_step": "ntlm_toggle" if next_job_data else "completed",
+                }
+
+            elif workflow_step == "ntlm_toggle":
+                # NTLM step complete - workflow done
+                state = workflow_mgr.on_ntlm_job_complete(workflow_id, potfile, stats)
+
+                stats["workflow"] = {
+                    "workflow_id": workflow_id,
+                    "step": "ntlm_toggle",
+                    "final_passwords_recovered": state.final_passwords_recovered,
+                    "next_step": "completed",
+                }
+
+                logging.info(
+                    f"Workflow {workflow_id}: Complete! "
+                    f"Recovered {state.final_passwords_recovered} NTLM passwords"
+                )
+
+        except Exception as e:
+            logging.error(f"Failed to process workflow job: {e}")
+            stats["workflow_error"] = str(e)
+            # Try to mark workflow as failed
+            try:
+                workflow_mgr = _get_workflow_manager()
+                workflow_mgr.on_job_error(workflow_id, str(e))
+            except Exception:
+                pass
+
+    # Check if this was a standalone LM job by looking for mapping file
+    mapping_file = os.path.join(results_dir, f"{job_id}_lm_mapping.json")
+    lm_stats = None
+
+    if os.path.exists(mapping_file) and potfile.strip() and not workflow_id:
+        try:
+            # Load the LM extraction mapping
+            extraction = lm_ntlm_tools.load_extraction_result(mapping_file)
+
+            # Process potfile to match cracked halves to users
+            extraction = lm_ntlm_tools.process_lm_potfile(potfile, extraction)
+
+            # Get cracking statistics
+            lm_stats = lm_ntlm_tools.get_cracking_stats(extraction)
+
+            # Save updated mapping with cracked plaintexts
+            lm_ntlm_tools.save_extraction_result(extraction, mapping_file)
+
+            # Generate NTLM attack files if any users have both halves cracked
+            if lm_stats["ready_for_ntlm_attack"] > 0:
+                ntlm_attack_dir = os.path.join(results_dir, f"{job_id}_ntlm_attack")
+                ntlm_files = lm_ntlm_tools.generate_ntlm_attack_files(extraction, ntlm_attack_dir)
+                lm_stats["ntlm_attack_files"] = ntlm_files
+                logging.info(
+                    f"LM job {job_id}: {lm_stats['ready_for_ntlm_attack']} users ready "
+                    f"for NTLM case-permutation attack"
+                )
+
+            # Add LM stats to job stats
+            stats["lm_cracking"] = lm_stats
+            logging.info(
+                f"LM job {job_id} stats: {lm_stats['unique_halves_cracked']}/{lm_stats['total_unique_halves']} "
+                f"halves cracked, {lm_stats['users_both_halves_cracked']} users fully cracked"
+            )
+
+        except Exception as e:
+            logging.error(f"Failed to process LM job results: {e}")
+            stats["lm_processing_error"] = str(e)
+
+    result_file = os.path.join(results_dir, f"{job_id}.json")
+    with open(result_file, "w") as f:
+        json.dump({
+            "job_id": job_id,
+            "agent_id": agent_id,
+            "completed_at": datetime.now().isoformat(),
+            "potfile": potfile,
+            "stats": stats,
+        }, f, indent=2)
+
+    # Save potfile separately if not empty
+    if potfile.strip():
+        potfile_path = os.path.join(results_dir, f"{job_id}.potfile")
+        with open(potfile_path, "w") as f:
+            f.write(potfile)
+
+        # Merge into master potfile for cross-agent sync
+        try:
+            potfile_mgr = _get_potfile_manager()
+            merge_result = potfile_mgr.sync_from_job_potfile(job_id, potfile, agent_id)
+            logging.info(
+                f"Merged potfile from job {job_id}: "
+                f"{merge_result['added']} new, {merge_result['duplicates']} duplicates"
+            )
+        except Exception as e:
+            logging.error(f"Failed to merge potfile from job {job_id}: {e}")
+
+    # Clear agent's current job
+    if agent_id in _agent_jobs:
+        del _agent_jobs[agent_id]
+    if agent_id in _agent_registry:
+        _agent_registry[agent_id].pop("current_job", None)
+        _agent_registry[agent_id]["status"] = "online"
+        _save_agents()
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/agent/job/error", methods=["POST"])
+@csrf.exempt
+def agent_job_error() -> Response:
+    """
+    Receive job error notification from agent.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    agent_id = data.get("agent_id")
+    job_id = data.get("job_id")
+    error = data.get("error", "Unknown error")
+    logs = data.get("logs", "")
+
+    if not agent_id or not job_id:
+        return jsonify({"error": "agent_id and job_id required"}), 400
+
+    # Log error
+    logging.error(f"Job {job_id} failed on agent {agent_id}: {error}")
+
+    # Store error details
+    results_dir = os.path.join(_get_agent_data_dir(), "results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    error_file = os.path.join(results_dir, f"{job_id}_error.json")
+    with open(error_file, "w") as f:
+        json.dump({
+            "job_id": job_id,
+            "agent_id": agent_id,
+            "failed_at": datetime.now().isoformat(),
+            "error": error,
+            "logs": logs,
+        }, f, indent=2)
+
+    # Clear agent's current job
+    if agent_id in _agent_jobs:
+        del _agent_jobs[agent_id]
+    if agent_id in _agent_registry:
+        _agent_registry[agent_id].pop("current_job", None)
+        _agent_registry[agent_id]["status"] = "online"
+        _save_agents()
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/agent/history", methods=["GET"])
+@login_required
+def agent_job_history() -> Response:
+    """
+    Get job history for agents.
+
+    Query params:
+        agent_id: Optional filter by agent ID
+        limit: Max number of results (default 50)
+        include_potfile: Include full potfile content (default false)
+    """
+    agent_id = request.args.get("agent_id")
+    limit = int(request.args.get("limit", 50))
+    include_potfile = request.args.get("include_potfile", "").lower() == "true"
+
+    results_dir = os.path.join(_get_agent_data_dir(), "results")
+    if not os.path.exists(results_dir):
+        return jsonify({"jobs": []})
+
+    jobs = []
+    for filename in os.listdir(results_dir):
+        if not filename.endswith(".json"):
+            continue
+        # Skip error files (they end with _error.json)
+        if filename.endswith("_error.json"):
+            continue
+
+        filepath = os.path.join(results_dir, filename)
+        try:
+            with open(filepath) as f:
+                job_data = json.load(f)
+
+            # Filter by agent_id if specified
+            if agent_id and job_data.get("agent_id") != agent_id:
+                continue
+
+            # Enrich with job metadata (hashcat_args, etc.)
+            job_id = job_data.get("job_id", "")
+            if job_id:
+                job_meta = _get_job_metadata(job_id)
+                if job_meta:
+                    job_data["hashcat_args"] = job_meta.get("hashcat_args", [])
+                    job_data["submitted_at"] = job_meta.get("submitted_at")
+                    job_data["job_metadata"] = job_meta.get("metadata", {})
+
+            # Exclude large potfile content by default to prevent response truncation
+            # The potfile can be very large (thousands of cracked passwords)
+            potfile = job_data.get("potfile", "")
+            if not include_potfile and potfile:
+                # Replace full potfile with just the line count
+                potfile_lines = len(potfile.strip().split('\n')) if potfile.strip() else 0
+                job_data["potfile_lines"] = potfile_lines
+                job_data["potfile"] = None  # Remove large content
+
+            # Check for corresponding error file
+            job_id = job_data.get("job_id", "")
+            error_file = os.path.join(results_dir, f"{job_id}_error.json")
+            if os.path.exists(error_file):
+                with open(error_file) as f:
+                    error_data = json.load(f)
+                # Truncate large error logs
+                if not include_potfile and error_data.get("logs"):
+                    logs = error_data["logs"]
+                    if len(logs) > 2000:
+                        error_data["logs"] = logs[:2000] + "\n... (truncated)"
+                job_data["error_info"] = error_data
+
+            # Also include hashcat_logs from stats if present (useful for debugging issues)
+            stats = job_data.get("stats", {})
+            hashcat_logs = stats.get("hashcat_logs", "")
+            if hashcat_logs:
+                # Truncate if needed
+                if not include_potfile and len(hashcat_logs) > 2000:
+                    hashcat_logs = hashcat_logs[:2000] + "\n... (truncated)"
+                job_data["hashcat_logs"] = hashcat_logs
+
+            jobs.append(job_data)
+        except (json.JSONDecodeError, IOError) as e:
+            logging.warning(f"Failed to read job file {filename}: {e}")
+            continue
+
+    # Sort by completed_at (newest first)
+    jobs.sort(key=lambda j: j.get("completed_at", ""), reverse=True)
+
+    # Apply limit
+    jobs = jobs[:limit]
+
+    return jsonify({"jobs": jobs})
+
+
+@app.route("/api/agent/job/<job_id>/potfile", methods=["GET"])
+@login_required
+def get_job_potfile(job_id: str) -> Response:
+    """
+    Get the full potfile content for a specific job.
+
+    Returns the potfile as text/plain for download.
+    """
+    results_dir = os.path.join(_get_agent_data_dir(), "results")
+
+    # First try the separate potfile
+    potfile_path = os.path.join(results_dir, f"{job_id}.potfile")
+    if os.path.exists(potfile_path):
+        with open(potfile_path) as f:
+            content = f.read()
+        return Response(content, mimetype="text/plain")
+
+    # Fall back to potfile in JSON result
+    result_path = os.path.join(results_dir, f"{job_id}.json")
+    if os.path.exists(result_path):
+        with open(result_path) as f:
+            data = json.load(f)
+        potfile = data.get("potfile", "")
+        return Response(potfile, mimetype="text/plain")
+
+    return jsonify({"error": "Job not found"}), 404
+
+
+@app.route("/api/agent/potfile/sync", methods=["POST"])
+@csrf.exempt
+def agent_potfile_sync() -> Response:
+    """
+    Bidirectional potfile sync endpoint for agents.
+
+    Agent sends their new entries and receives entries from other agents.
+    Uses delta sync to minimize data transfer.
+
+    Request JSON:
+        agent_id: Agent identifier
+        entries: List of new hash:plaintext entries from agent
+        last_position: Agent's last known position in master potfile
+
+    Response JSON:
+        status: "ok"
+        new_entries: List of entries since agent's last_position
+        current_position: Current end position of master potfile
+        merged_count: Number of new unique entries merged from agent
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    agent_id = data.get("agent_id")
+    if not agent_id:
+        return jsonify({"error": "agent_id required"}), 400
+
+    entries = data.get("entries", [])
+    last_position = data.get("last_position", 0)
+
+    potfile_mgr = _get_potfile_manager()
+
+    # Merge agent's entries into master potfile
+    merge_result = potfile_mgr.merge_entries(entries, agent_id)
+
+    # Get entries since agent's last known position
+    new_entries, current_position = potfile_mgr.get_entries_since(last_position)
+
+    return jsonify({
+        "status": "ok",
+        "new_entries": new_entries,
+        "current_position": current_position,
+        "merged_count": merge_result.get("added", 0),
+    })
+
+
+@app.route("/api/agent/potfile/full", methods=["GET"])
+@csrf.exempt
+def agent_potfile_full() -> Response:
+    """
+    Get the full master potfile content.
+
+    Used by agents for initial sync or recovery.
+
+    Query params:
+        agent_id: Agent identifier (for tracking)
+
+    Returns potfile as text/plain with current position in header.
+    """
+    agent_id = request.args.get("agent_id", "unknown")
+
+    potfile_mgr = _get_potfile_manager()
+    content, position = potfile_mgr.get_full_potfile()
+
+    response = Response(content, mimetype="text/plain")
+    response.headers["X-Potfile-Position"] = str(position)
+    response.headers["X-Agent-Id"] = agent_id
+    return response
+
+
+@app.route("/api/agent/events", methods=["GET"])
+def agent_events() -> Response:
+    """
+    Server-Sent Events endpoint for agent commands.
+    Agents connect here to receive real-time job assignments.
+    """
+    # Get agent ID from authorization header or user-agent
+    user_agent = request.headers.get("User-Agent", "")
+    agent_id = None
+    if "hm1k-agent/" in user_agent:
+        agent_id = user_agent.split("hm1k-agent/")[-1]
+
+    if not agent_id:
+        return jsonify({"error": "Agent ID required"}), 400
+
+    def generate():
+        """Generate SSE events for the agent."""
+        # Maximum connection lifetime (4 hours) - agent will reconnect after
+        max_connection_time = 4 * 60 * 60  # 4 hours in seconds
+        connection_start = time.time()
+
+        try:
+            # Send initial connection confirmation
+            yield f"event: ping\ndata: {json.dumps({'connected': True, 'agent_id': agent_id})}\n\n"
+
+            # Update agent status
+            if agent_id in _agent_registry:
+                _agent_registry[agent_id]["sse_connected"] = True
+                _agent_registry[agent_id]["sse_connected_at"] = datetime.now().isoformat()
+
+            # Keep connection alive with periodic pings
+            last_ping = time.time()
+            while True:
+                # Check for pending events for this agent (file-backed for multi-worker)
+                commands = _pop_agent_commands(agent_id)
+                for event in commands:
+                    event_type = event.get("type", "message")
+                    event_data = json.dumps(event.get("data", {}))
+                    yield f"event: {event_type}\ndata: {event_data}\n\n"
+
+                # Send ping every 30 seconds to keep connection alive
+                if time.time() - last_ping > 30:
+                    yield f"event: ping\ndata: {json.dumps({'time': datetime.now().isoformat()})}\n\n"
+                    last_ping = time.time()
+
+                # Check max connection lifetime - force reconnect to allow worker recycling
+                if time.time() - connection_start > max_connection_time:
+                    logging.info(f"SSE connection for agent {agent_id} reached max lifetime, closing")
+                    yield f"event: reconnect\ndata: {json.dumps({'reason': 'max_lifetime_reached'})}\n\n"
+                    break
+
+                time.sleep(1)
+        except GeneratorExit:
+            # Client disconnected or worker shutting down
+            logging.info(f"SSE connection closed for agent {agent_id}")
+        finally:
+            # Update agent status on disconnect
+            if agent_id in _agent_registry:
+                _agent_registry[agent_id]["sse_connected"] = False
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+@app.route("/api/agent/list", methods=["GET"])
+@login_required
+def list_agents() -> Response:
+    """
+    List all registered agents with their status.
+    """
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    agents = []
+    for agent_id, agent_data in _agent_registry.items():
+        # Check if agent is stale (no heartbeat in 2 minutes)
+        last_hb = agent_data.get("last_heartbeat")
+        if last_hb:
+            try:
+                last_hb_time = datetime.fromisoformat(last_hb)
+                if (datetime.now() - last_hb_time).total_seconds() > 120:
+                    agent_data["status"] = "offline"
+            except:
+                pass
+
+        # Extract hardware info from agent state
+        state = agent_data.get("state", {})
+        hardware_raw = state.get("hardware", {})
+        hardware = {}
+        if hardware_raw:
+            if hardware_raw.get("cpu"):
+                hardware["cpu"] = hardware_raw["cpu"].get("model", "Unknown")
+            if hardware_raw.get("gpus"):
+                gpu = hardware_raw["gpus"][0] if hardware_raw["gpus"] else {}
+                gpu_mem = gpu.get("memory_total_mb", 0)
+                gpu_mem_gb = round(gpu_mem / 1024) if gpu_mem else 0
+                hardware["gpu"] = f"{gpu.get('name', 'Unknown')} ({gpu_mem_gb}GB)"
+            if hardware_raw.get("memory_total_mb"):
+                ram_gb = round(hardware_raw["memory_total_mb"] / 1024)
+                hardware["ram"] = f"{ram_gb}GB"
+
+        # Get agent name from state if available
+        agent_name = state.get("agent_name") or agent_data.get("name") or f"Agent-{agent_id[:8]}"
+
+        # Get current job info (use file-backed current_job from registry)
+        current_job = agent_data.get("current_job")
+
+        # Enrich current_job with metadata (hashcat_args, etc.)
+        if current_job and current_job.get("job_id"):
+            job_meta = _get_job_metadata(current_job["job_id"])
+            if job_meta:
+                current_job = dict(current_job)  # Copy to avoid modifying registry
+                current_job["hashcat_args"] = job_meta.get("hashcat_args", [])
+                current_job["submitted_at"] = job_meta.get("submitted_at")
+
+        agents.append({
+            "id": agent_id,
+            "name": agent_name,
+            "status": agent_data.get("status", "unknown"),
+            "last_heartbeat": agent_data.get("last_heartbeat"),
+            "first_seen": agent_data.get("first_seen"),
+            "current_job": current_job,
+            "sse_connected": agent_data.get("sse_connected", False),
+            "hardware": hardware,
+        })
+
+    return jsonify({"agents": agents})
+
+
+@app.route("/api/agent/<agent_id>/job", methods=["POST"])
+@login_required
+def assign_job_to_agent(agent_id: str) -> Response:
+    """
+    Assign a job to a specific agent.
+
+    Accepts either:
+    - hash_file: path to hash file on the agent
+    - hash_content: raw hash content to be saved by agent
+
+    For LM hash jobs (mode 3000), automatically:
+    - Extracts unique 16-char LM halves from pwdump content
+    - Saves mapping for later result correlation
+    - Sends only unique halves to the agent
+    """
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    job_id = data.get("job_id", f"job-{int(time.time())}")
+    hash_file = data.get("hash_file")
+    hash_content = data.get("hash_content")
+    hash_filename = data.get("hash_filename", "uploaded_hashes.txt")
+    hashcat_args = data.get("hashcat_args", [])
+
+    # Must have either hash_file or hash_content
+    if not hash_file and not hash_content:
+        return jsonify({"error": "hash_file or hash_content required"}), 400
+
+    # Detect if this is an LM job (mode 3000)
+    is_lm_job = False
+    for i, arg in enumerate(hashcat_args):
+        if arg == "-m" and i + 1 < len(hashcat_args) and hashcat_args[i + 1] == "3000":
+            is_lm_job = True
+            break
+        if arg.startswith("-m") and arg[2:] == "3000":
+            is_lm_job = True
+            break
+
+    # Build job metadata
+    job_metadata = data.get("metadata", {})
+    job_metadata["job_type"] = "lm" if is_lm_job else "standard"
+
+    # Handle LM job preprocessing
+    if is_lm_job and hash_content:
+        # Extract LM halves from pwdump content
+        extraction = lm_ntlm_tools.extract_lm_halves_from_pwdump(hash_content)
+
+        if extraction.total_unique_halves > 0:
+            # Save the original pwdump content and mapping for later
+            results_dir = os.path.join(_get_agent_data_dir(), "results")
+            os.makedirs(results_dir, exist_ok=True)
+
+            # Save mapping for result correlation
+            mapping_file = os.path.join(results_dir, f"{job_id}_lm_mapping.json")
+            lm_ntlm_tools.save_extraction_result(extraction, mapping_file)
+
+            # Save original pwdump for reference
+            original_file = os.path.join(results_dir, f"{job_id}_original_pwdump.txt")
+            with open(original_file, "w") as f:
+                f.write(hash_content)
+
+            # Replace hash_content with just the unique LM halves
+            hash_content = lm_ntlm_tools.generate_lm_hashfile(extraction)
+            hash_filename = "lm_halves.txt"
+
+            # Add LM-specific metadata
+            job_metadata["lm_extraction"] = {
+                "total_users_with_lm": extraction.total_users_with_lm,
+                "total_unique_halves": extraction.total_unique_halves,
+                "empty_halves_skipped": extraction.empty_halves_skipped,
+                "mapping_file": mapping_file,
+                "original_pwdump": original_file,
+            }
+
+            logging.info(
+                f"LM job {job_id}: extracted {extraction.total_unique_halves} unique halves "
+                f"from {extraction.total_users_with_lm} users"
+            )
+        else:
+            logging.warning(f"LM job {job_id}: no LM hashes found in content")
+
+    # Build job data
+    job_data = {
+        "job_id": job_id,
+        "hashcat_args": hashcat_args,
+        "priority": data.get("priority", 0),
+        "metadata": job_metadata,
+    }
+
+    if hash_content:
+        # Pass content to agent - agent will save to local file
+        job_data["hash_content"] = hash_content
+        job_data["hash_filename"] = hash_filename
+        logging.info(f"Job {job_id} with uploaded hashes ({len(hash_content)} bytes)")
+    else:
+        # Use existing file path on agent
+        job_data["hash_file"] = hash_file
+
+    # Queue the job assignment event for the agent (file-backed for multi-worker)
+    _queue_agent_command(agent_id, {
+        "type": "job:assigned",
+        "data": job_data
+    })
+
+    # Store job metadata for later retrieval (includes hashcat command)
+    _store_job_metadata(job_id, {
+        "job_id": job_id,
+        "agent_id": agent_id,
+        "hashcat_args": hashcat_args,
+        "submitted_at": datetime.now().isoformat(),
+        "metadata": job_metadata,
+    })
+
+    logging.info(f"Job {job_id} assigned to agent {agent_id}")
+
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "agent_id": agent_id,
+        "job_type": "lm" if is_lm_job else "standard",
+    })
+
+
+@app.route("/api/agent/<agent_id>/stop", methods=["POST"])
+@login_required
+def stop_agent_job(agent_id: str) -> Response:
+    """
+    Stop the current job on an agent.
+    """
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    data = request.get_json() or {}
+    job_id = data.get("job_id")
+    reason = data.get("reason", "Stopped by server")
+
+    # If no job_id specified, get from file-backed current_job
+    if not job_id:
+        current_job = _agent_registry[agent_id].get("current_job")
+        if current_job:
+            job_id = current_job.get("job_id")
+
+    if not job_id:
+        return jsonify({"error": "No active job to stop"}), 400
+
+    # Mark job as stopped to ignore future stale status updates from agent
+    _mark_job_stopped(job_id)
+
+    # Clear current_job from registry immediately
+    if agent_id in _agent_registry:
+        _agent_registry[agent_id].pop("current_job", None)
+        _agent_registry[agent_id]["status"] = "online"
+        _save_agents()
+
+    # Also clear from in-memory jobs
+    if agent_id in _agent_jobs:
+        del _agent_jobs[agent_id]
+
+    # Queue the stop event (file-backed for multi-worker)
+    _queue_agent_command(agent_id, {
+        "type": "job:stop",
+        "data": {
+            "job_id": job_id,
+            "reason": reason,
+        }
+    })
+
+    return jsonify({"success": True, "job_id": job_id})
+
+
+@app.route("/api/agent/<agent_id>/pause", methods=["POST"])
+@login_required
+def pause_agent_job(agent_id: str) -> Response:
+    """
+    Pause the current job on an agent.
+    """
+    # Reload from file to get latest state from other workers
+    _load_agents()
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    data = request.get_json() or {}
+    job_id = data.get("job_id")
+
+    # If no job_id specified, get from file-backed current_job
+    if not job_id:
+        current_job = _agent_registry[agent_id].get("current_job")
+        if current_job:
+            job_id = current_job.get("job_id")
+
+    if not job_id:
+        return jsonify({"error": "No active job to pause"}), 400
+
+    # Queue the pause event (file-backed for multi-worker)
+    _queue_agent_command(agent_id, {
+        "type": "job:pause",
+        "data": {
+            "job_id": job_id,
+        }
+    })
+
+    return jsonify({"success": True, "job_id": job_id})
+
+
+# ============================================================================
+# LM -> NTLM Workflow API
+# ============================================================================
+
+def _get_workflow_manager() -> LMtoNTLMWorkflow:
+    """Get or create the workflow manager singleton."""
+    return LMtoNTLMWorkflow(_get_agent_data_dir())
+
+
+@app.route("/api/agent/workflow/create", methods=["POST"])
+@login_required
+def create_lm_ntlm_workflow() -> Response:
+    """
+    Create a new LM -> NTLM multi-step cracking workflow.
+
+    This automatically:
+    1. Extracts LM halves from the pwdump file
+    2. Submits an LM brute force job
+    3. When complete, combines halves and submits NTLM toggle job
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    agent_id = data.get("agent_id")
+    pwdump_content = data.get("pwdump_content")
+    workflow_id = data.get("workflow_id")
+
+    if not agent_id:
+        return jsonify({"error": "agent_id required"}), 400
+    if not pwdump_content:
+        return jsonify({"error": "pwdump_content required"}), 400
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    try:
+        # Create workflow and get first job data
+        workflow = _get_workflow_manager()
+        state, job_data = workflow.create_workflow(agent_id, pwdump_content, workflow_id)
+
+        # Queue the LM job
+        _queue_agent_command(agent_id, {
+            "type": "job:assigned",
+            "data": job_data
+        })
+
+        logging.info(f"Created workflow {state.workflow_id} for agent {agent_id}")
+
+        return jsonify({
+            "success": True,
+            "workflow_id": state.workflow_id,
+            "lm_job_id": state.lm_job_id,
+            "total_users_with_lm": state.total_users_with_lm,
+            "total_unique_halves": state.total_unique_halves,
+        })
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logging.error(f"Failed to create workflow: {e}")
+        return jsonify({"error": f"Failed to create workflow: {e}"}), 500
+
+
+@app.route("/api/agent/workflow/list", methods=["GET"])
+@login_required
+def list_workflows() -> Response:
+    """List all LM -> NTLM workflows."""
+    try:
+        workflow = _get_workflow_manager()
+        workflows = workflow.list_workflows()
+
+        return jsonify({
+            "workflows": [w.to_dict() for w in workflows]
+        })
+    except Exception as e:
+        logging.error(f"Failed to list workflows: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/workflow/<workflow_id>", methods=["GET"])
+@login_required
+def get_workflow_status(workflow_id: str) -> Response:
+    """Get status of a specific workflow."""
+    try:
+        workflow = _get_workflow_manager()
+        summary = workflow.get_workflow_summary(workflow_id)
+
+        if "error" in summary:
+            return jsonify(summary), 404
+
+        return jsonify(summary)
+    except Exception as e:
+        logging.error(f"Failed to get workflow status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# Job Template API
+# =============================================================================
+
+def _get_template_manager() -> JobTemplateManager:
+    """Get or create the job template manager singleton."""
+    return JobTemplateManager(_get_agent_data_dir())
+
+
+@app.route("/api/agent/templates", methods=["GET"])
+@login_required
+def list_job_templates() -> Response:
+    """List all job templates (builtin + custom)."""
+    try:
+        manager = _get_template_manager()
+        templates = manager.get_all_templates()
+        return jsonify({
+            "templates": [t.to_dict() for t in templates]
+        })
+    except Exception as e:
+        logging.error(f"Failed to list templates: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/templates", methods=["POST"])
+@login_required
+def create_job_template() -> Response:
+    """Create a new custom job template."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        template = JobTemplate(
+            id="",  # Will be auto-generated
+            name=data.get("name", "Unnamed Template"),
+            description=data.get("description", ""),
+            category=data.get("category", "Custom"),
+            hash_mode=data.get("hash_mode"),
+            attack_mode=data.get("attack_mode", 0),
+            hashcat_args=data.get("hashcat_args"),
+            wordlist=data.get("wordlist"),
+            rules=data.get("rules"),
+            mask=data.get("mask"),
+            increment=data.get("increment", False),
+            increment_min=data.get("increment_min"),
+            increment_max=data.get("increment_max"),
+            custom_charset_1=data.get("custom_charset_1"),
+            optimized_kernels=data.get("optimized_kernels", False),
+            workload_profile=data.get("workload_profile", 3),
+            estimated_time=data.get("estimated_time"),
+        )
+
+        manager = _get_template_manager()
+        created = manager.create_template(template)
+
+        return jsonify({
+            "success": True,
+            "template": created.to_dict()
+        })
+    except Exception as e:
+        logging.error(f"Failed to create template: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/templates/<template_id>", methods=["GET"])
+@login_required
+def get_job_template(template_id: str) -> Response:
+    """Get a specific job template."""
+    try:
+        manager = _get_template_manager()
+        template = manager.get_template(template_id)
+        if not template:
+            return jsonify({"error": "Template not found"}), 404
+        return jsonify(template.to_dict())
+    except Exception as e:
+        logging.error(f"Failed to get template: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/templates/<template_id>", methods=["DELETE"])
+@login_required
+def delete_job_template(template_id: str) -> Response:
+    """Delete a custom job template."""
+    try:
+        manager = _get_template_manager()
+        if manager.delete_template(template_id):
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Template not found or is builtin"}), 404
+    except Exception as e:
+        logging.error(f"Failed to delete template: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/sequences", methods=["GET"])
+@login_required
+def list_job_sequences() -> Response:
+    """List all job sequences (builtin + custom)."""
+    try:
+        manager = _get_template_manager()
+        sequences = manager.get_all_sequences()
+        return jsonify({
+            "sequences": [s.to_dict() for s in sequences]
+        })
+    except Exception as e:
+        logging.error(f"Failed to list sequences: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/sequences", methods=["POST"])
+@login_required
+def create_job_sequence() -> Response:
+    """Create a new custom job sequence."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        steps = []
+        for step_data in data.get("steps", []):
+            steps.append(JobSequenceStep(
+                template_id=step_data.get("template_id"),
+                order=step_data.get("order", 0),
+                stop_on_success=step_data.get("stop_on_success", False),
+                min_crack_rate=step_data.get("min_crack_rate"),
+            ))
+
+        sequence = JobSequence(
+            id="",  # Will be auto-generated
+            name=data.get("name", "Unnamed Sequence"),
+            description=data.get("description", ""),
+            steps=steps,
+        )
+
+        manager = _get_template_manager()
+        created = manager.create_sequence(sequence)
+
+        return jsonify({
+            "success": True,
+            "sequence": created.to_dict()
+        })
+    except Exception as e:
+        logging.error(f"Failed to create sequence: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/sequences/<sequence_id>", methods=["GET"])
+@login_required
+def get_job_sequence(sequence_id: str) -> Response:
+    """Get a specific job sequence with expanded template details."""
+    try:
+        manager = _get_template_manager()
+        sequence_data = manager.get_sequence_with_templates(sequence_id)
+        if not sequence_data:
+            return jsonify({"error": "Sequence not found"}), 404
+        return jsonify(sequence_data)
+    except Exception as e:
+        logging.error(f"Failed to get sequence: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/sequences/<sequence_id>", methods=["DELETE"])
+@login_required
+def delete_job_sequence(sequence_id: str) -> Response:
+    """Delete a custom job sequence."""
+    try:
+        manager = _get_template_manager()
+        if manager.delete_sequence(sequence_id):
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Sequence not found or is builtin"}), 404
+    except Exception as e:
+        logging.error(f"Failed to delete sequence: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# Performance Tracking API
+# =============================================================================
+
+def _get_performance_tracker() -> PerformanceTracker:
+    """Get or create the performance tracker singleton."""
+    return PerformanceTracker(_get_agent_data_dir())
+
+
+@app.route("/api/agent/performance/benchmark", methods=["POST"])
+@csrf.exempt
+def receive_benchmark_results() -> Response:
+    """
+    Receive benchmark results from an agent.
+
+    Agents call this after running hashcat -b to report their speeds.
+    No login required - agents authenticate via API key in future.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        agent_id = data.get("agent_id")
+        if not agent_id:
+            return jsonify({"error": "agent_id required"}), 400
+
+        results = data.get("results", [])
+        tracker = _get_performance_tracker()
+
+        saved_count = 0
+        for result_data in results:
+            gpus = [
+                GPUMetrics(
+                    gpu_index=g.get("gpu_index", g.get("id", 0)),
+                    gpu_name=g.get("gpu_name", g.get("name", "Unknown")),
+                    speed_hs=g.get("speed_hs", g.get("speed", 0)),
+                    temperature=g.get("temperature", g.get("temp")),
+                    utilization=g.get("utilization", g.get("util")),
+                )
+                for g in result_data.get("gpus", result_data.get("devices", []))
+            ]
+
+            benchmark = BenchmarkResult(
+                agent_id=agent_id,
+                hash_mode=result_data.get("hash_mode"),
+                total_speed_hs=result_data.get("total_speed_hs", result_data.get("total_speed", 0)),
+                gpus=gpus,
+                timestamp=data.get("timestamp"),
+                hashcat_version=data.get("hashcat_version"),
+            )
+            tracker.save_benchmark(benchmark)
+            saved_count += 1
+
+        # Update benchmark status tracking (file-backed for multi-worker)
+        current_status = _get_benchmark_status(agent_id)
+        if current_status and current_status.get("status") == "running":
+            _set_benchmark_status(agent_id, {
+                "status": "completed",
+                "completed_at": datetime.now().isoformat(),
+                "completed_modes": saved_count,
+                "total_modes": saved_count,
+            })
+            logging.info(f"Benchmark completed for agent {agent_id}: {saved_count} modes")
+
+        return jsonify({
+            "success": True,
+            "saved": saved_count,
+        })
+    except Exception as e:
+        logging.error(f"Failed to save benchmark results: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/performance/job", methods=["POST"])
+@csrf.exempt
+def receive_job_metrics() -> Response:
+    """
+    Receive job performance metrics from an agent.
+
+    Agents call this after a job completes to report actual performance.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        agent_id = data.get("agent_id")
+        job_id = data.get("job_id")
+        if not agent_id or not job_id:
+            return jsonify({"error": "agent_id and job_id required"}), 400
+
+        gpus = [
+            GPUMetrics(
+                gpu_index=g.get("gpu_index", g.get("id", 0)),
+                gpu_name=g.get("gpu_name", g.get("name", "Unknown")),
+                speed_hs=g.get("speed_hs", g.get("speed", 0)),
+                temperature=g.get("temperature", g.get("temp")),
+                utilization=g.get("utilization", g.get("util")),
+                memory_used_mb=g.get("memory_used_mb"),
+            )
+            for g in data.get("gpus", data.get("devices", []))
+        ]
+
+        metrics = JobPerformanceMetrics(
+            agent_id=agent_id,
+            job_id=job_id,
+            hash_mode=data.get("hash_mode", 0),
+            attack_mode=data.get("attack_mode", 0),
+            started_at=data.get("started_at", ""),
+            completed_at=data.get("completed_at", ""),
+            duration_seconds=data.get("duration_seconds", 0),
+            total_hashes=data.get("total_hashes", 0),
+            hashes_cracked=data.get("hashes_cracked", 0),
+            keyspace_total=data.get("keyspace_total", 0),
+            keyspace_processed=data.get("keyspace_processed", 0),
+            avg_speed_hs=data.get("avg_speed_hs", 0),
+            peak_speed_hs=data.get("peak_speed_hs", data.get("avg_speed_hs", 0)),
+            speed_samples=data.get("speed_samples", []),
+            gpus=gpus,
+            max_gpu_temp=data.get("max_gpu_temp"),
+            avg_gpu_util=data.get("avg_gpu_util"),
+            wordlist_path=data.get("wordlist_path"),
+            wordlist_size=data.get("wordlist_size"),
+            rules_used=data.get("rules_used"),
+            mask_used=data.get("mask_used"),
+        )
+
+        tracker = _get_performance_tracker()
+        tracker.save_job_metrics(metrics)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        logging.error(f"Failed to save job metrics: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/performance", methods=["GET"])
+@login_required
+def get_agent_performance(agent_id: str) -> Response:
+    """Get performance data for a specific agent."""
+    try:
+        tracker = _get_performance_tracker()
+
+        benchmarks = tracker.get_agent_benchmarks(agent_id)
+        job_history = tracker.get_agent_job_history(agent_id, limit=20)
+        benchmark_status = tracker.agent_needs_benchmark(agent_id)
+
+        return jsonify({
+            "agent_id": agent_id,
+            "benchmark_status": benchmark_status,
+            "benchmarks": [b.to_dict() for b in benchmarks],
+            "recent_jobs": [j.to_dict() for j in job_history],
+        })
+    except Exception as e:
+        logging.error(f"Failed to get agent performance: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/performance/estimate", methods=["GET"])
+@login_required
+def estimate_job_duration(agent_id: str) -> Response:
+    """
+    Estimate job duration based on historical data.
+
+    Query params:
+      - hash_mode: Target hash mode (required)
+      - attack_mode: Attack mode (default: 0)
+      - hash_count: Number of hashes (default: 1)
+      - keyspace: Keyspace for brute force
+      - wordlist_size: Wordlist size for dictionary attacks
+    """
+    try:
+        hash_mode = request.args.get("hash_mode", type=int)
+        if hash_mode is None:
+            return jsonify({"error": "hash_mode required"}), 400
+
+        attack_mode = request.args.get("attack_mode", 0, type=int)
+        hash_count = request.args.get("hash_count", 1, type=int)
+        keyspace = request.args.get("keyspace", type=int)
+        wordlist_size = request.args.get("wordlist_size", type=int)
+
+        tracker = _get_performance_tracker()
+        estimate = tracker.estimate_job_duration(
+            agent_id=agent_id,
+            hash_mode=hash_mode,
+            attack_mode=attack_mode,
+            hash_count=hash_count,
+            keyspace=keyspace,
+            wordlist_size=wordlist_size,
+        )
+
+        if not estimate:
+            return jsonify({
+                "error": "Insufficient data for estimate",
+                "recommendation": "Run benchmarks on this agent first",
+            }), 404
+
+        return jsonify(estimate)
+    except Exception as e:
+        logging.error(f"Failed to estimate job duration: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/benchmark/status", methods=["GET"])
+@login_required
+def get_agent_benchmark_status(agent_id: str) -> Response:
+    """
+    Check if an agent needs to run benchmarks and current benchmark run status.
+
+    Returns recommendation for running benchmarks plus active benchmark status.
+    """
+    try:
+        tracker = _get_performance_tracker()
+        status = tracker.agent_needs_benchmark(agent_id)
+
+        # Add active benchmark run status (file-backed for multi-worker)
+        run_status = _get_benchmark_status(agent_id)
+        if run_status:
+            status["benchmark_run"] = {
+                "status": run_status.get("status"),
+                "started_at": run_status.get("started_at"),
+                "completed_at": run_status.get("completed_at"),
+                "completed_modes": run_status.get("completed_modes", 0),
+                "total_modes": run_status.get("total_modes", 0),
+            }
+        else:
+            status["benchmark_run"] = None
+
+        return jsonify(status)
+    except Exception as e:
+        logging.error(f"Failed to get benchmark status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/benchmark/run", methods=["POST"])
+@csrf.exempt
+@login_required
+def trigger_agent_benchmark(agent_id: str) -> Response:
+    """
+    Trigger a benchmark run on an agent.
+
+    The agent will receive the command via heartbeat and run hashcat
+    benchmarks for the recommended hash modes.
+
+    Optional JSON body:
+        - hash_modes: List of hash modes to benchmark (default: recommended modes)
+    """
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    agent_data = _agent_registry[agent_id]
+    if agent_data.get("status") != "online":
+        return jsonify({"error": "Agent is offline"}), 400
+
+    # Check if agent has a current job (use file-backed current_job)
+    if agent_data.get("current_job"):
+        return jsonify({"error": "Agent is busy with a job"}), 400
+
+    # Get optional hash modes from request
+    data = request.get_json() or {}
+    hash_modes = data.get("hash_modes")  # None means use defaults
+
+    # Track benchmark status (file-backed for multi-worker)
+    modes_to_run = hash_modes or BENCHMARK_HASH_MODES
+    _set_benchmark_status(agent_id, {
+        "status": "running",
+        "started_at": datetime.now().isoformat(),
+        "hash_modes": list(modes_to_run),
+        "completed_modes": 0,
+        "total_modes": len(modes_to_run),
+    })
+
+    # Queue the benchmark command for the agent
+    _queue_agent_command(agent_id, {
+        "type": "benchmark",
+        "data": {
+            "hash_modes": hash_modes,
+        }
+    })
+
+    logging.info(f"Benchmark command queued for agent {agent_id}")
+
+    return jsonify({
+        "success": True,
+        "message": f"Benchmark command sent to agent {agent_id}",
+        "hash_modes": modes_to_run,
+    })
+
+
+@app.route("/api/performance/summary", methods=["GET"])
+@login_required
+def get_performance_summary() -> Response:
+    """Get performance summary for all agents."""
+    try:
+        tracker = _get_performance_tracker()
+        summaries = tracker.get_all_agents_summary()
+        return jsonify({
+            "agents": summaries,
+            "recommended_hash_modes": BENCHMARK_HASH_MODES,
+        })
+    except Exception as e:
+        logging.error(f"Failed to get performance summary: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# Resource Management API (Wordlists, Rules, Masks)
+# =============================================================================
+
+def _get_resource_manager() -> ResourceManager:
+    """Get or create the resource manager singleton."""
+    return ResourceManager(_get_agent_data_dir())
+
+
+def _get_potfile_manager() -> PotfileManager:
+    """Get or create the potfile manager singleton."""
+    return PotfileManager(_get_agent_data_dir(), MASTER_POTFILE_PATH)
+
+
+@app.route("/agents/wordlists")
+@login_required
+def wordlists_page() -> str:
+    """Wordlist management page."""
+    return render_template("wordlists.html", return_url=get_advanced_mode_return_url())
+
+
+@app.route("/agents/rules")
+@login_required
+def rules_page() -> str:
+    """Rules management page."""
+    return render_template("rules.html", return_url=get_advanced_mode_return_url())
+
+
+@app.route("/api/resources", methods=["GET"])
+@login_required
+def list_resources() -> Response:
+    """List all resources with optional type filter."""
+    try:
+        resource_type = request.args.get("type")
+        manager = _get_resource_manager()
+        resources = manager.list_resources(resource_type=resource_type)
+        return jsonify({
+            "resources": [r.to_dict() for r in resources],
+            "stats": manager.get_stats(),
+        })
+    except Exception as e:
+        logging.error(f"Failed to list resources: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>", methods=["GET"])
+@login_required
+def list_resources_by_type(resource_type: str) -> Response:
+    """List resources of a specific type."""
+    try:
+        if resource_type not in ["wordlists", "rules", "masks"]:
+            return jsonify({"error": "Invalid resource type"}), 400
+
+        manager = _get_resource_manager()
+        resources = manager.list_resources(resource_type=resource_type)
+        untracked = manager.get_untracked_count()
+        return jsonify({
+            "resources": [r.to_dict() for r in resources],
+            "untracked_count": untracked.get(resource_type, 0),
+        })
+    except Exception as e:
+        logging.error(f"Failed to list resources: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/scan", methods=["POST"])
+@login_required
+def scan_untracked_resources() -> Response:
+    """Scan resource directories for untracked files and import them."""
+    try:
+        manager = _get_resource_manager()
+        imported = manager.scan_untracked()
+        return jsonify({
+            "success": True,
+            "imported_count": len(imported),
+            "imported": [r.to_dict() for r in imported],
+        })
+    except Exception as e:
+        logging.error(f"Failed to scan resources: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/migrate", methods=["POST"])
+@login_required
+def migrate_resource_filenames() -> Response:
+    """Rename resource files that have spaces or special characters."""
+    try:
+        manager = _get_resource_manager()
+        renamed = manager.migrate_filenames()
+        return jsonify({
+            "success": True,
+            "renamed_count": len(renamed),
+            "renamed": [{"resource_id": r[0], "old_path": r[1], "new_path": r[2]} for r in renamed],
+        })
+    except Exception as e:
+        logging.error(f"Failed to migrate resource filenames: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/untracked", methods=["GET"])
+@login_required
+def get_untracked_count() -> Response:
+    """Get count of untracked files in resource directories."""
+    try:
+        manager = _get_resource_manager()
+        counts = manager.get_untracked_count()
+        total = sum(counts.values())
+        return jsonify({
+            "total": total,
+            "by_type": counts,
+        })
+    except Exception as e:
+        logging.error(f"Failed to get untracked count: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>", methods=["POST"])
+@login_required
+def upload_resource(resource_type: str) -> Response:
+    """Upload a new resource."""
+    try:
+        if resource_type not in ["wordlists", "rules", "masks"]:
+            return jsonify({"error": "Invalid resource type"}), 400
+
+        # Check for file upload
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        if not file.filename:
+            return jsonify({"error": "No file selected"}), 400
+
+        # Get metadata from form
+        name = request.form.get("name", file.filename)
+        description = request.form.get("description", "")
+        tags_str = request.form.get("tags", "")
+        tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+
+        # Read file content
+        file_content = file.read()
+
+        # Get current user
+        uploaded_by = session.get("username", "unknown")
+
+        manager = _get_resource_manager()
+        resource = manager.add_resource(
+            name=name,
+            resource_type=resource_type,
+            file_content=file_content,
+            description=description,
+            uploaded_by=uploaded_by,
+            tags=tags,
+        )
+
+        return jsonify({
+            "success": True,
+            "resource": resource.to_dict(),
+        })
+    except Exception as e:
+        logging.error(f"Failed to upload resource: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>/<resource_id>", methods=["GET"])
+@login_required
+def get_resource(resource_type: str, resource_id: str) -> Response:
+    """Get resource metadata."""
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+        return jsonify(resource.to_dict())
+    except Exception as e:
+        logging.error(f"Failed to get resource: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>/<resource_id>", methods=["DELETE"])
+@login_required
+def delete_resource(resource_type: str, resource_id: str) -> Response:
+    """Delete a resource."""
+    try:
+        manager = _get_resource_manager()
+        if manager.delete_resource(resource_id):
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Resource not found or is builtin"}), 404
+    except Exception as e:
+        logging.error(f"Failed to delete resource: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>/<resource_id>", methods=["PATCH"])
+@login_required
+def update_resource(resource_type: str, resource_id: str) -> Response:
+    """Update resource metadata."""
+    try:
+        data = request.get_json()
+        manager = _get_resource_manager()
+        resource = manager.update_resource(
+            resource_id=resource_id,
+            name=data.get("name"),
+            description=data.get("description"),
+            tags=data.get("tags"),
+        )
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+        return jsonify({
+            "success": True,
+            "resource": resource.to_dict(),
+        })
+    except Exception as e:
+        logging.error(f"Failed to update resource: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>/<resource_id>/download", methods=["GET"])
+@login_required
+def download_resource(resource_type: str, resource_id: str) -> Response:
+    """Download a resource file."""
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+
+        file_path = manager.get_resource_file(resource_id)
+        if not file_path:
+            return jsonify({"error": "Resource file not found"}), 404
+
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=resource.name,
+        )
+    except Exception as e:
+        logging.error(f"Failed to download resource: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# Agent resource sync endpoint (no login required for agents)
+@app.route("/api/agent/resources/<resource_type>", methods=["GET"])
+def agent_list_resources(resource_type: str) -> Response:
+    """List resources for agent sync."""
+    try:
+        if resource_type not in ["wordlists", "rules", "masks"]:
+            return jsonify({"error": "Invalid resource type"}), 400
+
+        manager = _get_resource_manager()
+        resources = manager.list_resources(resource_type=resource_type)
+        return jsonify({
+            "resources": [r.to_dict() for r in resources],
+        })
+    except Exception as e:
+        logging.error(f"Failed to list resources for agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/resources/<resource_type>/<resource_id>", methods=["GET"])
+def agent_download_resource(resource_type: str, resource_id: str) -> Response:
+    """Download a resource file for agent sync."""
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+
+        file_path = manager.get_resource_file(resource_id)
+        if not file_path:
+            return jsonify({"error": "Resource file not found"}), 404
+
+        return send_file(file_path, as_attachment=True, download_name=resource.name)
+    except Exception as e:
+        logging.error(f"Failed to download resource for agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/resources/<resource_type>/<resource_id>/meta", methods=["GET"])
+def agent_get_resource_meta(resource_type: str, resource_id: str) -> Response:
+    """Get resource metadata for agent sync."""
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+        return jsonify(resource.to_dict())
+    except Exception as e:
+        logging.error(f"Failed to get resource metadata for agent: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # Comparison results storage directory

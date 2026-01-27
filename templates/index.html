@@ -440,7 +440,13 @@
 									<input type="hidden" name="domain_filter" value="all" />
 									<p style="font-size: 0.9em; color: var(--text-secondary);">
 										{% if pwdump_validation and pwdump_validation.domain_info and pwdump_validation.domain_info.domain_count == 1 %}
+										{% if pwdump_validation.domain_info.all_domains %}
 										Single domain detected: <strong>{{ pwdump_validation.domain_info.all_domains[0] }}</strong>
+										{% elif pwdump_validation.domain_info.domains %}
+										Single domain detected: <strong>{{ pwdump_validation.domain_info.domains.keys()|list|first }}</strong>
+										{% else %}
+										Single domain detected.
+										{% endif %}
 										{% else %}
 										No domain prefixes detected in account names.
 										{% endif %}
@@ -884,6 +890,30 @@
 
 			// Initialize file change listeners
 			setupFileChangeListeners();
+
+			// Master potfile count refresh
+			{% if master_potfile_enabled %}
+			async function refreshMasterPotfileCount() {
+				try {
+					const response = await fetch('/api/master_potfile/status', {
+						headers: getHeaders()
+					});
+					if (response.ok) {
+						const data = await response.json();
+						if (data.enabled && data.count !== undefined) {
+							const countEl = document.getElementById('masterPotfileCount');
+							if (countEl) {
+								countEl.textContent = data.count.toLocaleString() + ' hashes';
+							}
+						}
+					}
+				} catch (e) {
+					console.debug('Failed to refresh potfile count:', e);
+				}
+			}
+			// Refresh potfile count every 30 seconds
+			setInterval(refreshMasterPotfileCount, 30000);
+			{% endif %}
 
 			// Step navigation
 			function goToStep(stepNumber) {

@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Rules Manager</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Rules Manager</h1>
+                <p class="advanced-subtitle">Upload and manage hashcat rule files for word mutations</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Resource Management
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link">Agents</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link active">Rules</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Stats Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128202;</span>
+                <h2 class="advanced-section-title">Storage Overview</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div id="stats-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                    <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border-left: 3px solid #00d4ff;">
+                        <div style="color: #888; font-size: 0.8rem;">Total Rule Files</div>
+                        <div id="stat-count" style="color: #00d4ff; font-size: 1.5rem; font-weight: bold;">-</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border-left: 3px solid #22c55e;">
+                        <div style="color: #888; font-size: 0.8rem;">Total Size</div>
+                        <div id="stat-size" style="color: #22c55e; font-size: 1.5rem; font-weight: bold;">-</div>
+                    </div>
+                    <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border-left: 3px solid #f59e0b;">
+                        <div style="color: #888; font-size: 0.8rem;">Total Rules</div>
+                        <div id="stat-lines" style="color: #f59e0b; font-size: 1.5rem; font-weight: bold;">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128228;</span>
+                <h2 class="advanced-section-title">Upload Rules File</h2>
+            </div>
+            <div class="advanced-section-content">
+                <form id="upload-form" onsubmit="uploadRules(event)">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="upload-name" class="advanced-input" placeholder="e.g., best64.rule">
+                        </div>
+                        <div class="form-group">
+                            <label>Tags (comma-separated)</label>
+                            <input type="text" id="upload-tags" class="advanced-input" placeholder="e.g., common, fast">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label>Description</label>
+                        <input type="text" id="upload-description" class="advanced-input" placeholder="Optional description">
+                    </div>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label>File</label>
+                        <div class="file-upload-area" id="file-drop-zone" onclick="document.getElementById('upload-file').click()" style="border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                            <input type="file" id="upload-file" style="display: none;" onchange="handleFileSelect(this)" accept=".rule,.rules,.txt">
+                            <div style="color: #00d4ff; font-size: 2rem; margin-bottom: 10px;">&#128220;</div>
+                            <div style="color: #888;">Click to select or drag & drop rules file</div>
+                            <div style="color: #666; font-size: 0.8rem; margin-top: 5px;">Supports .rule, .rules, .txt</div>
+                        </div>
+                        <div id="selected-file-info" style="display: none; margin-top: 10px; padding: 10px; background: rgba(0,212,255,0.1); border-radius: 4px; border: 1px solid rgba(0,212,255,0.3);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span id="selected-file-name" style="font-family: monospace;"></span>
+                                <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile()">Remove</button>
+                            </div>
+                            <div id="selected-file-size" style="font-size: 0.85rem; color: #999; margin-top: 5px;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button type="submit" class="advanced-btn advanced-btn-primary" id="upload-btn">Upload Rules</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Import Banner (shows when untracked files exist) -->
+        <div id="import-banner" style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="color: #f59e0b; font-weight: 500;">&#128193; <span id="untracked-count">0</span> untracked file(s) found</span>
+                    <div style="color: #888; font-size: 0.85rem; margin-top: 4px;">
+                        Files copied directly to <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">/opt/hm1k/data/agents/resources/rules/</code>
+                    </div>
+                </div>
+                <button class="advanced-btn advanced-btn-primary" onclick="importUntracked()">Import All</button>
+            </div>
+        </div>
+
+        <!-- Rules List -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128220;</span>
+                <h2 class="advanced-section-title">Rules Library</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadRules()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="rules-container">
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        Loading rules...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        let rules = [];
+        let selectedFile = null;
+
+        // Load rules on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadRules();
+
+            // Handle Exit Advanced Mode referrer
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer) {
+                document.querySelector('.exit-link').href = referrer;
+            }
+            // Store referrer if coming from main app (not from Advanced Mode pages)
+            if (document.referrer && !document.referrer.includes('/agents') &&
+                !document.referrer.includes('/ai-') && !document.referrer.includes('/timing-stats') &&
+                !document.referrer.includes('/hidden') && !document.referrer.includes('/hibp')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        });
+
+        async function loadRules() {
+            try {
+                const response = await fetch('/api/resources/rules');
+                if (!response.ok) throw new Error('Failed to load rules');
+
+                const data = await response.json();
+                rules = data.resources;
+                renderRules();
+                updateStats(data);
+
+                // Check for untracked files
+                const untrackedCount = data.untracked_count || 0;
+                const banner = document.getElementById('import-banner');
+                if (untrackedCount > 0) {
+                    document.getElementById('untracked-count').textContent = untrackedCount;
+                    banner.style.display = 'block';
+                } else {
+                    banner.style.display = 'none';
+                }
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        async function importUntracked() {
+            try {
+                const response = await fetch('/api/resources/scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to import files');
+
+                const data = await response.json();
+                showNotification('Import Complete', 'success', `Imported ${data.imported_count} file(s)`);
+                loadRules();
+            } catch (error) {
+                showNotification('Import Failed', 'error', error.message);
+            }
+        }
+
+        async function updateStats(data) {
+            // Fetch full stats
+            try {
+                const response = await fetch('/api/resources?type=rules');
+                const fullData = await response.json();
+                const rulesStats = fullData.stats?.by_type?.rules || {};
+
+                document.getElementById('stat-count').textContent = rulesStats.count || 0;
+                document.getElementById('stat-size').textContent = formatSize(rulesStats.total_size_bytes || 0);
+                document.getElementById('stat-lines').textContent = formatNumber(rulesStats.total_lines || 0);
+            } catch (e) {
+                // Use basic count if full stats fail
+                document.getElementById('stat-count').textContent = rules.length;
+            }
+        }
+
+        function renderRules() {
+            const container = document.getElementById('rules-container');
+
+            if (rules.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">&#128220;</div>
+                        <div>No rules uploaded yet. Upload a rules file to get started.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Sort by size descending (largest first)
+            const sortedRules = [...rules].sort((a, b) => b.size_bytes - a.size_bytes);
+
+            container.innerHTML = `
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead style="background: rgba(0,212,255,0.1);">
+                        <tr>
+                            <th style="padding: 12px; text-align: left; color: #888;">Name</th>
+                            <th style="padding: 12px; text-align: left; color: #888;">Size</th>
+                            <th style="padding: 12px; text-align: left; color: #888;">Rules</th>
+                            <th style="padding: 12px; text-align: left; color: #888;">Tags</th>
+                            <th style="padding: 12px; text-align: right; color: #888;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedRules.map(rule => `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                <td style="padding: 12px;">
+                                    <div style="font-weight: 500; color: #fff;">${escapeHtml(rule.name)}</div>
+                                    ${rule.description ? `<div style="font-size: 0.8rem; color: #888;">${escapeHtml(rule.description)}</div>` : ''}
+                                </td>
+                                <td style="padding: 12px; color: #22c55e; white-space: nowrap;">${formatSize(rule.size_bytes)}</td>
+                                <td style="padding: 12px; color: #f59e0b; white-space: nowrap;">${formatNumber(rule.line_count)}</td>
+                                <td style="padding: 12px;">
+                                    ${rule.tags.map(t => `<span style="background: rgba(0,212,255,0.2); padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; margin-right: 4px; white-space: nowrap; display: inline-block; margin-bottom: 2px;">${escapeHtml(t)}</span>`).join('')}
+                                </td>
+                                <td style="padding: 12px; text-align: right; white-space: nowrap;">
+                                    <button class="action-btn action-btn-view" onclick="previewRules('${rule.resource_id}')" title="Preview">&#128065;</button>
+                                    <button class="action-btn action-btn-edit" onclick="editRules('${rule.resource_id}')" title="Edit">&#9998;</button>
+                                    <button class="action-btn action-btn-download" onclick="downloadRules('${rule.resource_id}', '${escapeHtml(rule.name)}')" title="Download">&#11015;</button>
+                                    ${!rule.is_builtin ? `<button class="action-btn action-btn-delete" onclick="deleteRules('${rule.resource_id}')" title="Delete">&#128465;</button>` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            document.getElementById('selected-file-name').textContent = file.name;
+            document.getElementById('selected-file-size').textContent = formatSize(file.size);
+            document.getElementById('selected-file-info').style.display = 'block';
+            document.getElementById('file-drop-zone').style.display = 'none';
+
+            // Auto-fill name if empty
+            if (!document.getElementById('upload-name').value) {
+                document.getElementById('upload-name').value = file.name;
+            }
+        }
+
+        function clearSelectedFile() {
+            selectedFile = null;
+            document.getElementById('upload-file').value = '';
+            document.getElementById('selected-file-info').style.display = 'none';
+            document.getElementById('file-drop-zone').style.display = 'block';
+        }
+
+        async function uploadRules(event) {
+            event.preventDefault();
+
+            if (!selectedFile) {
+                showNotification('Error', 'error', 'Please select a file');
+                return;
+            }
+
+            const name = document.getElementById('upload-name').value || selectedFile.name;
+            const description = document.getElementById('upload-description').value;
+            const tags = document.getElementById('upload-tags').value;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('name', name);
+            formData.append('description', description);
+            formData.append('tags', tags);
+
+            const btn = document.getElementById('upload-btn');
+            btn.disabled = true;
+            btn.textContent = 'Uploading...';
+
+            try {
+                const response = await fetch('/api/resources/rules', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrfToken },
+                    body: formData,
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Upload failed');
+
+                showNotification('Success', 'success', `Rules file "${name}" uploaded successfully`);
+                clearSelectedFile();
+                document.getElementById('upload-form').reset();
+                loadRules();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Upload Rules';
+            }
+        }
+
+        function downloadRules(resourceId, name) {
+            window.location.href = `/api/resources/rules/${resourceId}/download`;
+        }
+
+        async function deleteRules(resourceId) {
+            if (!confirm('Are you sure you want to delete this rules file?')) return;
+
+            try {
+                const response = await fetch(`/api/resources/rules/${resourceId}`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken },
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Delete failed');
+                }
+
+                showNotification('Success', 'success', 'Rules file deleted');
+                loadRules();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        function editRules(resourceId) {
+            const rule = rules.find(r => r.resource_id === resourceId);
+            if (!rule) {
+                showNotification('Error', 'error', 'Rule not found');
+                return;
+            }
+
+            // Save focused element for restoration
+            const previousFocus = document.activeElement;
+
+            // Create edit modal
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+            const closeModal = () => {
+                modal.remove();
+                if (previousFocus) previousFocus.focus();
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 500px; max-width: 90vw;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #fff;">Edit Rule</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <form id="edit-rule-form">
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Name</label>
+                            <input type="text" id="edit-name" class="advanced-input" value="${escapeHtml(rule.name)}" style="width: 100%;">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Description</label>
+                            <textarea id="edit-description" class="advanced-input" rows="3" style="width: 100%; resize: vertical;">${escapeHtml(rule.description || '')}</textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 20px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Tags (comma-separated)</label>
+                            <input type="text" id="edit-tags" class="advanced-input" value="${escapeHtml(rule.tags.join(', '))}" style="width: 100%;">
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                            <button type="button" class="advanced-btn advanced-btn-secondary" onclick="this.closest('div').parentElement.parentElement.parentElement.remove()">Cancel</button>
+                            <button type="submit" class="advanced-btn advanced-btn-primary" id="edit-save-btn">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Attach close handler to the X button
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+
+            // Handle form submission
+            modal.querySelector('#edit-rule-form').onsubmit = async (e) => {
+                e.preventDefault();
+
+                const name = document.getElementById('edit-name').value.trim();
+                const description = document.getElementById('edit-description').value.trim();
+                const tagsInput = document.getElementById('edit-tags').value;
+                const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+                if (!name) {
+                    showNotification('Error', 'error', 'Name is required');
+                    return;
+                }
+
+                const saveBtn = document.getElementById('edit-save-btn');
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+
+                try {
+                    const response = await fetch(`/api/resources/rules/${resourceId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ name, description, tags })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Update failed');
+                    }
+
+                    showNotification('Success', 'success', 'Rule updated successfully');
+                    closeModal();
+                    loadRules();
+                } catch (error) {
+                    showNotification('Error', 'error', error.message);
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Changes';
+                }
+            };
+
+            // Handle Escape key
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                    document.removeEventListener('keydown', handleEscape);
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
+
+            // Focus the name input
+            setTimeout(() => document.getElementById('edit-name').focus(), 100);
+        }
+
+        async function previewRules(resourceId) {
+            try {
+                const response = await fetch(`/api/resources/rules/${resourceId}/download`);
+                if (!response.ok) throw new Error('Failed to load rules');
+
+                const text = await response.text();
+                const lines = text.split('\n').slice(0, 50);
+
+                // Save focused element for restoration
+                const previousFocus = document.activeElement;
+
+                // Show preview modal
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+                const closeModal = () => {
+                    modal.remove();
+                    if (previousFocus) previousFocus.focus();
+                };
+
+                modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+                modal.innerHTML = `
+                    <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 600px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <h3 style="margin: 0; color: #fff;">Rules Preview (first 50 lines)</h3>
+                            <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                        </div>
+                        <pre style="background: rgba(0,0,0,0.4); padding: 15px; border-radius: 6px; overflow: auto; flex: 1; margin: 0; font-family: monospace; font-size: 0.85rem; color: #ccc; white-space: pre-wrap; word-break: break-all;">${escapeHtml(lines.join('\n'))}</pre>
+                        ${text.split('\n').length > 50 ? '<div style="margin-top: 10px; color: #888; font-size: 0.8rem;">... and more</div>' : ''}
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                // Attach close handler to the X button
+                modal.querySelector('.modal-close-btn').onclick = closeModal;
+
+                // Handle Escape key
+                const handleEscape = (e) => {
+                    if (e.key === 'Escape') {
+                        closeModal();
+                        document.removeEventListener('keydown', handleEscape);
+                    }
+                };
+                document.addEventListener('keydown', handleEscape);
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        // Utility functions
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        function formatNumber(num) {
+            if (!num) return '0';
+            if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function formatDate(isoString) {
+            if (!isoString) return 'N/A';
+            const date = new Date(isoString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function showNotification(title, type, message) {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <strong>${title}</strong>
+                <p>${message}</p>
+            `;
+            container.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+
+        // Drag and drop support
+        const dropZone = document.getElementById('file-drop-zone');
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#00d4ff';
+        });
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+        });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+            if (e.dataTransfer.files.length > 0) {
+                document.getElementById('upload-file').files = e.dataTransfer.files;
+                handleFileSelect(document.getElementById('upload-file'));
+            }
+        });
+    </script>
+</body>
+</html>

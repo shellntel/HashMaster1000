@@ -3,17 +3,19 @@ Description=Hash Master 1000 - Password Audit Analysis Tool
 After=network.target
 
 [Service]
-Type=notify
-# User and group to run as (change to your user or create dedicated 'hm1k' user)
-User=njoyzrd
-Group=njoyzrd
+Type=simple
+# User and group to run as
+# Option 1: Create dedicated 'hm1k' user: sudo useradd -r -s /bin/false -d /opt/hm1k hm1k
+# Option 2: Change to your username
+User=hm1k
+Group=hm1k
 
-# Working directory
-WorkingDirectory=/home/njoyzrd/Projects/hm1k
+# Working directory - change to your HM1K installation path
+WorkingDirectory=/opt/hm1k
 
-# Virtual environment Python and Gunicorn
-Environment="PATH=/home/njoyzrd/Projects/hm1k/.venv/bin"
-ExecStart=/home/njoyzrd/Projects/hm1k/.venv/bin/gunicorn -c gunicorn.conf.py hm1k:app
+# Virtual environment Python and Gunicorn - update paths to match your installation
+Environment="PATH=/opt/hm1k/.venv/bin"
+ExecStart=/opt/hm1k/.venv/bin/gunicorn -c gunicorn.conf.py hm1k:app
 
 # Restart policy
 Restart=on-failure
@@ -29,7 +31,7 @@ SyslogIdentifier=hm1k
 # NoNewPrivileges=true
 # ProtectSystem=strict
 # ProtectHome=read-only
-# ReadWritePaths=/home/njoyzrd/Projects/hm1k/data /home/njoyzrd/Projects/hm1k/logs
+# ReadWritePaths=/opt/hm1k/data /opt/hm1k/logs
 
 [Install]
 WantedBy=multi-user.target

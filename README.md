@@ -1,6 +1,6 @@
 # **Hash Master 1000**
 
-**Windows Active Directory password audit and hash analysis tool for pentest and security assessments.** Analyze NTLM hashes from pwdump/secretsdump output and Hashcat potfiles to generate comprehensive reports on password security, policy compliance, reuse patterns, and breach exposure via HIBP integration.
+**Windows Active Directory password audit and hash analysis tool for pentest and security assessments.** Analyze NTLM hashes extracted via DCSync, Volume Shadow Copy, or other methods (pwdump format) along with Hashcat potfiles to generate comprehensive reports on password security, policy compliance, reuse patterns, and breach exposure via HIBP integration.
 
 ---
 
@@ -49,7 +49,10 @@ The authors assume no responsibility for improper or insecure deployments.
 
 ## **Introduction**
 
-**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes data from a `pwdump6` file and a `Hashcat potfile` to generate comprehensive reports for penetration testers, auditors and cyber-security professionals.
+**Hash Master 1000** is a tool for analyzing Microsoft Windows password hashes and cracked passwords. It processes NTLM hashes in pwdump format (from tools like secretsdump, pwdump, ntdsutil, or Volume Shadow Copy extraction) along with a Hashcat potfile to generate comprehensive reports for penetration testers, auditors, and cybersecurity professionals.
+
+For enhanced analysis capabilities, HM1K also supports **ADD JSON format** from [Active Directory Dumper](https://github.com/shellntel/ActiveDirectoryDumper), which provides rich Active Directory metadata including group memberships, privileged account detection, and historical password analysis.
+
 Learn more: https://blog.shellntel.com/p/hash-master-1000
 
 ### **Features**
@@ -66,7 +69,7 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 - Account status awareness (Enabled/Disabled) from DCSync format
 - Export options: PNG clipboard, SVG download, CSV download, JSON data
 - **Session Management**: Save, restore, and compare multiple analysis sessions
-- **ADD JSON Format (Preferred)**: Import rich Active Directory data from [SynerComm Audit Tool](https://github.com/shellntel/SynerCommAuditTool) with group memberships, privileged account detection, and historical password analysis
+- **ADD JSON Support**: Import rich Active Directory data with group memberships, privileged account detection, and historical password analysis
 - **Have I Been Pwned (HIBP) Integration**: Check password hashes against the HIBP breach database using k-Anonymity (privacy-preserving)
 - **Kerberoast Exposure Analysis**: Automated identification and risk scoring of service accounts vulnerable to Kerberoasting attacks
 - **AS-REP Exposure Analysis**: Identify accounts with Kerberos pre-authentication disabled that are vulnerable to offline password cracking
@@ -134,7 +137,42 @@ hm1k/
 - **Python Version:** 3.10+
 - **Python dependencies:** See `requirements.txt`
 
-### **Deployment**
+### **Quick Install**
+
+For a fast setup experience, use the included install scripts:
+
+**Linux / macOS:**
+```bash
+./install.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\install.ps1
+```
+
+These scripts automatically:
+- Check Python version (3.10+ required)
+- Create a virtual environment
+- Install all dependencies
+- Download required NLTK data
+- Generate SSL certificates
+- Create a `.env` file with secure defaults
+- Create start scripts for easy launching
+
+After installation, start the application with `./start.sh` (Linux/macOS) or `start.bat` (Windows).
+
+### **Production Deployment**
+
+For production server deployment with Nginx, systemd, and hashcat integration, use the production deployment script:
+
+```bash
+sudo ./scripts/deploy_production.sh
+```
+
+See `docs/MULTI_USER_DEPLOYMENT.md` for detailed multi-user deployment instructions.
+
+### **Manual Installation**
 
 While there are several ways that Hash Master 1000 could be run, using either Docker or a Python Virtual Environment is recommended. As stated earlier, a more persistent installation should only be done by a security professional. If you don't have Docker already installed and working, the native Python Virtual Envrionment is quick and easy.
 
