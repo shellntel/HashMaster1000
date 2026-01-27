@@ -13784,33 +13784,35 @@ body.matrix-mode .matrix-trigger {
 
 .agents-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 20px;
 }
 
 .agent-card {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(0, 212, 255, 0.3);
-    border-radius: 8px;
-    padding: 16px;
+    background: linear-gradient(145deg, rgba(15, 25, 35, 0.95), rgba(10, 18, 28, 0.98));
+    border: 1px solid rgba(0, 212, 255, 0.25);
+    border-radius: 12px;
+    padding: 20px;
     transition: all 0.3s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .agent-card:hover {
-    border-color: rgba(0, 212, 255, 0.6);
-    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+    border-color: rgba(0, 212, 255, 0.5);
+    box-shadow: 0 8px 30px rgba(0, 212, 255, 0.15), 0 4px 20px rgba(0, 0, 0, 0.4);
+    transform: translateY(-2px);
 }
 
 .agent-card.online {
-    border-left: 3px solid #22c55e;
+    border-left: 4px solid #22c55e;
 }
 
 .agent-card.offline {
-    border-left: 3px solid #ef4444;
+    border-left: 4px solid #ef4444;
 }
 
 .agent-card.busy {
-    border-left: 3px solid #f59e0b;
+    border-left: 4px solid #f59e0b;
 }
 
 .agent-card.loading {
@@ -13819,61 +13821,102 @@ body.matrix-mode .matrix-trigger {
     justify-content: center;
     gap: 10px;
     color: #666;
-    min-height: 150px;
+    min-height: 180px;
 }
 
 .agent-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.15);
 }
 
 .agent-name {
-    font-weight: bold;
+    font-weight: 600;
     color: #00d4ff;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
+    letter-spacing: 0.5px;
 }
 
 .agent-status-badge {
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: bold;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.agent-status-badge.online { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-.agent-status-badge.offline { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-.agent-status-badge.busy { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+.agent-status-badge.online {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.agent-status-badge.offline {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.agent-status-badge.busy {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
 
 .agent-info {
-    font-size: 0.9rem;
-    color: #999;
-    margin-bottom: 12px;
+    font-size: 0.85rem;
+    color: #aaa;
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
 }
 
 .agent-info-row {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+}
+
+.agent-info-row:not(:last-child) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     margin-bottom: 4px;
+    padding-bottom: 8px;
+}
+
+.agent-info-row span:first-child {
+    color: #888;
+}
+
+.agent-info-row span:last-child {
+    color: #ccc;
+    font-family: 'Consolas', 'Monaco', monospace;
 }
 
 .agent-hardware {
-    font-size: 0.85rem;
-    color: #666;
-    padding: 8px;
-    background: rgba(0,0,0,0.3);
-    border-radius: 4px;
-    margin-bottom: 12px;
+    font-size: 0.8rem;
+    color: #888;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    line-height: 1.6;
+}
+
+.agent-hardware div {
+    padding: 2px 0;
 }
 
 .agent-job-info {
-    padding: 10px;
+    padding: 12px;
     background: rgba(245, 158, 11, 0.1);
     border: 1px solid rgba(245, 158, 11, 0.3);
-    border-radius: 4px;
-    margin-bottom: 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
 }
 
 .agent-job-info:hover {
@@ -13896,21 +13939,110 @@ body.matrix-mode .matrix-trigger {
 }
 
 .agent-actions {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 212, 255, 0.15);
 }
 
+/* Agent card button styles */
+.agent-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    background: rgba(0, 212, 255, 0.08);
+    color: #00d4ff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.agent-btn:hover {
+    background: rgba(0, 212, 255, 0.2);
+    border-color: rgba(0, 212, 255, 0.5);
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.2);
+}
+
+.agent-btn:active {
+    transform: scale(0.98);
+}
+
+.agent-btn-primary {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(0, 180, 220, 0.2));
+    border-color: rgba(0, 212, 255, 0.5);
+    color: #fff;
+}
+
+.agent-btn-primary:hover {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.5), rgba(0, 180, 220, 0.35));
+    border-color: #00d4ff;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+}
+
+.agent-btn-danger {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.agent-btn-danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+}
+
+.agent-btn-icon {
+    font-size: 1rem;
+}
+
+/* Fallback for advanced-btn in agent-actions */
 .agent-actions .advanced-btn {
-    flex: 1 1 auto;
-    min-width: 70px;
-    text-align: center;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    color: #00d4ff;
+}
+
+.agent-actions .advanced-btn:hover {
+    background: rgba(0, 212, 255, 0.2);
+    border-color: rgba(0, 212, 255, 0.5);
+}
+
+.agent-actions .advanced-btn-primary {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.3), rgba(0, 180, 220, 0.2));
+    border-color: rgba(0, 212, 255, 0.5);
+    color: #fff;
+}
+
+.agent-actions .advanced-btn-primary:hover {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.5), rgba(0, 180, 220, 0.35));
+    border-color: #00d4ff;
+}
+
+.agent-actions .advanced-btn-danger {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.agent-actions .advanced-btn-danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
 }
 
 .agent-loading-spinner {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     border: 2px solid rgba(0, 212, 255, 0.3);
     border-top-color: #00d4ff;
     border-radius: 50%;
