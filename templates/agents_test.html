@@ -677,10 +677,10 @@
                     ` : ''}
                     <div class="agent-actions">
                         <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()">&#8635; Refresh</button>
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data">&#128200;</button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data">&#128200; Stats</button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark">&#9881; Benchmark</button>` : ''}
                         ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent">&#128230; Deploy</button>` : ''}
-                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">Stop Job</button>` : ''}
+                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">&#9632; Stop</button>` : ''}
                     </div>
                 </div>
             `}).join('');
