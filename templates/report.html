@@ -1057,7 +1057,7 @@
 					</table>
 				</div>
 				<div class="button-container" style="text-align: center; margin-top: 10px; display: flex; gap: 10px; justify-content: center;">
-					<button id="downloadGroupExplorerCSV" class="toggle-visibility-button" onclick="downloadGroupExplorerCSV()">Download CSV</button>
+					<button id="downloadGroupExplorerCSV" onclick="downloadGroupExplorerCSV()">Download CSV</button>
 					<button id="toggleGroupExplorerPasswords" class="toggle-visibility-button" onclick="toggleGroupExplorerPasswords()">Show Passwords</button>
 				</div>
 			</div>
@@ -2814,6 +2814,10 @@
 
 				// Initialize Select2 for searchable dropdown if available
 				if (typeof $ !== 'undefined' && $.fn.select2) {
+					// Track scroll position to prevent scroll-to-top on dropdown open
+					let scrollPos = 0;
+					let isOpening = false;
+
 					$(dropdown).select2({
 						placeholder: 'Search for a group...',
 						allowClear: true,
@@ -2821,6 +2825,37 @@
 						dropdownAutoWidth: true,
 						// Prevent scroll-to-top issue by keeping dropdown within section
 						dropdownParent: $('#groupExplorerSelector')
+					}).on('select2:opening', function(e) {
+						// Store current scroll position before dropdown opens
+						scrollPos = window.scrollY || document.documentElement.scrollTop;
+						isOpening = true;
+
+						// Temporarily lock scroll during opening
+						const scrollHandler = function(evt) {
+							if (isOpening) {
+								window.scrollTo(0, scrollPos);
+							}
+						};
+						window.addEventListener('scroll', scrollHandler);
+
+						// Clean up scroll handler after dropdown fully opens
+						setTimeout(function() {
+							isOpening = false;
+							window.removeEventListener('scroll', scrollHandler);
+						}, 100);
+					}).on('select2:open', function(e) {
+						// Restore scroll position after dropdown opens
+						window.scrollTo(0, scrollPos);
+
+						// Also restore after a short delay to catch any late scrolls
+						setTimeout(function() {
+							window.scrollTo(0, scrollPos);
+							// Focus the search field without triggering scroll
+							const searchField = document.querySelector('.select2-search__field');
+							if (searchField) {
+								searchField.focus({ preventScroll: true });
+							}
+						}, 10);
 					}).on('change', function() {
 						const selectedGroup = $(this).val();
 						if (selectedGroup) {
