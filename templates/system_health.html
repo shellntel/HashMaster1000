@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HM1K - System Health</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">System Health</h1>
+                <p class="advanced-subtitle">Monitor server workers, requests, and system health</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <a href="/timing/stats" class="advanced-nav-link">Timing Stats</a>
+            <a href="/system/health" class="advanced-nav-link active">System Health</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Controls -->
+        <div class="health-auto-refresh">
+            <label for="refresh-interval">Auto-refresh:</label>
+            <select id="refresh-interval" onchange="setRefreshInterval(this.value)">
+                <option value="0">Off</option>
+                <option value="5" selected>5 seconds</option>
+                <option value="10">10 seconds</option>
+                <option value="30">30 seconds</option>
+                <option value="60">60 seconds</option>
+            </select>
+            <button class="timing-refresh-btn" onclick="loadHealth()">Refresh Now</button>
+        </div>
+
+        <!-- Health Dashboard -->
+        <div id="healthContent">
+            <div class="health-no-data">Loading...</div>
+        </div>
+
+        <div class="health-last-updated" id="lastUpdated"></div>
+    </div>
+
+    <script>
+        let refreshInterval = null;
+
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+
+            if (days > 0) {
+                return `${days}d ${hours}h ${mins}m`;
+            } else if (hours > 0) {
+                return `${hours}h ${mins}m ${secs}s`;
+            } else if (mins > 0) {
+                return `${mins}m ${secs}s`;
+            } else {
+                return `${secs}s`;
+            }
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 1) {
+                return (seconds * 1000).toFixed(0) + 'ms';
+            } else if (seconds < 60) {
+                return seconds.toFixed(1) + 's';
+            } else {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}m ${secs}s`;
+            }
+        }
+
+        function getStatusClass(value, warningThreshold, errorThreshold) {
+            if (value >= errorThreshold) return 'error';
+            if (value >= warningThreshold) return 'warning';
+            return 'good';
+        }
+
+        async function loadHealth() {
+            try {
+                const response = await fetch('/api/system/health/detailed');
+                if (!response.ok) throw new Error('Failed to load health data');
+
+                const data = await response.json();
+                renderHealth(data);
+
+                document.getElementById('lastUpdated').textContent =
+                    'Last updated: ' + new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error loading health:', error);
+                document.getElementById('healthContent').innerHTML =
+                    '<div class="health-no-data">Error loading health data: ' + error.message + '</div>';
+            }
+        }
+
+        function renderHealth(data) {
+            const activeRequestCount = data.requests?.count || 0;
+            const slowRequestCount = data.requests?.slow_count || 0;
+            const oldestRequest = data.requests?.oldest_seconds || 0;
+
+            const workerStatus = slowRequestCount > 0 ? 'warning' : 'good';
+            const requestStatus = oldestRequest > 30 ? 'error' : (oldestRequest > 10 ? 'warning' : 'good');
+
+            let html = `
+                <div class="health-grid">
+                    <!-- Server Status -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot ${data.status === 'healthy' ? '' : 'error'}"></span>
+                            Server Status
+                        </h3>
+                        <div class="health-uptime">${formatUptime(data.uptime_seconds || 0)}</div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Status</span>
+                            <span class="health-stat-value ${data.status === 'healthy' ? 'good' : 'error'}">${data.status || 'unknown'}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Version</span>
+                            <span class="health-stat-value">${data.version || 'unknown'}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Server Time</span>
+                            <span class="health-stat-value">${new Date(data.server_time).toLocaleTimeString()}</span>
+                        </div>
+                    </div>
+
+                    <!-- Worker Status -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot ${workerStatus}"></span>
+                            Workers
+                        </h3>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Configured</span>
+                            <span class="health-stat-value">${data.workers?.configured || 0} workers × ${data.workers?.threads_per_worker || 0} threads</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Total Capacity</span>
+                            <span class="health-stat-value">${data.workers?.total_capacity || 0} concurrent requests</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Current Worker PID</span>
+                            <span class="health-stat-value">${data.workers?.current_pid || 'unknown'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Active Requests -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot ${requestStatus}"></span>
+                            Active Requests
+                        </h3>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Active Count</span>
+                            <span class="health-stat-value">${activeRequestCount}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Slow Requests (>30s)</span>
+                            <span class="health-stat-value ${slowRequestCount > 0 ? 'warning' : 'good'}">${slowRequestCount}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Oldest Request</span>
+                            <span class="health-stat-value ${getStatusClass(oldestRequest, 10, 30)}">${formatDuration(oldestRequest)}</span>
+                        </div>
+                        ${data.requests?.details?.length > 0 ? `
+                        <div class="health-request-list">
+                            ${data.requests.details.map(r => `
+                                <div class="health-request-item">
+                                    <span class="method">${r.method}</span>
+                                    <span class="path">${r.path}</span>
+                                    <span class="duration">${formatDuration(r.duration_seconds)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ` : ''}
+                    </div>
+
+                    <!-- Users -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot"></span>
+                            Users
+                        </h3>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Active Sessions</span>
+                            <span class="health-stat-value">${data.users?.active_sessions || 0}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Logged In</span>
+                            <span class="health-stat-value">${data.users?.logged_in?.join(', ') || 'None'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Agents -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot ${data.agents?.connected > 0 ? '' : 'warning'}"></span>
+                            Agents
+                        </h3>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Total Registered</span>
+                            <span class="health-stat-value">${data.agents?.total || 0}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Connected (SSE)</span>
+                            <span class="health-stat-value">${data.agents?.connected || 0}</span>
+                        </div>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Active Jobs</span>
+                            <span class="health-stat-value ${data.agents?.active_jobs > 0 ? 'good' : ''}">${data.agents?.active_jobs || 0}</span>
+                        </div>
+                    </div>
+
+                    <!-- Potfile -->
+                    <div class="health-card">
+                        <h3>
+                            <span class="status-dot"></span>
+                            Master Potfile
+                        </h3>
+                        <div class="health-stat">
+                            <span class="health-stat-label">Cached Entries</span>
+                            <span class="health-stat-value">${(data.potfile?.entries || 0).toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('healthContent').innerHTML = html;
+        }
+
+        function setRefreshInterval(seconds) {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+
+            if (seconds > 0) {
+                refreshInterval = setInterval(loadHealth, seconds * 1000);
+            }
+        }
+
+        // Initial load
+        loadHealth();
+
+        // Set default refresh (5 seconds)
+        setRefreshInterval(5);
+    </script>
+</body>
+</html>

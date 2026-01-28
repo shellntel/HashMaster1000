@@ -14430,3 +14430,175 @@ body.matrix-mode .matrix-trigger {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* =============================================================================
+   System Health Dashboard Styles
+   ============================================================================= */
+
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.health-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.health-card h3 {
+    color: #00d4ff;
+    margin: 0 0 15px 0;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.health-card h3 .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #22c55e;
+}
+
+.health-card h3 .status-dot.warning {
+    background: #f59e0b;
+}
+
+.health-card h3 .status-dot.error {
+    background: #ef4444;
+}
+
+.health-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.health-stat:last-child {
+    border-bottom: none;
+}
+
+.health-stat-label {
+    color: #888;
+}
+
+.health-stat-value {
+    color: #fff;
+    font-family: monospace;
+}
+
+.health-stat-value.good {
+    color: #22c55e;
+}
+
+.health-stat-value.warning {
+    color: #f59e0b;
+}
+
+.health-stat-value.error {
+    color: #ef4444;
+}
+
+.health-request-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.health-request-item {
+    padding: 10px;
+    margin: 5px 0;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+
+.health-request-item .method {
+    color: #00d4ff;
+    font-weight: bold;
+}
+
+.health-request-item .path {
+    color: #fff;
+}
+
+.health-request-item .duration {
+    color: #f59e0b;
+    float: right;
+}
+
+.health-worker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.health-worker-box {
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    text-align: center;
+}
+
+.health-worker-box.active {
+    border: 1px solid #22c55e;
+}
+
+.health-worker-box.idle {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.health-worker-pid {
+    font-family: monospace;
+    color: #888;
+    font-size: 0.8rem;
+}
+
+.health-worker-status {
+    font-size: 0.75rem;
+    margin-top: 4px;
+}
+
+.health-auto-refresh {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.health-auto-refresh label {
+    color: #888;
+}
+
+.health-auto-refresh select {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+}
+
+.health-uptime {
+    font-size: 2rem;
+    color: #00d4ff;
+    font-family: monospace;
+}
+
+.health-last-updated {
+    color: #666;
+    font-size: 0.8rem;
+    text-align: right;
+    margin-top: 10px;
+}
+
+.health-no-data {
+    color: #666;
+    text-align: center;
+    padding: 20px;
+}

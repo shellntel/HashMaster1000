@@ -1,0 +1,35 @@
+[Unit]
+Description=HM1K Health Watchdog - monitors and restarts unhealthy workers
+Documentation=https://github.com/shellntel/hm1k
+After=hm1k.service
+Requires=hm1k.service
+
+[Service]
+Type=simple
+User=hm1k
+Group=hm1k
+WorkingDirectory=/opt/hm1k
+
+# Watchdog script with configuration
+ExecStart=/opt/hm1k/.venv/bin/python /opt/hm1k/scripts/health_watchdog.py \
+    --url https://127.0.0.1:8443/api/health/liveness \
+    --interval 30 \
+    --max-failures 3 \
+    --service hm1k \
+    --cooldown 120
+
+# Restart watchdog if it crashes
+Restart=always
+RestartSec=10
+
+# Environment variables (override defaults if needed)
+# Environment=HM1K_CHECK_INTERVAL=30
+# Environment=HM1K_MAX_FAILURES=3
+
+# Security - allow sudo for service restart
+# Note: hm1k user needs passwordless sudo for: systemctl restart hm1k
+# Add to /etc/sudoers.d/hm1k:
+#   hm1k ALL=(ALL) NOPASSWD: /bin/systemctl restart hm1k
+
+[Install]
+WantedBy=multi-user.target

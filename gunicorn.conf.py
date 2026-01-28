@@ -4,7 +4,7 @@ Gunicorn Configuration for Hash Master 1000
 This configuration enables production-grade multi-user support with:
 - Multiple worker processes for concurrent users
 - Hybrid threading model for optimal performance
-- Extended timeout for long-running AAIA analysis
+- Worker lifecycle management for resilience
 - HTTPS support with SSL certificates
 - Logging for monitoring and debugging
 
@@ -16,6 +16,8 @@ For systemd service, see: docs/systemd/hm1k.service
 
 import os
 import multiprocessing
+import signal
+import sys
 
 # Paths - define early so they can be used throughout config
 # Use absolute paths for production (systemd service)
@@ -33,15 +35,16 @@ backlog = 2048
 workers = int(os.environ.get("HM1K_WORKERS", 4))
 
 # Worker Class
-# 'gthread' = hybrid threading model (best for I/O-bound operations like AAIA)
+# 'gthread' = hybrid threading model (best for I/O-bound operations)
 # Each worker can handle multiple requests via threads
 worker_class = "gthread"
 threads = 2  # Threads per worker (total concurrent requests = workers * threads)
 
 # Timeouts
-# Extended timeout for long-running AAIA analysis (up to 15 minutes)
-timeout = 900  # 15 minutes in seconds
-graceful_timeout = 30
+# Reduced from 900s to prevent worker zombie accumulation
+# Long-running AAIA analysis should use background processing instead
+timeout = 120  # 2 minutes - most requests should complete in this time
+graceful_timeout = 30  # Time to wait for graceful shutdown
 keepalive = 5
 
 # SSL/HTTPS
@@ -72,8 +75,15 @@ group = None
 tmp_upload_dir = None
 
 # Worker Lifecycle
-max_requests = 1000  # Restart workers after N requests (prevents memory leaks)
-max_requests_jitter = 50  # Add randomness to prevent all workers restarting at once
+# Increased from 1000 to reduce worker restart frequency
+# Workers that restart during requests can cause zombie accumulation
+max_requests = 5000  # Restart workers after N requests (prevents memory leaks)
+max_requests_jitter = 500  # Add randomness to prevent all workers restarting at once
+
+# Worker Abort Behavior
+# When a worker exceeds timeout, this controls how it's terminated
+# SIGTERM = graceful, SIGKILL = forceful
+worker_tmp_dir = "/dev/shm"  # Use shared memory for worker heartbeat (faster)
 
 # SSL/Security
 # Trust nginx reverse proxy for X-Forwarded-* headers
@@ -84,15 +94,77 @@ forwarded_allow_ips = "127.0.0.1"
 # Saves memory but makes code reloading harder
 preload_app = False  # Set to True for production, False for development
 
-# Worker Connections (for async workers only - not used with gthread)
-# worker_connections = 1000
-
 # Ensure log directory exists BEFORE any logging starts
-# Uses absolute path determined above
 os.makedirs(_log_dir, exist_ok=True)
+
+
+# =============================================================================
+# Worker Lifecycle Hooks - for monitoring and debugging
+# =============================================================================
 
 def on_starting(server):
     """Callback when Gunicorn master starts."""
-    print(f"Starting HM1K with {workers} workers, {threads} threads per worker")
-    print(f"Total concurrent capacity: {workers * threads} requests")
-    print(f"Timeout set to {timeout}s for long-running AAIA analysis")
+    print(f"[HM1K] Starting with {workers} workers, {threads} threads per worker")
+    print(f"[HM1K] Total concurrent capacity: {workers * threads} requests")
+    print(f"[HM1K] Worker timeout: {timeout}s")
+    print(f"[HM1K] Max requests per worker: {max_requests} (jitter: {max_requests_jitter})")
+
+
+def on_reload(server):
+    """Callback when master receives SIGHUP for reload."""
+    print("[HM1K] Reloading configuration...")
+
+
+def when_ready(server):
+    """Callback when master is ready to accept connections."""
+    print(f"[HM1K] Server ready at {bind}")
+
+
+def worker_int(worker):
+    """Callback when worker receives SIGINT/SIGQUIT."""
+    print(f"[HM1K] Worker {worker.pid} interrupted")
+
+
+def worker_abort(worker):
+    """Callback when worker is aborted (SIGABRT)."""
+    print(f"[HM1K] CRITICAL: Worker {worker.pid} aborted - likely timeout or crash")
+    # Log to error file for later analysis
+    try:
+        import datetime
+        with open(os.path.join(_log_dir, "worker_aborts.log"), "a") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} Worker {worker.pid} aborted\n")
+    except Exception:
+        pass
+
+
+def pre_fork(server, worker):
+    """Callback before forking a new worker."""
+    pass
+
+
+def post_fork(server, worker):
+    """Callback after forking a new worker."""
+    print(f"[HM1K] Worker {worker.pid} forked")
+
+
+def post_worker_init(worker):
+    """Callback after worker has initialized."""
+    print(f"[HM1K] Worker {worker.pid} initialized and ready")
+
+
+def worker_exit(server, worker):
+    """Callback when a worker exits."""
+    print(f"[HM1K] Worker {worker.pid} exited")
+
+
+def nworkers_changed(server, new_value, old_value):
+    """Callback when number of workers changes."""
+    if new_value < old_value:
+        print(f"[HM1K] WARNING: Worker count decreased: {old_value} -> {new_value}")
+    else:
+        print(f"[HM1K] Worker count changed: {old_value} -> {new_value}")
+
+
+def child_exit(server, worker):
+    """Callback when a worker child process exits."""
+    print(f"[HM1K] Child worker {worker.pid} exited")

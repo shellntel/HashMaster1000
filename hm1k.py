@@ -565,6 +565,78 @@ def track_user_activity() -> None:
         _user_activity[current_user.id] = time.time()
 
 
+# =============================================================================
+# Request Timing and Health Monitoring
+# =============================================================================
+
+# Track active requests per worker for health monitoring
+import threading
+import os as _os
+_request_tracking = {
+    "active_requests": {},  # request_id -> {path, started_at, thread_id}
+    "lock": threading.Lock(),
+    "worker_pid": _os.getpid(),
+    "slow_request_threshold_seconds": 30,  # Log warning for requests > 30s
+    "very_slow_request_threshold_seconds": 300,  # Log error for requests > 5min
+}
+
+
+@app.before_request
+def track_request_start() -> None:
+    """Track when each request starts for timing and health monitoring."""
+    from flask import g
+    import uuid
+    g.request_id = str(uuid.uuid4())[:8]
+    g.request_start_time = time.time()
+
+    with _request_tracking["lock"]:
+        _request_tracking["active_requests"][g.request_id] = {
+            "path": request.path,
+            "method": request.method,
+            "started_at": g.request_start_time,
+            "thread_id": threading.current_thread().ident,
+        }
+
+
+@app.after_request
+def track_request_end(response):
+    """Log request timing and clean up tracking."""
+    from flask import g
+
+    if hasattr(g, 'request_id'):
+        duration = time.time() - g.request_start_time
+
+        # Clean up tracking
+        with _request_tracking["lock"]:
+            _request_tracking["active_requests"].pop(g.request_id, None)
+
+        # Log slow requests
+        threshold = _request_tracking["slow_request_threshold_seconds"]
+        very_slow = _request_tracking["very_slow_request_threshold_seconds"]
+
+        if duration > very_slow:
+            logging.error(
+                f"VERY SLOW REQUEST [{g.request_id}]: {request.method} {request.path} "
+                f"took {duration:.2f}s (threshold: {very_slow}s)"
+            )
+        elif duration > threshold:
+            logging.warning(
+                f"Slow request [{g.request_id}]: {request.method} {request.path} "
+                f"took {duration:.2f}s (threshold: {threshold}s)"
+            )
+
+    return response
+
+
+@app.teardown_request
+def cleanup_request_tracking(exception=None):
+    """Ensure request tracking is cleaned up even on errors."""
+    from flask import g
+    if hasattr(g, 'request_id'):
+        with _request_tracking["lock"]:
+            _request_tracking["active_requests"].pop(g.request_id, None)
+
+
 # Ensure the upload and data folders exists
 if not os.path.exists(app.config["UPLOAD_FOLDER"]):
     os.makedirs(app.config["UPLOAD_FOLDER"])
@@ -2449,6 +2521,109 @@ def hibp_download_page() -> str:
 def timing_stats_page() -> str:
     """Timing statistics page."""
     return render_template('timing_stats.html', return_url=get_advanced_mode_return_url())
+
+
+@app.route("/system/health")
+@login_required
+def system_health_page() -> str:
+    """System health monitoring dashboard."""
+    return render_template('system_health.html', return_url=get_advanced_mode_return_url())
+
+
+@app.route("/api/system/health/detailed")
+@login_required
+def system_health_detailed() -> Response:
+    """
+    Detailed system health information for the dashboard.
+    Includes worker status, active requests, and system metrics.
+    """
+    import os
+
+    # Count connected agents
+    connected_agents = sum(
+        1 for agent in _agent_registry.values()
+        if agent.get("sse_connected", False)
+    )
+
+    # Count active jobs
+    active_jobs = sum(
+        1 for agent in _agent_registry.values()
+        if agent.get("current_job") is not None
+    )
+
+    # Get potfile stats if available (use cached count to avoid slow load)
+    potfile_count = 0
+    if MASTER_POTFILE_ENABLED:
+        try:
+            cache = get_master_cache()
+            if cache and cache._cache:
+                potfile_count = cache._cache.ntlm_count
+        except Exception:
+            pass
+
+    # Worker info
+    workers_configured = 12
+    threads_configured = 2
+    try:
+        import importlib.util
+        gunicorn_conf_path = os.path.join(os.path.dirname(__file__), "gunicorn.conf.py")
+        if os.path.exists(gunicorn_conf_path):
+            spec = importlib.util.spec_from_file_location("gunicorn_conf", gunicorn_conf_path)
+            if spec and spec.loader:
+                gunicorn_conf = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(gunicorn_conf)
+                workers_configured = getattr(gunicorn_conf, "workers", 12)
+                threads_configured = getattr(gunicorn_conf, "threads", 2)
+    except Exception:
+        pass
+
+    # Active user sessions
+    now = time.time()
+    session_timeout = 3600
+    active_users = [
+        username for username, last_seen in _user_activity.items()
+        if (now - last_seen) < session_timeout
+    ]
+
+    # Session count
+    session_count = 0
+    try:
+        session_dir = app.config.get("SESSION_FILE_DIR", "flask_session")
+        if os.path.isdir(session_dir):
+            for fname in os.listdir(session_dir):
+                fpath = os.path.join(session_dir, fname)
+                if os.path.isfile(fpath):
+                    mtime = os.path.getmtime(fpath)
+                    if (now - mtime) < session_timeout:
+                        session_count += 1
+    except Exception:
+        pass
+
+    return jsonify({
+        "status": "healthy",
+        "version": "2.0.0",
+        "uptime_seconds": int(time.time() - _app_start_time),
+        "workers": {
+            "configured": workers_configured,
+            "threads_per_worker": threads_configured,
+            "total_capacity": workers_configured * threads_configured,
+            "current_pid": os.getpid(),
+        },
+        "users": {
+            "active_sessions": session_count,
+            "logged_in": sorted(active_users),
+        },
+        "agents": {
+            "total": len(_agent_registry),
+            "connected": connected_agents,
+            "active_jobs": active_jobs,
+        },
+        "potfile": {
+            "entries": potfile_count,
+        },
+        "requests": _get_active_requests_summary(),
+        "server_time": datetime.now().isoformat(),
+    })
 
 
 @app.route("/api/timing/status")
@@ -9289,7 +9464,56 @@ def health_check() -> Response:
         "potfile": {
             "entries": potfile_count,
         },
+        "requests": _get_active_requests_summary(),
         "server_time": datetime.now().isoformat(),
+    })
+
+
+def _get_active_requests_summary() -> dict:
+    """Get summary of currently active requests for health monitoring."""
+    now = time.time()
+    with _request_tracking["lock"]:
+        active = _request_tracking["active_requests"]
+        if not active:
+            return {
+                "count": 0,
+                "slow_count": 0,
+                "oldest_seconds": 0,
+                "worker_pid": _request_tracking["worker_pid"],
+            }
+
+        durations = [(now - r["started_at"]) for r in active.values()]
+        slow_threshold = _request_tracking["slow_request_threshold_seconds"]
+
+        return {
+            "count": len(active),
+            "slow_count": sum(1 for d in durations if d > slow_threshold),
+            "oldest_seconds": round(max(durations), 2) if durations else 0,
+            "worker_pid": _request_tracking["worker_pid"],
+            "details": [
+                {
+                    "path": r["path"],
+                    "method": r["method"],
+                    "duration_seconds": round(now - r["started_at"], 2),
+                }
+                for r in active.values()
+                if (now - r["started_at"]) > slow_threshold
+            ][:5],  # Only show top 5 slow requests
+        }
+
+
+@app.route("/api/health/liveness", methods=["GET"])
+def liveness_check() -> Response:
+    """
+    Fast liveness check for watchdog monitoring.
+    Returns immediately without loading any caches or doing heavy operations.
+    Used by health check watchdog to detect unresponsive workers.
+    """
+    return jsonify({
+        "status": "alive",
+        "worker_pid": _os.getpid(),
+        "active_requests": len(_request_tracking["active_requests"]),
+        "timestamp": time.time(),
     })
 
 
