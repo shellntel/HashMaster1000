@@ -616,13 +616,17 @@
                 return `
                 <div class="agent-card ${statusClass}" id="card-${agent.id}">
                     <div class="agent-header">
-                        <span class="agent-name">${agent.name || agent.id}</span>
+                        <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
                         <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
                     </div>
                     <div class="agent-info">
                         <div class="agent-info-row">
                             <span>Agent ID:</span>
                             <span style="font-family: monospace; font-size: 0.8rem;">${agent.id.substring(0, 8)}...</span>
+                        </div>
+                        <div class="agent-info-row">
+                            <span>IP Address:</span>
+                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.ip_address || 'Unknown'}</span>
                         </div>
                         <div class="agent-info-row">
                             <span>Last Seen:</span>

@@ -9317,6 +9317,9 @@ def agent_heartbeat() -> Response:
     # Get agent name from User-Agent header or state
     user_agent = request.headers.get("User-Agent", "")
 
+    # Get agent's IP address
+    agent_ip = request.remote_addr or "unknown"
+
     # Register or update agent
     now = datetime.now().isoformat()
     if agent_id not in _agent_registry:
@@ -9327,11 +9330,13 @@ def agent_heartbeat() -> Response:
             "last_heartbeat": now,
             "state": state,
             "status": "online",
+            "ip_address": agent_ip,
         }
-        logging.info(f"New agent registered: {agent_id}")
+        logging.info(f"New agent registered: {agent_id} from {agent_ip}")
     else:
         _agent_registry[agent_id]["last_heartbeat"] = now
         _agent_registry[agent_id]["state"] = state
+        _agent_registry[agent_id]["ip_address"] = agent_ip
         # Preserve "working" status if agent has an active job (check file-backed current_job)
         if _agent_registry[agent_id].get("current_job"):
             _agent_registry[agent_id]["status"] = "working"
@@ -9970,6 +9975,10 @@ def list_agents() -> Response:
                 current_job["hashcat_args"] = job_meta.get("hashcat_args", [])
                 current_job["submitted_at"] = job_meta.get("submitted_at")
 
+        # Get agent IP and determine if local
+        agent_ip = agent_data.get("ip_address", "")
+        is_local = agent_ip in ("127.0.0.1", "::1", "localhost")
+
         agents.append({
             "id": agent_id,
             "name": agent_name,
@@ -9979,6 +9988,8 @@ def list_agents() -> Response:
             "current_job": current_job,
             "sse_connected": agent_data.get("sse_connected", False),
             "hardware": hardware,
+            "ip_address": agent_ip,
+            "is_local": is_local,
         })
 
     return jsonify({"agents": agents})
