@@ -21,7 +21,13 @@ SERVICE_NAME="hm1k"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
+
+# Track timing
+SCRIPT_START=$(date +%s)
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -35,20 +41,43 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+log_step() {
+    echo -e "\n${BLUE}${BOLD}▶ $1${NC}"
+}
+
+log_detail() {
+    echo -e "  ${CYAN}→${NC} $1"
+}
+
+log_cmd() {
+    echo -e "  ${CYAN}\$${NC} $1"
+}
+
 # Check if running as audit user or with sudo capability
 check_permissions() {
+    log_step "Checking permissions"
     if ! sudo -n true 2>/dev/null; then
         log_error "This script requires sudo privileges. Please run with a user that has sudo access."
         exit 1
     fi
+    log_detail "Sudo access: OK"
+    log_detail "Running as: $(whoami)"
 }
 
 # Stop the service
 stop_service() {
-    log_info "Stopping $SERVICE_NAME service..."
+    log_step "Stopping $SERVICE_NAME service"
+
+    log_cmd "systemctl is-active $SERVICE_NAME"
     if sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+        local pid=$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")
+        log_detail "Service is running (PID: $pid)"
+
+        log_cmd "systemctl stop $SERVICE_NAME"
+        local stop_start=$(date +%s)
         sudo systemctl stop "$SERVICE_NAME"
-        log_info "Service stopped"
+        local stop_end=$(date +%s)
+        log_detail "Service stopped in $((stop_end - stop_start))s"
     else
         log_warn "Service was not running"
     fi
@@ -56,41 +85,74 @@ stop_service() {
 
 # Pull latest code
 update_code() {
-    log_info "Pulling latest code from git..."
+    log_step "Updating code from git"
     cd "$APP_DIR"
+
+    local current_commit=$(git rev-parse --short HEAD)
+    log_detail "Current commit: $current_commit"
 
     # Check for local changes
     if ! git diff --quiet 2>/dev/null; then
-        log_warn "Local changes detected. Stashing..."
+        log_warn "Local changes detected"
+        log_cmd "git stash"
         git stash
     fi
 
-    # Pull latest
+    # Fetch and show what's coming
+    log_cmd "git fetch origin"
     git fetch origin
+
+    local remote_commit=$(git rev-parse --short origin/main)
+    local commits_behind=$(git rev-list HEAD..origin/main --count)
+
+    if [[ "$commits_behind" -gt 0 ]]; then
+        log_detail "Commits to apply: $commits_behind"
+        log_detail "New commits:"
+        git log --oneline HEAD..origin/main | head -5 | while read line; do
+            echo -e "    ${CYAN}•${NC} $line"
+        done
+        if [[ "$commits_behind" -gt 5 ]]; then
+            echo -e "    ${CYAN}...and $((commits_behind - 5)) more${NC}"
+        fi
+    else
+        log_detail "Already up to date"
+    fi
+
+    # Pull latest
+    log_cmd "git reset --hard origin/main"
     git reset --hard origin/main
 
-    log_info "Code updated to: $(git log -1 --pretty=format:'%h - %s')"
+    log_detail "Updated to: $(git log -1 --pretty=format:'%h - %s')"
 }
 
 # Update Python dependencies
 update_dependencies() {
-    log_info "Updating Python dependencies..."
+    log_step "Updating Python dependencies"
 
     if [[ ! -d "$VENV_DIR" ]]; then
         log_error "Virtual environment not found at $VENV_DIR"
         exit 1
     fi
 
+    log_detail "Activating venv: $VENV_DIR"
     source "$VENV_DIR/bin/activate"
-    pip install --quiet --upgrade pip
-    pip install --quiet -r "$APP_DIR/requirements.txt"
-    deactivate
 
-    log_info "Dependencies updated"
+    log_cmd "pip install --upgrade pip"
+    pip install --quiet --upgrade pip
+
+    log_cmd "pip install -r requirements.txt"
+    local pip_start=$(date +%s)
+    pip install --quiet -r "$APP_DIR/requirements.txt"
+    local pip_end=$(date +%s)
+
+    deactivate
+    log_detail "Dependencies updated in $((pip_end - pip_start))s"
 }
 
 # Sync systemd service file if changed
 sync_service_file() {
+    log_step "Checking systemd service file"
+
     local repo_service="$APP_DIR/docs/systemd/hm1k.service"
     local system_service="/etc/systemd/system/hm1k.service"
 
@@ -101,41 +163,104 @@ sync_service_file() {
 
     # Check if service file differs
     if ! diff -q "$repo_service" "$system_service" >/dev/null 2>&1; then
-        log_info "Syncing systemd service file..."
+        log_detail "Service file has changed"
+        log_cmd "cp $repo_service $system_service"
         sudo cp "$repo_service" "$system_service"
+        log_cmd "systemctl daemon-reload"
         sudo systemctl daemon-reload
-        log_info "Service file updated"
+        log_detail "Service file synced and daemon reloaded"
+    else
+        log_detail "Service file unchanged"
     fi
 }
 
 # Start the service
 start_service() {
-    log_info "Starting $SERVICE_NAME service..."
+    log_step "Starting $SERVICE_NAME service"
+
+    log_cmd "systemctl start $SERVICE_NAME"
+    local start_time=$(date +%s)
     sudo systemctl start "$SERVICE_NAME"
 
-    # Wait a moment and check status
-    sleep 2
+    # Wait for workers to initialize
+    log_detail "Waiting for workers to initialize..."
+    sleep 3
+    local end_time=$(date +%s)
+
+    log_cmd "systemctl is-active $SERVICE_NAME"
     if sudo systemctl is-active --quiet "$SERVICE_NAME"; then
-        log_info "Service started successfully"
+        log_detail "Service started in $((end_time - start_time))s"
+
+        # Get detailed status
+        local main_pid=$(sudo systemctl show -p MainPID --value "$SERVICE_NAME")
+        local memory=$(sudo systemctl show -p MemoryCurrent --value "$SERVICE_NAME")
+        local worker_count=$(pgrep -c -f "gunicorn.*$SERVICE_NAME" 2>/dev/null || echo "?")
+
+        log_detail "Main PID: $main_pid"
+        log_detail "Memory usage: $(numfmt --to=iec-i --suffix=B $memory 2>/dev/null || echo $memory)"
+        log_detail "Gunicorn processes: $worker_count (1 master + $((worker_count - 1)) workers)"
     else
-        log_error "Service failed to start. Check logs with: sudo journalctl -u $SERVICE_NAME -n 50"
+        log_error "Service failed to start!"
+        log_cmd "journalctl -u $SERVICE_NAME -n 20 --no-pager"
+        sudo journalctl -u "$SERVICE_NAME" -n 20 --no-pager
         exit 1
     fi
 }
 
 # Show service status
 show_status() {
+    log_step "Service status"
+
     echo ""
-    log_info "Service status:"
-    sudo systemctl status "$SERVICE_NAME" --no-pager | head -15
+    sudo systemctl status "$SERVICE_NAME" --no-pager -l 2>/dev/null | head -20
+
+    # Show worker PIDs
+    echo ""
+    log_detail "Worker processes:"
+    ps -eo pid,ppid,user,%mem,%cpu,etime,args --sort=-%mem | grep "gunicorn.*$SERVICE_NAME" | grep -v grep | head -15 | while read line; do
+        echo -e "    $line"
+    done
+}
+
+# Health check
+health_check() {
+    log_step "Health check"
+
+    log_cmd "curl -sk https://127.0.0.1:8443/api/health/liveness"
+    local health_response=$(curl -sk --max-time 5 https://127.0.0.1:8443/api/health/liveness 2>&1)
+
+    if echo "$health_response" | grep -q '"status"'; then
+        log_detail "Health endpoint: OK"
+        echo "$health_response" | python3 -m json.tool 2>/dev/null | head -10 | while read line; do
+            echo -e "    $line"
+        done
+    else
+        log_warn "Health endpoint not responding (may still be initializing)"
+        log_detail "Response: $health_response"
+    fi
+}
+
+# Summary
+show_summary() {
+    local script_end=$(date +%s)
+    local duration=$((script_end - SCRIPT_START))
+
+    echo ""
+    echo -e "${GREEN}${BOLD}=========================================="
+    echo "  Update Complete!"
+    echo "==========================================${NC}"
+    echo ""
+    log_detail "Total time: ${duration}s"
+    log_detail "Commit: $(cd $APP_DIR && git log -1 --pretty=format:'%h (%s)')"
+    log_detail "Service: $(sudo systemctl is-active $SERVICE_NAME)"
 }
 
 # Main execution
 main() {
-    echo "=========================================="
+    echo -e "${BOLD}=========================================="
     echo "  HM1K Server Update"
-    echo "=========================================="
-    echo ""
+    echo "  $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "==========================================${NC}"
 
     check_permissions
     stop_service
@@ -144,9 +269,8 @@ main() {
     sync_service_file
     start_service
     show_status
-
-    echo ""
-    log_info "Update complete!"
+    health_check
+    show_summary
 }
 
 main "$@"
