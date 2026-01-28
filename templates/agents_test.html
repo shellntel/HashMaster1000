@@ -1780,7 +1780,7 @@
             container.innerHTML = '<div class="job-history-loading">Loading job history...</div>';
 
             try {
-                const response = await fetch('/api/agent/history?limit=25');
+                const response = await fetch('/api/agent/history?limit=5');
                 if (response.ok) {
                     const data = await response.json();
                     jobHistory = data.jobs || [];
@@ -2080,9 +2080,12 @@
                 stopWorkflowPolling();
             }
 
+            // Limit to 5 most recent workflows (already sorted by date from server)
+            const recentWorkflows = workflows.slice(0, 5);
+
             let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
 
-            workflows.forEach(w => {
+            recentWorkflows.forEach(w => {
                 const statusColor = {
                     'running': '#f59e0b',
                     'completed': '#22c55e',
