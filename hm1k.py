@@ -9579,6 +9579,9 @@ def agent_job_complete() -> Response:
         except Exception as e:
             logging.error(f"Failed to merge potfile from job {job_id}: {e}")
 
+    # Mark job as completed to ignore any stale status updates from agent
+    _mark_job_stopped(job_id)
+
     # Clear agent's current job
     if agent_id in _agent_jobs:
         del _agent_jobs[agent_id]
@@ -9627,6 +9630,9 @@ def agent_job_error() -> Response:
             "error": error,
             "logs": logs,
         }, f, indent=2)
+
+    # Mark job as failed to ignore any stale status updates from agent
+    _mark_job_stopped(job_id)
 
     # Clear agent's current job
     if agent_id in _agent_jobs:
