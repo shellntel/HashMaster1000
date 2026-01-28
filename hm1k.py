@@ -3218,6 +3218,103 @@ def group_membership_report() -> Response:
     return jsonify(data)
 
 
+@app.route("/api/groups/list")
+@login_required
+def api_groups_list() -> Response:
+    """
+    Return list of all unique AD groups from the current session.
+
+    Used for the Group Membership Analysis dropdown selector.
+    """
+    data = _load_session_json("group_analysis_data.json")
+    if data is None:
+        return jsonify({
+            "error": "No group data available. This feature requires ADD JSON input with group memberships.",
+            "groups": [],
+            "total_groups": 0
+        }), 404
+    return jsonify({
+        "groups": data.get("groups", []),
+        "total_groups": data.get("total_groups", 0),
+        "total_accounts_with_groups": data.get("total_accounts_with_groups", 0)
+    })
+
+
+@app.route("/api/groups/<path:group_name>/members")
+@login_required
+def api_group_members(group_name: str) -> Response:
+    """
+    Return all accounts that are members of the specified AD group.
+
+    Args:
+        group_name: The name of the AD group (URL encoded)
+
+    Returns:
+        JSON with list of member accounts including:
+        - sam_account_name
+        - privilege_level
+        - is_enabled
+        - is_cracked
+        - password (if cracked)
+    """
+    from urllib.parse import unquote
+
+    # URL decode the group name
+    decoded_group_name = unquote(group_name)
+
+    data = _load_session_json("group_analysis_data.json")
+    if data is None:
+        return jsonify({
+            "error": "No group data available. This feature requires ADD JSON input with group memberships.",
+            "members": [],
+            "group_name": decoded_group_name
+        }), 404
+
+    accounts = data.get("accounts", [])
+
+    # Filter accounts that are members of the specified group
+    members = []
+    for acc in accounts:
+        if decoded_group_name in acc.get("member_of", []):
+            members.append({
+                "sam_account_name": acc["sam_account_name"],
+                "privilege_level": acc.get("privilege_level", "standard"),
+                "privilege_groups": acc.get("privilege_groups", []),
+                "is_enabled": acc.get("is_enabled", True),
+                "is_cracked": acc.get("is_cracked", False),
+                "password": acc.get("password", ""),
+                "group_count": len(acc.get("member_of", [])),
+            })
+
+    # Sort by privilege level (tier0 first), then by cracked status, then by name
+    privilege_order = {"tier0": 0, "elevated": 1, "standard": 2}
+    members.sort(key=lambda x: (
+        privilege_order.get(x["privilege_level"], 3),
+        not x["is_cracked"],  # Cracked first
+        x["sam_account_name"].lower()
+    ))
+
+    # Calculate summary stats
+    cracked_count = sum(1 for m in members if m["is_cracked"])
+    enabled_count = sum(1 for m in members if m["is_enabled"])
+    tier0_count = sum(1 for m in members if m["privilege_level"] == "tier0")
+    elevated_count = sum(1 for m in members if m["privilege_level"] == "elevated")
+
+    return jsonify({
+        "group_name": decoded_group_name,
+        "members": members,
+        "total_members": len(members),
+        "summary": {
+            "cracked_count": cracked_count,
+            "cracked_percentage": round(cracked_count / len(members) * 100, 1) if members else 0,
+            "enabled_count": enabled_count,
+            "tier0_count": tier0_count,
+            "elevated_count": elevated_count,
+            "standard_count": len(members) - tier0_count - elevated_count,
+        }
+    })
+
+
 # ============================================================================
 # HIBP (Have I Been Pwned) Integration Endpoints
 # ============================================================================
@@ -4838,6 +4935,46 @@ def process_add_validated() -> Response:
                           f"{group_report.summary['elevated_in_top']} Elevated in top 25")
             except Exception as grp_err:
                 logging.warning(f"Group membership analysis failed: {grp_err}")
+
+            # Generate group analysis data for group membership explorer
+            try:
+                all_groups: set[str] = set()
+                group_accounts_data: list[dict] = []
+
+                for username, acc in account_data.items():
+                    member_of = acc.get("member_of", [])
+                    if member_of:
+                        all_groups.update(member_of)
+                        cracked_pw = acc.get("cracked_pw", "")
+                        group_accounts_data.append({
+                            "sam_account_name": username,
+                            "member_of": member_of,
+                            "privilege_level": acc.get("privilege_level", "standard"),
+                            "privilege_groups": acc.get("privilege_groups", []),
+                            "is_enabled": acc.get("is_enabled", True),
+                            "is_cracked": bool(cracked_pw and cracked_pw != "[NOT CRACKED]"),
+                            "password": cracked_pw if cracked_pw and cracked_pw != "[NOT CRACKED]" else "",
+                        })
+
+                # Sort groups alphabetically for dropdown
+                sorted_groups = sorted(all_groups, key=str.lower)
+
+                session_mgr.save_session_data(
+                    "group_analysis_data.json",
+                    {
+                        "groups": sorted_groups,
+                        "accounts": group_accounts_data,
+                        "total_groups": len(sorted_groups),
+                        "total_accounts_with_groups": len(group_accounts_data),
+                    },
+                    analysis_session.session_id
+                )
+
+                if sorted_groups:
+                    print(f"--> Group analysis data: {len(sorted_groups)} unique groups, "
+                          f"{len(group_accounts_data)} accounts with group memberships")
+            except Exception as ga_err:
+                logging.warning(f"Group analysis data generation failed: {ga_err}")
 
             # Save raw ADD data for AI freeform prompts (account descriptions, etc.)
             session_mgr.save_session_data(
@@ -6875,16 +7012,40 @@ def ai_report_clear_all_cache() -> Response:
 @app.route("/api/sessions", methods=["GET"])
 @login_required
 def list_sessions() -> Response:
-    """List all sessions for the current user (or all sessions for superadmin)."""
+    """
+    List sessions based on user role:
+    - Superadmin: sees all sessions
+    - Admin: sees own sessions + other users' non-private sessions
+    - Regular user: sees only own sessions
+    """
     session_mgr = get_session_manager()
-    # Superadmin can see all sessions
-    username_filter = None if current_user.is_superadmin else current_user.id
-    sessions = session_mgr.list_sessions(username=username_filter)
+
+    if current_user.is_superadmin:
+        # Superadmin can see all sessions
+        sessions = session_mgr.list_sessions(username=None)
+        grouped = session_mgr.get_sessions_grouped_by_company(username=None)
+    elif current_user.is_admin:
+        # Admin can see own sessions + other non-private sessions
+        sessions = session_mgr.list_sessions(
+            username=current_user.id,
+            include_non_private=True
+        )
+        grouped = session_mgr.get_sessions_grouped_by_company(username=None)
+        # Filter grouped to match same visibility rules
+        for company in list(grouped.keys()):
+            grouped[company] = [
+                s for s in grouped[company]
+                if s.created_by == current_user.id or not s.private
+            ]
+            if not grouped[company]:
+                del grouped[company]
+    else:
+        # Regular user sees only own sessions
+        sessions = session_mgr.list_sessions(username=current_user.id)
+        grouped = session_mgr.get_sessions_grouped_by_company(username=current_user.id)
+
     current = session_mgr.get_current_session()
     current_id = current.get("session_id") if current else None
-
-    # Also include sessions grouped by company for trend analysis UI
-    grouped = session_mgr.get_sessions_grouped_by_company(username=username_filter)
 
     return jsonify({
         "sessions": [s.to_dict() for s in sessions],
@@ -6934,6 +7095,33 @@ def get_current_session_info() -> Response:
     })
 
 
+def _can_access_session(metadata, write_access: bool = False) -> bool:
+    """
+    Check if current user can access a session.
+
+    Args:
+        metadata: SessionMetadata object
+        write_access: If True, check for write/delete permission (owner/superadmin only)
+                      If False, check for read-only permission (includes admin for non-private)
+
+    Returns:
+        True if access is allowed
+    """
+    # Owner always has access
+    if metadata.created_by == current_user.id:
+        return True
+    # Superadmin has access to everything
+    if current_user.is_superadmin:
+        return True
+    # For write access, only owner and superadmin are allowed
+    if write_access:
+        return False
+    # For read access, admin can access non-private sessions
+    if current_user.is_admin and not metadata.private:
+        return True
+    return False
+
+
 @app.route("/api/sessions", methods=["POST"])
 @login_required
 def create_session() -> Response:
@@ -6970,8 +7158,8 @@ def get_session_info(session_id: str) -> Response:
     if not metadata:
         return jsonify({"error": "Session not found"}), 404
 
-    # Allow access to own sessions or if superadmin
-    if metadata.created_by != current_user.id and not current_user.is_superadmin:
+    # Check read access (owner, superadmin, or admin for non-private)
+    if not _can_access_session(metadata, write_access=False):
         return jsonify({"error": "Access denied"}), 403
 
     return jsonify({
@@ -6990,8 +7178,8 @@ def update_session_info(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Allow update of own sessions or if superadmin
-        if metadata.created_by != current_user.id and not current_user.is_superadmin:
+        # Write access required for updates (owner or superadmin only)
+        if not _can_access_session(metadata, write_access=True):
             return jsonify({"error": "Access denied"}), 403
 
         data = request.get_json() or {}
@@ -7002,6 +7190,8 @@ def update_session_info(session_id: str) -> Response:
             updates["name"] = data["name"].strip()
         if "notes" in data:
             updates["notes"] = data["notes"]
+        if "private" in data:
+            updates["private"] = bool(data["private"])
 
         if updates:
             updated = session_mgr.update_session(session_id, **updates)
@@ -7027,8 +7217,8 @@ def delete_session_endpoint(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Allow deletion of own sessions or if superadmin
-        if metadata.created_by != current_user.id and not current_user.is_superadmin:
+        # Write access required for deletion (owner or superadmin only)
+        if not _can_access_session(metadata, write_access=True):
             return jsonify({"error": "Access denied"}), 403
 
         success = session_mgr.delete_session(session_id)
@@ -7052,8 +7242,8 @@ def switch_to_session(session_id: str) -> Response:
         if not metadata:
             return jsonify({"error": "Session not found"}), 404
 
-        # Allow switching to own sessions or if superadmin
-        if metadata.created_by != current_user.id and not current_user.is_superadmin:
+        # Check read access (owner, superadmin, or admin for non-private)
+        if not _can_access_session(metadata, write_access=False):
             return jsonify({"error": "Access denied"}), 403
 
         success = session_mgr.set_current_session(session_id, current_user.id)
@@ -7278,6 +7468,263 @@ def check_duplicate_session() -> Response:
 
     except Exception as e:
         logging.error(f"Error checking for duplicate sessions: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sessions/regenerate-reports", methods=["POST"])
+@login_required
+def regenerate_session_reports() -> Response:
+    """
+    Regenerate all analysis reports for the current session.
+
+    This reprocesses the stored account_data.json to generate any new or
+    updated report files. Useful when new report types are added without
+    requiring a full re-import.
+
+    Returns:
+        JSON with list of regenerated reports and any errors
+    """
+    try:
+        session_mgr = get_session_manager()
+        current_session = session_mgr.get_current_session()
+
+        if not current_session:
+            return jsonify({"error": "No active session"}), 400
+
+        # Get the session ID from the current session dict
+        session_id = current_session.get("session_id")
+        if not session_id:
+            return jsonify({"error": "Invalid session - no session ID"}), 400
+
+        # Load the stored account data
+        account_data = session_mgr.load_session_data("account_data.json")
+        if not account_data:
+            return jsonify({
+                "error": "No account data found in session. Please re-import your data."
+            }), 400
+
+        regenerated = []
+        errors = []
+
+        # 1. Regenerate Group Membership Report (Top 25)
+        try:
+            from app import group_membership_analysis
+
+            account_list = []
+            for username, acc in account_data.items():
+                account_list.append({
+                    "sam_account_name": username,
+                    "member_of": acc.get("member_of", []),
+                    "privilege_level": acc.get("privilege_level", "standard"),
+                    "privilege_groups": acc.get("privilege_groups", []),
+                    "is_enabled": acc.get("is_enabled", True),
+                    "password": acc.get("cracked_pw", "")
+                })
+
+            group_report = group_membership_analysis.analyze_group_memberships(
+                account_data=account_list,
+                top_n=25
+            )
+
+            session_mgr.save_session_data(
+                "group_membership_report.json",
+                group_report.to_dict(),
+                session_id
+            )
+            regenerated.append("group_membership_report.json")
+        except Exception as e:
+            errors.append(f"Group Membership Report: {e}")
+
+        # 2. Regenerate Group Analysis Data (for Group Explorer)
+        try:
+            all_groups: set[str] = set()
+            group_accounts_data: list[dict] = []
+
+            for username, acc in account_data.items():
+                member_of = acc.get("member_of", [])
+                if member_of:
+                    all_groups.update(member_of)
+                    cracked_pw = acc.get("cracked_pw", "")
+                    group_accounts_data.append({
+                        "sam_account_name": username,
+                        "member_of": member_of,
+                        "privilege_level": acc.get("privilege_level", "standard"),
+                        "privilege_groups": acc.get("privilege_groups", []),
+                        "is_enabled": acc.get("is_enabled", True),
+                        "is_cracked": bool(cracked_pw and cracked_pw != "[NOT CRACKED]"),
+                        "password": cracked_pw if cracked_pw and cracked_pw != "[NOT CRACKED]" else "",
+                    })
+
+            sorted_groups = sorted(all_groups, key=str.lower)
+
+            session_mgr.save_session_data(
+                "group_analysis_data.json",
+                {
+                    "groups": sorted_groups,
+                    "accounts": group_accounts_data,
+                    "total_groups": len(sorted_groups),
+                    "total_accounts_with_groups": len(group_accounts_data),
+                },
+                session_id
+            )
+            regenerated.append("group_analysis_data.json")
+        except Exception as e:
+            errors.append(f"Group Analysis Data: {e}")
+
+        # 3. Regenerate Kerberoast Report
+        try:
+            from app import kerberoast_analysis
+
+            kerberoast_accounts = []
+            for username, acc in account_data.items():
+                if acc.get("service_principal_names"):
+                    kerberoast_accounts.append({
+                        "sam_account_name": username,
+                        "service_principal_names": acc.get("service_principal_names", []),
+                        "privilege_level": acc.get("privilege_level", "standard"),
+                        "privilege_groups": acc.get("privilege_groups", []),
+                        "is_enabled": acc.get("is_enabled", True),
+                        "password": acc.get("cracked_pw", ""),
+                        "pwd_last_set": acc.get("pwd_last_set"),
+                        "description": acc.get("description", ""),
+                    })
+
+            if kerberoast_accounts:
+                kerb_report = kerberoast_analysis.analyze_kerberoastable_accounts(
+                    account_data=kerberoast_accounts
+                )
+                session_mgr.save_session_data(
+                    "kerberoast_report.json",
+                    kerb_report.to_dict(),
+                    session_id
+                )
+                regenerated.append("kerberoast_report.json")
+        except Exception as e:
+            errors.append(f"Kerberoast Report: {e}")
+
+        # 4. Regenerate AS-REP Report
+        try:
+            from app import asrep_analysis
+
+            asrep_accounts = []
+            for username, acc in account_data.items():
+                if acc.get("dont_require_preauth"):
+                    asrep_accounts.append({
+                        "sam_account_name": username,
+                        "privilege_level": acc.get("privilege_level", "standard"),
+                        "privilege_groups": acc.get("privilege_groups", []),
+                        "is_enabled": acc.get("is_enabled", True),
+                        "password": acc.get("cracked_pw", ""),
+                        "pwd_last_set": acc.get("pwd_last_set"),
+                        "description": acc.get("description", ""),
+                    })
+
+            if asrep_accounts:
+                asrep_report = asrep_analysis.analyze_asrep_accounts(
+                    account_data=asrep_accounts
+                )
+                session_mgr.save_session_data(
+                    "asrep_report.json",
+                    asrep_report.to_dict(),
+                    session_id
+                )
+                regenerated.append("asrep_report.json")
+        except Exception as e:
+            errors.append(f"AS-REP Report: {e}")
+
+        # 5. Regenerate Description Analysis Report
+        try:
+            from app import description_analysis
+
+            desc_accounts = []
+            for username, acc in account_data.items():
+                if acc.get("description"):
+                    desc_accounts.append({
+                        "sam_account_name": username,
+                        "description": acc.get("description", ""),
+                        "privilege_level": acc.get("privilege_level", "standard"),
+                        "is_enabled": acc.get("is_enabled", True),
+                        "password": acc.get("cracked_pw", ""),
+                    })
+
+            if desc_accounts:
+                desc_report = description_analysis.analyze_descriptions(
+                    account_data=desc_accounts
+                )
+                session_mgr.save_session_data(
+                    "description_analysis_report.json",
+                    desc_report.to_dict(),
+                    session_id
+                )
+                regenerated.append("description_analysis_report.json")
+        except Exception as e:
+            errors.append(f"Description Analysis Report: {e}")
+
+        # 6. Regenerate Privileged Accounts Report
+        # Must match the structure expected by the front-end: tier0, elevated, summary
+        try:
+            privileged_findings = {
+                "tier0": [],
+                "elevated": [],
+                "summary": {
+                    "tier0_count": 0,
+                    "elevated_count": 0,
+                    "total_privileged": 0,
+                    "cracked_tier0": 0,
+                    "cracked_privileged": 0
+                }
+            }
+
+            for username, acc in account_data.items():
+                privilege_level = acc.get("privilege_level")
+                if privilege_level in ("tier0", "elevated"):
+                    cracked_pw = acc.get("cracked_pw", "")
+                    is_cracked = bool(cracked_pw and cracked_pw != "[NOT CRACKED]")
+
+                    priv_entry = {
+                        "username": username,
+                        "rid": acc.get("rid"),
+                        "groups": acc.get("privilege_groups", []),
+                        "cracked": is_cracked,
+                        "password": cracked_pw if is_cracked else None,
+                        "disabled": not acc.get("is_enabled", True),
+                    }
+
+                    privileged_findings["summary"]["total_privileged"] += 1
+
+                    if privilege_level == "tier0":
+                        privileged_findings["tier0"].append(priv_entry)
+                        privileged_findings["summary"]["tier0_count"] += 1
+                        if is_cracked:
+                            privileged_findings["summary"]["cracked_tier0"] += 1
+                            privileged_findings["summary"]["cracked_privileged"] += 1
+                    else:
+                        privileged_findings["elevated"].append(priv_entry)
+                        privileged_findings["summary"]["elevated_count"] += 1
+                        if is_cracked:
+                            privileged_findings["summary"]["cracked_privileged"] += 1
+
+            if privileged_findings["summary"]["total_privileged"] > 0:
+                session_mgr.save_session_data(
+                    "privileged_accounts.json",
+                    privileged_findings,
+                    session_id
+                )
+                regenerated.append("privileged_accounts.json")
+        except Exception as e:
+            errors.append(f"Privileged Accounts Report: {e}")
+
+        return jsonify({
+            "success": True,
+            "regenerated": regenerated,
+            "regenerated_count": len(regenerated),
+            "errors": errors,
+            "error_count": len(errors),
+            "message": f"Regenerated {len(regenerated)} reports" + (f" with {len(errors)} errors" if errors else "")
+        })
+
+    except Exception as e:
+        logging.error(f"Error regenerating reports: {e}")
         return jsonify({"error": str(e)}), 500
 
 

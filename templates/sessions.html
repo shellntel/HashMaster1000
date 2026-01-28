@@ -150,6 +150,7 @@
         let sortAsc = false;
         let selectedSessions = new Set();
         let deleteTarget = null; // {type: 'single'|'bulk', ids: [...]}
+        const currentUsername = '{{ current_user.id }}';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -353,18 +354,22 @@
             const updatedDate = formatDate(session.updated_at);
             const createdDate = formatDate(session.created_at);
             const aaiaIcon = session.aaia_generated ? '<span class="aaia-badge" title="AI Analysis Generated">&#10024;</span>' : '';
+            const privateIcon = session.private ? '<span class="private-badge" title="Private Session">&#128274;</span>' : '';
+            const isOwnSession = session.created_by === currentUsername;
+            const ownerDisplay = isOwnSession ? '' : `<span class="session-owner" title="Owner: ${escapeHtml(session.created_by)}">&#128100; ${escapeHtml(session.created_by)}</span>`;
 
             return `
-                <div class="session-card ${isSelected ? 'selected' : ''}" data-id="${session.session_id}">
+                <div class="session-card ${isSelected ? 'selected' : ''} ${session.private ? 'private' : ''}" data-id="${session.session_id}">
                     <div class="session-checkbox">
                         <input type="checkbox" ${isSelected ? 'checked' : ''}
                                onchange="toggleSessionSelect('${session.session_id}', this.checked)">
                     </div>
                     <div class="session-info" onclick="viewSession('${session.session_id}')">
                         <div class="session-name">
-                            ${escapeHtml(session.name)} ${aaiaIcon}
+                            ${privateIcon} ${escapeHtml(session.name)} ${aaiaIcon}
                         </div>
                         <div class="session-meta">
+                            ${ownerDisplay}
                             <span title="Total accounts">&#128100; ${(session.total_accounts || 0).toLocaleString()}</span>
                             <span title="Cracked">&#128275; ${(session.cracked_accounts || 0).toLocaleString()} (${crackedPct}%)</span>
                             <span title="Last updated">&#128197; ${updatedDate}</span>
@@ -372,12 +377,21 @@
                         ${session.project_description ? `<div class="session-project">${escapeHtml(session.project_description)}</div>` : ''}
                     </div>
                     <div class="session-actions">
+                        ${isOwnSession ? `
+                        <button class="action-btn privacy ${session.private ? 'is-private' : ''}"
+                                onclick="toggleSessionPrivacy('${session.session_id}', ${!session.private})"
+                                title="${session.private ? 'Make Public' : 'Make Private'}">
+                            ${session.private ? '&#128275;' : '&#128274;'}
+                        </button>
+                        ` : ''}
                         <button class="action-btn view" onclick="viewSession('${session.session_id}')" title="View Report">
                             &#128065;
                         </button>
+                        ${isOwnSession ? `
                         <button class="action-btn delete" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete">
                             &#128465;
                         </button>
+                        ` : ''}
                     </div>
                 </div>
             `;
@@ -464,6 +478,27 @@
             document.getElementById('deleteMessage').textContent =
                 `Are you sure you want to delete ${selectedSessions.size} session${selectedSessions.size !== 1 ? 's' : ''}?`;
             document.getElementById('deleteModal').style.display = 'flex';
+        }
+
+        async function toggleSessionPrivacy(sessionId, makePrivate) {
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}`, {
+                    method: 'PUT',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ private: makePrivate })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    alert('Failed to update session: ' + data.error);
+                    return;
+                }
+
+                // Refresh the sessions list
+                loadSessions();
+            } catch (error) {
+                alert('Failed to update session: ' + error.message);
+            }
         }
 
         function closeDeleteModal() {

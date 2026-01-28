@@ -13,6 +13,9 @@
 		/>
 		<script src="https://code.jquery.com/jquery-3.5.1.js"></script>
 		<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+		<!-- Select2 for searchable dropdowns -->
+		<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+		<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 		<link
 			rel="stylesheet"
 			href="{{ url_for('static', filename='css/style.css') }}"
@@ -74,6 +77,7 @@
 				<button id="reconfigureSettingsBtn" class="settings-btn" onclick="openSettingsModal()"><span class="settings-icon">⚙️</span> Edit Report Settings</button>
 				<button id="downloadAllImagesBtn" class="images-btn" onclick="downloadAllImages()"><span class="images-icon">🖼️</span> Download All Images</button>
 				<button id="downloadAllJsonFiles" class="download-btn"><span class="download-icon">📦</span> Download JSON Files</button>
+				<button id="regenerateReportsBtn" class="regenerate-btn" onclick="regenerateReports()" title="Regenerate all report analyses from stored data"><span class="regenerate-icon">🔄</span> Regenerate Reports</button>
 				<button id="generateAIAnalysisBtn" class="aaia-btn"><span class="aaia-sparkle">✨</span> Advanced AI Analysis</button>
 			</div>
 		</div>
@@ -105,6 +109,7 @@
 				<button class="report-nav-btn" id="navPasswordHistory" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
 				<button class="report-nav-btn" id="navPrivilegedAccounts" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navGroupMembership" onclick="scrollToSection('groupMembershipSection')" style="display: none;">Group Membership</button>
+				<button class="report-nav-btn" id="navGroupExplorer" onclick="scrollToSection('groupExplorerSection')" style="display: none;">Group Explorer</button>
 				<button class="report-nav-btn" id="navHIBP" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoast" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
 				<button class="report-nav-btn" id="navASREP" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
@@ -1007,6 +1012,57 @@
 			</div>
 		</section>
 
+		<!-- Group Membership Explorer Section -->
+		<section id="groupExplorerSection" class="report-section group-explorer-section" style="display: none;">
+			<h2>Group Membership Explorer</h2>
+			<p class="section-description">Examine specific AD group membership and identify which accounts have cracked passwords within each group.</p>
+
+			<!-- Data not available message -->
+			<div id="groupExplorerNotAvailable" class="group-explorer-not-available" style="display: none;">
+				<p>This section requires ADD JSON input with group membership data.</p>
+			</div>
+
+			<!-- Group Selector -->
+			<div id="groupExplorerSelector" class="group-explorer-selector" style="display: none;">
+				<label for="groupExplorerDropdown">Select AD Group:</label>
+				<select id="groupExplorerDropdown" class="group-explorer-dropdown">
+					<option value="">-- Select a group --</option>
+				</select>
+				<span id="groupExplorerLoading" class="group-explorer-loading" style="display: none;">Loading...</span>
+			</div>
+
+			<!-- Summary Statistics (shown when group selected) -->
+			<div id="groupExplorerSummary" class="group-explorer-summary" style="display: none;">
+				<div class="group-explorer-stats-grid" id="groupExplorerStatsGrid">
+					<!-- Populated by JavaScript -->
+				</div>
+			</div>
+
+			<!-- Results Table -->
+			<div id="groupExplorerResults" class="group-explorer-results" style="display: none;">
+				<div class="group-explorer-table-section">
+					<h3 id="groupExplorerTableTitle">Group Members</h3>
+					<table id="groupExplorerTable" class="display blurred" style="width: 100%">
+						<thead>
+							<tr>
+								<th>Account</th>
+								<th>Privilege Level</th>
+								<th>Status</th>
+								<th>Password</th>
+							</tr>
+						</thead>
+						<tbody>
+							<!-- Populated by JavaScript -->
+						</tbody>
+					</table>
+				</div>
+				<div class="button-container" style="text-align: center; margin-top: 10px; display: flex; gap: 10px; justify-content: center;">
+					<button id="downloadGroupExplorerCSV" class="toggle-visibility-button" onclick="downloadGroupExplorerCSV()">Download CSV</button>
+					<button id="toggleGroupExplorerPasswords" class="toggle-visibility-button" onclick="toggleGroupExplorerPasswords()">Show Passwords</button>
+				</div>
+			</div>
+		</section>
+
 		<!-- HIBP (Have I Been Pwned) Breach Check Section -->
 		<section id="hibpSection" class="report-section hibp-section">
 			<h2>Have I Been Pwned - Breach Check</h2>
@@ -1675,6 +1731,7 @@
 				<button class="report-nav-btn" id="navPasswordHistoryBottom" onclick="scrollToSection('passwordHistorySection')" style="display: none;">Password History</button>
 				<button class="report-nav-btn" id="navPrivilegedAccountsBottom" onclick="scrollToSection('privilegedAccountsSection')" style="display: none;">Privileged Accounts</button>
 				<button class="report-nav-btn" id="navGroupMembershipBottom" onclick="scrollToSection('groupMembershipSection')" style="display: none;">Group Membership</button>
+				<button class="report-nav-btn" id="navGroupExplorerBottom" onclick="scrollToSection('groupExplorerSection')" style="display: none;">Group Explorer</button>
 				<button class="report-nav-btn" id="navHIBPBottom" onclick="scrollToSection('hibpSection')">Breach Check</button>
 				<button class="report-nav-btn" id="navKerberoastBottom" onclick="scrollToSection('kerberoastSection')" style="display: none;">Kerberoast</button>
 				<button class="report-nav-btn" id="navASREPBottom" onclick="scrollToSection('asrepSection')" style="display: none;">AS-REP</button>
@@ -2706,6 +2763,277 @@
 				const link = document.createElement('a');
 				link.href = url;
 				link.download = 'Top_25_Group_Membership.csv';
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				URL.revokeObjectURL(url);
+			}
+
+			// ==================== GROUP EXPLORER FUNCTIONS ====================
+			let groupExplorerDataTable = null;
+			let groupExplorerCurrentData = null;
+			let groupExplorerPasswordsVisible = false;
+
+			// Initialize Group Explorer section - check for available data
+			async function initGroupExplorerSection() {
+				try {
+					const response = await fetch('/api/groups/list');
+					if (response.ok) {
+						const data = await response.json();
+						if (data && data.groups && data.groups.length > 0) {
+							// Populate dropdown
+							populateGroupExplorerDropdown(data.groups);
+							// Show section and nav buttons
+							document.getElementById('groupExplorerSection').style.display = 'block';
+							document.getElementById('groupExplorerSelector').style.display = 'block';
+							document.getElementById('groupExplorerNotAvailable').style.display = 'none';
+							document.getElementById('navGroupExplorer').style.display = 'inline-block';
+							document.getElementById('navGroupExplorerBottom').style.display = 'inline-block';
+						}
+					}
+				} catch (e) {
+					console.log('No Group Explorer data available:', e);
+				}
+			}
+
+			// Populate the group dropdown with searchable options
+			function populateGroupExplorerDropdown(groups) {
+				const dropdown = document.getElementById('groupExplorerDropdown');
+				if (!dropdown) return;
+
+				// Clear existing options except the first
+				dropdown.innerHTML = '<option value="">-- Select a group --</option>';
+
+				// Add groups as options
+				groups.forEach(group => {
+					const option = document.createElement('option');
+					option.value = group;
+					option.textContent = group;
+					dropdown.appendChild(option);
+				});
+
+				// Initialize Select2 for searchable dropdown if available
+				if (typeof $ !== 'undefined' && $.fn.select2) {
+					$(dropdown).select2({
+						placeholder: 'Search for a group...',
+						allowClear: true,
+						width: '100%',
+						dropdownAutoWidth: true
+					}).on('change', function() {
+						const selectedGroup = $(this).val();
+						if (selectedGroup) {
+							loadGroupMembers(selectedGroup);
+						} else {
+							hideGroupExplorerResults();
+						}
+					});
+				} else {
+					// Fallback: plain dropdown with change event
+					dropdown.addEventListener('change', function() {
+						const selectedGroup = this.value;
+						if (selectedGroup) {
+							loadGroupMembers(selectedGroup);
+						} else {
+							hideGroupExplorerResults();
+						}
+					});
+				}
+			}
+
+			// Load members of the selected group
+			async function loadGroupMembers(groupName) {
+				const loadingEl = document.getElementById('groupExplorerLoading');
+				if (loadingEl) loadingEl.style.display = 'inline';
+
+				try {
+					const encodedGroup = encodeURIComponent(groupName);
+					const response = await fetch(`/api/groups/${encodedGroup}/members`);
+
+					if (response.ok) {
+						groupExplorerCurrentData = await response.json();
+						displayGroupExplorerResults(groupExplorerCurrentData);
+					} else {
+						console.error('Failed to load group members');
+						hideGroupExplorerResults();
+					}
+				} catch (e) {
+					console.error('Error loading group members:', e);
+					hideGroupExplorerResults();
+				} finally {
+					if (loadingEl) loadingEl.style.display = 'none';
+				}
+			}
+
+			// Display group explorer results
+			function displayGroupExplorerResults(data) {
+				document.getElementById('groupExplorerSummary').style.display = 'block';
+				document.getElementById('groupExplorerResults').style.display = 'block';
+
+				// Update table title
+				document.getElementById('groupExplorerTableTitle').textContent =
+					`Members of "${data.group_name}" (${data.total_members} accounts)`;
+
+				const summary = data.summary;
+
+				// Populate summary grid
+				const summaryGrid = document.getElementById('groupExplorerStatsGrid');
+				summaryGrid.innerHTML = `
+					<div class="group-explorer-stat-card">
+						<div class="stat-value">${data.total_members}</div>
+						<div class="stat-label">Total Members</div>
+					</div>
+					<div class="group-explorer-stat-card cracked">
+						<div class="stat-value">${summary.cracked_count}</div>
+						<div class="stat-label">Passwords Cracked (${summary.cracked_percentage}%)</div>
+					</div>
+					<div class="group-explorer-stat-card tier0">
+						<div class="stat-value">${summary.tier0_count}</div>
+						<div class="stat-label">Tier 0 Accounts</div>
+					</div>
+					<div class="group-explorer-stat-card elevated">
+						<div class="stat-value">${summary.elevated_count}</div>
+						<div class="stat-label">Elevated Accounts</div>
+					</div>
+					<div class="group-explorer-stat-card">
+						<div class="stat-value">${summary.enabled_count}</div>
+						<div class="stat-label">Enabled Accounts</div>
+					</div>
+				`;
+
+				// Reset password visibility (blur by default)
+				groupExplorerPasswordsVisible = false;
+				const table = document.getElementById('groupExplorerTable');
+				if (table && !table.classList.contains('blurred')) {
+					table.classList.add('blurred');
+				}
+				updateGroupExplorerPasswordButton();
+
+				// Populate table
+				populateGroupExplorerTable(data.members);
+			}
+
+			// Populate the Group Explorer table
+			function populateGroupExplorerTable(members) {
+				const tbody = document.querySelector('#groupExplorerTable tbody');
+				if (!tbody) return;
+
+				tbody.innerHTML = members.map(member => {
+					const status = member.is_enabled ? 'Enabled' : 'Disabled';
+					const statusClass = member.is_enabled ? 'status-enabled' : 'status-disabled';
+
+					// Format privilege level with badge
+					let privilegeClass = 'privilege-standard';
+					let privilegeLabel = 'Standard';
+					if (member.privilege_level === 'tier0') {
+						privilegeClass = 'privilege-tier0';
+						privilegeLabel = 'Tier 0';
+					} else if (member.privilege_level === 'elevated') {
+						privilegeClass = 'privilege-elevated';
+						privilegeLabel = 'Elevated';
+					}
+
+					// Format password with blur effect (first 2 + blurred middle + last 2)
+					const password = member.password || '';
+					let passwordHtml;
+					if (!password) {
+						passwordHtml = '<span class="no-password">-</span>';
+					} else if (password.length <= 4) {
+						// Short passwords - blur entirely
+						passwordHtml = `<span class="group-explorer-password-cell"><span class="group-explorer-password-blurred">${escapeHtml(password)}</span></span>`;
+					} else {
+						// Standard blur: first 2 + blurred middle + last 2
+						const start = password.slice(0, 2);
+						const middle = password.slice(2, -2);
+						const end = password.slice(-2);
+						passwordHtml = `<span class="group-explorer-password-cell" data-visible="${escapeHtml(password)}" data-blur="${escapeHtml(middle)}"><span class="group-explorer-password-visible">${escapeHtml(start)}</span><span class="group-explorer-password-blurred">${escapeHtml(middle)}</span><span class="group-explorer-password-visible">${escapeHtml(end)}</span></span>`;
+					}
+
+					return `
+						<tr>
+							<td>${escapeHtml(member.sam_account_name)}</td>
+							<td class="dt-center"><span class="privilege-badge ${privilegeClass}">${privilegeLabel}</span></td>
+							<td class="dt-center"><span class="${statusClass}">${status}</span></td>
+							<td class="dt-center password-cell">${passwordHtml}</td>
+						</tr>
+					`;
+				}).join('');
+
+				// Initialize DataTable if jQuery is available
+				if (typeof $ !== 'undefined' && $.fn.DataTable) {
+					if (groupExplorerDataTable) {
+						groupExplorerDataTable.destroy();
+					}
+					groupExplorerDataTable = $('#groupExplorerTable').DataTable({
+						pageLength: 10,
+						lengthMenu: [10, 25, 50, 100],
+						order: [[0, 'asc']],
+						autoWidth: false,
+						columnDefs: [
+							{ width: '30%', targets: 0 },  // Account
+							{ width: '18%', className: 'dt-center', targets: 1 },  // Privilege
+							{ width: '15%', className: 'dt-center', targets: 2 },  // Status
+							{ width: '37%', className: 'dt-center', targets: 3 }   // Password
+						]
+					});
+				}
+			}
+
+			// Toggle password visibility (blur effect)
+			function toggleGroupExplorerPasswords() {
+				const table = document.getElementById('groupExplorerTable');
+				if (!table) return;
+
+				const isNowBlurred = table.classList.toggle('blurred');
+				groupExplorerPasswordsVisible = !isNowBlurred;
+				updateGroupExplorerPasswordButton();
+			}
+
+			// Update the Show/Hide Passwords button text
+			function updateGroupExplorerPasswordButton() {
+				const btn = document.getElementById('toggleGroupExplorerPasswords');
+				if (btn) {
+					btn.textContent = groupExplorerPasswordsVisible ? 'Hide Passwords' : 'Show Passwords';
+				}
+			}
+
+			// Hide results when no group is selected
+			function hideGroupExplorerResults() {
+				document.getElementById('groupExplorerSummary').style.display = 'none';
+				document.getElementById('groupExplorerResults').style.display = 'none';
+				groupExplorerCurrentData = null;
+			}
+
+			// Download Group Explorer results as CSV
+			function downloadGroupExplorerCSV() {
+				if (!groupExplorerCurrentData || !groupExplorerCurrentData.members) {
+					alert('No group data available to export. Please select a group first.');
+					return;
+				}
+
+				const members = groupExplorerCurrentData.members;
+				const groupName = groupExplorerCurrentData.group_name;
+
+				// Build CSV content
+				let csvContent = '"Account","Privilege Level","Status","Password"\n';
+
+				members.forEach(member => {
+					const account = String(member.sam_account_name || '').replace(/"/g, '""');
+					const privilegeLevel = member.privilege_level || 'standard';
+					const status = member.is_enabled ? 'Enabled' : 'Disabled';
+					const password = String(member.password || '').replace(/"/g, '""');
+
+					csvContent += `"${account}","${privilegeLevel}","${status}","${password}"\n`;
+				});
+
+				// Sanitize group name for filename
+				const safeGroupName = groupName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+
+				// Download the file
+				const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = `Group_Members_${safeGroupName}.csv`;
 				document.body.appendChild(link);
 				link.click();
 				document.body.removeChild(link);
@@ -6749,6 +7077,7 @@
 							{
 								title: "Cracked Password",
 								data: "CrackedPassword",
+								className: "dt-center",
 								render: function(data) {
 									if (data && data !== "-") {
 										// Show first 2 and last 2 chars, blur middle
@@ -7267,6 +7596,9 @@
 
 				// Initialize Group Membership section (check for available data)
 				initGroupMembershipSection();
+
+				// Initialize Group Explorer section (check for available data)
+				initGroupExplorerSection();
 
 				// Initialize AS-REP section (check for available data)
 				initASREPSection();
@@ -10336,6 +10668,52 @@
 			document.body.appendChild(link);
 			link.click();
 			document.body.removeChild(link);
+		}
+
+		// Function to regenerate all analysis reports from stored session data
+		async function regenerateReports() {
+			const btn = document.getElementById('regenerateReportsBtn');
+			const originalText = btn.innerHTML;
+			btn.innerHTML = '<span class="regenerate-icon">⏳</span> Regenerating...';
+			btn.disabled = true;
+
+			try {
+				const response = await fetch('/api/sessions/regenerate-reports', {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-CSRFToken': csrfToken
+					}
+				});
+
+				const data = await response.json();
+
+				if (response.ok && data.success) {
+					let message = `Successfully regenerated ${data.regenerated_count} report(s):\n`;
+					message += data.regenerated.map(r => `  • ${r}`).join('\n');
+
+					if (data.errors && data.errors.length > 0) {
+						message += `\n\nErrors (${data.error_count}):\n`;
+						message += data.errors.map(e => `  ⚠ ${e}`).join('\n');
+					}
+
+					message += '\n\nReload the page to see the updated reports.';
+					alert(message);
+
+					// Offer to reload the page
+					if (confirm('Would you like to reload the page now to see the updated reports?')) {
+						window.location.reload();
+					}
+				} else {
+					alert('Error regenerating reports: ' + (data.error || 'Unknown error'));
+				}
+			} catch (error) {
+				console.error('Error regenerating reports:', error);
+				alert('Failed to regenerate reports. Please try again.');
+			} finally {
+				btn.innerHTML = originalText;
+				btn.disabled = false;
+			}
 		}
 
 		// Function to download all images as a zip file

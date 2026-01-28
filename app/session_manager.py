@@ -59,6 +59,9 @@ class SessionMetadata:
     # Optional notes
     notes: str = ""
 
+    # Privacy setting - if True, only owner and superadmin can see this session
+    private: bool = False
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -75,6 +78,8 @@ class SessionMetadata:
             data['company_name'] = ""
         if 'project_description' not in data:
             data['project_description'] = ""
+        if 'private' not in data:
+            data['private'] = False
 
         # If we have a name but no company/project, try to infer from name
         if data.get('name') and not data.get('company_name'):
@@ -242,11 +247,22 @@ class SessionManager:
 
         return SessionMetadata.from_dict(data)
 
-    def list_sessions(self, username: str | None = None) -> list[SessionMetadata]:
+    def list_sessions(self, username: str | None = None,
+                      include_non_private: bool = False) -> list[SessionMetadata]:
         """
-        List all sessions, optionally filtered by username.
+        List all sessions with flexible filtering.
+
+        Args:
+            username: If provided, filter by creator (unless include_non_private is True)
+            include_non_private: If True, also include sessions from other users
+                                 that are not marked as private (for admin users)
 
         Returns sessions sorted by updated_at (most recent first).
+
+        Permission model:
+        - username=None: Returns ALL sessions (superadmin mode)
+        - username + include_non_private=False: Returns only user's own sessions
+        - username + include_non_private=True: Returns user's sessions + other non-private sessions
         """
         sessions = []
 
@@ -260,7 +276,14 @@ class SessionManager:
 
             metadata = self.get_session(session_id)
             if metadata:
-                if username is None or metadata.created_by == username:
+                if username is None:
+                    # Superadmin mode - return all sessions
+                    sessions.append(metadata)
+                elif metadata.created_by == username:
+                    # User's own session - always include
+                    sessions.append(metadata)
+                elif include_non_private and not metadata.private:
+                    # Admin mode - include other users' non-private sessions
                     sessions.append(metadata)
 
         # Sort by updated_at descending

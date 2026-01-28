@@ -2138,24 +2138,30 @@
 
 			function renderSessionList(sessions) {
 				const container = document.getElementById('sessionListContainer');
+				const currentUsername = '{{ current_user.id }}';
 
 				let html = '<div class="session-restore-list">';
 				for (const session of sessions) {
 					const isSelected = restoreState.selectedSessionId === session.session_id;
 					const selectedClass = isSelected ? 'selected' : '';
+					const privateClass = session.private ? 'private' : '';
 					const createdDate = new Date(session.created_at).toLocaleDateString();
 					const updatedDate = new Date(session.updated_at).toLocaleDateString();
 					const crackRate = session.crack_rate ? `${session.crack_rate.toFixed(1)}%` : '-';
 					const aaiaIcon = session.aaia_generated ? '<span class="session-aaia-icon" title="AAIA Generated">✨</span>' : '';
+					const privateIcon = session.private ? '<span class="session-private-icon" title="Private Session">🔒</span>' : '';
+					const isOwnSession = session.created_by === currentUsername;
+					const ownerDisplay = isOwnSession ? '' : `<span class="session-owner" title="Owner">${escapeHtml(session.created_by)}</span>`;
 
 					html += `
-						<div class="session-restore-card ${selectedClass}" data-session-id="${session.session_id}"
+						<div class="session-restore-card ${selectedClass} ${privateClass}" data-session-id="${session.session_id}"
 							 onclick="selectSessionToRestore('${session.session_id}')">
 							<div class="session-restore-info">
 								<div class="session-restore-name">
-									${escapeHtml(session.name)} ${aaiaIcon}
+									${privateIcon} ${escapeHtml(session.name)} ${aaiaIcon}
 								</div>
 								<div class="session-restore-meta">
+									${ownerDisplay}
 									<span title="Total accounts">${(session.total_accounts || 0).toLocaleString()} accounts</span>
 									<span title="Crack rate">${crackRate} cracked</span>
 									<span title="Last updated">Updated: ${updatedDate}</span>

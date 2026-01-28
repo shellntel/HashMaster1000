@@ -3698,6 +3698,49 @@ body.print-mode .status-badge.status-disabled {
 	transform: rotate(45deg);
 }
 
+/* Regenerate Reports Button */
+.regenerate-btn {
+	background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+	color: #ffffff;
+	border: 1px solid rgba(16, 185, 129, 0.3);
+	padding: 0 16px;
+	border-radius: 8px;
+	cursor: pointer;
+	font-weight: 600;
+	font-size: 0.95rem;
+	height: 48px;
+	flex: 1;
+	transition: all 0.3s ease;
+	box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+}
+
+.regenerate-btn:hover {
+	background: linear-gradient(135deg, #047857 0%, #059669 100%);
+	box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);
+	transform: translateY(-1px);
+}
+
+.regenerate-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+	transform: none;
+}
+
+/* Regenerate icon animation */
+.regenerate-icon {
+	font-size: 1.1em;
+	transition: transform 0.3s ease;
+}
+
+.regenerate-btn:hover .regenerate-icon {
+	transform: rotate(180deg);
+}
+
 /* ============================================================================
    AAIA (Advanced A.I. Analysis) Styles
    ============================================================================ */
@@ -6884,6 +6927,48 @@ button.sort-dir-btn:hover {
 	color: #fca5a5 !important;
 }
 
+/* Privacy toggle button */
+.sessions-page .session-actions .action-btn.privacy,
+.session-modal .session-actions .action-btn.privacy {
+	background: rgba(167, 139, 250, 0.1) !important;
+	border: 1px solid rgba(167, 139, 250, 0.25) !important;
+	color: #a78bfa !important;
+}
+
+.sessions-page .session-actions .action-btn.privacy:hover,
+.session-modal .session-actions .action-btn.privacy:hover {
+	background: rgba(167, 139, 250, 0.2) !important;
+	border-color: rgba(167, 139, 250, 0.4) !important;
+}
+
+.sessions-page .session-actions .action-btn.privacy.is-private,
+.session-modal .session-actions .action-btn.privacy.is-private {
+	background: rgba(251, 191, 36, 0.15) !important;
+	border: 1px solid rgba(251, 191, 36, 0.3) !important;
+	color: #fbbf24 !important;
+}
+
+/* Private session card styling */
+.session-card.private {
+	border-left: 3px solid #fbbf24;
+}
+
+/* Private badge in session name */
+.session-card .session-name .private-badge {
+	color: #fbbf24;
+	font-size: 13px;
+	margin-right: 4px;
+}
+
+/* Owner display in session meta */
+.session-card .session-meta .session-owner {
+	background: rgba(100, 116, 139, 0.2);
+	padding: 2px 8px;
+	border-radius: 4px;
+	color: #94a3b8;
+	font-size: 11px;
+}
+
 /* View toggle buttons (Grouped/List) - override global button styles */
 .sessions-page .view-toggle button.view-btn {
 	background: transparent !important;
@@ -7088,6 +7173,26 @@ button.sort-dir-btn:hover {
 
 .session-restore-card.selected .session-restore-check {
 	background: rgba(49, 176, 5, 0.3);
+}
+
+/* Private session styling for restore session UI */
+.session-restore-card.private {
+	border-left: 3px solid #fbbf24;
+}
+
+.session-private-icon {
+	color: #fbbf24;
+	font-size: 13px;
+	margin-right: 4px;
+}
+
+/* Owner display for restore session UI */
+.session-restore-meta .session-owner {
+	background: rgba(100, 116, 139, 0.25);
+	padding: 2px 8px;
+	border-radius: 4px;
+	color: #94a3b8;
+	font-size: 11px;
 }
 
 .session-loading,
@@ -9114,6 +9219,196 @@ body.print-mode .group-membership-stat-card { background: #f8f9fa; }
 .light-theme .group-membership-stat-card .stat-label { color: #6b7280; }
 .light-theme .group-membership-table-section h3 { color: #1f2937; }
 .light-theme .group-tag {
+	background: rgba(0, 150, 180, 0.1);
+	color: #0891b2;
+}
+
+/* ============================================
+   GROUP EXPLORER SECTION STYLES
+   ============================================ */
+.group-explorer-section { margin-top: 30px; }
+.group-explorer-selector {
+	margin-bottom: 24px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+.group-explorer-selector label {
+	font-weight: 500;
+	color: var(--text-primary, #fff);
+}
+.group-explorer-dropdown {
+	min-width: 300px;
+	max-width: 500px;
+	padding: 10px 14px;
+	font-size: 1rem;
+	border-radius: 6px;
+	border: 1px solid var(--border-color, #444);
+	background: var(--surface-color, #2a2a2a);
+	color: var(--text-primary, #fff);
+}
+.group-explorer-dropdown:focus {
+	outline: none;
+	border-color: #00d4ff;
+	box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+}
+.group-explorer-loading {
+	color: #00d4ff;
+	font-size: 0.9rem;
+}
+.group-explorer-summary { margin-bottom: 24px; }
+.group-explorer-stats-grid {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+.group-explorer-stat-card {
+	background: var(--surface-color, #2a2a2a);
+	border-radius: 6px;
+	padding: 10px 16px;
+	text-align: center;
+	flex: 1 1 auto;
+	min-width: 100px;
+}
+.group-explorer-stat-card.total { border-left: 4px solid #00d4ff; }
+.group-explorer-stat-card.tier0 { border-left: 4px solid #dc3545; }
+.group-explorer-stat-card.elevated { border-left: 4px solid #ff6b35; }
+.group-explorer-stat-card.cracked { border-left: 4px solid #ffc107; }
+.group-explorer-stat-card .stat-value {
+	font-size: 1.5rem;
+	font-weight: bold;
+	line-height: 1.2;
+}
+.group-explorer-stat-card.total .stat-value { color: #00d4ff; }
+.group-explorer-stat-card.tier0 .stat-value { color: #dc3545; }
+.group-explorer-stat-card.elevated .stat-value { color: #ff6b35; }
+.group-explorer-stat-card.cracked .stat-value { color: #ffc107; }
+.group-explorer-stat-card .stat-label { color: var(--text-secondary, #aaa); font-size: 0.8rem; }
+.group-explorer-table-section { margin-top: 24px; }
+.group-explorer-table-section h3 { margin-bottom: 8px; color: var(--text-primary, #fff); }
+.group-explorer-not-available {
+	background: var(--surface-color, #2a2a2a);
+	border: 1px solid var(--border-color, #444);
+	border-radius: 8px;
+	padding: 24px;
+	text-align: center;
+}
+.group-explorer-not-available p { color: var(--text-secondary, #aaa); margin: 0; }
+
+/* Group Explorer password styling with blur effect */
+.group-explorer-password-cell {
+	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+	display: inline-block;
+	padding: 2px 6px;
+	border-radius: 3px;
+	background: rgba(0, 212, 255, 0.1);
+	color: #00d4ff;
+}
+.group-explorer-password-visible {
+	display: inline;
+}
+.group-explorer-password-blurred {
+	display: inline;
+	transition: filter 0.2s ease;
+}
+/* Apply blur when table has blurred class */
+#groupExplorerTable.blurred .group-explorer-password-blurred {
+	filter: blur(4px);
+	user-select: none;
+}
+/* Remove blur when table doesn't have blurred class */
+#groupExplorerTable:not(.blurred) .group-explorer-password-blurred {
+	filter: none;
+}
+.no-password { color: #6c757d; }
+.password-cell { font-family: monospace; }
+
+/* Group Explorer table styling */
+#groupExplorerTable { table-layout: fixed; width: 100%; }
+#groupExplorerTable th,
+#groupExplorerTable td {
+	vertical-align: middle !important;
+	padding: 10px 8px !important;
+}
+
+/* Select2 overrides for dark theme */
+.select2-container--default .select2-selection--single {
+	background: var(--surface-color, #2a2a2a);
+	border: 1px solid var(--border-color, #444);
+	border-radius: 6px;
+	height: 42px;
+	padding: 5px;
+}
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+	color: var(--text-primary, #fff);
+	line-height: 30px;
+}
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+	height: 40px;
+}
+.select2-dropdown {
+	background: var(--surface-color, #2a2a2a);
+	border: 1px solid var(--border-color, #444);
+}
+.select2-search--dropdown .select2-search__field {
+	background: var(--background-color, #1a1a2e);
+	border: 1px solid var(--border-color, #444);
+	color: var(--text-primary, #fff);
+	padding: 8px;
+	border-radius: 4px;
+}
+.select2-results__option {
+	color: var(--text-primary, #fff);
+	padding: 8px 12px;
+}
+.select2-results__option--highlighted[aria-selected] {
+	background: rgba(0, 212, 255, 0.2);
+	color: #00d4ff;
+}
+.select2-results__option[aria-selected=true] {
+	background: rgba(0, 212, 255, 0.3);
+}
+
+/* Print mode overrides for Group Explorer */
+body.print-mode .group-explorer-stat-card { background: #f8f9fa; }
+
+/* Light theme overrides for Group Explorer */
+.light-theme .group-explorer-selector label { color: #1f2937; }
+.light-theme .group-explorer-dropdown {
+	background: #fff;
+	border-color: #d1d5db;
+	color: #1f2937;
+}
+.light-theme .group-explorer-stat-card {
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+}
+.light-theme .group-explorer-stat-card .stat-label { color: #6b7280; }
+.light-theme .group-explorer-table-section h3 { color: #1f2937; }
+.light-theme .group-explorer-password-cell {
+	background: rgba(0, 150, 180, 0.1);
+	color: #0891b2;
+}
+.light-theme .select2-container--default .select2-selection--single {
+	background: #fff;
+	border-color: #d1d5db;
+}
+.light-theme .select2-container--default .select2-selection--single .select2-selection__rendered {
+	color: #1f2937;
+}
+.light-theme .select2-dropdown {
+	background: #fff;
+	border-color: #d1d5db;
+}
+.light-theme .select2-search--dropdown .select2-search__field {
+	background: #f9fafb;
+	border-color: #d1d5db;
+	color: #1f2937;
+}
+.light-theme .select2-results__option { color: #1f2937; }
+.light-theme .select2-results__option--highlighted[aria-selected] {
 	background: rgba(0, 150, 180, 0.1);
 	color: #0891b2;
 }
