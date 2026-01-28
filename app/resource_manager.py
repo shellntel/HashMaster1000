@@ -265,6 +265,60 @@ class ResourceManager:
             "worker_running": self._compression_thread is not None and self._compression_thread.is_alive(),
         }
 
+    def queue_all_uncompressed(self) -> dict:
+        """
+        Queue all uncompressed resources for background compression.
+
+        This is useful for batch-compressing existing resources that were
+        imported before compression was enabled.
+
+        Returns:
+            Dict with count of resources queued
+        """
+        queued = []
+        skipped_small = 0
+        already_compressed = 0
+        already_queued = 0
+
+        with self._lock:
+            resources = list(self._resources.values())
+
+        for resource in resources:
+            # Skip if too small
+            if resource.size_bytes < self.COMPRESSION_THRESHOLD:
+                skipped_small += 1
+                continue
+
+            # Skip if already compressed
+            if resource.compressed_path and Path(resource.compressed_path).exists():
+                already_compressed += 1
+                continue
+
+            # Check if already in queue
+            with self._compression_lock:
+                if resource.resource_id in self._compression_queue:
+                    already_queued += 1
+                    continue
+
+                # Add to queue
+                self._compression_queue.append(resource.resource_id)
+                queued.append({
+                    "resource_id": resource.resource_id,
+                    "name": resource.name,
+                    "size_gb": resource.size_bytes / 1024**3,
+                })
+
+        if queued:
+            logger.info(f"Queued {len(queued)} resources for background compression")
+
+        return {
+            "queued_count": len(queued),
+            "queued_resources": queued,
+            "skipped_too_small": skipped_small,
+            "already_compressed": already_compressed,
+            "already_in_queue": already_queued,
+        }
+
     def _generate_id(self, name: str, resource_type: str) -> str:
         """Generate a unique resource ID."""
         import uuid

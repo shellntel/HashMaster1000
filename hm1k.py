@@ -11122,6 +11122,24 @@ def get_compression_queue() -> Response:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/resources/compression/queue-all", methods=["POST"])
+@login_required
+def queue_all_compression() -> Response:
+    """
+    Queue all uncompressed resources for background compression.
+
+    This is useful for batch-compressing existing resources that were
+    imported before compression was enabled.
+    """
+    try:
+        manager = _get_resource_manager()
+        result = manager.queue_all_uncompressed()
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Failed to queue resources for compression: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/resources/<resource_type>/<resource_id>/compress", methods=["POST"])
 @login_required
 def compress_resource(resource_type: str, resource_id: str) -> Response:
