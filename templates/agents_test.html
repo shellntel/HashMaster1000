@@ -675,12 +675,12 @@
                             </div>
                         </div>
                     ` : ''}
-                    <div class="agent-actions">
-                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()">&#8635; Refresh</button>
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data">&#128200; Stats</button>` : ''}
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark">&#9881; Benchmark</button>` : ''}
-                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent">&#128230; Deploy</button>` : ''}
-                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">&#9632; Stop</button>` : ''}
+                    <div class="agent-actions" style="display: flex; gap: 8px;">
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()" style="display: flex; flex-direction: column; align-items: center; padding: 8px 12px; min-width: 70px;"><span style="font-size: 1.1rem;">&#8635;</span><span style="font-size: 0.7rem;">Refresh</span></button>
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 12px; min-width: 70px;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 12px; min-width: 70px;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
+                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 12px; min-width: 70px;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 12px; min-width: 70px;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
                     </div>
                 </div>
             `}).join('');
