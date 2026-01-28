@@ -2818,7 +2818,9 @@
 						placeholder: 'Search for a group...',
 						allowClear: true,
 						width: '100%',
-						dropdownAutoWidth: true
+						dropdownAutoWidth: true,
+						// Prevent scroll-to-top issue by keeping dropdown within section
+						dropdownParent: $('#groupExplorerSelector')
 					}).on('change', function() {
 						const selectedGroup = $(this).val();
 						if (selectedGroup) {
