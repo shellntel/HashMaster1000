@@ -91,23 +91,21 @@
                             <label style="font-size: 0.85rem;">Description</label>
                             <input type="text" id="upload-description" class="advanced-input" placeholder="Optional description">
                         </div>
-                        <div class="form-group" style="margin-top: 8px;">
-                            <div class="file-upload-area" id="file-drop-zone" onclick="document.getElementById('upload-file').click()" style="border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 15px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
-                                <input type="file" id="upload-file" style="display: none;" onchange="handleFileSelect(this)" accept=".txt,.lst,.dict,.wordlist">
-                                <div style="color: #00d4ff; font-size: 1.5rem; margin-bottom: 5px;">&#128196;</div>
-                                <div style="color: #888; font-size: 0.85rem;">Click to select or drag & drop wordlist file</div>
-                                <div style="color: #666; font-size: 0.75rem; margin-top: 3px;">Supports .txt, .lst, .dict, .wordlist</div>
-                            </div>
-                            <div id="selected-file-info" style="display: none; margin-top: 8px; padding: 8px; background: rgba(0,212,255,0.1); border-radius: 4px; border: 1px solid rgba(0,212,255,0.3);">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span id="selected-file-name" style="font-family: monospace; font-size: 0.85rem;"></span>
-                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile()">Remove</button>
+                        <div class="form-group" style="margin-top: 8px; display: flex; gap: 10px; align-items: stretch;">
+                            <div style="flex: 1;">
+                                <div class="file-upload-area" id="file-drop-zone" onclick="document.getElementById('upload-file').click()" style="border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.3s; height: 100%; display: flex; flex-direction: column; justify-content: center;">
+                                    <input type="file" id="upload-file" style="display: none;" onchange="handleFileSelect(this)" accept=".txt,.lst,.dict,.wordlist">
+                                    <div style="color: #888; font-size: 0.8rem;">&#128196; Click or drag file here</div>
                                 </div>
-                                <div id="selected-file-size" style="font-size: 0.8rem; color: #999; margin-top: 4px;"></div>
+                                <div id="selected-file-info" style="display: none; margin-top: 6px; padding: 6px; background: rgba(0,212,255,0.1); border-radius: 4px; border: 1px solid rgba(0,212,255,0.3);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span id="selected-file-name" style="font-family: monospace; font-size: 0.8rem;"></span>
+                                        <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile()">Remove</button>
+                                    </div>
+                                    <div id="selected-file-size" style="font-size: 0.75rem; color: #999; margin-top: 2px;"></div>
+                                </div>
                             </div>
-                        </div>
-                        <div style="margin-top: 10px;">
-                            <button type="submit" class="advanced-btn advanced-btn-primary" id="upload-btn">Upload Wordlist</button>
+                            <button type="submit" class="advanced-btn advanced-btn-primary" id="upload-btn" style="white-space: nowrap;">Upload Wordlist</button>
                         </div>
                     </form>
                 </div>
