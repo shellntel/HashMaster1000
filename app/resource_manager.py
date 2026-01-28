@@ -868,7 +868,8 @@ class ResourceManager:
                     if (file_path.is_file() and
                         str(file_path) not in tracked_paths and
                         not file_path.name.startswith('.') and
-                        not file_path.name.endswith('.tmp')):
+                        not file_path.name.endswith('.tmp') and
+                        not file_path.name.endswith('.zst')):
                         count += 1
             counts[resource_type] = count
 
