@@ -274,3 +274,119 @@ class AuthManager:
         self.config.server.token = token
         self.config.save()
         logger.info("Token saved to config file")
+
+
+class TokenManager:
+    """
+    Synchronous wrapper for discovery mode registration.
+
+    Used by the init wizard for interactive registration flow.
+    Provides a simpler interface than AuthManager for CLI usage.
+    """
+
+    def __init__(self, config: Config):
+        """
+        Initialize token manager.
+
+        Args:
+            config: Agent configuration
+        """
+        self.config = config
+        self._registration_code: Optional[str] = None
+
+    def start_discovery_mode(self) -> str:
+        """
+        Start discovery mode registration.
+
+        Generates a registration code that must be approved by an admin
+        in the HM1K server UI.
+
+        Returns:
+            Registration code string (6 characters)
+        """
+        # Generate registration code
+        alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        self._registration_code = "".join(secrets.choice(alphabet) for _ in range(6))
+
+        logger.info(f"Started discovery mode with code: {self._registration_code}")
+        return self._registration_code
+
+    def poll_for_approval(self, timeout: int = 300) -> Optional[str]:
+        """
+        Poll server waiting for admin approval of registration.
+
+        Args:
+            timeout: Maximum seconds to wait for approval
+
+        Returns:
+            JWT token if approved, None if timed out or rejected
+        """
+        import time
+        import requests
+
+        if not self._registration_code:
+            logger.error("No registration code - call start_discovery_mode first")
+            return None
+
+        server_url = self.config.server.url.rstrip("/")
+        verify_ssl = self.config.server.verify_ssl
+        poll_interval = 5  # seconds
+        start_time = time.time()
+
+        # First, register the agent with the server
+        try:
+            import socket
+            hostname = socket.gethostname()
+
+            register_response = requests.post(
+                f"{server_url}/api/agent/register",
+                json={
+                    "registration_code": self._registration_code,
+                    "hostname": hostname,
+                    "name": self.config.agent.name or hostname,
+                },
+                verify=verify_ssl,
+                timeout=30,
+            )
+
+            if register_response.status_code != 200:
+                logger.error(f"Registration request failed: {register_response.text}")
+                # Continue polling anyway - server might accept later
+
+        except Exception as e:
+            logger.error(f"Failed to send registration request: {e}")
+            # Continue polling anyway
+
+        # Poll for approval
+        while (time.time() - start_time) < timeout:
+            try:
+                response = requests.get(
+                    f"{server_url}/api/agent/register/status",
+                    params={"code": self._registration_code},
+                    verify=verify_ssl,
+                    timeout=30,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    status = data.get("status")
+
+                    if status == "approved":
+                        token = data.get("token")
+                        if token:
+                            logger.info("Registration approved!")
+                            return token
+
+                    elif status == "rejected":
+                        logger.warning("Registration was rejected by admin")
+                        return None
+
+                    # Still pending, continue polling
+
+            except Exception as e:
+                logger.warning(f"Poll error (will retry): {e}")
+
+            time.sleep(poll_interval)
+
+        logger.warning(f"Registration timed out after {timeout} seconds")
+        return None
