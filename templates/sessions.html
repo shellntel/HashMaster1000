@@ -151,6 +151,7 @@
         let selectedSessions = new Set();
         let deleteTarget = null; // {type: 'single'|'bulk', ids: [...]}
         const currentUsername = '{{ current_user.id }}';
+        const isSuperadmin = {{ 'true' if current_user.is_superadmin else 'false' }};
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -387,7 +388,7 @@
                         <button class="action-btn view" onclick="viewSession('${session.session_id}')" title="View Report">
                             &#128065;
                         </button>
-                        ${isOwnSession ? `
+                        ${(isOwnSession || isSuperadmin) ? `
                         <button class="action-btn delete" onclick="deleteSession('${session.session_id}', '${escapeHtml(session.name)}')" title="Delete">
                             &#128465;
                         </button>
