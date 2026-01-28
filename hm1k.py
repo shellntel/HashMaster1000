@@ -8,6 +8,7 @@ import logging
 import bcrypt
 import zipfile
 import io
+from pathlib import Path
 from dotenv import load_dotenv
 from flask_compress import Compress
 from flask import (
@@ -9303,6 +9304,10 @@ def agent_heartbeat() -> Response:
     if not data:
         return jsonify({"error": "JSON body required"}), 400
 
+    # Reload from file to get latest state from other workers
+    # Critical: prevents stale workers from overwriting cleared current_job
+    _load_agents()
+
     agent_id = data.get("agent_id")
     if not agent_id:
         return jsonify({"error": "agent_id required"}), 400
@@ -11060,6 +11065,91 @@ def agent_get_resource_meta(resource_type: str, resource_id: str) -> Response:
         return jsonify(resource.to_dict())
     except Exception as e:
         logging.error(f"Failed to get resource metadata for agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/resources/<resource_type>/<resource_id>/compressed", methods=["GET"])
+def agent_download_resource_compressed(resource_type: str, resource_id: str) -> Response:
+    """
+    Download compressed (.zst) version of a resource for agent sync.
+
+    Returns 404 if compressed version doesn't exist.
+    Agents should fall back to uncompressed download in that case.
+    """
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+
+        compressed_path = manager.get_compressed_file(resource_id)
+        if not compressed_path:
+            return jsonify({"error": "Compressed version not available"}), 404
+
+        return send_file(
+            compressed_path,
+            as_attachment=True,
+            download_name=resource.name + ".zst",
+        )
+    except Exception as e:
+        logging.error(f"Failed to download compressed resource for agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/compression/stats", methods=["GET"])
+@login_required
+def get_compression_stats() -> Response:
+    """Get compression statistics for all resources."""
+    try:
+        manager = _get_resource_manager()
+        stats = manager.get_compression_stats()
+        return jsonify(stats)
+    except Exception as e:
+        logging.error(f"Failed to get compression stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/resources/<resource_type>/<resource_id>/compress", methods=["POST"])
+@login_required
+def compress_resource(resource_type: str, resource_id: str) -> Response:
+    """
+    Compress a resource file using zstd.
+
+    This is typically run as a background task for large files.
+    Returns immediately if compression is already in progress or complete.
+    """
+    try:
+        manager = _get_resource_manager()
+        resource = manager.get_resource(resource_id)
+        if not resource:
+            return jsonify({"error": "Resource not found"}), 404
+
+        # Check if already compressed
+        if resource.compressed_path and Path(resource.compressed_path).exists():
+            return jsonify({
+                "status": "already_compressed",
+                "compressed_path": resource.compressed_path,
+                "compressed_size": resource.compressed_size,
+            })
+
+        # Compress (this may take a while for large files)
+        success = manager.compress_resource(resource_id)
+
+        if success:
+            # Reload to get updated info
+            resource = manager.get_resource(resource_id)
+            return jsonify({
+                "status": "compressed",
+                "compressed_path": resource.compressed_path,
+                "compressed_size": resource.compressed_size,
+                "original_size": resource.size_bytes,
+                "ratio": resource.size_bytes / resource.compressed_size if resource.compressed_size else 0,
+            })
+        else:
+            return jsonify({"error": "Compression failed"}), 500
+
+    except Exception as e:
+        logging.error(f"Failed to compress resource: {e}")
         return jsonify({"error": str(e)}), 500
 
 

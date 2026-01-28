@@ -33,6 +33,7 @@ dependencies = [
     "click>=8.0.0",
     "rich>=13.0.0",
     "flask>=3.0.0",
+    "zstandard>=0.21.0",
 ]
 
 [project.optional-dependencies]

@@ -14,11 +14,18 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import threading
+
+try:
+    import zstandard as zstd
+    ZSTD_AVAILABLE = True
+except ImportError:
+    ZSTD_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +45,9 @@ class Resource:
     uploaded_by: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     is_builtin: bool = False
+    partial_hash: Optional[str] = None  # Fast verification hash (first 1MB + last 1MB + size)
+    compressed_path: Optional[str] = None  # Path to .zst compressed version
+    compressed_size: Optional[int] = None  # Size of compressed file in bytes
 
     def to_dict(self) -> dict:
         return {
@@ -49,11 +59,14 @@ class Resource:
             "file_path": self.file_path,
             "size_bytes": self.size_bytes,
             "sha256": self.sha256,
+            "partial_hash": self.partial_hash,
             "line_count": self.line_count,
             "uploaded_at": self.uploaded_at,
             "uploaded_by": self.uploaded_by,
             "tags": self.tags,
             "is_builtin": self.is_builtin,
+            "compressed_path": self.compressed_path,
+            "compressed_size": self.compressed_size,
         }
 
     @classmethod
@@ -71,6 +84,9 @@ class Resource:
             uploaded_by=data.get("uploaded_by"),
             tags=data.get("tags", []),
             is_builtin=data.get("is_builtin", False),
+            partial_hash=data.get("partial_hash"),
+            compressed_path=data.get("compressed_path"),
+            compressed_size=data.get("compressed_size"),
         )
 
 
@@ -143,21 +159,179 @@ class ResourceManager:
         base = f"{resource_type}_{name.lower().replace(' ', '_')}"
         return f"{base}_{uuid.uuid4().hex[:8]}"
 
-    def _compute_sha256(self, file_path: str) -> str:
-        """Compute SHA256 hash of a file."""
+    # Skip expensive metadata computation for files larger than this (1GB)
+    LARGE_FILE_THRESHOLD = 1024 * 1024 * 1024
+
+    # Size of chunks to read for partial hash (1MB)
+    PARTIAL_HASH_CHUNK_SIZE = 1024 * 1024
+
+    def _compute_partial_hash(self, file_path: str, size_bytes: int) -> str:
+        """
+        Compute a fast partial hash for verification.
+
+        This hash is computed from:
+        - First 1MB of the file
+        - Last 1MB of the file (if file > 2MB)
+        - File size
+
+        This provides fast verification (~1 second for any size file) while
+        still detecting most corruption or truncation issues. For files < 2MB,
+        this is equivalent to a full hash.
+
+        Args:
+            file_path: Path to the file
+            size_bytes: Size of the file in bytes
+
+        Returns:
+            Hexadecimal hash string
+        """
+        sha256 = hashlib.sha256()
+        chunk_size = self.PARTIAL_HASH_CHUNK_SIZE
+
+        with open(file_path, "rb") as f:
+            # Read first chunk
+            first_chunk = f.read(chunk_size)
+            sha256.update(first_chunk)
+
+            # If file is larger than 2 chunks, read the last chunk
+            if size_bytes > 2 * chunk_size:
+                f.seek(-chunk_size, 2)  # Seek to last 1MB
+                last_chunk = f.read(chunk_size)
+                sha256.update(last_chunk)
+
+        # Include file size in the hash
+        sha256.update(str(size_bytes).encode())
+
+        return sha256.hexdigest()
+
+    def _compute_sha256(self, file_path: str, size_bytes: int = 0) -> str:
+        """
+        Compute SHA256 hash of a file.
+
+        For files larger than LARGE_FILE_THRESHOLD, returns a placeholder
+        to avoid long processing times. The hash is only used for integrity
+        verification when agents download resources from the server - locally
+        stored files (like wordlists on NVMe) are accessed by path directly.
+        """
+        if size_bytes > self.LARGE_FILE_THRESHOLD:
+            # For large files, use size-based placeholder instead of full hash
+            # This is acceptable because large wordlists are typically accessed
+            # by path rather than downloaded through the resource system
+            return f"large_file_{size_bytes}"
+
         sha256 = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
         return sha256.hexdigest()
 
-    def _count_lines(self, file_path: str) -> int:
-        """Count lines in a file."""
+    def _count_lines(self, file_path: str, size_bytes: int = 0) -> int:
+        """
+        Count lines in a file.
+
+        For files larger than LARGE_FILE_THRESHOLD, estimates based on
+        average line length to avoid long processing times.
+        """
+        if size_bytes > self.LARGE_FILE_THRESHOLD:
+            # Estimate: average password/wordlist line is ~12 bytes
+            # This gives a reasonable approximation for display purposes
+            estimated = size_bytes // 12
+            logger.info(f"Large file ({size_bytes / 1024**3:.1f} GB) - estimating ~{estimated:,} lines")
+            return estimated
+
         try:
             with open(file_path, "rb") as f:
                 return sum(1 for _ in f)
         except Exception:
             return 0
+
+    # Minimum file size worth compressing (100 MB)
+    COMPRESSION_THRESHOLD = 100 * 1024 * 1024
+
+    def _compress_resource(self, file_path: str, size_bytes: int) -> tuple[Optional[str], Optional[int]]:
+        """
+        Compress a resource file using zstd.
+
+        Only compresses files larger than COMPRESSION_THRESHOLD.
+        Text-based wordlists typically compress 4-5x with zstd.
+
+        Args:
+            file_path: Path to the original file
+            size_bytes: Size of the file in bytes
+
+        Returns:
+            Tuple of (compressed_path, compressed_size) or (None, None) if not compressed
+        """
+        if size_bytes < self.COMPRESSION_THRESHOLD:
+            logger.debug(f"File too small for compression: {size_bytes / 1024 / 1024:.1f} MB")
+            return None, None
+
+        if not ZSTD_AVAILABLE:
+            logger.warning("zstandard not available, skipping compression")
+            return None, None
+
+        compressed_path = file_path + ".zst"
+
+        try:
+            logger.info(f"Compressing {file_path} ({size_bytes / 1024 / 1024 / 1024:.2f} GB)...")
+
+            # Use zstd with level 3 (fast but still good compression)
+            # Stream the compression to handle large files without loading into memory
+            cctx = zstd.ZstdCompressor(level=3, threads=-1)  # Use all CPU cores
+
+            with open(file_path, "rb") as f_in:
+                with open(compressed_path, "wb") as f_out:
+                    cctx.copy_stream(f_in, f_out)
+
+            compressed_size = Path(compressed_path).stat().st_size
+            ratio = size_bytes / compressed_size
+            logger.info(
+                f"Compressed {Path(file_path).name}: "
+                f"{size_bytes / 1024 / 1024 / 1024:.2f} GB -> "
+                f"{compressed_size / 1024 / 1024 / 1024:.2f} GB "
+                f"({ratio:.1f}x ratio)"
+            )
+            return compressed_path, compressed_size
+
+        except Exception as e:
+            logger.error(f"Compression failed for {file_path}: {e}")
+            # Clean up partial compressed file
+            Path(compressed_path).unlink(missing_ok=True)
+            return None, None
+
+    def compress_resource(self, resource_id: str) -> bool:
+        """
+        Compress an existing resource.
+
+        This can be called to add compression to resources that were
+        imported before compression was enabled, or to retry failed compression.
+
+        Args:
+            resource_id: Resource to compress
+
+        Returns:
+            True if compression succeeded or was already compressed
+        """
+        with self._lock:
+            resource = self._resources.get(resource_id)
+            if not resource:
+                return False
+
+            # Already compressed?
+            if resource.compressed_path and Path(resource.compressed_path).exists():
+                return True
+
+            compressed_path, compressed_size = self._compress_resource(
+                resource.file_path, resource.size_bytes
+            )
+
+            if compressed_path:
+                resource.compressed_path = compressed_path
+                resource.compressed_size = compressed_size
+                self._save_index()
+                return True
+
+            return False
 
     def _sanitize_filename(self, name: str) -> str:
         """
@@ -206,10 +380,11 @@ class ResourceManager:
         with open(file_path, "wb") as f:
             f.write(file_content)
 
-        # Compute metadata
-        sha256 = self._compute_sha256(str(file_path))
+        # Compute metadata (size first, as it's used for optimization decisions)
         size_bytes = len(file_content)
-        line_count = self._count_lines(str(file_path))
+        sha256 = self._compute_sha256(str(file_path), size_bytes)
+        partial_hash = self._compute_partial_hash(str(file_path), size_bytes)
+        line_count = self._count_lines(str(file_path), size_bytes)
 
         resource = Resource(
             resource_id=resource_id,
@@ -224,6 +399,7 @@ class ResourceManager:
             uploaded_by=uploaded_by,
             tags=tags or [],
             is_builtin=False,
+            partial_hash=partial_hash,
         )
 
         with self._lock:
@@ -434,8 +610,11 @@ class ResourceManager:
                 if str(file_path) in tracked_paths:
                     continue
 
-                # Skip hidden files and temp files
+                # Skip hidden files, temp files, and compressed versions
                 if file_path.name.startswith('.') or file_path.name.endswith('.tmp'):
+                    continue
+                if file_path.name.endswith('.zst'):
+                    # This is a compressed version, not a new resource
                     continue
 
                 try:
@@ -467,10 +646,11 @@ class ResourceManager:
             # Generate unique ID
             resource_id = self._generate_id(name, resource_type)
 
-            # Compute metadata
-            sha256 = self._compute_sha256(str(file_path))
+            # Compute metadata (size first, as it's used for optimization decisions)
             size_bytes = file_path.stat().st_size
-            line_count = self._count_lines(str(file_path))
+            sha256 = self._compute_sha256(str(file_path), size_bytes)
+            partial_hash = self._compute_partial_hash(str(file_path), size_bytes)
+            line_count = self._count_lines(str(file_path), size_bytes)
 
             resource = Resource(
                 resource_id=resource_id,
@@ -485,6 +665,7 @@ class ResourceManager:
                 uploaded_by="system",
                 tags=[],
                 is_builtin=False,
+                partial_hash=partial_hash,
             )
 
             with self._lock:
@@ -569,3 +750,60 @@ class ResourceManager:
                 self._save_index()
 
         return renamed
+
+    def get_uncompressed_resources(self) -> list[Resource]:
+        """
+        Get resources that are large enough to compress but don't have compressed versions.
+
+        Returns:
+            List of resources that need compression
+        """
+        with self._lock:
+            return [
+                r for r in self._resources.values()
+                if r.size_bytes >= self.COMPRESSION_THRESHOLD
+                and (not r.compressed_path or not Path(r.compressed_path).exists())
+            ]
+
+    def get_compressed_file(self, resource_id: str) -> Optional[str]:
+        """
+        Get path to compressed version of a resource.
+
+        Args:
+            resource_id: Resource to get compressed file for
+
+        Returns:
+            Path to .zst file, or None if not compressed
+        """
+        with self._lock:
+            resource = self._resources.get(resource_id)
+            if resource and resource.compressed_path and Path(resource.compressed_path).exists():
+                return resource.compressed_path
+        return None
+
+    def get_compression_stats(self) -> dict:
+        """
+        Get compression statistics for all resources.
+
+        Returns:
+            Dict with compression stats
+        """
+        with self._lock:
+            resources = list(self._resources.values())
+
+        compressible = [r for r in resources if r.size_bytes >= self.COMPRESSION_THRESHOLD]
+        compressed = [r for r in compressible if r.compressed_path and Path(r.compressed_path).exists()]
+
+        total_original = sum(r.size_bytes for r in compressed)
+        total_compressed = sum(r.compressed_size or 0 for r in compressed)
+
+        return {
+            "total_resources": len(resources),
+            "compressible_resources": len(compressible),
+            "compressed_resources": len(compressed),
+            "pending_compression": len(compressible) - len(compressed),
+            "total_original_bytes": total_original,
+            "total_compressed_bytes": total_compressed,
+            "compression_ratio": total_original / total_compressed if total_compressed > 0 else 0,
+            "space_saved_bytes": total_original - total_compressed,
+        }

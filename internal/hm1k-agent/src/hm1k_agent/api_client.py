@@ -321,20 +321,20 @@ class APIClient:
             logger.error(f"Failed to get resource metadata: {e}")
             return None
 
-    def download_resource(self, resource_type: str, name: str, dest_path: str) -> bool:
+    def download_resource(self, resource_type: str, resource_id: str, dest_path: str) -> bool:
         """
         Download a resource file.
 
         Args:
-            resource_type: Type of resource
-            name: Resource name
+            resource_type: Type of resource (wordlists, rules, masks)
+            resource_id: Unique resource identifier
             dest_path: Local path to save file
 
         Returns:
             True if download succeeded
         """
         try:
-            url = f"{self.base_url}/api/agent/resources/{resource_type}/{name}"
+            url = f"{self.base_url}/api/agent/resources/{resource_type}/{resource_id}"
             response = self._session.get(
                 url,
                 headers=self._get_headers(),
@@ -351,6 +351,44 @@ class APIClient:
             return True
         except Exception as e:
             logger.error(f"Failed to download resource: {e}")
+            return False
+
+    def download_resource_compressed(self, resource_type: str, resource_id: str, dest_path: str) -> bool:
+        """
+        Download a compressed (.zst) version of a resource file.
+
+        Args:
+            resource_type: Type of resource (wordlists, rules, masks)
+            resource_id: Unique resource identifier
+            dest_path: Local path to save compressed file (should end in .zst)
+
+        Returns:
+            True if download succeeded, False if not available or failed
+        """
+        try:
+            url = f"{self.base_url}/api/agent/resources/{resource_type}/{resource_id}/compressed"
+            response = self._session.get(
+                url,
+                headers=self._get_headers(),
+                timeout=600,  # 10 minute timeout for large files
+                verify=self.config.server.verify_ssl,
+                stream=True,
+            )
+
+            # 404 means compressed version not available
+            if response.status_code == 404:
+                logger.debug(f"Compressed version not available for {resource_id}")
+                return False
+
+            response.raise_for_status()
+
+            with open(dest_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to download compressed resource: {e}")
             return False
 
     async def register_agent(

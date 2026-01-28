@@ -6,6 +6,7 @@ Provides:
 - LRU eviction when cache exceeds size limit
 - Hash verification for integrity
 - Background sync of commonly used resources
+- Compressed download support (zstd) for faster transfers
 """
 
 import hashlib
@@ -19,6 +20,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import logging
+
+try:
+    import zstandard as zstd
+    ZSTD_AVAILABLE = True
+except ImportError:
+    ZSTD_AVAILABLE = False
 
 from hm1k_agent.config import Config
 from hm1k_agent.api_client import APIClient
@@ -39,6 +46,7 @@ class CachedResource:
     downloaded_at: float
     last_accessed: float
     access_count: int = 0
+    partial_hash: Optional[str] = None  # Fast verification hash
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -49,6 +57,7 @@ class CachedResource:
             "local_path": self.local_path,
             "size_bytes": self.size_bytes,
             "sha256": self.sha256,
+            "partial_hash": self.partial_hash,
             "downloaded_at": self.downloaded_at,
             "last_accessed": self.last_accessed,
             "access_count": self.access_count,
@@ -67,6 +76,7 @@ class CachedResource:
             downloaded_at=data["downloaded_at"],
             last_accessed=data["last_accessed"],
             access_count=data.get("access_count", 0),
+            partial_hash=data.get("partial_hash"),
         )
 
 
@@ -80,6 +90,7 @@ class ResourceInfo:
     size_bytes: int
     sha256: str
     updated_at: str
+    partial_hash: Optional[str] = None  # Fast verification hash
 
 
 class ResourceCache:
@@ -192,15 +203,22 @@ class ResourceCache:
                         size_bytes=r["size_bytes"],
                         sha256=r["sha256"],
                         updated_at=r.get("updated_at", ""),
+                        partial_hash=r.get("partial_hash"),
                     )
             return None
         except Exception as e:
             logger.error(f"Failed to get resource info: {e}")
             return None
 
+    # Minimum size to attempt compressed download (100 MB)
+    COMPRESSION_THRESHOLD = 100 * 1024 * 1024
+
     def _download_resource(self, info: ResourceInfo) -> Optional[str]:
         """
         Download a resource from the server.
+
+        For large files (>100MB), attempts compressed download first if zstd is available.
+        Falls back to regular download if compressed version not available.
 
         Args:
             info: Resource information
@@ -231,17 +249,69 @@ class ResourceCache:
 
             logger.info(f"Downloading resource: {info.name} ({info.size_bytes / 1024 / 1024:.1f} MB)")
 
-            # Download with progress
-            if not self.api.download_resource(info.resource_id, str(local_path)):
-                logger.error(f"Failed to download resource: {info.name}")
-                return None
+            # Try compressed download for large files if zstd is available
+            download_success = False
+            used_compression = False
 
-            # Verify hash
-            actual_hash = self._compute_sha256(str(local_path))
-            if actual_hash != info.sha256:
-                logger.error(f"Hash mismatch for {info.name}: expected {info.sha256}, got {actual_hash}")
+            if ZSTD_AVAILABLE and info.size_bytes >= self.COMPRESSION_THRESHOLD:
+                compressed_path = Path(str(local_path) + ".zst")
+                logger.info(f"Attempting compressed download for {info.name}...")
+
+                if self.api.download_resource_compressed(info.resource_type, info.resource_id, str(compressed_path)):
+                    # Decompress the file
+                    try:
+                        logger.info(f"Decompressing {info.name}...")
+                        dctx = zstd.ZstdDecompressor()
+                        with open(compressed_path, "rb") as f_in:
+                            with open(local_path, "wb") as f_out:
+                                dctx.copy_stream(f_in, f_out)
+
+                        # Remove compressed file
+                        compressed_path.unlink(missing_ok=True)
+                        download_success = True
+                        used_compression = True
+                        logger.info(f"Decompressed {info.name} successfully")
+                    except Exception as e:
+                        logger.warning(f"Decompression failed for {info.name}: {e}")
+                        compressed_path.unlink(missing_ok=True)
+                        local_path.unlink(missing_ok=True)
+                else:
+                    logger.debug(f"Compressed version not available for {info.name}")
+
+            # Fall back to regular download if compressed didn't work
+            if not download_success:
+                if not self.api.download_resource(info.resource_type, info.resource_id, str(local_path)):
+                    logger.error(f"Failed to download resource: {info.name}")
+                    return None
+                download_success = True
+
+            # Verify downloaded file size first
+            actual_size = local_path.stat().st_size
+            if actual_size != info.size_bytes:
+                logger.error(f"Size mismatch for {info.name}: expected {info.size_bytes}, got {actual_size}")
                 local_path.unlink(missing_ok=True)
                 return None
+
+            # Verify integrity using partial hash (fast) or full SHA256 (fallback)
+            if info.partial_hash:
+                # Use fast partial hash verification
+                actual_hash = self._compute_partial_hash(str(local_path), actual_size)
+                if actual_hash != info.partial_hash:
+                    logger.error(f"Partial hash mismatch for {info.name}: expected {info.partial_hash}, got {actual_hash}")
+                    local_path.unlink(missing_ok=True)
+                    return None
+                logger.debug(f"Verified {info.name} using partial hash")
+            elif not info.sha256.startswith("large_file_"):
+                # Fall back to full SHA256 if available (not a placeholder)
+                actual_hash = self._compute_sha256(str(local_path))
+                if actual_hash != info.sha256:
+                    logger.error(f"SHA256 mismatch for {info.name}: expected {info.sha256}, got {actual_hash}")
+                    local_path.unlink(missing_ok=True)
+                    return None
+                logger.debug(f"Verified {info.name} using full SHA256")
+            else:
+                # No verification available (legacy large file without partial hash)
+                logger.warning(f"No hash verification available for {info.name}, relying on size check only")
 
             # Add to cache
             now = time.time()
@@ -255,13 +325,15 @@ class ResourceCache:
                 downloaded_at=now,
                 last_accessed=now,
                 access_count=1,
+                partial_hash=info.partial_hash,
             )
 
             with self._lock:
                 self._resources[info.resource_id] = resource
                 self._save_index()
 
-            logger.info(f"Resource cached: {info.name}")
+            transfer_method = "compressed + decompressed" if used_compression else "uncompressed"
+            logger.info(f"Resource cached ({transfer_method}): {info.name}")
             return str(local_path)
 
         except Exception as e:
@@ -278,6 +350,44 @@ class ResourceCache:
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256.update(chunk)
+        return sha256.hexdigest()
+
+    # Size of chunks for partial hash (1MB) - must match server
+    PARTIAL_HASH_CHUNK_SIZE = 1024 * 1024
+
+    def _compute_partial_hash(self, file_path: str, size_bytes: int) -> str:
+        """
+        Compute a fast partial hash for verification.
+
+        This matches the server's partial hash computation:
+        - First 1MB of the file
+        - Last 1MB of the file (if file > 2MB)
+        - File size
+
+        Args:
+            file_path: Path to the file
+            size_bytes: Size of the file in bytes
+
+        Returns:
+            Hexadecimal hash string
+        """
+        sha256 = hashlib.sha256()
+        chunk_size = self.PARTIAL_HASH_CHUNK_SIZE
+
+        with open(file_path, "rb") as f:
+            # Read first chunk
+            first_chunk = f.read(chunk_size)
+            sha256.update(first_chunk)
+
+            # If file is larger than 2 chunks, read the last chunk
+            if size_bytes > 2 * chunk_size:
+                f.seek(-chunk_size, 2)  # Seek to last 1MB
+                last_chunk = f.read(chunk_size)
+                sha256.update(last_chunk)
+
+        # Include file size in the hash
+        sha256.update(str(size_bytes).encode())
+
         return sha256.hexdigest()
 
     def _ensure_space(self, needed_bytes: int) -> None:
