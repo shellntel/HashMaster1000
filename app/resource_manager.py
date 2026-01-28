@@ -101,6 +101,11 @@ class ResourceManager:
         rules/
         masks/
         index.json
+
+    Background compression:
+    - Large files (>100MB) are queued for compression after import
+    - A background thread processes the queue
+    - Compressed versions are stored alongside originals
     """
 
     INDEX_FILE = "index.json"
@@ -111,8 +116,16 @@ class ResourceManager:
         self._resources: dict[str, Resource] = {}
         self._lock = threading.Lock()
 
+        # Background compression
+        self._compression_queue: list[str] = []  # List of resource_ids to compress
+        self._compression_lock = threading.Lock()
+        self._compression_thread: Optional[threading.Thread] = None
+        self._compression_running = False
+        self._current_compression: Optional[str] = None  # resource_id being compressed
+
         self._ensure_directories()
         self._load_index()
+        self._start_compression_worker()
 
     def _ensure_directories(self) -> None:
         """Create resource directories if they don't exist."""
@@ -151,6 +164,106 @@ class ResourceManager:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save resource index: {e}")
+
+    def _start_compression_worker(self) -> None:
+        """Start the background compression worker thread."""
+        if self._compression_thread is not None and self._compression_thread.is_alive():
+            return  # Already running
+
+        self._compression_running = True
+        self._compression_thread = threading.Thread(
+            target=self._compression_worker,
+            name="ResourceCompressor",
+            daemon=True,
+        )
+        self._compression_thread.start()
+        logger.info("Background compression worker started")
+
+    def _compression_worker(self) -> None:
+        """Background worker that processes the compression queue."""
+        import time
+
+        while self._compression_running:
+            resource_id = None
+
+            # Get next item from queue
+            with self._compression_lock:
+                if self._compression_queue:
+                    resource_id = self._compression_queue.pop(0)
+                    self._current_compression = resource_id
+
+            if resource_id:
+                try:
+                    # Get resource info
+                    with self._lock:
+                        resource = self._resources.get(resource_id)
+
+                    if resource and not resource.compressed_path:
+                        logger.info(f"Background compression starting: {resource.name}")
+                        self.compress_resource(resource_id)
+                        logger.info(f"Background compression complete: {resource.name}")
+                except Exception as e:
+                    logger.error(f"Background compression failed for {resource_id}: {e}")
+                finally:
+                    with self._compression_lock:
+                        self._current_compression = None
+            else:
+                # No work, sleep briefly
+                time.sleep(1)
+
+    def _queue_for_compression(self, resource_id: str) -> None:
+        """
+        Queue a resource for background compression.
+
+        Only queues if the resource is large enough to benefit from compression.
+        """
+        with self._lock:
+            resource = self._resources.get(resource_id)
+            if not resource:
+                return
+
+            # Only queue if large enough and not already compressed
+            if resource.size_bytes < self.COMPRESSION_THRESHOLD:
+                return
+            if resource.compressed_path and Path(resource.compressed_path).exists():
+                return
+
+        with self._compression_lock:
+            if resource_id not in self._compression_queue:
+                self._compression_queue.append(resource_id)
+                logger.info(f"Queued for background compression: {resource.name}")
+
+    def get_compression_queue_status(self) -> dict:
+        """
+        Get status of the background compression queue.
+
+        Returns:
+            Dict with queue status information
+        """
+        with self._compression_lock:
+            queue_copy = list(self._compression_queue)
+            current = self._current_compression
+
+        # Get names for queued resources
+        queued_names = []
+        with self._lock:
+            for rid in queue_copy:
+                r = self._resources.get(rid)
+                if r:
+                    queued_names.append({"resource_id": rid, "name": r.name, "size_gb": r.size_bytes / 1024**3})
+
+            current_name = None
+            if current:
+                r = self._resources.get(current)
+                if r:
+                    current_name = {"resource_id": current, "name": r.name, "size_gb": r.size_bytes / 1024**3}
+
+        return {
+            "queue_length": len(queue_copy),
+            "queued_resources": queued_names,
+            "currently_compressing": current_name,
+            "worker_running": self._compression_thread is not None and self._compression_thread.is_alive(),
+        }
 
     def _generate_id(self, name: str, resource_type: str) -> str:
         """Generate a unique resource ID."""
@@ -671,6 +784,9 @@ class ResourceManager:
             with self._lock:
                 self._resources[resource_id] = resource
                 self._save_index()
+
+            # Queue for background compression if large enough
+            self._queue_for_compression(resource_id)
 
             return resource
         except Exception as e:

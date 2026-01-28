@@ -11109,6 +11109,19 @@ def get_compression_stats() -> Response:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/resources/compression/queue", methods=["GET"])
+@login_required
+def get_compression_queue() -> Response:
+    """Get status of the background compression queue."""
+    try:
+        manager = _get_resource_manager()
+        status = manager.get_compression_queue_status()
+        return jsonify(status)
+    except Exception as e:
+        logging.error(f"Failed to get compression queue status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/resources/<resource_type>/<resource_id>/compress", methods=["POST"])
 @login_required
 def compress_resource(resource_type: str, resource_id: str) -> Response:
