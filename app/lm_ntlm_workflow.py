@@ -481,9 +481,10 @@ class LMtoNTLMWorkflow:
 
         # Check if we have users ready for NTLM attack
         if lm_stats["ready_for_ntlm_attack"] > 0:
-            # Generate NTLM attack files
+            # Generate NTLM attack files with expanded wordlist (all case permutations)
+            # This is more reliable than toggle rules for extended ASCII characters
             ntlm_dir = workflow_dir / "ntlm_attack"
-            ntlm_files = lm_ntlm_tools.generate_ntlm_attack_files(extraction, str(ntlm_dir))
+            ntlm_files = lm_ntlm_tools.generate_expanded_wordlist(extraction, str(ntlm_dir))
 
             # Read the files for job submission
             with open(ntlm_files["hash_file"], "r") as f:
@@ -501,8 +502,8 @@ class LMtoNTLMWorkflow:
             self.save_state(state)
 
             # Build NTLM job data
-            # We need to send both the hash file and wordlist
-            # The agent will need to handle this specially
+            # Using expanded wordlist approach - no rules needed since all
+            # case permutations are pre-generated in the wordlist
             job_data = {
                 "job_id": state.ntlm_job_id,
                 "hash_content": ntlm_hashes,
@@ -515,19 +516,19 @@ class LMtoNTLMWorkflow:
                 ],
                 "priority": 10,
                 "metadata": {
-                    "job_type": "ntlm_toggle",
+                    "job_type": "ntlm_expanded",  # New type - no rules needed
                     "workflow_id": workflow_id,
                     "workflow_step": "ntlm_toggle",
                     "wordlist_content": lm_plaintexts,
-                    "wordlist_filename": "lm_plaintexts.txt",
-                    "rules_content": self._get_toggle_rules_content(),
-                    "rules_filename": "toggle_case.rule",
+                    "wordlist_filename": "lm_plaintexts_expanded.txt",
+                    # No rules - all case permutations are in the wordlist
                 },
             }
 
             logger.info(
                 f"Workflow {workflow_id}: LM step complete, "
-                f"starting NTLM toggle attack for {lm_stats['ready_for_ntlm_attack']} users"
+                f"starting NTLM attack with {ntlm_files.get('total_permutations', 0)} "
+                f"case permutations for {lm_stats['ready_for_ntlm_attack']} users"
             )
 
             return state, job_data

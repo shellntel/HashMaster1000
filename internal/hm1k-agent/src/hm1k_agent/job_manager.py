@@ -106,8 +106,9 @@ class Job:
         else:
             hash_file = data["hash_file"]
 
-        # Handle NTLM toggle job special files from metadata
-        if metadata.get("job_type") == "ntlm_toggle":
+        # Handle NTLM job special files from metadata
+        # Supports both ntlm_toggle (uses rules) and ntlm_expanded (pre-computed permutations)
+        if metadata.get("job_type") in ("ntlm_toggle", "ntlm_expanded"):
             # Save wordlist if provided
             if "wordlist_content" in metadata:
                 wordlist_filename = metadata.get("wordlist_filename", "wordlist.txt")

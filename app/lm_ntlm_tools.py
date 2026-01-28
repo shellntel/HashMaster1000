@@ -35,6 +35,61 @@ import re
 HEX_PATTERN = re.compile(r'\$HEX\[([0-9a-fA-F]+)\]')
 
 
+def generate_case_permutations(password: str) -> list[str]:
+    """
+    Generate all case permutations of a password.
+
+    This is more reliable than hashcat toggle rules because:
+    - Works with extended ASCII and Unicode characters
+    - Handles characters that hashcat's T command doesn't toggle
+    - Guarantees all permutations are tried
+
+    Args:
+        password: The uppercase password from LM cracking
+
+    Returns:
+        List of all case permutations (up to 2^N for N alpha chars)
+
+    Examples:
+        "AB" -> ["AB", "Ab", "aB", "ab"]
+        "A1" -> ["A1", "a1"]
+        "12" -> ["12"]
+    """
+    if not password:
+        return [password] if password == "" else []
+
+    # Find positions of characters that have case variants
+    alpha_positions = []
+    for i, char in enumerate(password):
+        if char.lower() != char.upper():  # Has case variants
+            alpha_positions.append(i)
+
+    # If no case-sensitive characters, return original
+    if not alpha_positions:
+        return [password]
+
+    # Generate all 2^N permutations where N is number of alpha chars
+    # Limit to prevent memory issues (2^20 = 1 million)
+    if len(alpha_positions) > 20:
+        logger.warning(
+            f"Password has {len(alpha_positions)} case-sensitive chars, "
+            f"limiting permutations to first 20 positions"
+        )
+        alpha_positions = alpha_positions[:20]
+
+    permutations = []
+    for bits in range(2 ** len(alpha_positions)):
+        chars = list(password)
+        for bit_idx, pos in enumerate(alpha_positions):
+            if bits & (1 << bit_idx):
+                chars[pos] = chars[pos].lower()
+            else:
+                chars[pos] = chars[pos].upper()
+        permutations.append("".join(chars))
+
+    return permutations
+
+
 def decode_hex_sequences(plaintext: str) -> str:
     """
     Decode hashcat's $HEX[...] notation in a plaintext string.
@@ -506,6 +561,115 @@ def generate_ntlm_attack_files(
         "wordlist_entries": len(seen_plaintexts),
         "alternate_orderings": alternate_orderings_added,
         "hex_decoded": hex_decoded_count,
+    }
+
+
+def generate_expanded_wordlist(
+    extraction: LMExtractionResult,
+    output_dir: str,
+) -> dict[str, str]:
+    """
+    Generate an expanded wordlist with all case permutations pre-computed.
+
+    This is an alternative to using hashcat toggle rules. Instead of relying
+    on hashcat's T command (which only works on ASCII a-z/A-Z), we generate
+    all case permutations in Python and write them directly to the wordlist.
+
+    Advantages:
+    - Works with extended ASCII and Unicode characters
+    - Guaranteed to try all case combinations
+    - No dependency on hashcat rule processing
+
+    Disadvantages:
+    - Larger wordlist file (up to 2^14 entries per password)
+    - May take longer to generate
+
+    Args:
+        extraction: LMExtractionResult with combined plaintexts
+        output_dir: Directory to write output files
+
+    Returns:
+        Dict with paths to generated files and stats
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Filter to only users with combined plaintexts
+    ready_users = [p for p in extraction.user_pairs if p.is_complete_password]
+
+    # Collect unique NTLM hashes
+    unique_ntlm_hashes = set()
+    for pair in ready_users:
+        unique_ntlm_hashes.add(pair.ntlm_hash)
+
+    # Generate hash file
+    hash_file = output_path / "ntlm_hashes.txt"
+    with open(hash_file, "w") as f:
+        for ntlm_hash in sorted(unique_ntlm_hashes):
+            f.write(f"{ntlm_hash}\n")
+
+    # Generate expanded wordlist with all case permutations
+    wordlist_file = output_path / "lm_plaintexts_expanded.txt"
+    seen_plaintexts: set[str] = set()  # Track unique base plaintexts
+    seen_permutations: set[str] = set()  # Track unique permutations written
+    total_permutations = 0
+
+    with open(wordlist_file, "w", encoding="latin-1", errors="replace") as f:
+        for pair in ready_users:
+            plaintext = pair.combined_plaintext or ""
+
+            # Decode HEX sequences if present
+            if "$HEX[" in plaintext:
+                plaintext = decode_hex_sequences(plaintext)
+
+            # Skip if we've already processed this base plaintext
+            if plaintext in seen_plaintexts:
+                continue
+            seen_plaintexts.add(plaintext)
+
+            # Generate all case permutations
+            permutations = generate_case_permutations(plaintext)
+
+            # Write unique permutations
+            for perm in permutations:
+                if perm not in seen_permutations:
+                    seen_permutations.add(perm)
+                    f.write(f"{perm}\n")
+                    total_permutations += 1
+
+            # Also handle reversed ordering if uncertain
+            if not pair.ordering_confirmed and pair.plain1 and pair.plain2:
+                p1 = pair.plain1
+                p2 = pair.plain2
+
+                if "$HEX[" in p1:
+                    p1 = decode_hex_sequences(p1)
+                if "$HEX[" in p2:
+                    p2 = decode_hex_sequences(p2)
+
+                reversed_plaintext = p2 + p1
+                if reversed_plaintext not in seen_plaintexts:
+                    seen_plaintexts.add(reversed_plaintext)
+
+                    for perm in generate_case_permutations(reversed_plaintext):
+                        if perm not in seen_permutations:
+                            seen_permutations.add(perm)
+                            f.write(f"{perm}\n")
+                            total_permutations += 1
+
+    logger.info(
+        f"Generated expanded wordlist: {total_permutations} permutations "
+        f"from {len(seen_plaintexts)} unique plaintexts for {len(unique_ntlm_hashes)} hashes"
+    )
+
+    return {
+        "hash_file": str(hash_file),
+        "wordlist_file": str(wordlist_file),
+        "user_count": len(ready_users),
+        "unique_hashes": len(unique_ntlm_hashes),
+        "unique_plaintexts": len(seen_plaintexts),
+        "total_permutations": total_permutations,
+        "use_rules": False,  # Flag indicating no rules needed
     }
 
 
