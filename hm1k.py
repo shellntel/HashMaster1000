@@ -9995,6 +9995,91 @@ def list_agents() -> Response:
     return jsonify({"agents": agents})
 
 
+@app.route("/api/agent/<agent_id>/verify-resources", methods=["POST"])
+@login_required
+def verify_agent_resources(agent_id: str) -> Response:
+    """
+    Verify that resource files are accessible on an agent.
+
+    For local agents (127.0.0.1), makes a direct HTTP call to the agent's
+    local API. For remote agents, returns an error (not yet supported).
+
+    Request body:
+        {
+            "paths": ["/path/to/wordlist.txt", "/path/to/rules.rule", ...]
+        }
+
+    Returns:
+        {
+            "success": true/false,
+            "results": [...],
+            "all_accessible": true/false
+        }
+    """
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    agent_data = _agent_registry[agent_id]
+    if agent_data.get("status") != "online":
+        return jsonify({"error": "Agent is offline"}), 400
+
+    data = request.get_json()
+    if not data or "paths" not in data:
+        return jsonify({"error": "Missing 'paths' in request body"}), 400
+
+    paths = data["paths"]
+    if not isinstance(paths, list) or len(paths) == 0:
+        return jsonify({"error": "'paths' must be a non-empty list"}), 400
+
+    # Check if this is a local agent
+    agent_ip = agent_data.get("ip_address", "")
+    is_local = agent_ip in ("127.0.0.1", "::1", "localhost")
+
+    if is_local:
+        # Make direct HTTP call to agent's local API
+        import requests as http_requests
+
+        # Default agent API port
+        agent_port = 8787
+        agent_url = f"http://127.0.0.1:{agent_port}/verify-resources"
+
+        try:
+            response = http_requests.post(
+                agent_url,
+                json={"paths": paths},
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                return jsonify({
+                    "error": f"Agent verification failed: {response.text}",
+                    "status_code": response.status_code,
+                }), 502
+        except http_requests.exceptions.ConnectionError:
+            return jsonify({
+                "error": "Cannot connect to agent's local API. Is the agent running?",
+            }), 503
+        except http_requests.exceptions.Timeout:
+            return jsonify({
+                "error": "Agent verification timed out",
+            }), 504
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to verify resources: {str(e)}",
+            }), 500
+    else:
+        # For remote agents, verification is not yet supported
+        # They use ResourceCache which downloads on demand
+        return jsonify({
+            "error": "Resource verification for remote agents is not yet supported. "
+                     "Remote agents download resources on demand from the server.",
+            "hint": "Use the Deploy button to pre-cache resources on the agent, "
+                    "or the job will attempt to download them when it starts.",
+        }), 501
+
+
 @app.route("/api/agent/<agent_id>/job", methods=["POST"])
 @login_required
 def assign_job_to_agent(agent_id: str) -> Response:

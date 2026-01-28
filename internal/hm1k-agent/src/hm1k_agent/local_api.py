@@ -413,6 +413,119 @@ def create_app(agent: "Agent") -> Flask:
         else:
             return jsonify({"error": "Failed to resume job"}), 500
 
+    # =========================================================================
+    # Resource Verification Endpoint
+    # =========================================================================
+
+    @app.route("/verify-resources", methods=["POST"])
+    @require_api_key
+    def verify_resources():
+        """
+        Verify that resource files exist and are readable.
+
+        Used before job submission to ensure wordlists, rules, and hash files
+        are accessible. Handles symlinks by resolving them and checking the
+        target file.
+
+        Request body:
+            {
+                "paths": ["/path/to/wordlist.txt", "/path/to/rules.rule", ...]
+            }
+
+        Returns:
+            {
+                "success": true/false,
+                "results": [
+                    {
+                        "path": "/path/to/file",
+                        "exists": true/false,
+                        "readable": true/false,
+                        "is_symlink": true/false,
+                        "resolved_path": "/actual/path" (if symlink),
+                        "size_bytes": 12345 (if exists),
+                        "error": "error message" (if any)
+                    },
+                    ...
+                ],
+                "all_accessible": true/false
+            }
+        """
+        import os
+        from pathlib import Path
+
+        data = request.get_json()
+        if not data or "paths" not in data:
+            return jsonify({"error": "Missing 'paths' in request body"}), 400
+
+        paths = data["paths"]
+        if not isinstance(paths, list):
+            return jsonify({"error": "'paths' must be a list"}), 400
+
+        results = []
+        all_accessible = True
+
+        for path_str in paths:
+            result = {
+                "path": path_str,
+                "exists": False,
+                "readable": False,
+                "is_symlink": False,
+                "resolved_path": None,
+                "size_bytes": None,
+                "error": None,
+            }
+
+            try:
+                path = Path(path_str)
+
+                # Check if it's a symlink
+                result["is_symlink"] = path.is_symlink()
+
+                if result["is_symlink"]:
+                    # Resolve symlink to get actual path
+                    try:
+                        resolved = path.resolve(strict=True)
+                        result["resolved_path"] = str(resolved)
+                        result["exists"] = resolved.exists()
+                    except (OSError, FileNotFoundError) as e:
+                        result["error"] = f"Broken symlink: {e}"
+                        all_accessible = False
+                        results.append(result)
+                        continue
+                else:
+                    result["exists"] = path.exists()
+
+                if not result["exists"]:
+                    result["error"] = "File does not exist"
+                    all_accessible = False
+                    results.append(result)
+                    continue
+
+                # Check if readable
+                actual_path = result["resolved_path"] or path_str
+                result["readable"] = os.access(actual_path, os.R_OK)
+
+                if not result["readable"]:
+                    result["error"] = "File exists but is not readable (permission denied)"
+                    all_accessible = False
+                    results.append(result)
+                    continue
+
+                # Get file size
+                result["size_bytes"] = os.path.getsize(actual_path)
+
+            except Exception as e:
+                result["error"] = str(e)
+                all_accessible = False
+
+            results.append(result)
+
+        return jsonify({
+            "success": True,
+            "results": results,
+            "all_accessible": all_accessible,
+        })
+
     return app
 
 

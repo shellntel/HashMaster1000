@@ -1177,6 +1177,96 @@
             log(`Applied template: ${template}`, 'info');
         }
 
+        // Extract file paths from hashcat arguments that need verification
+        function extractResourcePaths(hashcatArgs, hashFile, isUploadMode) {
+            const paths = [];
+
+            // If using remote hash file path (not upload mode), verify it
+            if (!isUploadMode && hashFile) {
+                paths.push(hashFile);
+            }
+
+            // Parse hashcat args to find wordlists and rules
+            let i = 0;
+            while (i < hashcatArgs.length) {
+                const arg = hashcatArgs[i];
+
+                // Rule files: -r /path/to/rule.rule
+                if (arg === '-r' && i + 1 < hashcatArgs.length) {
+                    const rulePath = hashcatArgs[i + 1].replace(/^"|"$/g, ''); // Remove quotes
+                    if (rulePath.startsWith('/')) {
+                        paths.push(rulePath);
+                    }
+                    i += 2;
+                    continue;
+                }
+
+                // Check for attack mode to determine if next positional arg is wordlist
+                if (arg === '-a' && i + 1 < hashcatArgs.length) {
+                    const attackMode = parseInt(hashcatArgs[i + 1]);
+                    if (attackMode === 0) {
+                        // Dictionary attack - look for wordlist path after other flags
+                        // The wordlist is a positional arg (doesn't start with -)
+                        for (let j = i + 2; j < hashcatArgs.length; j++) {
+                            const potentialWordlist = hashcatArgs[j].replace(/^"|"$/g, '');
+                            // Skip flags and their values
+                            if (potentialWordlist.startsWith('-')) {
+                                // Skip flag and its value if it takes one
+                                if (['-m', '-r', '-1', '-2', '-3', '-4', '-o', '-p', '-s', '-l'].includes(potentialWordlist)) {
+                                    j++; // Skip the value
+                                }
+                                continue;
+                            }
+                            // Found a positional argument - likely wordlist if it's a path
+                            if (potentialWordlist.startsWith('/')) {
+                                paths.push(potentialWordlist);
+                                break;
+                            }
+                        }
+                    }
+                    i += 2;
+                    continue;
+                }
+
+                i++;
+            }
+
+            return [...new Set(paths)]; // Remove duplicates
+        }
+
+        // Verify resources are accessible on the agent
+        async function verifyResources(agentId, paths) {
+            if (paths.length === 0) {
+                return { success: true, all_accessible: true, results: [] };
+            }
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/verify-resources`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ paths })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    // Handle 501 (remote agent not supported) specially
+                    if (response.status === 501) {
+                        log('Resource verification not available for remote agents - proceeding with job', 'warning');
+                        return { success: true, all_accessible: true, results: [], skipped: true };
+                    }
+                    return { success: false, error: data.error || 'Verification failed' };
+                }
+
+                return data;
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
         // Job Submission - routes through HM1K server
         async function submitJob() {
             const agentId = document.getElementById('job-agent').value;
@@ -1228,6 +1318,45 @@
             }
             if (document.getElementById('opt-optimized').checked) {
                 hashcatArgs.push('-O');
+            }
+
+            // Verify resources are accessible on the agent before submitting
+            const resourcePaths = extractResourcePaths(hashcatArgs, hashFile, isUploadMode);
+            if (resourcePaths.length > 0) {
+                log(`Verifying ${resourcePaths.length} resource(s) on agent...`, 'info');
+
+                const verification = await verifyResources(agentId, resourcePaths);
+
+                if (!verification.success) {
+                    log(`Resource verification failed: ${verification.error}`, 'error');
+                    showNotification('Resource verification failed', 'error', verification.error);
+                    return;
+                }
+
+                if (!verification.all_accessible && !verification.skipped) {
+                    // Show detailed error for each inaccessible resource
+                    const inaccessible = verification.results.filter(r => !r.readable);
+                    for (const res of inaccessible) {
+                        const reason = res.error || 'Unknown error';
+                        log(`Resource not accessible: ${res.path} - ${reason}`, 'error');
+                        if (res.is_symlink && res.resolved_path) {
+                            log(`  Symlink target: ${res.resolved_path}`, 'info');
+                        }
+                    }
+
+                    showNotification(
+                        'Resources not accessible',
+                        'error',
+                        `${inaccessible.length} resource(s) are not accessible on the agent. Check the log for details.`
+                    );
+                    return;
+                }
+
+                if (verification.skipped) {
+                    log('Resource verification skipped (remote agent)', 'warning');
+                } else {
+                    log('All resources verified successfully', 'success');
+                }
             }
 
             const payload = {
