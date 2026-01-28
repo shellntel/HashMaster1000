@@ -149,6 +149,44 @@ update_dependencies() {
     log_detail "Dependencies updated in $((pip_end - pip_start))s"
 }
 
+# Build agent wheel package
+build_agent_wheel() {
+    log_step "Building agent wheel package"
+
+    local agent_dir="$APP_DIR/internal/hm1k-agent"
+
+    if [[ ! -d "$agent_dir" ]]; then
+        log_warn "Agent directory not found at $agent_dir"
+        return
+    fi
+
+    cd "$agent_dir"
+
+    # Activate venv to use build module
+    source "$VENV_DIR/bin/activate"
+
+    # Ensure build module is installed
+    log_cmd "pip install --quiet build"
+    pip install --quiet build 2>/dev/null || true
+
+    # Build the wheel
+    log_cmd "python -m build --wheel"
+    local build_start=$(date +%s)
+    if python -m build --wheel --outdir dist/ 2>/dev/null; then
+        local build_end=$(date +%s)
+        local wheel_file=$(ls -t dist/*.whl 2>/dev/null | head -1)
+        log_detail "Wheel built in $((build_end - build_start))s"
+        if [[ -n "$wheel_file" ]]; then
+            log_detail "Package: $(basename $wheel_file)"
+        fi
+    else
+        log_warn "Failed to build agent wheel (non-critical)"
+    fi
+
+    deactivate
+    cd "$APP_DIR"
+}
+
 # Sync systemd service file if changed
 sync_service_file() {
     log_step "Checking systemd service file"
@@ -266,6 +304,7 @@ main() {
     stop_service
     update_code
     update_dependencies
+    build_agent_wheel
     sync_service_file
     start_service
     show_status
