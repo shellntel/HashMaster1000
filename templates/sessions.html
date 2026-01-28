@@ -357,7 +357,7 @@
             const aaiaIcon = session.aaia_generated ? '<span class="aaia-badge" title="AI Analysis Generated">&#10024;</span>' : '';
             const privateIcon = session.private ? '<span class="private-badge" title="Private Session">&#128274;</span>' : '';
             const isOwnSession = session.created_by === currentUsername;
-            const ownerDisplay = isOwnSession ? '' : `<span class="session-owner" title="Owner: ${escapeHtml(session.created_by)}">&#128100; ${escapeHtml(session.created_by)}</span>`;
+            const ownerDisplay = `<span class="session-owner" title="Owner: ${escapeHtml(session.created_by)}">&#128100; ${escapeHtml(session.created_by)}</span>`;
 
             return `
                 <div class="session-card ${isSelected ? 'selected' : ''} ${session.private ? 'private' : ''}" data-id="${session.session_id}">
