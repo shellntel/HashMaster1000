@@ -159,6 +159,9 @@ def worker_exit(server, worker):
 
 def nworkers_changed(server, new_value, old_value):
     """Callback when number of workers changes."""
+    if old_value is None:
+        # Initial worker count set during startup
+        return
     if new_value < old_value:
         print(f"[HM1K] WARNING: Worker count decreased: {old_value} -> {new_value}")
     else:
