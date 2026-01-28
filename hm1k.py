@@ -7477,9 +7477,9 @@ def regenerate_session_reports() -> Response:
     """
     Regenerate all analysis reports for the current session.
 
-    This reprocesses the stored account_data.json to generate any new or
-    updated report files. Useful when new report types are added without
-    requiring a full re-import.
+    This first resyncs with the master potfile to pick up any newly cracked
+    passwords, then reprocesses the stored account_data.json to generate any
+    new or updated report files.
 
     Returns:
         JSON with list of regenerated reports and any errors
@@ -7505,6 +7505,68 @@ def regenerate_session_reports() -> Response:
 
         regenerated = []
         errors = []
+        potfile_sync_stats = {"new_cracks": 0, "total_cracked": 0}
+
+        # Step 0: Resync with master potfile to pick up newly cracked passwords
+        if MASTER_POTFILE_ENABLED and os.path.exists(MASTER_POTFILE_PATH):
+            try:
+                from app.potfile_cache import get_master_cache
+                from app.file_parser import decode_hex_password, BLANK_NTLM_HASH
+
+                # Force reload to get latest potfile entries
+                cache = get_master_cache()
+                cached_potfile = cache.load(MASTER_POTFILE_PATH, force_reload=True)
+                cracked_hashes = cached_potfile.hash_to_password
+
+                # Track changes
+                new_cracks = 0
+                total_cracked = 0
+
+                # Update each account's cracked_pw based on fresh potfile
+                for username, acc in account_data.items():
+                    ntlm_hash = acc.get("ntlm_hash")
+                    if not ntlm_hash:
+                        continue
+
+                    # Check if hash is in potfile (lowercase match)
+                    hash_lower = ntlm_hash.lower()
+                    old_pw = acc.get("cracked_pw")
+                    was_cracked = bool(old_pw and old_pw != "[NOT CRACKED]")
+
+                    if hash_lower in cracked_hashes:
+                        new_pw = decode_hex_password(cracked_hashes[hash_lower])
+                        acc["cracked_pw"] = new_pw
+                        total_cracked += 1
+                        if not was_cracked:
+                            new_cracks += 1
+                    elif hash_lower == BLANK_NTLM_HASH.lower():
+                        # Blank password
+                        acc["cracked_pw"] = ""
+                        total_cracked += 1
+                        if not was_cracked:
+                            new_cracks += 1
+
+                potfile_sync_stats = {
+                    "new_cracks": new_cracks,
+                    "total_cracked": total_cracked,
+                    "potfile_entries": cached_potfile.ntlm_count
+                }
+
+                # Save updated account_data if we found new cracks
+                if new_cracks > 0:
+                    session_mgr.save_session_data("account_data.json", account_data, session_id)
+
+                    # Update session metadata with new crack statistics
+                    metadata = session_mgr.get_session(session_id)
+                    if metadata:
+                        metadata.cracked_accounts = total_cracked
+                        metadata.crack_rate = (total_cracked / metadata.total_accounts * 100) if metadata.total_accounts > 0 else 0.0
+                        session_mgr.update_session(session_id, metadata)
+
+                    regenerated.append("account_data.json (potfile resync)")
+
+            except Exception as e:
+                errors.append(f"Potfile Resync: {e}")
 
         # 1. Regenerate Group Membership Report (Top 25)
         try:
@@ -7714,13 +7776,22 @@ def regenerate_session_reports() -> Response:
         except Exception as e:
             errors.append(f"Privileged Accounts Report: {e}")
 
+        # Build message with potfile sync info
+        message_parts = []
+        if potfile_sync_stats.get("new_cracks", 0) > 0:
+            message_parts.append(f"Found {potfile_sync_stats['new_cracks']} newly cracked passwords")
+        message_parts.append(f"Regenerated {len(regenerated)} reports")
+        if errors:
+            message_parts.append(f"{len(errors)} errors")
+
         return jsonify({
             "success": True,
             "regenerated": regenerated,
             "regenerated_count": len(regenerated),
             "errors": errors,
             "error_count": len(errors),
-            "message": f"Regenerated {len(regenerated)} reports" + (f" with {len(errors)} errors" if errors else "")
+            "potfile_sync": potfile_sync_stats,
+            "message": " | ".join(message_parts)
         })
 
     except Exception as e:
