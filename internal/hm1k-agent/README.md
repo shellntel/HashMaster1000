@@ -15,7 +15,7 @@ A lightweight Python agent that runs on cracking servers to execute hashcat jobs
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+
 - Hashcat 6.0+ (with `--status-json` support)
 - Linux (Ubuntu 20.04+, Debian 10+, RHEL 8+)
 - Network connectivity to HM1K server
@@ -52,9 +52,9 @@ The agent stores its configuration in `/etc/hm1k-agent/config.yaml`:
 
 ```yaml
 server:
-  url: "https://hashmaster.internal:8443"
+  url: "https://192.168.8.88"
   token: "..."  # JWT token (managed by agent)
-  verify_ssl: true
+  verify_ssl: false  # Set to true if using CA-signed certificates
 
 agent:
   id: "cracker-01"
@@ -62,8 +62,8 @@ agent:
   description: "RTX 4080 system"
 
 hashcat:
-  binary: "/usr/bin/hashcat"
-  workdir: "/var/lib/hm1k-agent/sessions"
+  binary: "/opt/hashcat/current/hashcat"  # or /usr/bin/hashcat
+  workdir: "/var/lib/hm1k-agent/hashcat"
 
 resources:
   cache_dir: "/var/lib/hm1k-agent/cache"

@@ -34,6 +34,7 @@ class EventType(Enum):
     JOB_RESUME = "job:resume"
     JOB_STOP = "job:stop"
     RESOURCE_SYNC = "resource:sync"
+    SOFTWARE_INSTALL = "software:install"
     CONFIG_UPDATE = "config:update"
     BENCHMARK = "benchmark"
     PING = "ping"

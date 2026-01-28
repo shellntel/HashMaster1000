@@ -238,7 +238,9 @@ check_hashcat() {
     log_info "Checking for hashcat..."
 
     HASHCAT_PATH=""
-    for path in /usr/bin/hashcat /usr/local/bin/hashcat /opt/hashcat/hashcat ~/hashcat/hashcat; do
+    # Check common installation paths (in order of preference)
+    # Note: ~/hashcat is NOT included because ProtectHome=true in systemd prevents access
+    for path in /opt/hashcat/current/hashcat /opt/hashcat/hashcat /usr/local/bin/hashcat /usr/bin/hashcat; do
         if [[ -x "$path" ]]; then
             HASHCAT_PATH="$path"
             break
@@ -252,9 +254,17 @@ check_hashcat() {
     if [[ -n "$HASHCAT_PATH" ]]; then
         HASHCAT_VERSION=$("$HASHCAT_PATH" --version 2>/dev/null || echo "unknown")
         log_success "Found hashcat at $HASHCAT_PATH (version: $HASHCAT_VERSION)"
+
+        # Warn if hashcat is in a location that won't work with systemd service
+        if [[ "$HASHCAT_PATH" == /home/* ]] || [[ "$HASHCAT_PATH" == ~/* ]]; then
+            log_warn "WARNING: Hashcat is installed in a home directory!"
+            log_warn "The systemd service uses ProtectHome=true and cannot access this location."
+            log_warn "Please reinstall hashcat to /opt/hashcat or /usr/local/bin"
+        fi
     else
         log_warn "Hashcat not found! Please install hashcat before running the agent."
         log_warn "Visit: https://hashcat.net/hashcat/"
+        log_warn "Recommended: Install to /opt/hashcat/current/hashcat"
     fi
 }
 
@@ -291,16 +301,22 @@ create_directories() {
     # Create directories
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$CONFIG_DIR"
-    mkdir -p "$DATA_DIR"/{cache,data,hashcat}
+    # Create all directories referenced in config.yaml
+    mkdir -p "$DATA_DIR"/{cache,data,hashcat,jobs,potfiles,sessions}
     mkdir -p "$LOG_DIR"
 
-    # Set ownership
+    # Set ownership - agent user needs full access to data and log dirs
     chown -R "$AGENT_USER:$AGENT_GROUP" "$DATA_DIR"
     chown -R "$AGENT_USER:$AGENT_GROUP" "$LOG_DIR"
     chown root:$AGENT_GROUP "$CONFIG_DIR"
     chmod 750 "$CONFIG_DIR"
 
+    # Ensure proper permissions on subdirectories
+    chmod -R 755 "$DATA_DIR"
+
     log_success "Created directories"
+    log_info "  Data: $DATA_DIR/{cache,data,hashcat,jobs,potfiles,sessions}"
+    log_info "  Logs: $LOG_DIR"
 }
 
 # Install the agent
@@ -334,6 +350,9 @@ install_agent() {
     fi
 
     deactivate
+
+    # Ensure venv is readable by agent user (installed as root, runs as hm1k-agent)
+    chmod -R a+rX "$INSTALL_DIR"
 
     # Create symlink for CLI
     ln -sf "$VENV_DIR/bin/hm1k-agent" /usr/local/bin/hm1k-agent
@@ -376,8 +395,8 @@ Type=simple
 User=hm1k-agent
 Group=hm1k-agent
 
-# Environment
-Environment="PATH=/opt/hm1k-agent/venv/bin:/usr/local/bin:/usr/bin:/bin"
+# Environment - include hashcat path for OpenCL kernels
+Environment="PATH=/opt/hm1k-agent/venv/bin:/opt/hashcat/current:/usr/local/bin:/usr/bin:/bin"
 
 # Execution
 ExecStart=/opt/hm1k-agent/venv/bin/hm1k-agent run
@@ -388,13 +407,16 @@ Restart=always
 RestartSec=10
 
 # Security hardening
+# ProtectSystem=strict: Filesystem is read-only except ReadWritePaths
+# ProtectHome=true: No access to /home (hashcat must NOT be in home directory)
+# PrivateTmp=true: Agent gets isolated /tmp directory
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/hm1k-agent /var/log/hm1k-agent
 PrivateTmp=true
 
-# GPU access
+# GPU access - video and render groups for NVIDIA/AMD GPU access
 SupplementaryGroups=video render
 
 # Resource limits

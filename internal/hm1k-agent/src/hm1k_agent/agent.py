@@ -27,7 +27,7 @@ from hm1k_agent.job_manager import JobManager, JobState
 from hm1k_agent.resource_cache import ResourceCache
 from hm1k_agent.offline_buffer import OfflineBuffer, MessageType
 from hm1k_agent.local_api import LocalAPIServer
-from hm1k_agent.hardware import get_system_info, refresh_dynamic_info
+from hm1k_agent.hardware import get_system_info, refresh_dynamic_info, get_software_status
 from hm1k_agent.potfile_sync import PotfileSync
 
 logger = logging.getLogger(__name__)
@@ -83,6 +83,7 @@ class Agent:
     def _register_event_handlers(self) -> None:
         """Register handlers for non-job SSE events."""
         self.sse.on(EventType.RESOURCE_SYNC, self._on_resource_sync)
+        self.sse.on(EventType.SOFTWARE_INSTALL, self._on_software_install)
         self.sse.on(EventType.CONFIG_UPDATE, self._on_config_update)
         self.sse.on(EventType.BENCHMARK, self._on_benchmark)
         self.sse.on(EventType.PING, self._on_ping)
@@ -93,6 +94,164 @@ class Agent:
         if resource_ids:
             logger.info(f"Syncing {len(resource_ids)} resources")
             self.resource_cache.sync_resources(resource_ids)
+
+    def _on_software_install(self, event) -> None:
+        """Handle software:install event - install hashcat or driver."""
+        data = event.data
+        software_type = data.get("software_type")
+        version = data.get("version")
+        download_url = data.get("download_url")
+        sha256 = data.get("sha256")
+        make_current = data.get("make_current", True)
+
+        logger.info(f"Received software install request: {software_type} {version}")
+
+        if software_type == "hashcat":
+            self._install_hashcat(
+                download_url=download_url,
+                version=version,
+                sha256=sha256,
+                make_current=make_current,
+            )
+        elif software_type in ["nvidia", "amd"]:
+            logger.warning(f"Driver installation ({software_type}) requires manual intervention")
+            # Driver installation is complex and requires root/reboot
+            # For now, just log - could implement in future
+        else:
+            logger.warning(f"Unknown software type: {software_type}")
+
+    def _install_hashcat(
+        self,
+        download_url: str,
+        version: str,
+        sha256: str,
+        make_current: bool = True,
+    ) -> bool:
+        """
+        Download and install a hashcat version.
+
+        Args:
+            download_url: URL to download from (relative to server)
+            version: Hashcat version string
+            sha256: Expected SHA256 hash
+            make_current: Whether to set as current version
+
+        Returns:
+            True if installation succeeded
+        """
+        import hashlib
+        import tarfile
+        import py7zr
+        import tempfile
+        import shutil
+
+        logger.info(f"Installing hashcat {version}...")
+
+        # Installation directories
+        install_base = "/opt/hashcat"
+        install_dir = os.path.join(install_base, f"hashcat-{version}")
+        current_link = os.path.join(install_base, "current")
+
+        try:
+            # Download the package
+            full_url = f"{self.config.server.url}{download_url}"
+            logger.info(f"Downloading from {full_url}")
+
+            response = self.api._session.get(
+                full_url,
+                stream=True,
+                timeout=600,  # 10 minute timeout for large files
+            )
+            response.raise_for_status()
+
+            # Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".archive") as tmp:
+                tmp_path = tmp.name
+                for chunk in response.iter_content(chunk_size=8192):
+                    tmp.write(chunk)
+
+            # Verify hash
+            computed_hash = hashlib.sha256()
+            with open(tmp_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    computed_hash.update(chunk)
+
+            if computed_hash.hexdigest() != sha256:
+                logger.error(f"Hash mismatch: expected {sha256}, got {computed_hash.hexdigest()}")
+                os.unlink(tmp_path)
+                return False
+
+            logger.info("Download complete, hash verified")
+
+            # Ensure install base exists
+            os.makedirs(install_base, exist_ok=True)
+
+            # Extract archive
+            logger.info(f"Extracting to {install_dir}")
+
+            # Create temp extraction dir
+            with tempfile.TemporaryDirectory() as extract_dir:
+                if tmp_path.endswith(".7z") or download_url.endswith(".7z"):
+                    with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
+                        archive.extractall(path=extract_dir)
+                elif tmp_path.endswith(".tar.gz") or download_url.endswith(".tar.gz"):
+                    with tarfile.open(tmp_path, "r:gz") as archive:
+                        archive.extractall(path=extract_dir)
+                elif tmp_path.endswith(".zip") or download_url.endswith(".zip"):
+                    import zipfile
+                    with zipfile.ZipFile(tmp_path, "r") as archive:
+                        archive.extractall(extract_dir)
+                else:
+                    # Try 7z first, then tar.gz
+                    try:
+                        with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
+                            archive.extractall(path=extract_dir)
+                    except Exception:
+                        with tarfile.open(tmp_path, "r:gz") as archive:
+                            archive.extractall(path=extract_dir)
+
+                # Find the hashcat directory (usually hashcat-X.X.X)
+                extracted_items = os.listdir(extract_dir)
+                if len(extracted_items) == 1 and os.path.isdir(os.path.join(extract_dir, extracted_items[0])):
+                    src_dir = os.path.join(extract_dir, extracted_items[0])
+                else:
+                    src_dir = extract_dir
+
+                # Remove existing installation if present
+                if os.path.exists(install_dir):
+                    shutil.rmtree(install_dir)
+
+                # Move to final location
+                shutil.move(src_dir, install_dir)
+
+            # Clean up temp file
+            os.unlink(tmp_path)
+
+            # Make hashcat executable
+            hashcat_bin = os.path.join(install_dir, "hashcat")
+            if os.path.exists(hashcat_bin):
+                os.chmod(hashcat_bin, 0o755)
+
+            # Update current symlink if requested
+            if make_current:
+                if os.path.islink(current_link):
+                    os.unlink(current_link)
+                elif os.path.exists(current_link):
+                    shutil.rmtree(current_link)
+                os.symlink(install_dir, current_link)
+                logger.info(f"Set {version} as current version")
+
+            logger.info(f"Hashcat {version} installed successfully")
+
+            # Refresh software status cache
+            from hm1k_agent.hardware import get_software_status
+            get_software_status(refresh=True)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to install hashcat: {e}")
+            return False
 
     def _on_config_update(self, event) -> None:
         """Handle config:update event - server changed agent config."""
@@ -314,6 +473,9 @@ class Agent:
         # Refresh dynamic hardware info
         refresh_dynamic_info(self.hardware)
 
+        # Get software status (cached, refreshed periodically)
+        software_status = get_software_status()
+
         return {
             "agent_id": self.config.agent.id,
             "agent_name": self.config.agent.name,
@@ -326,6 +488,7 @@ class Agent:
                 "queue_size": self.job_manager.queue_size,
             },
             "hardware": self.hardware.to_dict(),
+            "software": software_status.to_dict(),
             "resources": {
                 "cache_size_mb": self.resource_cache.cache_size_mb,
                 "cached_count": len(self.resource_cache.cached_resources),

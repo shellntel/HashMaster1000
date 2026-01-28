@@ -3,12 +3,15 @@
 # HM1K Agent Bootstrap Installer
 # Downloads and installs the HM1K hashcat cracking agent
 #
-# Usage: curl -sSL https://192.168.8.88/agent/install.sh | sudo bash
+# Usage: curl -sSLk https://192.168.8.88/agent/install.sh | sudo bash
 #
 # Or download and run manually:
-#   wget https://192.168.8.88/agent/install.sh
+#   wget --no-check-certificate https://192.168.8.88/agent/install.sh
 #   chmod +x install.sh
 #   sudo ./install.sh
+#
+# Note: The -k (curl) and --no-check-certificate (wget) flags are needed
+#       for self-signed SSL certificates.
 #
 
 set -e

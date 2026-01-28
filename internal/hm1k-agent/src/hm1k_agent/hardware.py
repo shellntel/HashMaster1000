@@ -441,3 +441,328 @@ def refresh_dynamic_info(info: SystemInfo) -> None:
     paths = [d.path for d in info.disk] if info.disk else None
     fresh_disk = detect_disk(paths)
     info.disk = fresh_disk
+
+
+# =============================================================================
+# Software Detection
+# =============================================================================
+
+@dataclass
+class HashcatInstall:
+    """Information about a hashcat installation."""
+    path: str
+    version: str
+    is_current: bool = False  # True if this is /opt/hashcat/current
+
+    def to_dict(self) -> dict:
+        return {
+            "path": self.path,
+            "version": self.version,
+            "is_current": self.is_current,
+        }
+
+
+@dataclass
+class NvidiaDriverInfo:
+    """Information about installed NVIDIA driver."""
+    version: str
+    cuda_version: str
+    gpus: list[dict]  # List of GPU info dicts
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "cuda_version": self.cuda_version,
+            "gpus": self.gpus,
+        }
+
+
+@dataclass
+class AmdDriverInfo:
+    """Information about installed AMD driver."""
+    version: str
+    gpus: list[dict]  # List of GPU info dicts
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "gpus": self.gpus,
+        }
+
+
+@dataclass
+class SoftwareStatus:
+    """Complete software installation status."""
+    hashcat_versions: list[HashcatInstall] = field(default_factory=list)
+    nvidia_driver: Optional[NvidiaDriverInfo] = None
+    amd_driver: Optional[AmdDriverInfo] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "hashcat_versions": [h.to_dict() for h in self.hashcat_versions],
+            "nvidia_driver": self.nvidia_driver.to_dict() if self.nvidia_driver else None,
+            "amd_driver": self.amd_driver.to_dict() if self.amd_driver else None,
+        }
+
+
+def detect_hashcat_versions() -> list[HashcatInstall]:
+    """
+    Detect all installed hashcat versions.
+
+    Checks common installation paths:
+    - /opt/hashcat/current (symlink to current version)
+    - /opt/hashcat/hashcat-* (version directories)
+    - /opt/hashcat/hashcat (direct install)
+    - /usr/bin/hashcat
+    - /usr/local/bin/hashcat
+
+    Returns:
+        List of HashcatInstall objects
+    """
+    installations = []
+    seen_versions = set()
+
+    # Check for /opt/hashcat/current symlink first
+    current_path = "/opt/hashcat/current"
+    current_real_path = None
+    if os.path.islink(current_path):
+        try:
+            current_real_path = os.path.realpath(current_path)
+        except OSError:
+            pass
+
+    # Common search paths
+    search_paths = [
+        "/opt/hashcat/current/hashcat",
+        "/opt/hashcat/hashcat",
+        "/usr/local/bin/hashcat",
+        "/usr/bin/hashcat",
+    ]
+
+    # Also check for versioned directories in /opt/hashcat
+    opt_hashcat = "/opt/hashcat"
+    if os.path.isdir(opt_hashcat):
+        try:
+            for entry in os.listdir(opt_hashcat):
+                entry_path = os.path.join(opt_hashcat, entry)
+                if os.path.isdir(entry_path) and entry.startswith("hashcat-"):
+                    hashcat_bin = os.path.join(entry_path, "hashcat")
+                    if os.path.isfile(hashcat_bin) and os.access(hashcat_bin, os.X_OK):
+                        search_paths.append(hashcat_bin)
+        except OSError as e:
+            logger.debug(f"Error scanning /opt/hashcat: {e}")
+
+    for path in search_paths:
+        if not os.path.isfile(path):
+            continue
+        if not os.access(path, os.X_OK):
+            continue
+
+        # Get version
+        try:
+            result = subprocess.run(
+                [path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                version = result.stdout.strip()
+                # Parse version string (e.g., "v6.2.6" -> "6.2.6")
+                if version.startswith("v"):
+                    version = version[1:]
+
+                # Skip duplicates
+                if version in seen_versions:
+                    continue
+                seen_versions.add(version)
+
+                # Check if this is the current version
+                real_path = os.path.realpath(path)
+                is_current = (
+                    current_real_path is not None and
+                    real_path.startswith(current_real_path)
+                ) or path == "/opt/hashcat/current/hashcat"
+
+                installations.append(HashcatInstall(
+                    path=path,
+                    version=version,
+                    is_current=is_current,
+                ))
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.debug(f"Failed to get hashcat version from {path}: {e}")
+
+    # Sort by version (descending)
+    installations.sort(key=lambda h: h.version, reverse=True)
+    return installations
+
+
+def detect_nvidia_driver() -> Optional[NvidiaDriverInfo]:
+    """
+    Detect installed NVIDIA driver version.
+
+    Returns:
+        NvidiaDriverInfo object or None if not installed
+    """
+    try:
+        # Get driver version and CUDA version from nvidia-smi
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+
+        driver_version = result.stdout.strip().split("\n")[0].strip()
+
+        # Get CUDA version
+        cuda_version = ""
+        header_result = subprocess.run(
+            ["nvidia-smi"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if header_result.returncode == 0:
+            match = re.search(r"CUDA Version:\s*([\d.]+)", header_result.stdout)
+            if match:
+                cuda_version = match.group(1)
+
+        # Get GPU list
+        gpus = detect_gpus()
+        gpu_dicts = [g.to_dict() for g in gpus]
+
+        return NvidiaDriverInfo(
+            version=driver_version,
+            cuda_version=cuda_version,
+            gpus=gpu_dicts,
+        )
+
+    except FileNotFoundError:
+        logger.debug("nvidia-smi not found")
+        return None
+    except Exception as e:
+        logger.debug(f"Error detecting NVIDIA driver: {e}")
+        return None
+
+
+def detect_amd_driver() -> Optional[AmdDriverInfo]:
+    """
+    Detect installed AMD driver version.
+
+    Returns:
+        AmdDriverInfo object or None if not installed
+    """
+    try:
+        # Try to detect AMD driver using clinfo or amdgpu-pro-info
+        version = None
+
+        # Method 1: Check amdgpu-pro version file
+        version_file = "/opt/amdgpu-pro/VERSION"
+        if os.path.exists(version_file):
+            try:
+                with open(version_file) as f:
+                    version = f.read().strip()
+            except OSError:
+                pass
+
+        # Method 2: Try dpkg for amdgpu-pro package
+        if not version:
+            try:
+                result = subprocess.run(
+                    ["dpkg", "-l", "amdgpu-pro"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split("\n"):
+                        if "amdgpu-pro" in line:
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                version = parts[2]
+                                break
+            except (FileNotFoundError, OSError):
+                pass
+
+        # Method 3: Try rocm-smi for ROCm
+        if not version:
+            try:
+                result = subprocess.run(
+                    ["rocm-smi", "--showdriverversion"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    match = re.search(r"Driver version:\s*([\d.]+)", result.stdout)
+                    if match:
+                        version = match.group(1)
+            except (FileNotFoundError, OSError):
+                pass
+
+        if not version:
+            return None
+
+        # Detect AMD GPUs using clinfo or lspci
+        gpus = []
+        try:
+            result = subprocess.run(
+                ["lspci", "-nn"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split("\n"):
+                    if "VGA" in line and ("AMD" in line or "ATI" in line):
+                        gpus.append({"name": line.split(": ")[1] if ": " in line else line})
+        except (FileNotFoundError, OSError):
+            pass
+
+        return AmdDriverInfo(
+            version=version,
+            gpus=gpus,
+        )
+
+    except Exception as e:
+        logger.debug(f"Error detecting AMD driver: {e}")
+        return None
+
+
+def detect_software() -> SoftwareStatus:
+    """
+    Detect all installed software (hashcat, drivers).
+
+    Returns:
+        SoftwareStatus object with all detected software
+    """
+    return SoftwareStatus(
+        hashcat_versions=detect_hashcat_versions(),
+        nvidia_driver=detect_nvidia_driver(),
+        amd_driver=detect_amd_driver(),
+    )
+
+
+# Cache for software status
+_cached_software_status: Optional[SoftwareStatus] = None
+
+
+def get_software_status(refresh: bool = False) -> SoftwareStatus:
+    """
+    Get cached software installation status.
+
+    Args:
+        refresh: If True, re-detect software instead of using cache
+
+    Returns:
+        SoftwareStatus object
+    """
+    global _cached_software_status
+
+    if _cached_software_status is None or refresh:
+        _cached_software_status = detect_software()
+
+    return _cached_software_status

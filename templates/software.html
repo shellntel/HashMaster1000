@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Hashcat & Drivers</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Hashcat & Drivers</h1>
+                <p class="advanced-subtitle">Manage hashcat versions and GPU drivers for cracking agents</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Software Management
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link">Agents</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/software" class="advanced-nav-link active">Software</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Tabs -->
+        <div class="software-tabs">
+            <button class="software-tab active" onclick="switchTab('hashcat')">
+                <span class="software-tab-icon">&#128187;</span>Hashcat
+            </button>
+            <button class="software-tab" onclick="switchTab('nvidia')">
+                <span class="software-tab-icon">&#127919;</span>NVIDIA Drivers
+            </button>
+            <button class="software-tab" onclick="switchTab('amd')">
+                <span class="software-tab-icon">&#127919;</span>AMD Drivers
+            </button>
+        </div>
+
+        <!-- Hashcat Tab -->
+        <div id="tab-hashcat" class="tab-content active">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Stats Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128202;</span>
+                        <h2 class="advanced-section-title">Hashcat Overview</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #00d4ff;">
+                                <div style="color: #888; font-size: 0.75rem;">Versions Stored</div>
+                                <div id="hashcat-count" style="color: #00d4ff; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #22c55e;">
+                                <div style="color: #888; font-size: 0.75rem;">Current Version</div>
+                                <div id="hashcat-current" style="color: #22c55e; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #f59e0b; grid-column: span 2;">
+                                <div style="color: #888; font-size: 0.75rem;">Total Storage</div>
+                                <div id="hashcat-size" style="color: #f59e0b; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128228;</span>
+                        <h2 class="advanced-section-title">Upload Hashcat</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <form id="hashcat-upload-form" onsubmit="uploadSoftware(event, 'hashcat')">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Version (auto-detected)</label>
+                                    <input type="text" id="hashcat-version" class="advanced-input" placeholder="e.g., 6.2.6">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Notes</label>
+                                    <input type="text" id="hashcat-notes" class="advanced-input" placeholder="Optional notes">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="hashcat-make-current">
+                                    <span style="font-size: 0.85rem;">Set as current version</span>
+                                </label>
+                            </div>
+                            <div style="margin-top: 8px; display: flex; flex-direction: row; gap: 10px; align-items: center;">
+                                <div class="file-upload-area" id="hashcat-drop-zone" onclick="document.getElementById('hashcat-file').click()" style="flex: 1; border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 8px 12px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                                    <input type="file" id="hashcat-file" style="display: none;" onchange="handleFileSelect(this, 'hashcat')" accept=".7z,.tar.gz,.zip">
+                                    <span style="color: #888; font-size: 0.8rem;">&#128196; Click or drag hashcat archive</span>
+                                </div>
+                                <button type="submit" class="advanced-btn advanced-btn-primary" style="white-space: nowrap;">Upload</button>
+                            </div>
+                            <div id="hashcat-file-info" style="display: none; margin-top: 6px; padding: 6px; background: rgba(0,212,255,0.1); border-radius: 4px; border: 1px solid rgba(0,212,255,0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span id="hashcat-file-name" style="font-family: monospace; font-size: 0.8rem;"></span>
+                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile('hashcat')">Remove</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hashcat Packages List -->
+            <div class="advanced-section">
+                <div class="advanced-section-header">
+                    <span class="advanced-section-icon">&#128187;</span>
+                    <h2 class="advanced-section-title">Hashcat Versions</h2>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadSoftware('hashcat')" style="margin-left: auto;">&#8635; Refresh</button>
+                </div>
+                <div class="advanced-section-content">
+                    <div id="hashcat-packages">
+                        <div style="text-align: center; color: #666; padding: 40px;">
+                            Loading hashcat versions...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- NVIDIA Tab -->
+        <div id="tab-nvidia" class="tab-content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Stats Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128202;</span>
+                        <h2 class="advanced-section-title">NVIDIA Drivers Overview</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #76b900;">
+                                <div style="color: #888; font-size: 0.75rem;">Versions Stored</div>
+                                <div id="nvidia-count" style="color: #76b900; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #22c55e;">
+                                <div style="color: #888; font-size: 0.75rem;">Current Version</div>
+                                <div id="nvidia-current" style="color: #22c55e; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #f59e0b; grid-column: span 2;">
+                                <div style="color: #888; font-size: 0.75rem;">Total Storage</div>
+                                <div id="nvidia-size" style="color: #f59e0b; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128228;</span>
+                        <h2 class="advanced-section-title">Upload NVIDIA Driver</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <form id="nvidia-upload-form" onsubmit="uploadSoftware(event, 'nvidia')">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Version (auto-detected)</label>
+                                    <input type="text" id="nvidia-version" class="advanced-input" placeholder="e.g., 550.54.14">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Notes</label>
+                                    <input type="text" id="nvidia-notes" class="advanced-input" placeholder="Optional notes">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="nvidia-make-current">
+                                    <span style="font-size: 0.85rem;">Set as current version</span>
+                                </label>
+                            </div>
+                            <div style="margin-top: 8px; display: flex; flex-direction: row; gap: 10px; align-items: center;">
+                                <div class="file-upload-area" id="nvidia-drop-zone" onclick="document.getElementById('nvidia-file').click()" style="flex: 1; border: 2px dashed rgba(118,185,0,0.3); border-radius: 8px; padding: 8px 12px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                                    <input type="file" id="nvidia-file" style="display: none;" onchange="handleFileSelect(this, 'nvidia')" accept=".run">
+                                    <span style="color: #888; font-size: 0.8rem;">&#128196; Click or drag NVIDIA .run file</span>
+                                </div>
+                                <button type="submit" class="advanced-btn advanced-btn-primary" style="white-space: nowrap;">Upload</button>
+                            </div>
+                            <div id="nvidia-file-info" style="display: none; margin-top: 6px; padding: 6px; background: rgba(118,185,0,0.1); border-radius: 4px; border: 1px solid rgba(118,185,0,0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span id="nvidia-file-name" style="font-family: monospace; font-size: 0.8rem;"></span>
+                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile('nvidia')">Remove</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NVIDIA Packages List -->
+            <div class="advanced-section">
+                <div class="advanced-section-header">
+                    <span class="advanced-section-icon">&#127919;</span>
+                    <h2 class="advanced-section-title">NVIDIA Driver Versions</h2>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadSoftware('nvidia')" style="margin-left: auto;">&#8635; Refresh</button>
+                </div>
+                <div class="advanced-section-content">
+                    <div id="nvidia-packages">
+                        <div style="text-align: center; color: #666; padding: 40px;">
+                            Loading NVIDIA drivers...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AMD Tab -->
+        <div id="tab-amd" class="tab-content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                <!-- Stats Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128202;</span>
+                        <h2 class="advanced-section-title">AMD Drivers Overview</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #ed1c24;">
+                                <div style="color: #888; font-size: 0.75rem;">Versions Stored</div>
+                                <div id="amd-count" style="color: #ed1c24; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #22c55e;">
+                                <div style="color: #888; font-size: 0.75rem;">Current Version</div>
+                                <div id="amd-current" style="color: #22c55e; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                            <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #f59e0b; grid-column: span 2;">
+                                <div style="color: #888; font-size: 0.75rem;">Total Storage</div>
+                                <div id="amd-size" style="color: #f59e0b; font-size: 1.3rem; font-weight: bold;">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="advanced-section" style="margin-bottom: 0;">
+                    <div class="advanced-section-header">
+                        <span class="advanced-section-icon">&#128228;</span>
+                        <h2 class="advanced-section-title">Upload AMD Driver</h2>
+                    </div>
+                    <div class="advanced-section-content">
+                        <form id="amd-upload-form" onsubmit="uploadSoftware(event, 'amd')">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Version (auto-detected)</label>
+                                    <input type="text" id="amd-version" class="advanced-input" placeholder="e.g., 23.40">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size: 0.85rem;">Notes</label>
+                                    <input type="text" id="amd-notes" class="advanced-input" placeholder="Optional notes">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="amd-make-current">
+                                    <span style="font-size: 0.85rem;">Set as current version</span>
+                                </label>
+                            </div>
+                            <div style="margin-top: 8px; display: flex; flex-direction: row; gap: 10px; align-items: center;">
+                                <div class="file-upload-area" id="amd-drop-zone" onclick="document.getElementById('amd-file').click()" style="flex: 1; border: 2px dashed rgba(237,28,36,0.3); border-radius: 8px; padding: 8px 12px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                                    <input type="file" id="amd-file" style="display: none;" onchange="handleFileSelect(this, 'amd')" accept=".tar.xz,.deb,.rpm">
+                                    <span style="color: #888; font-size: 0.8rem;">&#128196; Click or drag AMD driver package</span>
+                                </div>
+                                <button type="submit" class="advanced-btn advanced-btn-primary" style="white-space: nowrap;">Upload</button>
+                            </div>
+                            <div id="amd-file-info" style="display: none; margin-top: 6px; padding: 6px; background: rgba(237,28,36,0.1); border-radius: 4px; border: 1px solid rgba(237,28,36,0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span id="amd-file-name" style="font-family: monospace; font-size: 0.8rem;"></span>
+                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearSelectedFile('amd')">Remove</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AMD Packages List -->
+            <div class="advanced-section">
+                <div class="advanced-section-header">
+                    <span class="advanced-section-icon">&#127919;</span>
+                    <h2 class="advanced-section-title">AMD Driver Versions</h2>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadSoftware('amd')" style="margin-left: auto;">&#8635; Refresh</button>
+                </div>
+                <div class="advanced-section-content">
+                    <div id="amd-packages">
+                        <div style="text-align: center; color: #666; padding: 40px;">
+                            Loading AMD drivers...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deploy Modal -->
+    <div id="deploy-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: #1a1a2e; border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; border: 1px solid rgba(255,255,255,0.1);">
+            <h3 style="margin: 0 0 15px 0; color: #fff;">Deploy to Agent</h3>
+            <p id="deploy-info" style="color: #888; margin-bottom: 15px;"></p>
+            <div class="form-group">
+                <label style="font-size: 0.85rem;">Select Agent</label>
+                <select id="deploy-agent-select" class="advanced-input">
+                    <option value="">Loading agents...</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="deploy-make-current" checked>
+                    <span style="font-size: 0.85rem;">Set as current version on agent</span>
+                </label>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end;">
+                <button class="advanced-btn advanced-btn-secondary" onclick="closeDeployModal()">Cancel</button>
+                <button class="advanced-btn advanced-btn-primary" onclick="confirmDeploy()">Deploy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        let currentTab = 'hashcat';
+        let softwareData = {
+            hashcat: [],
+            nvidia: [],
+            amd: []
+        };
+        let selectedFiles = {
+            hashcat: null,
+            nvidia: null,
+            amd: null
+        };
+        let agents = [];
+        let deployTarget = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAllSoftware();
+            loadAgents();
+
+            // Handle Exit Advanced Mode referrer
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer) {
+                document.querySelector('.exit-link').href = referrer;
+            }
+        });
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.software-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.software-tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+        }
+
+        async function loadAllSoftware() {
+            await Promise.all([
+                loadSoftware('hashcat'),
+                loadSoftware('nvidia'),
+                loadSoftware('amd')
+            ]);
+        }
+
+        async function loadSoftware(type) {
+            try {
+                const response = await fetch(`/api/software/${type}`);
+                if (!response.ok) throw new Error(`Failed to load ${type}`);
+
+                const data = await response.json();
+                softwareData[type] = data.packages;
+                renderPackages(type, data.packages, data.current_version);
+                updateStats(type, data.packages, data.current_version);
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        async function loadAgents() {
+            try {
+                const response = await fetch('/api/agent/list');
+                if (!response.ok) throw new Error('Failed to load agents');
+
+                const data = await response.json();
+                agents = data.agents || [];
+            } catch (error) {
+                console.error('Failed to load agents:', error);
+            }
+        }
+
+        function updateStats(type, packages, currentVersion) {
+            const count = packages.length;
+            const totalSize = packages.reduce((sum, p) => sum + p.size_bytes, 0);
+
+            document.getElementById(`${type}-count`).textContent = count;
+            document.getElementById(`${type}-current`).textContent = currentVersion || 'Not set';
+            document.getElementById(`${type}-size`).textContent = formatSize(totalSize);
+        }
+
+        function renderPackages(type, packages, currentVersion) {
+            const container = document.getElementById(`${type}-packages`);
+
+            if (packages.length === 0) {
+                const typeLabel = type === 'hashcat' ? 'hashcat versions' : `${type.toUpperCase()} drivers`;
+                container.innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">&#128230;</div>
+                        <div>No ${typeLabel} uploaded yet. Upload a package to get started.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = packages.map(pkg => `
+                <div class="package-card ${pkg.is_current ? 'current' : ''}">
+                    <div class="package-header">
+                        <div>
+                            <span class="package-name">${escapeHtml(pkg.name)}</span>
+                            <span class="package-version">v${escapeHtml(pkg.version)}</span>
+                            ${pkg.is_current ? '<span class="package-current-badge">CURRENT</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="package-meta">
+                        <span>&#128230; ${formatSize(pkg.size_bytes)}</span>
+                        <span>&#128197; ${formatDate(pkg.uploaded_at)}</span>
+                        ${pkg.uploaded_by ? `<span>&#128100; ${escapeHtml(pkg.uploaded_by)}</span>` : ''}
+                    </div>
+                    ${pkg.notes ? `<div style="color: #888; font-size: 0.8rem; margin-bottom: 10px;">${escapeHtml(pkg.notes)}</div>` : ''}
+                    <div class="package-actions">
+                        ${!pkg.is_current ? `
+                            <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="setCurrentVersion('${type}', '${pkg.package_id}')">
+                                Set as Current
+                            </button>
+                        ` : ''}
+                        <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="openDeployModal('${type}', '${pkg.package_id}', '${escapeHtml(pkg.name)}')">
+                            Deploy to Agent
+                        </button>
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="downloadPackage('${type}', '${pkg.package_id}')">
+                            &#8595; Download
+                        </button>
+                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deletePackage('${type}', '${pkg.package_id}', '${escapeHtml(pkg.name)}')">
+                            &#128465;
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function handleFileSelect(input, type) {
+            const file = input.files[0];
+            if (!file) return;
+
+            selectedFiles[type] = file;
+            document.getElementById(`${type}-file-info`).style.display = 'block';
+            document.getElementById(`${type}-file-name`).textContent = file.name;
+        }
+
+        function clearSelectedFile(type) {
+            selectedFiles[type] = null;
+            document.getElementById(`${type}-file`).value = '';
+            document.getElementById(`${type}-file-info`).style.display = 'none';
+        }
+
+        async function uploadSoftware(event, type) {
+            event.preventDefault();
+
+            const file = selectedFiles[type];
+            if (!file) {
+                showNotification('Error', 'error', 'Please select a file to upload');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const version = document.getElementById(`${type}-version`).value;
+            const notes = document.getElementById(`${type}-notes`).value;
+            const makeCurrent = document.getElementById(`${type}-make-current`).checked;
+
+            if (version) formData.append('version', version);
+            if (notes) formData.append('notes', notes);
+            formData.append('make_current', makeCurrent);
+
+            try {
+                const response = await fetch(`/api/software/${type}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                showNotification('Success', 'success', `Uploaded ${data.package.name}`);
+                clearSelectedFile(type);
+                document.getElementById(`${type}-version`).value = '';
+                document.getElementById(`${type}-notes`).value = '';
+                document.getElementById(`${type}-make-current`).checked = false;
+                loadSoftware(type);
+            } catch (error) {
+                showNotification('Upload Failed', 'error', error.message);
+            }
+        }
+
+        async function setCurrentVersion(type, packageId) {
+            try {
+                const response = await fetch(`/api/software/${type}/${packageId}/current`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                showNotification('Success', 'success', `Set current version to ${data.current_version}`);
+                loadSoftware(type);
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        async function deletePackage(type, packageId, name) {
+            if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+
+            try {
+                const response = await fetch(`/api/software/${type}/${packageId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    }
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                showNotification('Deleted', 'success', `Removed ${name}`);
+                loadSoftware(type);
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        function downloadPackage(type, packageId) {
+            window.open(`/api/software/${type}/${packageId}/download`, '_blank');
+        }
+
+        function openDeployModal(type, packageId, name) {
+            deployTarget = { type, packageId, name };
+
+            // Populate agent dropdown
+            const select = document.getElementById('deploy-agent-select');
+            const onlineAgents = agents.filter(a => a.status === 'online');
+
+            if (onlineAgents.length === 0) {
+                select.innerHTML = '<option value="">No online agents available</option>';
+            } else {
+                select.innerHTML = onlineAgents.map(a =>
+                    `<option value="${a.agent_id}">${escapeHtml(a.name || a.agent_id)} (${a.status})</option>`
+                ).join('');
+            }
+
+            document.getElementById('deploy-info').textContent = `Deploy ${name} to selected agent`;
+            document.getElementById('deploy-modal').style.display = 'flex';
+        }
+
+        function closeDeployModal() {
+            deployTarget = null;
+            document.getElementById('deploy-modal').style.display = 'none';
+        }
+
+        async function confirmDeploy() {
+            if (!deployTarget) return;
+
+            const agentId = document.getElementById('deploy-agent-select').value;
+            if (!agentId) {
+                showNotification('Error', 'error', 'Please select an agent');
+                return;
+            }
+
+            const makeCurrent = document.getElementById('deploy-make-current').checked;
+
+            try {
+                let url;
+                if (deployTarget.type === 'hashcat') {
+                    url = `/api/agent/${agentId}/deploy/hashcat/${deployTarget.packageId}`;
+                } else {
+                    url = `/api/agent/${agentId}/deploy/driver/${deployTarget.type}/${deployTarget.packageId}`;
+                }
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ make_current: makeCurrent })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                showNotification('Deployment Queued', 'success', data.message);
+                closeDeployModal();
+            } catch (error) {
+                showNotification('Deployment Failed', 'error', error.message);
+            }
+        }
+
+        // Utility functions
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function showNotification(title, type, message) {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <div class="notification-title">${escapeHtml(title)}</div>
+                <div class="notification-message">${escapeHtml(message)}</div>
+            `;
+            container.appendChild(notification);
+
+            setTimeout(() => {
+                notification.classList.add('notification-fade-out');
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

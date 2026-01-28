@@ -10087,6 +10087,20 @@ def agent_heartbeat() -> Response:
 
     _save_agents()
 
+    # Update software status if provided
+    software_data = data.get("software")
+    if software_data:
+        try:
+            manager = _get_software_manager()
+            manager.update_agent_status(
+                agent_id=agent_id,
+                hashcat_versions=software_data.get("hashcat_versions"),
+                nvidia_driver=software_data.get("nvidia_driver"),
+                amd_driver=software_data.get("amd_driver"),
+            )
+        except Exception as e:
+            logging.warning(f"Failed to update agent software status: {e}")
+
     # Return any pending commands for this agent (file-backed for multi-worker)
     commands = _pop_agent_commands(agent_id)
 
@@ -12206,6 +12220,335 @@ def get_resource_categories() -> Response:
         "categories": categories,
         "totals": totals,
     })
+
+
+# =============================================================================
+# Software Management API (Hashcat, NVIDIA Drivers, AMD Drivers)
+# =============================================================================
+
+def _get_software_manager():
+    """Get or create the software manager singleton."""
+    from app.software_manager import get_software_manager
+    return get_software_manager(_get_agent_data_dir())
+
+
+@app.route("/agents/software")
+@login_required
+def software_page() -> str:
+    """Software management page (Hashcat & Drivers)."""
+    return render_template("software.html", return_url=get_advanced_mode_return_url())
+
+
+@app.route("/api/software", methods=["GET"])
+@login_required
+def list_all_software() -> Response:
+    """List all software packages with stats."""
+    try:
+        manager = _get_software_manager()
+        packages = manager.list_packages()
+        return jsonify({
+            "packages": [p.to_dict() for p in packages],
+            "stats": manager.get_stats(),
+        })
+    except Exception as e:
+        logging.error(f"Failed to list software: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/software/<software_type>", methods=["GET"])
+@login_required
+def list_software_by_type(software_type: str) -> Response:
+    """List software packages of a specific type."""
+    try:
+        if software_type not in ["hashcat", "nvidia", "amd"]:
+            return jsonify({"error": "Invalid software type. Must be: hashcat, nvidia, amd"}), 400
+
+        manager = _get_software_manager()
+        packages = manager.list_packages(software_type=software_type)
+        current = manager.get_current(software_type)
+
+        return jsonify({
+            "packages": [p.to_dict() for p in packages],
+            "current_version": current.version if current else None,
+            "current_package_id": current.package_id if current else None,
+        })
+    except Exception as e:
+        logging.error(f"Failed to list {software_type} packages: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/software/<software_type>", methods=["POST"])
+@login_required
+def upload_software(software_type: str) -> Response:
+    """Upload a new software package."""
+    try:
+        if software_type not in ["hashcat", "nvidia", "amd"]:
+            return jsonify({"error": "Invalid software type. Must be: hashcat, nvidia, amd"}), 400
+
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "No file selected"}), 400
+
+        # Get optional parameters
+        version = request.form.get("version")
+        description = request.form.get("description", "")
+        notes = request.form.get("notes", "")
+        make_current = request.form.get("make_current", "false").lower() == "true"
+
+        # Save to temp file
+        temp_dir = os.path.join(os.path.dirname(__file__), "data", "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, secure_filename(file.filename))
+        file.save(temp_path)
+
+        try:
+            manager = _get_software_manager()
+            package = manager.add_package(
+                file_path=temp_path,
+                software_type=software_type,
+                version=version,
+                description=description,
+                uploaded_by=current_user.id,
+                notes=notes,
+                make_current=make_current,
+            )
+            return jsonify({
+                "success": True,
+                "package": package.to_dict(),
+            })
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logging.error(f"Failed to upload software: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/software/<software_type>/<package_id>", methods=["DELETE"])
+@login_required
+def delete_software(software_type: str, package_id: str) -> Response:
+    """Delete a software package."""
+    try:
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != software_type:
+            return jsonify({"error": "Package type mismatch"}), 400
+
+        if manager.remove_package(package_id):
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Failed to remove package"}), 500
+
+    except Exception as e:
+        logging.error(f"Failed to delete software: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/software/<software_type>/<package_id>/current", methods=["PUT"])
+@login_required
+def set_software_current(software_type: str, package_id: str) -> Response:
+    """Mark a software package as the current version."""
+    try:
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != software_type:
+            return jsonify({"error": "Package type mismatch"}), 400
+
+        if manager.set_current(package_id):
+            return jsonify({
+                "success": True,
+                "current_version": package.version,
+            })
+        else:
+            return jsonify({"error": "Failed to set current version"}), 500
+
+    except Exception as e:
+        logging.error(f"Failed to set current version: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/software/<software_type>/<package_id>/download", methods=["GET"])
+@login_required
+def download_software(software_type: str, package_id: str) -> Response:
+    """Download a software package file."""
+    try:
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != software_type:
+            return jsonify({"error": "Package type mismatch"}), 400
+
+        if not os.path.exists(package.file_path):
+            return jsonify({"error": "Package file not found"}), 404
+
+        return send_file(
+            package.file_path,
+            as_attachment=True,
+            download_name=package.filename,
+        )
+
+    except Exception as e:
+        logging.error(f"Failed to download software: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/software", methods=["GET"])
+@login_required
+def get_agent_software_status(agent_id: str) -> Response:
+    """Get the software status for an agent."""
+    try:
+        manager = _get_software_manager()
+        status = manager.get_agent_status(agent_id)
+
+        if not status:
+            return jsonify({
+                "agent_id": agent_id,
+                "hashcat_versions": [],
+                "nvidia_driver": None,
+                "amd_driver": None,
+                "last_updated": None,
+            })
+
+        return jsonify(status.to_dict())
+
+    except Exception as e:
+        logging.error(f"Failed to get agent software status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/software", methods=["POST"])
+@login_required
+def update_agent_software_status(agent_id: str) -> Response:
+    """Update the software status for an agent (called by agent during heartbeat)."""
+    try:
+        data = request.get_json()
+        manager = _get_software_manager()
+
+        status = manager.update_agent_status(
+            agent_id=agent_id,
+            hashcat_versions=data.get("hashcat_versions"),
+            nvidia_driver=data.get("nvidia_driver"),
+            amd_driver=data.get("amd_driver"),
+        )
+
+        return jsonify({"success": True, "status": status.to_dict()})
+
+    except Exception as e:
+        logging.error(f"Failed to update agent software status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/deploy/hashcat/<package_id>", methods=["POST"])
+@login_required
+def deploy_hashcat_to_agent(agent_id: str, package_id: str) -> Response:
+    """Deploy a hashcat version to an agent."""
+    try:
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != "hashcat":
+            return jsonify({"error": "Package is not a hashcat package"}), 400
+
+        # Check if agent is online
+        agent = _get_agent(agent_id)
+        if not agent or agent.get("status") != "online":
+            return jsonify({"error": "Agent is not online"}), 400
+
+        # Queue deployment command
+        data = request.get_json() or {}
+        make_current = data.get("make_current", True)
+
+        _queue_agent_command(agent_id, {
+            "type": "software:install",
+            "data": {
+                "software_type": "hashcat",
+                "package_id": package_id,
+                "version": package.version,
+                "filename": package.filename,
+                "sha256": package.sha256,
+                "size_bytes": package.size_bytes,
+                "make_current": make_current,
+                "download_url": f"/api/software/hashcat/{package_id}/download",
+            }
+        })
+
+        return jsonify({
+            "success": True,
+            "message": f"Deployment of hashcat {package.version} queued for agent {agent_id}",
+            "package": package.to_dict(),
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to deploy hashcat to agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/deploy/driver/<driver_type>/<package_id>", methods=["POST"])
+@login_required
+def deploy_driver_to_agent(agent_id: str, driver_type: str, package_id: str) -> Response:
+    """Deploy a GPU driver to an agent."""
+    try:
+        if driver_type not in ["nvidia", "amd"]:
+            return jsonify({"error": "Invalid driver type. Must be: nvidia, amd"}), 400
+
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != driver_type:
+            return jsonify({"error": f"Package is not a {driver_type} driver package"}), 400
+
+        # Check if agent is online
+        agent = _get_agent(agent_id)
+        if not agent or agent.get("status") != "online":
+            return jsonify({"error": "Agent is not online"}), 400
+
+        # Queue deployment command
+        _queue_agent_command(agent_id, {
+            "type": "software:install",
+            "data": {
+                "software_type": driver_type,
+                "package_id": package_id,
+                "version": package.version,
+                "filename": package.filename,
+                "sha256": package.sha256,
+                "size_bytes": package.size_bytes,
+                "download_url": f"/api/software/{driver_type}/{package_id}/download",
+            }
+        })
+
+        return jsonify({
+            "success": True,
+            "message": f"Deployment of {driver_type} driver {package.version} queued for agent {agent_id}",
+            "package": package.to_dict(),
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to deploy driver to agent: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # Comparison results storage directory
