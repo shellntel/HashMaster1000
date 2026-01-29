@@ -125,24 +125,94 @@ update_code() {
     log_detail "Updated to: $(git log -1 --pretty=format:'%h - %s')"
 }
 
-# Fix file permissions for static assets
+# Fix file permissions for static assets and runtime directories
 fix_permissions() {
-    log_step "Fixing file permissions"
+    log_step "Fixing file permissions and ownership"
 
     cd "$APP_DIR"
 
-    # Ensure static files are readable by web server
-    log_cmd "find static -type f -exec chmod 644 {} \\;"
+    # Service user (runs gunicorn)
+    local SERVICE_USER="hm1k"
+
+    # --- Static files (must be world-readable) ---
+    log_detail "Fixing static file permissions..."
     find static -type f -exec chmod 644 {} \;
-
-    log_cmd "find static -type d -exec chmod 755 {} \\;"
     find static -type d -exec chmod 755 {} \;
-
-    # Ensure templates are readable
-    log_cmd "find templates -type f -exec chmod 644 {} \\;"
     find templates -type f -exec chmod 644 {} \;
 
-    log_detail "Permissions fixed for static/ and templates/"
+    # --- Runtime directories (service user must own) ---
+    log_detail "Fixing runtime directory ownership..."
+    for dir in data logs flask_session uploads; do
+        if [[ -d "$APP_DIR/$dir" ]]; then
+            # Check if ownership is wrong
+            local current_owner=$(stat -c '%U' "$APP_DIR/$dir" 2>/dev/null)
+            if [[ "$current_owner" != "$SERVICE_USER" ]]; then
+                log_cmd "chown -R $SERVICE_USER:$SERVICE_USER $dir/"
+                sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/$dir"
+            fi
+        else
+            # Create directory with correct ownership
+            log_cmd "mkdir -p $dir && chown $SERVICE_USER:$SERVICE_USER $dir"
+            mkdir -p "$APP_DIR/$dir"
+            sudo chown "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/$dir"
+        fi
+    done
+
+    # --- Sensitive files (restrict access) ---
+    if [[ -f "$APP_DIR/key.pem" ]]; then
+        chmod 640 "$APP_DIR/key.pem"
+    fi
+    if [[ -f "$APP_DIR/.env" ]]; then
+        chmod 640 "$APP_DIR/.env"
+    fi
+
+    log_detail "Permissions fixed for static/, templates/, and runtime directories"
+}
+
+# Audit permissions and report issues
+audit_permissions() {
+    log_step "Auditing permissions"
+
+    cd "$APP_DIR"
+    local issues=0
+
+    # Service user
+    local SERVICE_USER="hm1k"
+
+    # Check static file permissions
+    local bad_static=$(find static -type f ! -perm 644 2>/dev/null | wc -l)
+    if [[ "$bad_static" -gt 0 ]]; then
+        log_warn "Found $bad_static static files with wrong permissions (should be 644)"
+        issues=$((issues + bad_static))
+    fi
+
+    # Check runtime directory ownership
+    for dir in data logs flask_session uploads; do
+        if [[ -d "$APP_DIR/$dir" ]]; then
+            local owner=$(stat -c '%U' "$APP_DIR/$dir" 2>/dev/null)
+            if [[ "$owner" != "$SERVICE_USER" ]]; then
+                log_warn "$dir/ owned by '$owner' (should be '$SERVICE_USER')"
+                issues=$((issues + 1))
+            fi
+        fi
+    done
+
+    # Check key.pem permissions
+    if [[ -f "$APP_DIR/key.pem" ]]; then
+        local key_perms=$(stat -c '%a' "$APP_DIR/key.pem" 2>/dev/null)
+        if [[ "$key_perms" != "640" && "$key_perms" != "600" ]]; then
+            log_warn "key.pem has permissions $key_perms (should be 640 or 600)"
+            issues=$((issues + 1))
+        fi
+    fi
+
+    if [[ "$issues" -eq 0 ]]; then
+        log_detail "All permissions OK"
+    else
+        log_warn "Found $issues permission issues (will be fixed)"
+    fi
+
+    return $issues
 }
 
 # Update Python dependencies
@@ -354,6 +424,7 @@ main() {
     check_permissions
     stop_service
     update_code
+    audit_permissions
     fix_permissions
     update_dependencies
     build_agent_wheel
