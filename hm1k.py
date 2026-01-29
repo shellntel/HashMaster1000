@@ -4087,12 +4087,14 @@ def hibp_download_info() -> Response:
     text_file_exists = False
     text_file_size_gb = None
     text_file_path = None
+    text_file_date = None
     if configured_path:
         # Check if text file exists (either directly configured or alongside SQLite)
         if configured_path.endswith('.txt') and os.path.exists(configured_path):
             text_file_exists = True
             text_file_path = configured_path
             text_file_size_gb = round(os.path.getsize(configured_path) / (1024**3), 1)
+            text_file_date = datetime.fromtimestamp(os.path.getmtime(configured_path)).isoformat()
         elif configured_path.endswith('.db'):
             # Check if text file exists alongside SQLite db
             txt_path = os.path.splitext(configured_path)[0] + ".txt"
@@ -4100,6 +4102,7 @@ def hibp_download_info() -> Response:
                 text_file_exists = True
                 text_file_path = txt_path
                 text_file_size_gb = round(os.path.getsize(txt_path) / (1024**3), 1)
+                text_file_date = datetime.fromtimestamp(os.path.getmtime(txt_path)).isoformat()
 
         sqlite_path = os.path.splitext(configured_path)[0] + ".db"
         if os.path.exists(sqlite_path):
@@ -4114,6 +4117,7 @@ def hibp_download_info() -> Response:
         "text_file_exists": text_file_exists,
         "text_file_size_gb": text_file_size_gb,
         "text_file_path": text_file_path,
+        "text_file_date": text_file_date,
         "default_output_path": default_output,
         "configured_path": configured_path
     })

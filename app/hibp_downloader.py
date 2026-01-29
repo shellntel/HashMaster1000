@@ -1305,6 +1305,17 @@ def convert_text_to_sqlite(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
             ("created_at", datetime.now().isoformat())
         )
+        # Store the text file's modification time as the download date
+        # This is when the HIBP data was actually fetched
+        try:
+            text_file_mtime = os.path.getmtime(text_file_path)
+            downloaded_at = datetime.fromtimestamp(text_file_mtime).isoformat()
+            cursor.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                ("downloaded_at", downloaded_at)
+            )
+        except Exception:
+            pass  # Text file may not exist if converting from other source
         conn.commit()
 
         # Run ANALYZE to populate sqlite_stat1 for fast count lookups
@@ -1563,17 +1574,20 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             conn.close()
             return None
 
-        # Try to get row count and created_at from metadata table first (instant)
+        # Try to get row count and dates from metadata table first (instant)
         count = 0
         created_at = None
+        downloaded_at = None
         try:
-            cursor.execute("SELECT key, value FROM metadata WHERE key IN ('hash_count', 'created_at')")
+            cursor.execute("SELECT key, value FROM metadata WHERE key IN ('hash_count', 'created_at', 'downloaded_at')")
             for key, value in cursor.fetchall():
                 if key == 'hash_count':
                     count = int(value)
                     logger.debug(f"HIBP SQLite count from metadata: {count:,}")
                 elif key == 'created_at':
                     created_at = value
+                elif key == 'downloaded_at':
+                    downloaded_at = value
         except Exception:
             pass  # Table may not exist in older databases
 
@@ -1617,6 +1631,7 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             "sample_count": sample[1] if sample else None,
             "file_date": file_date,
             "created_at": created_at,
+            "downloaded_at": downloaded_at,
             "valid": True
         }
 
