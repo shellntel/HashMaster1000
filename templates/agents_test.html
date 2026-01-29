@@ -66,6 +66,26 @@
             </div>
         </div>
 
+        <!-- Pending Registrations Section -->
+        <div class="advanced-section" id="pending-registrations-section" style="display: none;">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128273;</span>
+                <h2 class="advanced-section-title">Pending Agent Registrations</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadPendingRegistrations()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="pending-registrations-list">
+                    <!-- Pending registrations will be populated by JavaScript -->
+                </div>
+                <div class="agent-info-banner" style="margin-top: 15px; padding: 12px; background: rgba(255,200,0,0.1); border-radius: 8px; border: 1px solid rgba(255,200,0,0.3);">
+                    <p style="margin: 0; color: #999; font-size: 0.9rem;">
+                        <span style="color: #ffc800;">&#9888;</span>
+                        Agents using discovery mode will appear here waiting for approval. Review the hostname and approve to issue authentication tokens.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <!-- Job Submission Section -->
         <div class="advanced-section">
             <div class="advanced-section-header">
@@ -334,6 +354,7 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadAgentsFromServer();
+            loadPendingRegistrations();
             loadJobTemplates();
             loadWordlistsForDropdown();
             loadRulesForDropdown();
@@ -951,6 +972,139 @@
 
         async function refreshAllAgents() {
             await loadAgentsFromServer();
+        }
+
+        // ============================================================
+        // Pending Registrations Functions
+        // ============================================================
+
+        async function loadPendingRegistrations() {
+            log('Loading pending registrations...', 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/pending');
+                if (response.ok) {
+                    const data = await response.json();
+                    const pending = data.pending || [];
+                    log(`Found ${pending.length} pending registration(s)`, 'info');
+                    renderPendingRegistrations(pending);
+                } else {
+                    log('Failed to load pending registrations', 'error');
+                }
+            } catch (error) {
+                log(`Error loading pending registrations: ${error.message}`, 'error');
+            }
+        }
+
+        function renderPendingRegistrations(pending) {
+            const container = document.getElementById('pending-registrations-list');
+            const section = document.getElementById('pending-registrations-section');
+
+            if (pending.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = 'block';
+
+            container.innerHTML = pending.map(reg => `
+                <div class="pending-registration-card" style="background: rgba(255,200,0,0.08); border: 1px solid rgba(255,200,0,0.3); border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #ffc800; margin-bottom: 8px;">
+                                <span style="font-family: monospace; letter-spacing: 2px;">${reg.code}</span>
+                            </div>
+                            <div style="color: #ccc; font-size: 0.95rem; margin-bottom: 4px;">
+                                <strong>Hostname:</strong> ${reg.hostname || 'Unknown'}
+                            </div>
+                            <div style="color: #ccc; font-size: 0.95rem; margin-bottom: 4px;">
+                                <strong>Name:</strong> ${reg.name || reg.hostname || 'Unnamed'}
+                            </div>
+                            <div style="color: #888; font-size: 0.85rem;">
+                                <strong>Requested:</strong> ${formatTimestamp(reg.timestamp)}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="approveRegistration('${reg.code}')">
+                                &#10003; Approve
+                            </button>
+                            <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="rejectRegistration('${reg.code}')">
+                                &#10005; Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'Unknown';
+            const date = new Date(timestamp);
+            return date.toLocaleString();
+        }
+
+        async function approveRegistration(code) {
+            log(`Approving registration: ${code}`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/approve', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Registration approved for ${code}`, 'success');
+                    showNotification(`Agent registration approved!`, 'success');
+                    loadPendingRegistrations();
+                    // Refresh agents to show the new one
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to approve registration: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification(`Failed to approve: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error approving registration: ${error.message}`, 'error');
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function rejectRegistration(code) {
+            if (!confirm('Are you sure you want to reject this registration?')) {
+                return;
+            }
+
+            log(`Rejecting registration: ${code}`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/reject', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Registration rejected for ${code}`, 'success');
+                    showNotification(`Agent registration rejected`, 'info');
+                    loadPendingRegistrations();
+                } else {
+                    log(`Failed to reject registration: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification(`Failed to reject: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error rejecting registration: ${error.message}`, 'error');
+                showNotification(`Error: ${error.message}`, 'error');
+            }
         }
 
         function formatLastSeen(timestamp) {

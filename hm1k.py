@@ -9561,6 +9561,9 @@ _job_metadata: dict[str, dict] = {}  # job_id -> job metadata (hashcat_args, etc
 _stopped_jobs: set[str] = set()  # job_ids that have been stopped (ignore stale updates)
 # Note: _agent_sse_queues is now file-backed for multi-worker support
 
+# Pending agent registrations (registration_code -> registration info)
+_pending_registrations: dict[str, dict] = {}
+
 
 def _get_agent_data_dir() -> str:
     """Get directory for agent data persistence."""
@@ -9589,6 +9592,47 @@ def _save_agents() -> None:
             json.dump(_agent_registry, f, indent=2)
     except Exception as e:
         logging.error(f"Failed to save agents: {e}")
+
+
+def _load_pending_registrations() -> None:
+    """Load pending registrations from disk."""
+    global _pending_registrations
+    registrations_file = os.path.join(_get_agent_data_dir(), "pending_registrations.json")
+    if os.path.exists(registrations_file):
+        try:
+            with open(registrations_file, "r") as f:
+                _pending_registrations = json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to load pending registrations: {e}")
+
+
+def _save_pending_registrations() -> None:
+    """Save pending registrations to disk."""
+    registrations_file = os.path.join(_get_agent_data_dir(), "pending_registrations.json")
+    try:
+        with open(registrations_file, "w") as f:
+            json.dump(_pending_registrations, f, indent=2)
+    except Exception as e:
+        logging.error(f"Failed to save pending registrations: {e}")
+
+
+def _generate_agent_token(agent_id: str, agent_name: str) -> str:
+    """Generate a JWT token for an approved agent."""
+    import jwt
+    from datetime import datetime, timedelta
+
+    secret_key = os.getenv("SECRET_KEY")
+    if not secret_key:
+        raise ValueError("SECRET_KEY not configured")
+
+    payload = {
+        "agent_id": agent_id,
+        "name": agent_name,
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(days=365),
+    }
+
+    return jwt.encode(payload, secret_key, algorithm="HS256")
 
 
 def _get_job_metadata_file() -> str:
@@ -9793,8 +9837,207 @@ def _clear_benchmark_status(agent_id: str) -> None:
         _save_benchmark_status(all_status)
 
 
-# Load agents on module import
+# Load agents and pending registrations on module import
 _load_agents()
+_load_pending_registrations()
+
+
+# =============================================================================
+# Agent Registration API
+# =============================================================================
+
+
+@app.route("/api/agent/register", methods=["POST"])
+@csrf.exempt
+def agent_register() -> Response:
+    """
+    Agent registration endpoint.
+    Agent sends registration code and info, server stores as pending.
+    Admin must approve in the UI before agent can authenticate.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    registration_code = data.get("registration_code")
+    hostname = data.get("hostname")
+    name = data.get("name", hostname)
+
+    if not registration_code:
+        return jsonify({"error": "registration_code required"}), 400
+    if not hostname:
+        return jsonify({"error": "hostname required"}), 400
+
+    # Reload from disk for multi-worker support
+    _load_pending_registrations()
+
+    # Check if this code is already registered
+    if registration_code in _pending_registrations:
+        existing = _pending_registrations[registration_code]
+        return jsonify({
+            "status": existing.get("status", "pending"),
+            "message": "Registration already exists",
+        })
+
+    # Store pending registration
+    _pending_registrations[registration_code] = {
+        "registration_code": registration_code,
+        "hostname": hostname,
+        "name": name,
+        "ip_address": request.remote_addr or "unknown",
+        "status": "pending",
+        "created_at": datetime.now().isoformat(),
+        "agent_id": None,  # Will be set when approved
+        "token": None,  # Will be set when approved
+    }
+    _save_pending_registrations()
+
+    logging.info(f"New agent registration pending: {name} ({hostname}) with code {registration_code}")
+
+    return jsonify({
+        "status": "pending",
+        "message": "Registration pending admin approval",
+    })
+
+
+@app.route("/api/agent/register/status", methods=["GET"])
+@csrf.exempt
+def agent_register_status() -> Response:
+    """
+    Check registration status.
+    Agent polls this endpoint to see if registration was approved.
+    """
+    code = request.args.get("code")
+    if not code:
+        return jsonify({"error": "code parameter required"}), 400
+
+    # Reload from disk for multi-worker support
+    _load_pending_registrations()
+
+    if code not in _pending_registrations:
+        return jsonify({"status": "unknown", "error": "Registration not found"}), 404
+
+    registration = _pending_registrations[code]
+    status = registration.get("status", "pending")
+
+    response = {"status": status}
+
+    if status == "approved":
+        response["token"] = registration.get("token")
+        response["agent_id"] = registration.get("agent_id")
+
+    return jsonify(response)
+
+
+@app.route("/api/agent/register/pending", methods=["GET"])
+@login_required
+def get_pending_registrations() -> Response:
+    """Get list of pending agent registrations for admin approval."""
+    _load_pending_registrations()
+
+    # Filter to only pending registrations
+    pending = [
+        reg for reg in _pending_registrations.values()
+        if reg.get("status") == "pending"
+    ]
+
+    # Sort by creation time, newest first
+    pending.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    return jsonify({"pending": pending})
+
+
+@app.route("/api/agent/register/approve", methods=["POST"])
+@login_required
+def approve_registration() -> Response:
+    """Approve a pending agent registration."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    code = data.get("code")
+    if not code:
+        return jsonify({"error": "code required"}), 400
+
+    _load_pending_registrations()
+
+    if code not in _pending_registrations:
+        return jsonify({"error": "Registration not found"}), 404
+
+    registration = _pending_registrations[code]
+    if registration.get("status") != "pending":
+        return jsonify({"error": f"Registration already {registration.get('status')}"}), 400
+
+    # Generate agent ID and token
+    import uuid
+    agent_id = str(uuid.uuid4())
+    agent_name = registration.get("name", registration.get("hostname"))
+
+    try:
+        token = _generate_agent_token(agent_id, agent_name)
+    except Exception as e:
+        logging.error(f"Failed to generate token: {e}")
+        return jsonify({"error": f"Failed to generate token: {e}"}), 500
+
+    # Update registration
+    registration["status"] = "approved"
+    registration["agent_id"] = agent_id
+    registration["token"] = token
+    registration["approved_at"] = datetime.now().isoformat()
+    _save_pending_registrations()
+
+    # Pre-register the agent in the registry
+    _agent_registry[agent_id] = {
+        "id": agent_id,
+        "name": agent_name,
+        "hostname": registration.get("hostname"),
+        "first_seen": datetime.now().isoformat(),
+        "last_heartbeat": None,
+        "state": {},
+        "status": "registered",  # Not online until first heartbeat
+        "ip_address": registration.get("ip_address"),
+        "registered_via": "discovery_mode",
+    }
+    _save_agents()
+
+    logging.info(f"Agent registration approved: {agent_name} (ID: {agent_id})")
+
+    return jsonify({
+        "status": "approved",
+        "agent_id": agent_id,
+        "name": agent_name,
+    })
+
+
+@app.route("/api/agent/register/reject", methods=["POST"])
+@login_required
+def reject_registration() -> Response:
+    """Reject a pending agent registration."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    code = data.get("code")
+    if not code:
+        return jsonify({"error": "code required"}), 400
+
+    _load_pending_registrations()
+
+    if code not in _pending_registrations:
+        return jsonify({"error": "Registration not found"}), 404
+
+    registration = _pending_registrations[code]
+    if registration.get("status") != "pending":
+        return jsonify({"error": f"Registration already {registration.get('status')}"}), 400
+
+    # Update registration status
+    registration["status"] = "rejected"
+    registration["rejected_at"] = datetime.now().isoformat()
+    _save_pending_registrations()
+
+    logging.info(f"Agent registration rejected: {registration.get('name')} (code: {code})")
+
+    return jsonify({"status": "rejected"})
 
 
 @app.route("/api/agent/ping", methods=["GET"])
