@@ -10116,8 +10116,49 @@ def _pop_agent_commands(agent_id: str) -> list:
 
 
 def _get_agent(agent_id: str) -> dict | None:
-    """Get an agent's data by ID."""
-    return _agent_registry.get(agent_id)
+    """Get an agent's data by ID, with multi-worker consistency."""
+    # First check in-memory registry
+    agent = _agent_registry.get(agent_id)
+
+    # If not found in memory, try loading from shared file
+    if agent is None:
+        try:
+            agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
+            if os.path.exists(agents_file):
+                with open(agents_file, 'r') as f:
+                    all_agents = json.load(f)
+                agent = all_agents.get(agent_id)
+                # Cache it in memory for this worker
+                if agent:
+                    _agent_registry[agent_id] = agent
+        except Exception:
+            pass
+
+    if agent is None:
+        return None
+
+    # Check shared SSE connections for accurate online status
+    sse_connections = _get_sse_connections()
+    if agent_id in sse_connections:
+        # Agent has active SSE connection - mark as online
+        agent["status"] = "online"
+        agent["sse_connected"] = True
+    else:
+        # Check if we have recent heartbeat (within 2 minutes)
+        last_heartbeat = agent.get("last_heartbeat")
+        if last_heartbeat:
+            try:
+                from datetime import datetime
+                hb_time = datetime.fromisoformat(last_heartbeat)
+                age_seconds = (datetime.now() - hb_time).total_seconds()
+                if age_seconds < 120:  # 2 minutes
+                    agent["status"] = "online"
+                else:
+                    agent["status"] = "offline"
+            except Exception:
+                pass
+
+    return agent
 
 
 def _get_benchmark_status_file() -> str:
