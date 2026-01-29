@@ -1,5 +1,5 @@
 /**
- * Matrix Rain Easter Egg
+ * Matrix Rain
  * A canvas-based Matrix digital rain effect - authentic style
  */
 

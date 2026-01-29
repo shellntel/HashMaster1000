@@ -64,6 +64,7 @@ from app.performance_tracker import (
 )
 from app.resource_manager import ResourceManager, Resource
 from app.potfile_manager import PotfileManager
+from agent_state_db import get_agent_db, AgentStateDB
 
 # Helper function to ensure SECRET_KEY exists in .env file
 def _ensure_secret_key() -> None:
@@ -2814,22 +2815,11 @@ def system_health_detailed() -> Response:
     sse_connections = _get_sse_connections()
     connected_agents = len(sse_connections)
 
-    # Count active jobs from in-memory (jobs are tracked per-worker that receives them)
-    active_jobs = sum(
-        1 for agent in _agent_registry.values()
-        if agent.get("current_job") is not None
-    )
-
-    # Get total registered agents from file for consistency
-    total_agents = len(_agent_registry)
-    try:
-        agents_file = os.path.join(os.path.dirname(__file__), "data", "agents", "agents.json")
-        if os.path.exists(agents_file):
-            with open(agents_file, 'r') as f:
-                file_agents = json.load(f)
-                total_agents = len(file_agents)
-    except Exception:
-        pass
+    # Get agent stats from database
+    db = _get_db()
+    agent_stats = db.get_agent_stats()
+    total_agents = agent_stats['total_agents']
+    active_jobs = agent_stats['active_jobs']
 
     # Get potfile stats if available (use cached count to avoid slow load)
     potfile_count = 0
@@ -9889,16 +9879,13 @@ def job_manager_page() -> str:
 # Hashcat Agent API
 # =============================================================================
 
-# In-memory agent registry (will be replaced with database storage later)
-_agent_registry: dict[str, dict] = {}
-_agent_jobs: dict[str, dict] = {}  # agent_id -> current job info
+# In-memory caches (for performance - database is source of truth)
 _agent_benchmarks: dict[str, dict] = {}  # agent_id -> benchmark status tracking
 _job_metadata: dict[str, dict] = {}  # job_id -> job metadata (hashcat_args, etc.)
-_stopped_jobs: set[str] = set()  # job_ids that have been stopped (ignore stale updates)
-# Note: _agent_sse_queues is now file-backed for multi-worker support
 
-# Pending agent registrations (registration_code -> registration info)
-_pending_registrations: dict[str, dict] = {}
+# Legacy compatibility - these now use the database
+_agent_registry: dict[str, dict] = {}  # Kept for SSE connection tracking only
+_pending_registrations: dict[str, dict] = {}  # Kept for backward compatibility
 
 
 def _get_agent_data_dir() -> str:
@@ -9908,48 +9895,39 @@ def _get_agent_data_dir() -> str:
     return data_dir
 
 
+def _get_db() -> AgentStateDB:
+    """Get the agent state database instance."""
+    return get_agent_db(_get_agent_data_dir())
+
+
 def _load_agents() -> None:
-    """Load agents from disk on startup."""
+    """Load agents from database (for backward compatibility)."""
     global _agent_registry
-    agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
-    if os.path.exists(agents_file):
-        try:
-            with open(agents_file, "r") as f:
-                _agent_registry = json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to load agents: {e}")
+    try:
+        _agent_registry = _get_db().get_all_agents()
+    except Exception as e:
+        logging.error(f"Failed to load agents from database: {e}")
 
 
 def _save_agents() -> None:
-    """Save agents to disk."""
-    agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
-    try:
-        with open(agents_file, "w") as f:
-            json.dump(_agent_registry, f, indent=2)
-    except Exception as e:
-        logging.error(f"Failed to save agents: {e}")
+    """Save agents - now a no-op since database handles persistence."""
+    # Database handles persistence automatically
+    pass
 
 
 def _load_pending_registrations() -> None:
-    """Load pending registrations from disk."""
+    """Load pending registrations from database."""
     global _pending_registrations
-    registrations_file = os.path.join(_get_agent_data_dir(), "pending_registrations.json")
-    if os.path.exists(registrations_file):
-        try:
-            with open(registrations_file, "r") as f:
-                _pending_registrations = json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to load pending registrations: {e}")
+    try:
+        _pending_registrations = _get_db().get_pending_registrations()
+    except Exception as e:
+        logging.error(f"Failed to load pending registrations: {e}")
 
 
 def _save_pending_registrations() -> None:
-    """Save pending registrations to disk."""
-    registrations_file = os.path.join(_get_agent_data_dir(), "pending_registrations.json")
-    try:
-        with open(registrations_file, "w") as f:
-            json.dump(_pending_registrations, f, indent=2)
-    except Exception as e:
-        logging.error(f"Failed to save pending registrations: {e}")
+    """Save pending registrations - now a no-op since database handles persistence."""
+    # Database handles persistence automatically
+    pass
 
 
 def _generate_agent_token(agent_id: str, agent_name: str) -> str:
@@ -10012,127 +9990,53 @@ def _get_job_metadata(job_id: str) -> dict:
     return _job_metadata.get(job_id, {})
 
 
-def _get_stopped_jobs_file() -> str:
-    """Get path to stopped jobs file."""
-    return os.path.join(_get_agent_data_dir(), "stopped_jobs.json")
-
-
-def _load_stopped_jobs() -> set:
-    """Load stopped jobs from disk (for multi-worker support)."""
-    global _stopped_jobs
-    stopped_file = _get_stopped_jobs_file()
-    if os.path.exists(stopped_file):
-        try:
-            with open(stopped_file, "r") as f:
-                data = json.load(f)
-                _stopped_jobs = set(data.get("job_ids", []))
-        except Exception as e:
-            logging.error(f"Failed to load stopped jobs: {e}")
-    return _stopped_jobs
-
-
-def _save_stopped_jobs() -> None:
-    """Save stopped jobs to disk."""
-    stopped_file = _get_stopped_jobs_file()
-    try:
-        with open(stopped_file, "w") as f:
-            json.dump({"job_ids": list(_stopped_jobs)}, f, indent=2)
-    except Exception as e:
-        logging.error(f"Failed to save stopped jobs: {e}")
-
-
 def _mark_job_stopped(job_id: str) -> None:
     """Mark a job as stopped to ignore future stale status updates."""
-    global _stopped_jobs
-    _load_stopped_jobs()
-    _stopped_jobs.add(job_id)
-    # Limit size to prevent unbounded growth (keep last 100)
-    if len(_stopped_jobs) > 100:
-        _stopped_jobs = set(list(_stopped_jobs)[-100:])
-    _save_stopped_jobs()
+    try:
+        _get_db().mark_job_stopped(job_id)
+    except Exception as e:
+        logging.error(f"Failed to mark job stopped: {e}")
 
 
 def _is_job_stopped(job_id: str) -> bool:
     """Check if a job has been stopped."""
-    _load_stopped_jobs()
-    return job_id in _stopped_jobs
+    try:
+        return _get_db().is_job_stopped(job_id)
+    except Exception as e:
+        logging.error(f"Failed to check if job stopped: {e}")
+        return False
 
 
+# Legacy job queue functions - kept for backward compatibility during transition
 def _get_job_queue_file() -> str:
-    """Get path to job queue file."""
+    """Get path to job queue file (legacy - no longer used)."""
     return os.path.join(_get_agent_data_dir(), "job_queue.json")
 
 
-def _load_job_queue() -> dict:
-    """Load job queue from disk (for multi-worker support)."""
-    queue_file = _get_job_queue_file()
-    if os.path.exists(queue_file):
-        try:
-            with open(queue_file, "r") as f:
-                import fcntl
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                try:
-                    return json.load(f)
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            logging.error(f"Failed to load job queue: {e}")
-    return {}
-
-
-def _save_job_queue(queue: dict) -> None:
-    """Save job queue to disk (for multi-worker support)."""
-    queue_file = _get_job_queue_file()
-    try:
-        with open(queue_file, "w") as f:
-            import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                json.dump(queue, f)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    except Exception as e:
-        logging.error(f"Failed to save job queue: {e}")
-
-
 def _queue_agent_command(agent_id: str, command: dict) -> None:
-    """Add a command to an agent's queue (file-backed for multi-worker)."""
-    queue = _load_job_queue()
-    if agent_id not in queue:
-        queue[agent_id] = []
-    queue[agent_id].append(command)
-    _save_job_queue(queue)
-    logging.info(f"Queued command for agent {agent_id}: {command.get('type')}")
+    """Add a command to an agent's queue (database-backed for multi-worker)."""
+    try:
+        _get_db().queue_command(agent_id, command)
+    except Exception as e:
+        logging.error(f"Failed to queue command: {e}")
 
 
 def _pop_agent_commands(agent_id: str) -> list:
-    """Pop all commands for an agent from the queue (file-backed)."""
-    queue = _load_job_queue()
-    commands = queue.pop(agent_id, [])
-    if commands:
-        _save_job_queue(queue)
-        logging.info(f"Delivering {len(commands)} command(s) to agent {agent_id}")
-    return commands
+    """Pop all commands for an agent from the queue (database-backed)."""
+    try:
+        return _get_db().pop_commands(agent_id)
+    except Exception as e:
+        logging.error(f"Failed to pop commands: {e}")
+        return []
 
 
 def _get_agent(agent_id: str) -> dict | None:
-    """Get an agent's data by ID, with multi-worker consistency."""
-    # First check in-memory registry
-    agent = _agent_registry.get(agent_id)
-
-    # If not found in memory, try loading from shared file
-    if agent is None:
-        try:
-            agents_file = os.path.join(_get_agent_data_dir(), "agents.json")
-            if os.path.exists(agents_file):
-                with open(agents_file, 'r') as f:
-                    all_agents = json.load(f)
-                agent = all_agents.get(agent_id)
-                # Cache it in memory for this worker
-                if agent:
-                    _agent_registry[agent_id] = agent
-        except Exception:
-            pass
+    """Get an agent's data by ID from database."""
+    try:
+        agent = _get_db().get_agent(agent_id)
+    except Exception as e:
+        logging.error(f"Failed to get agent from database: {e}")
+        return None
 
     if agent is None:
         return None
@@ -10148,7 +10052,6 @@ def _get_agent(agent_id: str) -> dict | None:
         last_heartbeat = agent.get("last_heartbeat")
         if last_heartbeat:
             try:
-                from datetime import datetime
                 hb_time = datetime.fromisoformat(last_heartbeat)
                 age_seconds = (datetime.now() - hb_time).total_seconds()
                 if age_seconds < 120:  # 2 minutes
@@ -10368,19 +10271,14 @@ def approve_registration() -> Response:
     registration["approved_at"] = datetime.now().isoformat()
     _save_pending_registrations()
 
-    # Pre-register the agent in the registry
-    _agent_registry[agent_id] = {
-        "id": agent_id,
-        "name": agent_name,
-        "hostname": registration.get("hostname"),
-        "first_seen": datetime.now().isoformat(),
-        "last_heartbeat": None,
-        "state": {},
-        "status": "registered",  # Not online until first heartbeat
-        "ip_address": registration.get("ip_address"),
-        "registered_via": "discovery_mode",
-    }
-    _save_agents()
+    # Pre-register the agent in the database
+    db = _get_db()
+    db.pre_register_agent(
+        agent_id=agent_id,
+        name=agent_name,
+        ip_address=registration.get("ip_address"),
+        hostname=registration.get("hostname"),
+    )
 
     logging.info(f"Agent registration approved: {agent_name} (ID: {agent_id})")
 
@@ -10430,10 +10328,13 @@ def agent_ping() -> Response:
     """
     agent_id = request.headers.get("User-Agent", "").split("/")[-1] if "hm1k-agent" in request.headers.get("User-Agent", "") else None
 
+    db = _get_db()
+    agent_recognized = db.get_agent(agent_id) is not None if agent_id else False
+
     return jsonify({
         "status": "ok",
         "version": "2.0.0",
-        "agent_recognized": agent_id in _agent_registry if agent_id else False,
+        "agent_recognized": agent_recognized,
         "server_time": datetime.now().isoformat(),
     })
 
@@ -10527,22 +10428,11 @@ def health_check() -> Response:
     sse_connections = _get_sse_connections()
     connected_agents = len(sse_connections)
 
-    # Count active jobs from in-memory
-    active_jobs = sum(
-        1 for agent in _agent_registry.values()
-        if agent.get("current_job") is not None
-    )
-
-    # Get total registered agents from file for consistency
-    total_agents = len(_agent_registry)
-    try:
-        agents_file = os.path.join(os.path.dirname(__file__), "data", "agents", "agents.json")
-        if os.path.exists(agents_file):
-            with open(agents_file, 'r') as f:
-                file_agents = json.load(f)
-                total_agents = len(file_agents)
-    except Exception:
-        pass
+    # Get agent stats from database
+    db = _get_db()
+    agent_stats = db.get_agent_stats()
+    total_agents = agent_stats['total_agents']
+    active_jobs = agent_stats['active_jobs']
 
     # Get potfile stats if available
     potfile_count = 0
@@ -10681,46 +10571,25 @@ def agent_heartbeat() -> Response:
     if not data:
         return jsonify({"error": "JSON body required"}), 400
 
-    # Reload from file to get latest state from other workers
-    # Critical: prevents stale workers from overwriting cleared current_job
-    _load_agents()
-
     agent_id = data.get("agent_id")
     if not agent_id:
         return jsonify({"error": "agent_id required"}), 400
 
     state = data.get("state", {})
 
-    # Get agent name from User-Agent header or state
-    user_agent = request.headers.get("User-Agent", "")
-
     # Get agent's IP address
     agent_ip = request.remote_addr or "unknown"
 
-    # Register or update agent
+    # Register or update agent using database
     now = datetime.now().isoformat()
-    if agent_id not in _agent_registry:
-        _agent_registry[agent_id] = {
-            "id": agent_id,
-            "name": state.get("name", f"Agent-{agent_id[:8]}"),
-            "first_seen": now,
-            "last_heartbeat": now,
-            "state": state,
-            "status": "online",
-            "ip_address": agent_ip,
-        }
-        logging.info(f"New agent registered: {agent_id} from {agent_ip}")
-    else:
-        _agent_registry[agent_id]["last_heartbeat"] = now
-        _agent_registry[agent_id]["state"] = state
-        _agent_registry[agent_id]["ip_address"] = agent_ip
-        # Preserve "working" status if agent has an active job (check file-backed current_job)
-        if _agent_registry[agent_id].get("current_job"):
-            _agent_registry[agent_id]["status"] = "working"
-        else:
-            _agent_registry[agent_id]["status"] = "online"
+    db = _get_db()
 
-    _save_agents()
+    # Try to update existing agent first (most common case)
+    if not db.update_agent_heartbeat(agent_id, state, agent_ip):
+        # Agent doesn't exist - register new agent
+        agent_name = state.get("name", f"Agent-{agent_id[:8]}")
+        db.register_new_agent(agent_id, agent_name, state, agent_ip)
+        logging.info(f"New agent registered: {agent_id} from {agent_ip}")
 
     # Update software status if provided
     software_data = data.get("software")
@@ -10767,13 +10636,14 @@ def agent_job_status() -> Response:
         logging.debug(f"Ignoring stale status update for stopped job {job_id}")
         return jsonify({"status": "ok", "ignored": True, "reason": "job_stopped"})
 
-    # Reload from file to get latest state from other workers
-    _load_agents()
+    # Get existing agent state from database
+    db = _get_db()
+    agent = db.get_agent(agent_id)
 
     # Check if this update is newer than existing (avoid progress going backwards)
     now = datetime.now()
     now_iso = now.isoformat()
-    existing_job = _agent_registry.get(agent_id, {}).get("current_job", {})
+    existing_job = agent.get("current_job", {}) if agent else {}
     if existing_job and existing_job.get("job_id") == job_id:
         # Only update if progress is higher or it's been more than 5 seconds
         existing_progress = existing_job.get("progress_percent", 0)
@@ -10793,7 +10663,7 @@ def agent_job_status() -> Response:
                 pass  # Can't parse timestamp, accept update
 
     # Store job status
-    _agent_jobs[agent_id] = {
+    job_data = {
         "job_id": job_id,
         "status": data.get("status"),
         "progress_percent": data.get("progress_percent", 0),
@@ -10806,11 +10676,12 @@ def agent_job_status() -> Response:
         "updated_at": now_iso,
     }
 
-    # Update agent state and persist to file
-    if agent_id in _agent_registry:
-        _agent_registry[agent_id]["current_job"] = _agent_jobs[agent_id]
-        _agent_registry[agent_id]["status"] = "working"
-        _save_agents()
+    # Update in-memory cache for fast access
+    _agent_jobs[agent_id] = job_data
+
+    # Update agent state in database
+    if agent:
+        db.set_agent_job(agent_id, job_data)
 
     return jsonify({"status": "ok"})
 
@@ -10829,9 +10700,6 @@ def agent_job_complete() -> Response:
     data = request.get_json()
     if not data:
         return jsonify({"error": "JSON body required"}), 400
-
-    # Reload from file to get latest state from other workers
-    _load_agents()
 
     agent_id = data.get("agent_id")
     job_id = data.get("job_id")
@@ -10986,10 +10854,7 @@ def agent_job_complete() -> Response:
     # Clear agent's current job
     if agent_id in _agent_jobs:
         del _agent_jobs[agent_id]
-    if agent_id in _agent_registry:
-        _agent_registry[agent_id].pop("current_job", None)
-        _agent_registry[agent_id]["status"] = "online"
-        _save_agents()
+    _get_db().set_agent_job(agent_id, None)
 
     return jsonify({"status": "ok"})
 
@@ -11003,9 +10868,6 @@ def agent_job_error() -> Response:
     data = request.get_json()
     if not data:
         return jsonify({"error": "JSON body required"}), 400
-
-    # Reload from file to get latest state from other workers
-    _load_agents()
 
     agent_id = data.get("agent_id")
     job_id = data.get("job_id")
@@ -11038,10 +10900,7 @@ def agent_job_error() -> Response:
     # Clear agent's current job
     if agent_id in _agent_jobs:
         del _agent_jobs[agent_id]
-    if agent_id in _agent_registry:
-        _agent_registry[agent_id].pop("current_job", None)
-        _agent_registry[agent_id]["status"] = "online"
-        _save_agents()
+    _get_db().set_agent_job(agent_id, None)
 
     return jsonify({"status": "ok"})
 
@@ -11470,13 +11329,12 @@ def delete_agent(agent_id: str) -> Response:
     This removes all agent data including connection info and job history.
     Only administrators can delete agents.
     """
-    # Reload from file to get latest state
-    _load_agents()
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
 
-    if agent_id not in _agent_registry:
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
-    agent_data = _agent_registry[agent_id]
     agent_name = agent_data.get("name", f"Agent-{agent_id[:8]}")
 
     # Don't allow deleting agents that are currently online/working
@@ -11487,9 +11345,8 @@ def delete_agent(agent_id: str) -> Response:
                      "Stop the agent first or wait for it to go offline."
         }), 400
 
-    # Remove from registry
-    del _agent_registry[agent_id]
-    _save_agents()
+    # Remove from database
+    db.delete_agent(agent_id)
 
     logging.info(f"Agent deleted: {agent_name} ({agent_id})")
 
@@ -11520,10 +11377,12 @@ def verify_agent_resources(agent_id: str) -> Response:
             "all_accessible": true/false
         }
     """
-    if agent_id not in _agent_registry:
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
+
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
-    agent_data = _agent_registry[agent_id]
     if agent_data.get("status") != "online":
         return jsonify({"error": "Agent is offline"}), 400
 
@@ -11599,7 +11458,8 @@ def assign_job_to_agent(agent_id: str) -> Response:
     - Saves mapping for later result correlation
     - Sends only unique halves to the agent
     """
-    if agent_id not in _agent_registry:
+    db = _get_db()
+    if not db.get_agent(agent_id):
         return jsonify({"error": "Agent not found"}), 404
 
     data = request.get_json()
@@ -11717,19 +11577,19 @@ def stop_agent_job(agent_id: str) -> Response:
     """
     Stop the current job on an agent.
     """
-    # Reload from file to get latest state from other workers
-    _load_agents()
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
 
-    if agent_id not in _agent_registry:
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
     data = request.get_json() or {}
     job_id = data.get("job_id")
     reason = data.get("reason", "Stopped by server")
 
-    # If no job_id specified, get from file-backed current_job
+    # If no job_id specified, get from database current_job
     if not job_id:
-        current_job = _agent_registry[agent_id].get("current_job")
+        current_job = agent_data.get("current_job")
         if current_job:
             job_id = current_job.get("job_id")
 
@@ -11739,17 +11599,14 @@ def stop_agent_job(agent_id: str) -> Response:
     # Mark job as stopped to ignore future stale status updates from agent
     _mark_job_stopped(job_id)
 
-    # Clear current_job from registry immediately
-    if agent_id in _agent_registry:
-        _agent_registry[agent_id].pop("current_job", None)
-        _agent_registry[agent_id]["status"] = "online"
-        _save_agents()
+    # Clear current_job from database immediately
+    db.set_agent_job(agent_id, None)
 
     # Also clear from in-memory jobs
     if agent_id in _agent_jobs:
         del _agent_jobs[agent_id]
 
-    # Queue the stop event (file-backed for multi-worker)
+    # Queue the stop event (database-backed for multi-worker)
     _queue_agent_command(agent_id, {
         "type": "job:stop",
         "data": {
@@ -11767,25 +11624,25 @@ def pause_agent_job(agent_id: str) -> Response:
     """
     Pause the current job on an agent.
     """
-    # Reload from file to get latest state from other workers
-    _load_agents()
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
 
-    if agent_id not in _agent_registry:
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
     data = request.get_json() or {}
     job_id = data.get("job_id")
 
-    # If no job_id specified, get from file-backed current_job
+    # If no job_id specified, get from database current_job
     if not job_id:
-        current_job = _agent_registry[agent_id].get("current_job")
+        current_job = agent_data.get("current_job")
         if current_job:
             job_id = current_job.get("job_id")
 
     if not job_id:
         return jsonify({"error": "No active job to pause"}), 400
 
-    # Queue the pause event (file-backed for multi-worker)
+    # Queue the pause event (database-backed for multi-worker)
     _queue_agent_command(agent_id, {
         "type": "job:pause",
         "data": {
@@ -11829,7 +11686,8 @@ def create_lm_ntlm_workflow() -> Response:
     if not pwdump_content:
         return jsonify({"error": "pwdump_content required"}), 400
 
-    if agent_id not in _agent_registry:
+    db = _get_db()
+    if not db.get_agent(agent_id):
         return jsonify({"error": "Agent not found"}), 404
 
     try:
@@ -12318,14 +12176,16 @@ def trigger_agent_benchmark(agent_id: str) -> Response:
     Optional JSON body:
         - hash_modes: List of hash modes to benchmark (default: recommended modes)
     """
-    if agent_id not in _agent_registry:
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
+
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
-    agent_data = _agent_registry[agent_id]
     if agent_data.get("status") != "online":
         return jsonify({"error": "Agent is offline"}), 400
 
-    # Check if agent has a current job (use file-backed current_job)
+    # Check if agent has a current job
     if agent_data.get("current_job"):
         return jsonify({"error": "Agent is busy with a job"}), 400
 
@@ -12805,10 +12665,10 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
         "requires_confirmation": true     // True if warning present and force=false
     }
     """
-    # Reload agents to get latest state
-    _load_agents()
+    db = _get_db()
+    agent_data = db.get_agent(agent_id)
 
-    if agent_id not in _agent_registry:
+    if not agent_data:
         return jsonify({"error": "Agent not found"}), 404
 
     data = request.get_json() or {}
@@ -12845,8 +12705,7 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
 
     total_size_gb = total_size_bytes / (1024 ** 3)
 
-    # Get agent's available disk space
-    agent_data = _agent_registry[agent_id]
+    # Get agent's available disk space (agent_data already loaded from database above)
     hardware = agent_data.get("state", {}).get("hardware", {})
     disk_info = hardware.get("disk", [])
 
@@ -12919,10 +12778,8 @@ def clean_agent_resources(agent_id: str) -> Response:
         "message": "Cleanup command sent to agent"
     }
     """
-    # Reload agents to get latest state
-    _load_agents()
-
-    if agent_id not in _agent_registry:
+    db = _get_db()
+    if not db.get_agent(agent_id):
         return jsonify({"error": "Agent not found"}), 404
 
     # Get all valid resource IDs from server
@@ -13505,13 +13362,12 @@ def download_agent_wheel() -> Response:
 def trigger_agent_update(agent_id: str) -> Response:
     """Trigger an agent to update itself to the latest version."""
     try:
-        # Reload agents from file
-        _load_agents()
+        db = _get_db()
+        agent = db.get_agent(agent_id)
 
-        if agent_id not in _agent_registry:
+        if not agent:
             return jsonify({"error": "Agent not found"}), 404
 
-        agent = _agent_registry[agent_id]
         if agent.get("status") not in ("online", "idle"):
             return jsonify({"error": "Agent is not online"}), 400
 
