@@ -11387,6 +11387,7 @@ def list_agents() -> Response:
                 manager = _get_resource_manager()
                 server_resources = []
                 total_size_mb = 0
+                by_type = {"wordlists": 0, "rules": 0, "masks": 0}
                 for resource_type in ["wordlists", "rules", "masks"]:
                     for r in manager.list_resources(resource_type):
                         size_mb = r.size_bytes / 1024 / 1024
@@ -11397,15 +11398,23 @@ def list_agents() -> Response:
                             "size_mb": size_mb,
                         })
                         total_size_mb += size_mb
+                        by_type[resource_type] += 1
                 cached_resources = server_resources
                 resources_info = {
                     "cache_size_mb": total_size_mb,
                     "cached_count": len(server_resources),
+                    "by_type": by_type,
                     "cached": server_resources,
                     "is_server_resources": True,  # Flag to indicate these are server resources
                 }
             except Exception as e:
                 logging.warning(f"Failed to get server resources for local agent: {e}")
+
+        # Get software info (hashcat version)
+        software_info = state.get("software", {})
+        hashcat_versions = software_info.get("hashcat_versions", [])
+        current_hashcat = next((h for h in hashcat_versions if h.get("is_current")), None)
+        hashcat_version = current_hashcat.get("version") if current_hashcat else None
 
         agents.append({
             "id": agent_id,
@@ -11419,9 +11428,11 @@ def list_agents() -> Response:
             "ip_address": agent_ip,
             "is_local": is_local,
             "version": state.get("version"),
+            "hashcat_version": hashcat_version,
             "resources": {
                 "cache_size_mb": resources_info.get("cache_size_mb", 0),
                 "cached_count": resources_info.get("cached_count", 0),
+                "by_type": resources_info.get("by_type", {}),
                 "cached": cached_resources,
                 "is_server_resources": resources_info.get("is_server_resources", False),
             },

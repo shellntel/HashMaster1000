@@ -653,6 +653,11 @@ class Agent:
             "resources": {
                 "cache_size_mb": self.resource_cache.cache_size_mb,
                 "cached_count": len(self.resource_cache.cached_resources),
+                "by_type": {
+                    "wordlists": len([r for r in self.resource_cache.cached_resources if r.resource_type == "wordlists"]),
+                    "rules": len([r for r in self.resource_cache.cached_resources if r.resource_type == "rules"]),
+                    "masks": len([r for r in self.resource_cache.cached_resources if r.resource_type == "masks"]),
+                },
                 "cached": [
                     {
                         "resource_id": r.resource_id,

@@ -679,16 +679,24 @@
                             ` : ''}
                         </div>
                     ` : ''}
-                    ${agent.resources && agent.resources.cached_count > 0 ? `
+                    ${agent.resources && agent.resources.cached_count > 0 || agent.hashcat_version ? `
                         <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; color: #00d4ff;">
-                                <span>${agent.resources.is_server_resources ? '&#128279; Available Resources' : '&#128230; Cached Resources'}</span>
-                                <span>${agent.resources.cached_count} (${(agent.resources.cache_size_mb / 1024).toFixed(1)} GB)</span>
-                            </div>
-                            <div class="cached-resources-list" style="max-height: 80px; overflow-y: auto; color: #999; font-size: 0.75rem;">
-                                ${agent.resources.cached.slice(0, 5).map(r => `<div style="display: flex; justify-content: space-between; padding: 2px 0;"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;" title="${r.name}">${r.name}</span><span style="color: #666;">${r.size_mb >= 1024 ? (r.size_mb/1024).toFixed(1) + ' GB' : r.size_mb.toFixed(0) + ' MB'}</span></div>`).join('')}
-                                ${agent.resources.cached_count > 5 ? `<div style="color: #666; font-style: italic;">...and ${agent.resources.cached_count - 5} more</div>` : ''}
-                            </div>
+                            ${agent.resources && agent.resources.cached_count > 0 ? `
+                                <div style="display: flex; justify-content: space-between; color: #999;">
+                                    <span>${agent.resources.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists:</span>
+                                    <span style="color: #00d4ff;">${agent.resources.by_type?.wordlists || agent.resources.cached_count} (${(agent.resources.cache_size_mb / 1024).toFixed(1)} GB)</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; color: #999;">
+                                    <span>&#128220; Rules:</span>
+                                    <span style="color: #00d4ff;">${agent.resources.by_type?.rules || 0}</span>
+                                </div>
+                            ` : ''}
+                            ${agent.hashcat_version ? `
+                                <div style="display: flex; justify-content: space-between; color: #999;">
+                                    <span>&#9881; Hashcat:</span>
+                                    <span style="color: #00d4ff;">${agent.hashcat_version}</span>
+                                </div>
+                            ` : ''}
                         </div>
                     ` : ''}
                     ${job ? `
