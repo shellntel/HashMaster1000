@@ -427,6 +427,69 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+
+# Ring buffer log handler for in-memory log viewing
+class RingBufferLogHandler(logging.Handler):
+    """Custom logging handler that stores log entries in a ring buffer."""
+
+    def __init__(self, capacity: int = 1000):
+        super().__init__()
+        self.capacity = capacity
+        self.buffer: list[dict] = []
+        self._lock = __import__('threading').Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Add a log record to the buffer."""
+        try:
+            entry = {
+                'timestamp': datetime.fromtimestamp(record.created).isoformat(),
+                'level': record.levelname,
+                'logger': record.name,
+                'message': self.format(record),
+                'module': record.module,
+                'funcName': record.funcName,
+                'lineno': record.lineno,
+            }
+            with self._lock:
+                self.buffer.append(entry)
+                if len(self.buffer) > self.capacity:
+                    self.buffer = self.buffer[-self.capacity:]
+        except Exception:
+            self.handleError(record)
+
+    def get_logs(self, limit: int = 500, level: str | None = None,
+                 search: str | None = None) -> list[dict]:
+        """Get log entries with optional filtering."""
+        with self._lock:
+            logs = list(self.buffer)
+
+        # Filter by level if specified
+        if level:
+            level = level.upper()
+            logs = [log for log in logs if log['level'] == level]
+
+        # Filter by search term if specified
+        if search:
+            search_lower = search.lower()
+            logs = [log for log in logs
+                    if search_lower in log['message'].lower()
+                    or search_lower in log.get('logger', '').lower()]
+
+        # Return most recent entries
+        return logs[-limit:][::-1]  # Reverse to show newest first
+
+    def clear(self) -> None:
+        """Clear all log entries."""
+        with self._lock:
+            self.buffer.clear()
+
+
+# Create and register the log buffer handler
+_log_buffer_handler = RingBufferLogHandler(capacity=2000)
+_log_buffer_handler.setLevel(logging.DEBUG)
+_log_buffer_handler.setFormatter(logging.Formatter('%(message)s'))
+logging.getLogger().addHandler(_log_buffer_handler)
+
 # Validate and set SECRET_KEY immediately - required for WSGI imports
 # The _ensure_secret_key() function should have already generated one if missing
 _secret_key = os.getenv("SECRET_KEY")
@@ -459,7 +522,7 @@ def is_history_account(username: str | None) -> bool:
 ADVANCED_MODE_PATHS = {
     '/hidden', '/hiddenpages', '/api/ai/report/test', '/api/ai/benchmark',
     '/api/ai/servers/manage', '/hibp/download', '/timing/stats', '/agents/jobs',
-    '/agents/wordlists', '/agents/rules', '/users', '/users/create'
+    '/agents/wordlists', '/agents/rules', '/users', '/users/create', '/system/logs'
 }
 
 
@@ -2629,6 +2692,47 @@ def system_health_detailed() -> Response:
         "requests": _get_active_requests_summary(),
         "server_time": datetime.now().isoformat(),
     })
+
+
+@app.route("/system/logs")
+@login_required
+def system_logs_page() -> str:
+    """System logs viewer page."""
+    return render_template('system_logs.html', return_url=get_advanced_mode_return_url())
+
+
+@app.route("/api/system/logs")
+@login_required
+def api_system_logs() -> Response:
+    """
+    Get application logs from the ring buffer.
+
+    Query params:
+        - limit: Maximum number of entries to return (default: 500, max: 2000)
+        - level: Filter by log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        - search: Filter by search term in message or logger name
+    """
+    limit = min(int(request.args.get('limit', 500)), 2000)
+    level = request.args.get('level')
+    search = request.args.get('search')
+
+    logs = _log_buffer_handler.get_logs(limit=limit, level=level, search=search)
+
+    return jsonify({
+        "logs": logs,
+        "total_buffered": len(_log_buffer_handler.buffer),
+        "capacity": _log_buffer_handler.capacity,
+        "filtered_count": len(logs),
+    })
+
+
+@app.route("/api/system/logs/clear", methods=["POST"])
+@login_required
+def api_system_logs_clear() -> Response:
+    """Clear all buffered logs."""
+    _log_buffer_handler.clear()
+    logging.info("Log buffer cleared by user")
+    return jsonify({"success": True, "message": "Log buffer cleared"})
 
 
 @app.route("/api/timing/status")
@@ -9782,6 +9886,11 @@ def _pop_agent_commands(agent_id: str) -> list:
         _save_job_queue(queue)
         logging.info(f"Delivering {len(commands)} command(s) to agent {agent_id}")
     return commands
+
+
+def _get_agent(agent_id: str) -> dict | None:
+    """Get an agent's data by ID."""
+    return _agent_registry.get(agent_id)
 
 
 def _get_benchmark_status_file() -> str:

@@ -15055,3 +15055,144 @@ body.matrix-mode .matrix-trigger {
 .agent-version.not-installed {
     color: #888;
 }
+
+/* ==============================================
+   System Logs Viewer Styles
+   ============================================== */
+
+.logs-controls {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.logs-controls label {
+    color: #888;
+    font-size: 0.9rem;
+}
+
+.logs-controls select,
+.logs-controls input[type="text"] {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.logs-controls input[type="text"] {
+    width: 200px;
+}
+
+.logs-controls select:focus,
+.logs-controls input[type="text"]:focus {
+    border-color: #00ff66;
+    outline: none;
+}
+
+.logs-stats {
+    margin-left: auto;
+    color: #666;
+    font-size: 0.85rem;
+}
+
+.log-container {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.log-entry {
+    padding: 8px 15px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: grid;
+    grid-template-columns: 180px 70px 1fr;
+    gap: 15px;
+    align-items: start;
+}
+
+.log-entry:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-timestamp {
+    color: #666;
+    white-space: nowrap;
+}
+
+.log-level {
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-align: center;
+}
+
+.log-level.DEBUG {
+    color: #888;
+    background: rgba(136, 136, 136, 0.2);
+}
+
+.log-level.INFO {
+    color: #00ff66;
+    background: rgba(0, 255, 102, 0.15);
+}
+
+.log-level.WARNING {
+    color: #ffcc00;
+    background: rgba(255, 204, 0, 0.15);
+}
+
+.log-level.ERROR {
+    color: #ff4444;
+    background: rgba(255, 68, 68, 0.15);
+}
+
+.log-level.CRITICAL {
+    color: #ff0066;
+    background: rgba(255, 0, 102, 0.2);
+}
+
+.log-message {
+    color: #ccc;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.log-no-data {
+    padding: 40px;
+    text-align: center;
+    color: #666;
+}
+
+.btn-danger {
+    background: transparent;
+    color: #ff4444;
+    border: 1px solid #ff4444;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.btn-danger:hover {
+    background: #ff4444;
+    color: #000;
+}

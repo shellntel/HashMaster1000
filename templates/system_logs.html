@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>HM1K - System Logs</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">System Logs</h1>
+                <p class="advanced-subtitle">Real-time application log viewer</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Advanced Mode Active
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
+            <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
+            <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
+            <a href="/hibp/download" class="advanced-nav-link">HIBP Download</a>
+            <a href="/timing/stats" class="advanced-nav-link">Timing Stats</a>
+            <a href="/system/health" class="advanced-nav-link">System Health</a>
+            <a href="/system/logs" class="advanced-nav-link active">Logs</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Controls -->
+        <div class="logs-controls">
+            <div>
+                <label for="log-level">Level:</label>
+                <select id="log-level" onchange="loadLogs()">
+                    <option value="">All Levels</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+            <div>
+                <label for="log-search">Search:</label>
+                <input type="text" id="log-search" placeholder="Filter logs..." onkeyup="debounceSearch()">
+            </div>
+            <div>
+                <label for="log-limit">Show:</label>
+                <select id="log-limit" onchange="loadLogs()">
+                    <option value="100">100 entries</option>
+                    <option value="250">250 entries</option>
+                    <option value="500" selected>500 entries</option>
+                    <option value="1000">1000 entries</option>
+                </select>
+            </div>
+            <div>
+                <label for="refresh-interval">Auto-refresh:</label>
+                <select id="refresh-interval" onchange="setRefreshInterval(this.value)">
+                    <option value="0">Off</option>
+                    <option value="5" selected>5 seconds</option>
+                    <option value="10">10 seconds</option>
+                    <option value="30">30 seconds</option>
+                </select>
+            </div>
+            <button class="timing-refresh-btn" onclick="loadLogs()">Refresh Now</button>
+            <button class="btn-danger" onclick="clearLogs()">Clear Logs</button>
+            <div class="logs-stats" id="logsStats"></div>
+        </div>
+
+        <!-- Logs Container -->
+        <div class="log-container" id="logContainer">
+            <div class="log-no-data">Loading logs...</div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval = null;
+        let searchTimeout = null;
+
+        function formatTimestamp(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleString('en-US', {
+                month: 'short',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function loadLogs() {
+            const level = document.getElementById('log-level').value;
+            const search = document.getElementById('log-search').value;
+            const limit = document.getElementById('log-limit').value;
+
+            const params = new URLSearchParams();
+            params.set('limit', limit);
+            if (level) params.set('level', level);
+            if (search) params.set('search', search);
+
+            try {
+                const response = await fetch('/api/system/logs?' + params.toString());
+                if (!response.ok) throw new Error('Failed to load logs');
+
+                const data = await response.json();
+                renderLogs(data);
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('logContainer').innerHTML =
+                    '<div class="log-no-data">Error loading logs: ' + escapeHtml(error.message) + '</div>';
+            }
+        }
+
+        function renderLogs(data) {
+            const container = document.getElementById('logContainer');
+            const stats = document.getElementById('logsStats');
+
+            stats.textContent = `Showing ${data.filtered_count} of ${data.total_buffered} buffered (capacity: ${data.capacity})`;
+
+            if (!data.logs || data.logs.length === 0) {
+                container.innerHTML = '<div class="log-no-data">No log entries found</div>';
+                return;
+            }
+
+            const html = data.logs.map(log => `
+                <div class="log-entry">
+                    <span class="log-timestamp">${formatTimestamp(log.timestamp)}</span>
+                    <span class="log-level ${log.level}">${log.level}</span>
+                    <span class="log-message">${escapeHtml(log.message)}</span>
+                </div>
+            `).join('');
+
+            container.innerHTML = html;
+        }
+
+        function debounceSearch() {
+            if (searchTimeout) clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(loadLogs, 300);
+        }
+
+        function setRefreshInterval(seconds) {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+
+            if (seconds > 0) {
+                refreshInterval = setInterval(loadLogs, seconds * 1000);
+            }
+        }
+
+        async function clearLogs() {
+            if (!confirm('Are you sure you want to clear all buffered logs?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/system/logs/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                    }
+                });
+
+                if (response.ok) {
+                    loadLogs();
+                } else {
+                    alert('Failed to clear logs');
+                }
+            } catch (error) {
+                console.error('Error clearing logs:', error);
+                alert('Error clearing logs: ' + error.message);
+            }
+        }
+
+        // Store the referrer for "Exit Advanced Mode" link
+        (function() {
+            const exitLink = document.querySelector('.exit-link');
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer && !referrer.includes('/hidden') && !referrer.includes('/system/')) {
+                exitLink.href = referrer;
+            }
+            if (document.referrer &&
+                !document.referrer.includes('/hidden') &&
+                !document.referrer.includes('/api/ai') &&
+                !document.referrer.includes('/hibp/') &&
+                !document.referrer.includes('/timing/') &&
+                !document.referrer.includes('/system/')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        })();
+
+        // Initial load
+        loadLogs();
+
+        // Set default refresh (5 seconds)
+        setRefreshInterval(5);
+    </script>
+</body>
+</html>
