@@ -635,6 +635,26 @@
                     `;
                 }
 
+                // Permission warning HTML
+                let permissionWarning = '';
+                const perms = agent.permissions;
+                if (perms && !perms.healthy) {
+                    const issues = perms.issues || [];
+                    const issueLabels = {
+                        'venv_not_writable': 'Cannot self-update (venv not writable)',
+                        'config_not_readable': 'Config not readable',
+                        'logs_not_writable': 'Cannot write logs',
+                        'cache_not_writable': 'Cannot cache resources'
+                    };
+                    const issueText = issues.map(i => issueLabels[i] || i).join(', ');
+                    permissionWarning = `
+                        <div class="agent-permission-warning" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
+                            <div style="color: #ef4444; margin-bottom: 4px;">&#9888; Permission Issues</div>
+                            <div style="color: #999;">${issueText}</div>
+                        </div>
+                    `;
+                }
+
                 return `
                 <div class="agent-card ${statusClass}" id="card-${agent.id}">
                     <div class="agent-header">
@@ -659,6 +679,7 @@
                         </div>
                     </div>
                     ${benchmarkWarning}
+                    ${permissionWarning}
                     ${hardware.cpu || hardware.gpu || hardware.ram ? `
                         <div class="agent-hardware">
                             ${hardware.cpu ? `<div>CPU: ${hardware.cpu}</div>` : ''}

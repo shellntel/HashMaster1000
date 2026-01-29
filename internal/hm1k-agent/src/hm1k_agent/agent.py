@@ -686,6 +686,7 @@ class Agent:
             "offline_buffer": {
                 "pending": self.offline_buffer.pending_count,
             },
+            "permissions": self._check_permissions_health(),
         }
 
     def run_benchmark(self, hash_modes: list[int] = None) -> dict:
@@ -747,6 +748,55 @@ class Agent:
         """Check if processing a job."""
         return self.job_manager.is_busy
 
+    def _check_permissions_health(self) -> dict:
+        """
+        Check file permissions for critical agent paths.
+
+        Returns:
+            Dictionary with permission health status and any issues found
+        """
+        issues = []
+
+        # Check venv writability (required for self-updates)
+        venv_path = "/opt/hm1k-agent/venv"
+        if os.path.exists(venv_path):
+            # Check if we can write to site-packages
+            site_packages = os.path.join(venv_path, "lib")
+            if os.path.exists(site_packages):
+                # Find the actual python version directory
+                try:
+                    py_dirs = [d for d in os.listdir(site_packages) if d.startswith("python")]
+                    if py_dirs:
+                        test_path = os.path.join(site_packages, py_dirs[0], "site-packages")
+                        if os.path.exists(test_path) and not os.access(test_path, os.W_OK):
+                            issues.append("venv_not_writable")
+                except Exception:
+                    pass
+
+        # Check config directory accessibility
+        config_path = "/etc/hm1k-agent"
+        if os.path.exists(config_path):
+            if not os.access(config_path, os.R_OK):
+                issues.append("config_not_readable")
+
+        # Check log directory writability
+        log_path = "/var/log/hm1k-agent"
+        if os.path.exists(log_path):
+            if not os.access(log_path, os.W_OK):
+                issues.append("logs_not_writable")
+
+        # Check cache directory writability
+        cache_path = self.config.resources.cache_dir
+        if os.path.exists(cache_path):
+            if not os.access(cache_path, os.W_OK):
+                issues.append("cache_not_writable")
+
+        return {
+            "healthy": len(issues) == 0,
+            "issues": issues,
+            "can_self_update": "venv_not_writable" not in issues,
+        }
+
     def get_status(self) -> dict:
         """
         Get comprehensive agent status.
@@ -782,4 +832,5 @@ class Agent:
             "hashcat": {
                 "binary": self.config.hashcat.binary,
             },
+            "permissions": self._check_permissions_health(),
         }
