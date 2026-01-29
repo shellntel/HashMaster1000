@@ -187,9 +187,9 @@ class InitWizard:
                 )
 
                 if "OpenCL" in result.stdout or "CUDA" in result.stdout:
-                    # Count devices
+                    # Count devices - look for "Backend Device ID #" pattern
                     lines = result.stdout.split("\n")
-                    device_lines = [l for l in lines if "Device #" in l]
+                    device_lines = [l for l in lines if "Backend Device ID #" in l]
                     console.print(f"  [green]✓[/green] Found {len(device_lines)} compute device(s)")
                 else:
                     console.print("  [yellow]![/yellow] No GPU detected - CPU-only mode")
