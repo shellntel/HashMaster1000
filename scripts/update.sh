@@ -165,14 +165,23 @@ build_agent_wheel() {
     # Activate venv to use build module
     source "$VENV_DIR/bin/activate"
 
-    # Ensure build module is installed
-    log_cmd "pip install --quiet build"
-    pip install --quiet build 2>/dev/null || true
+    # Ensure build module and hatchling backend are installed
+    log_cmd "pip install build hatchling"
+    if ! pip install --quiet build hatchling 2>&1; then
+        log_warn "Failed to install build tools"
+        deactivate
+        cd "$APP_DIR"
+        return
+    fi
+
+    # Create dist directory if needed
+    mkdir -p dist/
 
     # Build the wheel
     log_cmd "python -m build --wheel"
     local build_start=$(date +%s)
-    if python -m build --wheel --outdir dist/ 2>/dev/null; then
+    local build_output
+    if build_output=$(python -m build --wheel --outdir dist/ 2>&1); then
         local build_end=$(date +%s)
         local wheel_file=$(ls -t dist/*.whl 2>/dev/null | head -1)
         log_detail "Wheel built in $((build_end - build_start))s"
@@ -181,6 +190,7 @@ build_agent_wheel() {
         fi
     else
         log_warn "Failed to build agent wheel (non-critical)"
+        log_detail "Build output: $(echo "$build_output" | tail -3)"
     fi
 
     deactivate
