@@ -460,32 +460,49 @@ def _read_json_with_lock(filepath: str) -> dict:
         return {}
 
 
-def _write_json_with_lock(filepath: str, data: dict) -> None:
-    """Write JSON file with file locking to prevent race conditions."""
+def _write_json_with_lock(filepath: str, data: dict, timeout_ms: int = 100) -> bool:
+    """Write JSON file with file locking to prevent race conditions.
+
+    Returns True if write succeeded, False if lock couldn't be acquired.
+    """
     # Use a lock file to coordinate between processes
     lockfile = filepath + '.lock'
-    with open(lockfile, 'w') as lock:
-        if _HAS_FCNTL:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)  # Exclusive lock for writing
-        try:
-            # Re-read the file under lock to get latest data
-            existing = {}
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, 'r') as f:
-                        existing = json.load(f)
-                except (json.JSONDecodeError, ValueError):
-                    existing = {}
-            # Merge the new data with existing
-            existing.update(data)
-            # Write atomically using temp file
-            tmpfile = filepath + '.tmp'
-            with open(tmpfile, 'w') as f:
-                json.dump(existing, f)
-            os.replace(tmpfile, filepath)
-        finally:
+    try:
+        with open(lockfile, 'w') as lock:
             if _HAS_FCNTL:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                # Use non-blocking lock with retry
+                import time as _time
+                start = _time.monotonic()
+                while True:
+                    try:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if (_time.monotonic() - start) * 1000 > timeout_ms:
+                            return False
+                        _time.sleep(0.01)  # 10ms retry interval
+            try:
+                # Re-read the file under lock to get latest data
+                existing = {}
+                if os.path.exists(filepath):
+                    try:
+                        with open(filepath, 'r') as f:
+                            existing = json.load(f)
+                    except (json.JSONDecodeError, ValueError):
+                        existing = {}
+                # Merge the new data with existing
+                existing.update(data)
+                # Write atomically using temp file
+                tmpfile = filepath + '.tmp'
+                with open(tmpfile, 'w') as f:
+                    json.dump(existing, f)
+                os.replace(tmpfile, filepath)
+                return True
+            finally:
+                if _HAS_FCNTL:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        return False
 
 
 def _track_sse_connection(agent_id: str, connected: bool) -> None:
@@ -495,7 +512,11 @@ def _track_sse_connection(agent_id: str, connected: bool) -> None:
     try:
         with open(lockfile, 'w') as lock:
             if _HAS_FCNTL:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                # Use non-blocking lock - skip if can't acquire immediately
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return
             try:
                 connections = {}
                 if os.path.exists(filepath):
@@ -549,7 +570,12 @@ def _track_user_activity_shared(username: str) -> None:
     try:
         with open(lockfile, 'w') as lock:
             if _HAS_FCNTL:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                # Use non-blocking lock - skip if can't acquire immediately
+                try:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    # Another process has the lock, skip this update
+                    return
             try:
                 activity = {}
                 if os.path.exists(filepath):

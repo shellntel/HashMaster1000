@@ -537,14 +537,22 @@ class AgentStateDB:
             self._local.conn = None
 
 
-# Global instance
+# Global instance with thread-safe initialization
 _db: Optional[AgentStateDB] = None
+_db_lock = threading.Lock()
 
 
 def get_agent_db(data_dir: str = None) -> AgentStateDB:
-    """Get or create the global AgentStateDB instance."""
+    """Get or create the global AgentStateDB instance (thread-safe)."""
     global _db
-    if _db is None:
+    if _db is not None:
+        return _db
+
+    with _db_lock:
+        # Double-check after acquiring lock
+        if _db is not None:
+            return _db
+
         if data_dir is None:
             raise ValueError("data_dir must be provided on first call")
         db_path = os.path.join(data_dir, 'agent_state.db')
