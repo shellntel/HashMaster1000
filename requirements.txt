@@ -13,3 +13,4 @@ aiohttp
 gunicorn; sys_platform != 'win32'
 flask-compress
 zstandard
+pyjwt
