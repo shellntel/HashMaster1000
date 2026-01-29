@@ -1012,7 +1012,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                         <div>
                             <div style="font-size: 1.1rem; font-weight: 600; color: #ffc800; margin-bottom: 8px;">
-                                <span style="font-family: monospace; letter-spacing: 2px;">${reg.code}</span>
+                                <span style="font-family: monospace; letter-spacing: 2px;">${reg.registration_code}</span>
                             </div>
                             <div style="color: #ccc; font-size: 0.95rem; margin-bottom: 4px;">
                                 <strong>Hostname:</strong> ${reg.hostname || 'Unknown'}
@@ -1021,14 +1021,14 @@
                                 <strong>Name:</strong> ${reg.name || reg.hostname || 'Unnamed'}
                             </div>
                             <div style="color: #888; font-size: 0.85rem;">
-                                <strong>Requested:</strong> ${formatTimestamp(reg.timestamp)}
+                                <strong>Requested:</strong> ${formatTimestamp(reg.created_at)}
                             </div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="approveRegistration('${reg.code}')">
+                            <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="approveRegistration('${reg.registration_code}')">
                                 &#10003; Approve
                             </button>
-                            <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="rejectRegistration('${reg.code}')">
+                            <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="rejectRegistration('${reg.registration_code}')"
                                 &#10005; Reject
                             </button>
                         </div>
