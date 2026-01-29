@@ -12906,6 +12906,48 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
     })
 
 
+@app.route("/api/agent/<agent_id>/clean-resources", methods=["POST"])
+@login_required
+def clean_agent_resources(agent_id: str) -> Response:
+    """
+    Remove stale resources from an agent that no longer exist on the server.
+
+    Response:
+    {
+        "success": true,
+        "valid_resource_count": 50,
+        "message": "Cleanup command sent to agent"
+    }
+    """
+    # Reload agents to get latest state
+    _load_agents()
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    # Get all valid resource IDs from server
+    manager = _get_resource_manager()
+    valid_ids = []
+
+    for resource_type in ["wordlists", "rules", "masks"]:
+        resources = manager.list_resources(resource_type=resource_type)
+        valid_ids.extend([r.resource_id for r in resources])
+
+    # Queue resource clean command to agent
+    _queue_agent_command(agent_id, {
+        "type": "resource:clean",
+        "data": {
+            "valid_resource_ids": valid_ids,
+        }
+    })
+
+    return jsonify({
+        "success": True,
+        "valid_resource_count": len(valid_ids),
+        "message": "Cleanup command sent to agent",
+    })
+
+
 @app.route("/api/resources/categories", methods=["GET"])
 @login_required
 def get_resource_categories() -> Response:

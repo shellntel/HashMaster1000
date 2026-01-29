@@ -84,6 +84,7 @@ class Agent:
     def _register_event_handlers(self) -> None:
         """Register handlers for non-job SSE events."""
         self.sse.on(EventType.RESOURCE_SYNC, self._on_resource_sync)
+        self.sse.on(EventType.RESOURCE_CLEAN, self._on_resource_clean)
         self.sse.on(EventType.SOFTWARE_INSTALL, self._on_software_install)
         self.sse.on(EventType.AGENT_UPDATE, self._on_agent_update)
         self.sse.on(EventType.CONFIG_UPDATE, self._on_config_update)
@@ -96,6 +97,14 @@ class Agent:
         if resource_ids:
             logger.info(f"Syncing {len(resource_ids)} resources")
             self.resource_cache.sync_resources(resource_ids)
+
+    def _on_resource_clean(self, event) -> None:
+        """Handle resource:clean event - remove stale resources not on server."""
+        valid_resource_ids = set(event.data.get("valid_resource_ids", []))
+        if valid_resource_ids:
+            logger.info(f"Cleaning resources, {len(valid_resource_ids)} valid IDs on server")
+            removed = self.resource_cache.clean_stale_resources(valid_resource_ids)
+            logger.info(f"Removed {removed} stale resources from cache")
 
     def _on_software_install(self, event) -> None:
         """Handle software:install event - install hashcat or driver."""

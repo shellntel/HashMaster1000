@@ -716,6 +716,7 @@
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
                         ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0}, ${JSON.stringify((agent.resources?.cached || []).map(r => r.resource_id)).replace(/"/g, '&quot;')})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${agent.status === 'online' && (agent.resources?.cached_count || 0) > 0 ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="cleanAgentResources('${agent.id}', '${agent.name || agent.id}')" title="Remove deleted resources from agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Clean</span></button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
                         ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
                         ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
@@ -1851,6 +1852,49 @@
             }
         }
 
+        async function cleanAgentResources(agentId, agentName) {
+            // Confirm cleanup
+            if (!confirm(`Clean stale resources from "${agentName}"?\n\nThis will remove any cached resources that no longer exist on the server.`)) {
+                return;
+            }
+
+            log(`Cleaning stale resources from ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/clean-resources`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Cleanup command sent to ${agentName}. Agent will remove any stale resources.`, 'success');
+                    // Refresh agent status after a delay
+                    setTimeout(() => loadAgentsFromServer(), 3000);
+                } else {
+                    log(`Failed to clean resources: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error cleaning resources: ${error.message}`, 'error');
+            }
+        }
+
         async function pauseJob(agentId) {
             const agent = agents.find(a => a.id === agentId);
             if (!agent) return;
@@ -2835,10 +2879,24 @@
 
         async function loadDeployCategories() {
             try {
-                const response = await fetch('/api/resources/categories');
-                const data = await response.json();
+                // Fetch wordlist categories and rules in parallel
+                const [categoriesRes, rulesRes] = await Promise.all([
+                    fetch('/api/resources/categories'),
+                    fetch('/api/resources/rules'),
+                ]);
+                const data = await categoriesRes.json();
+                const rulesData = await rulesRes.json();
                 deployModalData.categories = data;
                 renderDeployCategories(data);
+
+                // Auto-uncheck rules checkbox if all rules are already deployed
+                const allRules = rulesData.resources || [];
+                const cachedIds = deployModalData.cachedResourceIds;
+                const allRulesDeployed = allRules.length > 0 && allRules.every(r => cachedIds.has(r.resource_id));
+                const rulesCheckbox = document.getElementById('deploy-include-rules');
+                if (rulesCheckbox && allRulesDeployed) {
+                    rulesCheckbox.checked = false;
+                }
             } catch (error) {
                 document.getElementById('deploy-categories').innerHTML = `
                     <div style="color: #ef4444; padding: 20px; text-align: center;">

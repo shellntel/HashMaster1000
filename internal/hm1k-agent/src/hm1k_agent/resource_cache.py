@@ -443,6 +443,32 @@ class ResourceCache:
             if resource_id in self._resources:
                 self._evict(self._resources[resource_id])
 
+    def clean_stale_resources(self, valid_resource_ids: set[str]) -> int:
+        """
+        Remove resources that are no longer on the server.
+
+        Args:
+            valid_resource_ids: Set of resource IDs that exist on the server
+
+        Returns:
+            Number of resources removed
+        """
+        removed_count = 0
+        with self._lock:
+            # Find resources that are in cache but not on server
+            stale_ids = [
+                rid for rid in self._resources.keys()
+                if rid not in valid_resource_ids
+            ]
+
+            for rid in stale_ids:
+                resource = self._resources[rid]
+                logger.info(f"Removing stale resource: {resource.name} ({resource.resource_type})")
+                self._evict(resource)
+                removed_count += 1
+
+        return removed_count
+
     def clear(self) -> None:
         """Clear all cached resources."""
         with self._lock:
