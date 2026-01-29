@@ -13138,6 +13138,28 @@ def agent_download_software(software_type: str, package_id: str) -> Response:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/agent/cert", methods=["GET"])
+@csrf.exempt
+def get_server_certificate() -> Response:
+    """
+    Serve the server's SSL certificate for agent trust.
+
+    Agents fetch this during initialization to enable certificate verification
+    for all subsequent HTTPS communications. This endpoint is unauthenticated
+    as agents need the certificate before they can establish secure communication.
+    """
+    cert_path = os.path.join(_app_dir, "cert.pem")
+    if not os.path.exists(cert_path):
+        return jsonify({"error": "Server certificate not found"}), 404
+
+    return send_file(
+        cert_path,
+        mimetype="application/x-pem-file",
+        as_attachment=True,
+        download_name="hm1k-server.pem",
+    )
+
+
 @app.route("/api/agent/<agent_id>/software", methods=["GET"])
 @login_required
 def get_agent_software_status(agent_id: str) -> Response:

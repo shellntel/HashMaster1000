@@ -21,6 +21,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+import requests
+
 from hm1k_agent import __version__
 from hm1k_agent.config import Config, ServerConfig, AgentConfig, HashcatConfig
 from hm1k_agent.api_client import APIClient
@@ -73,6 +75,9 @@ class InitWizard:
             if not server_url:
                 return False
 
+            # Step 2b: Fetch and save server certificate for SSL verification
+            cert_path = self._fetch_server_certificate(server_url)
+
             # Step 3: Test connection and register
             token = self._register_with_server(server_url)
             if not token:
@@ -87,6 +92,7 @@ class InitWizard:
                 server_url=server_url,
                 token=token,
                 agent_name=agent_name,
+                cert_path=cert_path,
             )
 
             # Step 6: Create directories
@@ -247,6 +253,39 @@ class InitWizard:
 
             console.print()
 
+    def _fetch_server_certificate(self, server_url: str) -> Optional[str]:
+        """Fetch and save the server's SSL certificate for trusted communication."""
+        console.print("\n  Fetching server certificate for secure communication...")
+
+        cert_path = self.config_path.parent / "server.pem"
+
+        try:
+            # Fetch certificate from server (initially without verification)
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+            response = requests.get(
+                f"{server_url}/api/agent/cert",
+                verify=False,
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                # Save certificate
+                cert_path.parent.mkdir(parents=True, exist_ok=True)
+                cert_path.write_bytes(response.content)
+                console.print(f"  [green]✓[/green] Server certificate saved to {cert_path}")
+                return str(cert_path)
+            else:
+                console.print(f"  [yellow]![/yellow] Could not fetch certificate (server may not support it)")
+                console.print("  [dim]Continuing with SSL verification disabled[/dim]")
+                return None
+
+        except Exception as e:
+            console.print(f"  [yellow]![/yellow] Could not fetch certificate: {e}")
+            console.print("  [dim]Continuing with SSL verification disabled[/dim]")
+            return None
+
     def _register_with_server(self, server_url: str) -> Optional[str]:
         """Register agent with server."""
         console.print("\n[bold]Step 3:[/bold] Register with HM1K server\n")
@@ -349,6 +388,7 @@ class InitWizard:
         server_url: str,
         token: str,
         agent_name: str,
+        cert_path: Optional[str] = None,
     ) -> None:
         """Create and save configuration file."""
         console.print("[bold]Step 5:[/bold] Creating configuration\n")
@@ -357,10 +397,19 @@ class InitWizard:
         import uuid
         agent_id = str(uuid.uuid4())
 
+        # Configure SSL verification - use cert if available, otherwise disable
+        if cert_path:
+            verify_ssl = cert_path
+            console.print(f"  [green]✓[/green] SSL verification enabled with server certificate")
+        else:
+            verify_ssl = False
+            console.print(f"  [yellow]![/yellow] SSL verification disabled (self-signed cert)")
+
         self.config = Config(
             server=ServerConfig(
                 url=server_url,
                 token=token,
+                verify_ssl=verify_ssl,
             ),
             agent=AgentConfig(
                 id=agent_id,

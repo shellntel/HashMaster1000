@@ -261,6 +261,10 @@ def setup_logging(config) -> None:
     # Suppress noisy loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
+    # Suppress SSL verification warnings (agent uses verify_ssl=False for self-signed certs)
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 @main.command()
 @click.option("--foreground", "-f", is_flag=True, help="Run in foreground (don't daemonize)")

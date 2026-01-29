@@ -32,7 +32,8 @@ class ServerConfig:
 
     url: str
     token: Optional[str] = None
-    verify_ssl: bool = True
+    # verify_ssl: True (use system certs), False (disable), or path to cert file
+    verify_ssl: bool | str = True
     timeout: int = 30  # Request timeout in seconds
 
 
