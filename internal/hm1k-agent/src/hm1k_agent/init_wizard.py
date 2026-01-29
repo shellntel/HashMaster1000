@@ -426,3 +426,34 @@ def run_wizard(config_path: Optional[str] = None) -> bool:
     """
     wizard = InitWizard(config_path)
     return wizard.run()
+
+
+def run_init_wizard(
+    server_url: Optional[str] = None,
+    token: Optional[str] = None,
+    hashcat_path: Optional[str] = None,
+    interactive: bool = True,
+) -> bool:
+    """
+    Run the setup wizard with optional pre-configured values.
+
+    This is the entry point called by the CLI. Parameters can be pre-set
+    via command-line options to skip interactive prompts.
+
+    Args:
+        server_url: Pre-configured server URL (skips prompt if set)
+        token: Pre-shared authentication token (skips discovery mode if set)
+        hashcat_path: Path to hashcat binary (skips detection if set)
+        interactive: If False, fail if required values are missing
+
+    Returns:
+        True if setup completed successfully
+    """
+    # For now, use the basic interactive wizard
+    # TODO: Support non-interactive mode with pre-configured values
+    if not interactive and not all([server_url, token, hashcat_path]):
+        console.print("[red]Non-interactive mode requires --server, --token, and --hashcat[/red]")
+        return False
+
+    wizard = InitWizard()
+    return wizard.run()
