@@ -174,11 +174,12 @@ build_agent_wheel() {
         return
     fi
 
-    # Clean up dist directory (may be owned by root/service user)
-    if [[ -d "dist" ]]; then
-        sudo rm -rf dist/ 2>/dev/null || rm -rf dist/ 2>/dev/null || true
-    fi
+    # Clean up build artifacts (may be owned by root/service user)
+    sudo rm -rf dist/ build/ src/*.egg-info 2>/dev/null || true
+    rm -rf dist/ build/ src/*.egg-info 2>/dev/null || true
     mkdir -p dist/
+    # Ensure current user owns the dist directory
+    sudo chown -R $(whoami):$(whoami) . 2>/dev/null || true
 
     # Build the wheel
     log_cmd "python -m build --wheel"
@@ -277,7 +278,9 @@ show_status() {
 health_check() {
     log_step "Health check"
 
-    log_cmd "curl -sk https://127.0.0.1:8443/api/health/liveness"
+    # Use nginx (443) if available, otherwise try direct gunicorn (8443)
+    local health_url="https://127.0.0.1/api/health/liveness"
+    log_cmd "curl -sk $health_url"
 
     # Retry up to 5 times with 2 second delay to allow server to start
     local max_attempts=5
@@ -286,7 +289,7 @@ health_check() {
 
     while [[ $attempt -le $max_attempts ]]; do
         log_detail "Checking health (attempt $attempt/$max_attempts)..."
-        health_response=$(curl -sk --max-time 5 https://127.0.0.1:8443/api/health/liveness 2>&1) || true
+        health_response=$(curl -sk --max-time 5 "$health_url" 2>&1) || true
 
         if echo "$health_response" | grep -q '"status"'; then
             log_detail "Health endpoint: OK"
