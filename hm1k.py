@@ -421,74 +421,114 @@ _user_activity: dict[str, float] = {}
 
 # Configure logging to show INFO level messages
 # This ensures agent commands, benchmark status, etc. are visible in logs
+# Use file-based logging for multi-worker support
+from logging.handlers import RotatingFileHandler
+
+_LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'hm1k.log')
+_LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
+_LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+# Ensure logs directory exists
+os.makedirs(os.path.dirname(_LOG_FILE_PATH), exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATE_FORMAT
 )
 
-
-# Ring buffer log handler for in-memory log viewing
-class RingBufferLogHandler(logging.Handler):
-    """Custom logging handler that stores log entries in a ring buffer."""
-
-    def __init__(self, capacity: int = 1000):
-        super().__init__()
-        self.capacity = capacity
-        self.buffer: list[dict] = []
-        self._lock = __import__('threading').Lock()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Add a log record to the buffer."""
-        try:
-            entry = {
-                'timestamp': datetime.fromtimestamp(record.created).isoformat(),
-                'level': record.levelname,
-                'logger': record.name,
-                'message': self.format(record),
-                'module': record.module,
-                'funcName': record.funcName,
-                'lineno': record.lineno,
-            }
-            with self._lock:
-                self.buffer.append(entry)
-                if len(self.buffer) > self.capacity:
-                    self.buffer = self.buffer[-self.capacity:]
-        except Exception:
-            self.handleError(record)
-
-    def get_logs(self, limit: int = 500, level: str | None = None,
-                 search: str | None = None) -> list[dict]:
-        """Get log entries with optional filtering."""
-        with self._lock:
-            logs = list(self.buffer)
-
-        # Filter by level if specified
-        if level:
-            level = level.upper()
-            logs = [log for log in logs if log['level'] == level]
-
-        # Filter by search term if specified
-        if search:
-            search_lower = search.lower()
-            logs = [log for log in logs
-                    if search_lower in log['message'].lower()
-                    or search_lower in log.get('logger', '').lower()]
-
-        # Return most recent entries
-        return logs[-limit:][::-1]  # Reverse to show newest first
-
-    def clear(self) -> None:
-        """Clear all log entries."""
-        with self._lock:
-            self.buffer.clear()
+# Add rotating file handler for persistent logs across all workers
+_file_handler = RotatingFileHandler(
+    _LOG_FILE_PATH,
+    maxBytes=10 * 1024 * 1024,  # 10 MB per file
+    backupCount=5,  # Keep 5 backup files
+    encoding='utf-8'
+)
+_file_handler.setLevel(logging.INFO)
+_file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, _LOG_DATE_FORMAT))
+logging.getLogger().addHandler(_file_handler)
 
 
-# Create and register the log buffer handler
-_log_buffer_handler = RingBufferLogHandler(capacity=2000)
-_log_buffer_handler.setLevel(logging.DEBUG)
-_log_buffer_handler.setFormatter(logging.Formatter('%(message)s'))
-logging.getLogger().addHandler(_log_buffer_handler)
+def _read_log_file(limit: int = 500, level: str | None = None,
+                   search: str | None = None) -> tuple[list[dict], int]:
+    """
+    Read and parse log entries from the log file.
+
+    Returns:
+        Tuple of (filtered log entries, total line count in file)
+    """
+    import re
+
+    log_pattern = re.compile(
+        r'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (\w+): (.*)$'
+    )
+
+    entries = []
+    total_lines = 0
+
+    try:
+        if not os.path.exists(_LOG_FILE_PATH):
+            return [], 0
+
+        # Read file in reverse order (newest first) efficiently
+        with open(_LOG_FILE_PATH, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+
+        # Process lines in reverse (newest first)
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+
+            match = log_pattern.match(line)
+            if match:
+                timestamp_str, log_level, message = match.groups()
+
+                # Filter by level if specified
+                if level and log_level.upper() != level.upper():
+                    continue
+
+                # Filter by search term if specified
+                if search:
+                    search_lower = search.lower()
+                    if search_lower not in message.lower():
+                        continue
+
+                # Parse timestamp
+                try:
+                    timestamp = datetime.strptime(timestamp_str, _LOG_DATE_FORMAT)
+                    timestamp_iso = timestamp.isoformat()
+                except ValueError:
+                    timestamp_iso = timestamp_str
+
+                entries.append({
+                    'timestamp': timestamp_iso,
+                    'level': log_level.upper(),
+                    'message': message,
+                })
+
+                if len(entries) >= limit:
+                    break
+
+    except Exception as e:
+        logging.error(f"Error reading log file: {e}")
+
+    return entries, total_lines
+
+
+def _clear_log_file() -> bool:
+    """Clear the log file contents."""
+    try:
+        # Truncate the file
+        with open(_LOG_FILE_PATH, 'w', encoding='utf-8') as f:
+            pass
+        logging.info("Log file cleared by user")
+        return True
+    except Exception as e:
+        logging.error(f"Error clearing log file: {e}")
+        return False
 
 # Validate and set SECRET_KEY immediately - required for WSGI imports
 # The _ensure_secret_key() function should have already generated one if missing
@@ -2705,7 +2745,7 @@ def system_logs_page() -> str:
 @login_required
 def api_system_logs() -> Response:
     """
-    Get application logs from the ring buffer.
+    Get application logs from the log file.
 
     Query params:
         - limit: Maximum number of entries to return (default: 500, max: 2000)
@@ -2716,12 +2756,21 @@ def api_system_logs() -> Response:
     level = request.args.get('level')
     search = request.args.get('search')
 
-    logs = _log_buffer_handler.get_logs(limit=limit, level=level, search=search)
+    logs, total_lines = _read_log_file(limit=limit, level=level, search=search)
+
+    # Get file size info
+    file_size = 0
+    try:
+        if os.path.exists(_LOG_FILE_PATH):
+            file_size = os.path.getsize(_LOG_FILE_PATH)
+    except Exception:
+        pass
 
     return jsonify({
         "logs": logs,
-        "total_buffered": len(_log_buffer_handler.buffer),
-        "capacity": _log_buffer_handler.capacity,
+        "total_lines": total_lines,
+        "file_size_bytes": file_size,
+        "file_size_mb": round(file_size / (1024 * 1024), 2),
         "filtered_count": len(logs),
     })
 
@@ -2729,10 +2778,11 @@ def api_system_logs() -> Response:
 @app.route("/api/system/logs/clear", methods=["POST"])
 @login_required
 def api_system_logs_clear() -> Response:
-    """Clear all buffered logs."""
-    _log_buffer_handler.clear()
-    logging.info("Log buffer cleared by user")
-    return jsonify({"success": True, "message": "Log buffer cleared"})
+    """Clear the log file."""
+    if _clear_log_file():
+        return jsonify({"success": True, "message": "Log file cleared"})
+    else:
+        return jsonify({"success": False, "message": "Failed to clear log file"}), 500
 
 
 @app.route("/api/timing/status")

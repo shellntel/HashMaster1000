@@ -44,6 +44,7 @@ benchmark_results/
 # Temporary files
 *.tmp
 *.log
+logs/
 
 # Domain output file (generated)
 hm_domainoutput.json

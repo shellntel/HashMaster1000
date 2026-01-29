@@ -136,7 +136,7 @@
             const container = document.getElementById('logContainer');
             const stats = document.getElementById('logsStats');
 
-            stats.textContent = `Showing ${data.filtered_count} of ${data.total_buffered} buffered (capacity: ${data.capacity})`;
+            stats.textContent = `Showing ${data.filtered_count} of ${data.total_lines} lines (${data.file_size_mb} MB)`;
 
             if (!data.logs || data.logs.length === 0) {
                 container.innerHTML = '<div class="log-no-data">No log entries found</div>';
@@ -171,7 +171,7 @@
         }
 
         async function clearLogs() {
-            if (!confirm('Are you sure you want to clear all buffered logs?')) {
+            if (!confirm('Are you sure you want to clear the log file?')) {
                 return;
             }
 
