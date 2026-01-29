@@ -13148,7 +13148,7 @@ def get_server_certificate() -> Response:
     for all subsequent HTTPS communications. This endpoint is unauthenticated
     as agents need the certificate before they can establish secure communication.
     """
-    cert_path = os.path.join(_app_dir, "cert.pem")
+    cert_path = os.path.join(os.path.dirname(__file__), "cert.pem")
     if not os.path.exists(cert_path):
         return jsonify({"error": "Server certificate not found"}), 404
 
