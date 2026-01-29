@@ -275,17 +275,32 @@ health_check() {
     log_step "Health check"
 
     log_cmd "curl -sk https://127.0.0.1:8443/api/health/liveness"
-    local health_response=$(curl -sk --max-time 5 https://127.0.0.1:8443/api/health/liveness 2>&1)
 
-    if echo "$health_response" | grep -q '"status"'; then
-        log_detail "Health endpoint: OK"
-        echo "$health_response" | python3 -m json.tool 2>/dev/null | head -10 | while read line; do
-            echo -e "    $line"
-        done
-    else
-        log_warn "Health endpoint not responding (may still be initializing)"
-        log_detail "Response: $health_response"
-    fi
+    # Retry up to 5 times with 2 second delay to allow server to start
+    local max_attempts=5
+    local attempt=1
+    local health_response=""
+
+    while [[ $attempt -le $max_attempts ]]; do
+        health_response=$(curl -sk --max-time 5 https://127.0.0.1:8443/api/health/liveness 2>&1)
+
+        if echo "$health_response" | grep -q '"status"'; then
+            log_detail "Health endpoint: OK (attempt $attempt)"
+            echo "$health_response" | python3 -m json.tool 2>/dev/null | head -10 | while read line; do
+                echo -e "    $line"
+            done
+            return 0
+        fi
+
+        if [[ $attempt -lt $max_attempts ]]; then
+            log_detail "Waiting for server to start... (attempt $attempt/$max_attempts)"
+            sleep 2
+        fi
+        ((attempt++))
+    done
+
+    log_warn "Health endpoint not responding after $max_attempts attempts"
+    log_detail "Response: $health_response"
 }
 
 # Summary
