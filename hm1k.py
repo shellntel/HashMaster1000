@@ -419,6 +419,94 @@ _app_start_time = time.time()
 # Updated on each authenticated request via @before_request
 _user_activity: dict[str, float] = {}
 
+# File-based tracking for multi-worker consistency
+_SHARED_STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'state')
+os.makedirs(_SHARED_STATE_DIR, exist_ok=True)
+
+
+def _get_sse_connections_file() -> str:
+    """Get path to file tracking SSE connections."""
+    return os.path.join(_SHARED_STATE_DIR, 'sse_connections.json')
+
+
+def _get_user_activity_file() -> str:
+    """Get path to file tracking user activity."""
+    return os.path.join(_SHARED_STATE_DIR, 'user_activity.json')
+
+
+def _track_sse_connection(agent_id: str, connected: bool) -> None:
+    """Track SSE connection state in shared file."""
+    filepath = _get_sse_connections_file()
+    try:
+        connections = {}
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                connections = json.load(f)
+
+        if connected:
+            connections[agent_id] = {
+                'connected_at': time.time(),
+                'worker_pid': os.getpid()
+            }
+        else:
+            connections.pop(agent_id, None)
+
+        with open(filepath, 'w') as f:
+            json.dump(connections, f)
+    except Exception as e:
+        logging.warning(f"Failed to track SSE connection: {e}")
+
+
+def _get_sse_connections() -> dict[str, dict]:
+    """Get all active SSE connections from shared file."""
+    filepath = _get_sse_connections_file()
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                connections = json.load(f)
+            # Clean up stale connections (older than 2 minutes without heartbeat)
+            now = time.time()
+            active = {
+                k: v for k, v in connections.items()
+                if now - v.get('connected_at', 0) < 120
+            }
+            if len(active) != len(connections):
+                with open(filepath, 'w') as f:
+                    json.dump(active, f)
+            return active
+    except Exception as e:
+        logging.warning(f"Failed to read SSE connections: {e}")
+    return {}
+
+
+def _track_user_activity_shared(username: str) -> None:
+    """Track user activity in shared file for multi-worker consistency."""
+    filepath = _get_user_activity_file()
+    try:
+        activity = {}
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                activity = json.load(f)
+
+        activity[username] = time.time()
+
+        with open(filepath, 'w') as f:
+            json.dump(activity, f)
+    except Exception as e:
+        logging.warning(f"Failed to track user activity: {e}")
+
+
+def _get_user_activity_shared() -> dict[str, float]:
+    """Get user activity from shared file."""
+    filepath = _get_user_activity_file()
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.warning(f"Failed to read user activity: {e}")
+    return {}
+
 # Configure logging to show INFO level messages
 # This ensures agent commands, benchmark status, etc. are visible in logs
 # Use file-based logging for multi-worker support
@@ -671,6 +759,8 @@ def track_user_activity() -> None:
     """Track last activity time for authenticated users."""
     if current_user.is_authenticated:
         _user_activity[current_user.id] = time.time()
+        # Also update shared file for multi-worker consistency
+        _track_user_activity_shared(current_user.id)
 
 
 # =============================================================================
@@ -2647,17 +2737,26 @@ def system_health_detailed() -> Response:
     """
     import os
 
-    # Count connected agents
-    connected_agents = sum(
-        1 for agent in _agent_registry.values()
-        if agent.get("sse_connected", False)
-    )
+    # Count connected agents from shared file (multi-worker consistent)
+    sse_connections = _get_sse_connections()
+    connected_agents = len(sse_connections)
 
-    # Count active jobs
+    # Count active jobs from in-memory (jobs are tracked per-worker that receives them)
     active_jobs = sum(
         1 for agent in _agent_registry.values()
         if agent.get("current_job") is not None
     )
+
+    # Get total registered agents from file for consistency
+    total_agents = len(_agent_registry)
+    try:
+        agents_file = os.path.join(os.path.dirname(__file__), "data", "agents", "agents.json")
+        if os.path.exists(agents_file):
+            with open(agents_file, 'r') as f:
+                file_agents = json.load(f)
+                total_agents = len(file_agents)
+    except Exception:
+        pass
 
     # Get potfile stats if available (use cached count to avoid slow load)
     potfile_count = 0
@@ -2685,11 +2784,12 @@ def system_health_detailed() -> Response:
     except Exception:
         pass
 
-    # Active user sessions
+    # Active user sessions from shared file (multi-worker consistent)
     now = time.time()
     session_timeout = 3600
+    shared_activity = _get_user_activity_shared()
     active_users = [
-        username for username, last_seen in _user_activity.items()
+        username for username, last_seen in shared_activity.items()
         if (now - last_seen) < session_timeout
     ]
 
@@ -2722,7 +2822,7 @@ def system_health_detailed() -> Response:
             "logged_in": sorted(active_users),
         },
         "agents": {
-            "total": len(_agent_registry),
+            "total": total_agents,
             "connected": connected_agents,
             "active_jobs": active_jobs,
         },
@@ -10309,17 +10409,26 @@ def health_check() -> Response:
     """
     import os
 
-    # Count connected agents
-    connected_agents = sum(
-        1 for agent in _agent_registry.values()
-        if agent.get("sse_connected", False)
-    )
+    # Count connected agents from shared file (multi-worker consistent)
+    sse_connections = _get_sse_connections()
+    connected_agents = len(sse_connections)
 
-    # Count active jobs
+    # Count active jobs from in-memory
     active_jobs = sum(
         1 for agent in _agent_registry.values()
         if agent.get("current_job") is not None
     )
+
+    # Get total registered agents from file for consistency
+    total_agents = len(_agent_registry)
+    try:
+        agents_file = os.path.join(os.path.dirname(__file__), "data", "agents", "agents.json")
+        if os.path.exists(agents_file):
+            with open(agents_file, 'r') as f:
+                file_agents = json.load(f)
+                total_agents = len(file_agents)
+    except Exception:
+        pass
 
     # Get potfile stats if available
     potfile_count = 0
@@ -10349,11 +10458,12 @@ def health_check() -> Response:
     except Exception:
         pass
 
-    # Active user sessions - users active in the last hour
+    # Active user sessions from shared file (multi-worker consistent)
     now = time.time()
     session_timeout = 3600  # Consider sessions active if seen in last hour
+    shared_activity = _get_user_activity_shared()
     active_users = [
-        username for username, last_seen in _user_activity.items()
+        username for username, last_seen in shared_activity.items()
         if (now - last_seen) < session_timeout
     ]
 
@@ -10386,7 +10496,7 @@ def health_check() -> Response:
             "logged_in": sorted(active_users),
         },
         "agents": {
-            "total": len(_agent_registry),
+            "total": total_agents,
             "connected": connected_agents,
             "active_jobs": active_jobs,
         },
@@ -11040,9 +11150,12 @@ def agent_events() -> Response:
             if agent_id in _agent_registry:
                 _agent_registry[agent_id]["sse_connected"] = True
                 _agent_registry[agent_id]["sse_connected_at"] = datetime.now().isoformat()
+            # Track in shared file for multi-worker visibility
+            _track_sse_connection(agent_id, True)
 
             # Keep connection alive with periodic pings
             last_ping = time.time()
+            last_heartbeat_update = time.time()
             while True:
                 # Check for pending events for this agent (file-backed for multi-worker)
                 commands = _pop_agent_commands(agent_id)
@@ -11055,6 +11168,8 @@ def agent_events() -> Response:
                 if time.time() - last_ping > 30:
                     yield f"event: ping\ndata: {json.dumps({'time': datetime.now().isoformat()})}\n\n"
                     last_ping = time.time()
+                    # Refresh shared file heartbeat every 30 seconds
+                    _track_sse_connection(agent_id, True)
 
                 # Check max connection lifetime - force reconnect to allow worker recycling
                 if time.time() - connection_start > max_connection_time:
@@ -11070,6 +11185,8 @@ def agent_events() -> Response:
             # Update agent status on disconnect
             if agent_id in _agent_registry:
                 _agent_registry[agent_id]["sse_connected"] = False
+            # Remove from shared file
+            _track_sse_connection(agent_id, False)
 
     return Response(
         generate(),
