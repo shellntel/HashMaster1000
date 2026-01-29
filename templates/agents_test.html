@@ -2799,6 +2799,13 @@
                         <input type="text" id="deploy-search" placeholder="Search wordlists..." oninput="filterDeployResources(this.value)" style="width: 100%; padding: 10px 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 0.9rem; box-sizing: border-box;">
                     </div>
 
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #ccc;">
+                            <input type="checkbox" id="deploy-include-rules" checked>
+                            <span>Include all rule files (recommended for cracking jobs)</span>
+                        </label>
+                    </div>
+
                     <div id="deploy-categories" style="margin-bottom: 80px;">
                         <div style="text-align: center; color: #888; padding: 40px;">Loading wordlists...</div>
                     </div>
@@ -2987,6 +2994,7 @@
             btn.textContent = 'Deploying...';
 
             try {
+                const includeRules = document.getElementById('deploy-include-rules')?.checked ?? true;
                 const response = await fetch(`/api/agent/${deployModalData.agentId}/deploy-resources`, {
                     method: 'POST',
                     headers: {
@@ -2996,6 +3004,7 @@
                     body: JSON.stringify({
                         resource_ids: resourceIds,
                         force: force,
+                        include_rules: includeRules,
                     }),
                 });
 

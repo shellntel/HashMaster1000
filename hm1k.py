@@ -12814,6 +12814,7 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
     data = request.get_json() or {}
     resource_ids = data.get("resource_ids", [])
     force = data.get("force", False)
+    include_rules = data.get("include_rules", True)  # Default to True for backward compatibility
 
     if not resource_ids:
         return jsonify({"error": "No resource_ids provided"}), 400
@@ -12829,14 +12830,15 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
             resources.append(resource)
             total_size_bytes += resource.size_bytes
 
-    # Automatically include all rules (they're small and commonly needed)
-    all_rules = manager.list_resources(resource_type="rules")
+    # Optionally include all rules (they're small and commonly needed)
     added_rules_count = 0
-    for rule in all_rules:
-        if rule.resource_id not in resource_ids:
-            resources.append(rule)
-            total_size_bytes += rule.size_bytes
-            added_rules_count += 1
+    if include_rules:
+        all_rules = manager.list_resources(resource_type="rules")
+        for rule in all_rules:
+            if rule.resource_id not in resource_ids:
+                resources.append(rule)
+                total_size_bytes += rule.size_bytes
+                added_rules_count += 1
 
     if not resources:
         return jsonify({"error": "No valid resources found"}), 400
