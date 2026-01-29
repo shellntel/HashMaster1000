@@ -193,18 +193,20 @@ class ResourceCache:
     def _get_resource_info(self, resource_id: str) -> Optional[ResourceInfo]:
         """Get resource information from server."""
         try:
-            resources = self.api.get_resource_list()
-            for r in resources:
-                if r.get("resource_id") == resource_id:
-                    return ResourceInfo(
-                        resource_id=r["resource_id"],
-                        name=r["name"],
-                        resource_type=r["type"],
-                        size_bytes=r["size_bytes"],
-                        sha256=r["sha256"],
-                        updated_at=r.get("updated_at", ""),
-                        partial_hash=r.get("partial_hash"),
-                    )
+            # Search across all resource types to find the resource by ID
+            for resource_type in ["wordlists", "rules", "masks"]:
+                resources = self.api.get_resource_list(resource_type)
+                for r in resources:
+                    if r.get("resource_id") == resource_id:
+                        return ResourceInfo(
+                            resource_id=r["resource_id"],
+                            name=r["name"],
+                            resource_type=r.get("type", resource_type),
+                            size_bytes=r["size_bytes"],
+                            sha256=r["sha256"],
+                            updated_at=r.get("updated_at", ""),
+                            partial_hash=r.get("partial_hash"),
+                        )
             return None
         except Exception as e:
             logger.error(f"Failed to get resource info: {e}")

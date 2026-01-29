@@ -11377,6 +11377,10 @@ def list_agents() -> Response:
         agent_ip = agent_data.get("ip_address", "")
         is_local = agent_ip in ("127.0.0.1", "::1", "localhost")
 
+        # Get cached resources info
+        resources_info = state.get("resources", {})
+        cached_resources = resources_info.get("cached", [])
+
         agents.append({
             "id": agent_id,
             "name": agent_name,
@@ -11389,6 +11393,11 @@ def list_agents() -> Response:
             "ip_address": agent_ip,
             "is_local": is_local,
             "version": state.get("version"),
+            "resources": {
+                "cache_size_mb": resources_info.get("cache_size_mb", 0),
+                "cached_count": resources_info.get("cached_count", 0),
+                "cached": cached_resources,
+            },
         })
 
     return jsonify({"agents": agents})

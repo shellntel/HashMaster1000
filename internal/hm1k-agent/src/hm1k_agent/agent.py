@@ -653,6 +653,15 @@ class Agent:
             "resources": {
                 "cache_size_mb": self.resource_cache.cache_size_mb,
                 "cached_count": len(self.resource_cache.cached_resources),
+                "cached": [
+                    {
+                        "resource_id": r.resource_id,
+                        "name": r.name,
+                        "type": r.resource_type,
+                        "size_mb": r.size_bytes / 1024 / 1024,
+                    }
+                    for r in self.resource_cache.cached_resources
+                ],
             },
             "offline_buffer": {
                 "pending": self.offline_buffer.pending_count,
