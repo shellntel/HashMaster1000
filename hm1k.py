@@ -11388,6 +11388,7 @@ def list_agents() -> Response:
             "hardware": hardware,
             "ip_address": agent_ip,
             "is_local": is_local,
+            "version": state.get("version"),
         })
 
     return jsonify({"agents": agents})

@@ -638,7 +638,10 @@
                 return `
                 <div class="agent-card ${statusClass}" id="card-${agent.id}">
                     <div class="agent-header">
-                        <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
+                            ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}</span>` : ''}
+                        </div>
                         <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
                     </div>
                     <div class="agent-info">

@@ -92,7 +92,7 @@ class Agent:
 
     def _on_resource_sync(self, event) -> None:
         """Handle resource:sync event - new resources available."""
-        resource_ids = event.data.get("resources", [])
+        resource_ids = event.data.get("resource_ids", [])
         if resource_ids:
             logger.info(f"Syncing {len(resource_ids)} resources")
             self.resource_cache.sync_resources(resource_ids)
