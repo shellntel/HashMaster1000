@@ -269,10 +269,10 @@ class InitWizard:
         console.print("  [bold]Discovery Mode Registration[/bold]")
         console.print()
 
-        # Create temporary config
+        # Create temporary config (with SSL verification disabled for self-signed certs)
         import socket
         temp_config = Config(
-            server=ServerConfig(url=server_url),
+            server=ServerConfig(url=server_url, verify_ssl=False),
             agent=AgentConfig(id="temp", name=socket.gethostname()),
             hashcat=HashcatConfig(),
         )
