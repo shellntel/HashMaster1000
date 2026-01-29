@@ -10131,14 +10131,16 @@ def _get_agent(agent_id: str) -> dict | None:
                 # Cache it in memory for this worker
                 if agent:
                     _agent_registry[agent_id] = agent
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning(f"Failed to load agent {agent_id} from file: {e}")
 
     if agent is None:
+        logging.warning(f"Agent {agent_id} not found in registry or file")
         return None
 
     # Check shared SSE connections for accurate online status
     sse_connections = _get_sse_connections()
+    logging.info(f"Agent {agent_id} SSE check: in_connections={agent_id in sse_connections}, connections_count={len(sse_connections)}")
     if agent_id in sse_connections:
         # Agent has active SSE connection - mark as online
         agent["status"] = "online"
@@ -10151,13 +10153,15 @@ def _get_agent(agent_id: str) -> dict | None:
                 from datetime import datetime
                 hb_time = datetime.fromisoformat(last_heartbeat)
                 age_seconds = (datetime.now() - hb_time).total_seconds()
+                logging.info(f"Agent {agent_id} heartbeat age: {age_seconds:.0f}s")
                 if age_seconds < 120:  # 2 minutes
                     agent["status"] = "online"
                 else:
                     agent["status"] = "offline"
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(f"Failed to parse heartbeat for {agent_id}: {e}")
 
+    logging.info(f"Agent {agent_id} final status: {agent.get('status')}")
     return agent
 
 
