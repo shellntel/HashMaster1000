@@ -216,6 +216,52 @@ def benchmark(hash_mode: int, report: bool):
         raise SystemExit(1)
 
 
+def setup_logging(config) -> None:
+    """Configure logging based on config settings."""
+    import logging
+    import os
+    from logging.handlers import RotatingFileHandler
+
+    log_level = getattr(logging, config.logging.level.upper(), logging.INFO)
+    log_format = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
+    date_format = "%Y-%m-%d %H:%M:%S"
+
+    # Create root logger configuration
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Console handler (for foreground mode and systemd)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter(log_format, date_format))
+    root_logger.addHandler(console_handler)
+
+    # File handler (rotating)
+    log_file = config.logging.file
+    log_dir = os.path.dirname(log_file)
+    if log_dir and not os.path.exists(log_dir):
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except PermissionError:
+            # Fall back to current directory if we can't create log dir
+            log_file = "agent.log"
+
+    try:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=config.logging.max_size_mb * 1024 * 1024,
+            backupCount=config.logging.backup_count,
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(logging.Formatter(log_format, date_format))
+        root_logger.addHandler(file_handler)
+    except PermissionError:
+        logging.warning(f"Cannot write to log file: {log_file}")
+
+    # Suppress noisy loggers
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
 @main.command()
 @click.option("--foreground", "-f", is_flag=True, help="Run in foreground (don't daemonize)")
 def run(foreground: bool):
@@ -232,6 +278,9 @@ def run(foreground: bool):
     except FileNotFoundError:
         console.print("[red]Agent not initialized. Run 'hm1k-agent init' first.[/red]")
         raise SystemExit(1)
+
+    # Configure logging before starting agent
+    setup_logging(config)
 
     if foreground:
         console.print("Starting agent in foreground mode...")

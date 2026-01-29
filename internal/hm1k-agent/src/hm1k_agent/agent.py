@@ -11,6 +11,7 @@ Orchestrates all agent components:
 - Local API server for health checks and testing
 """
 
+import os
 import signal
 import sys
 import threading
@@ -103,6 +104,7 @@ class Agent:
         version = data.get("version")
         download_url = data.get("download_url")
         sha256 = data.get("sha256")
+        filename = data.get("filename", "")
         make_current = data.get("make_current", True)
 
         logger.info(f"Received software install request: {software_type} {version}")
@@ -112,6 +114,7 @@ class Agent:
                 download_url=download_url,
                 version=version,
                 sha256=sha256,
+                filename=filename,
                 make_current=make_current,
             )
         elif software_type in ["nvidia", "amd"]:
@@ -126,6 +129,7 @@ class Agent:
         download_url: str,
         version: str,
         sha256: str,
+        filename: str = "",
         make_current: bool = True,
     ) -> bool:
         """
@@ -135,6 +139,7 @@ class Agent:
             download_url: URL to download from (relative to server)
             version: Hashcat version string
             sha256: Expected SHA256 hash
+            filename: Original filename (for archive type detection)
             make_current: Whether to set as current version
 
         Returns:
@@ -162,6 +167,8 @@ class Agent:
                 full_url,
                 stream=True,
                 timeout=600,  # 10 minute timeout for large files
+                headers=self.api._get_headers(),
+                verify=self.config.server.verify_ssl,
             )
             response.raise_for_status()
 
@@ -192,22 +199,34 @@ class Agent:
 
             # Create temp extraction dir
             with tempfile.TemporaryDirectory() as extract_dir:
-                if tmp_path.endswith(".7z") or download_url.endswith(".7z"):
+                # Determine archive type from filename, download URL, or temp path
+                is_7z = filename.endswith(".7z") or download_url.endswith(".7z") or tmp_path.endswith(".7z")
+                is_targz = filename.endswith(".tar.gz") or download_url.endswith(".tar.gz") or tmp_path.endswith(".tar.gz")
+                is_zip = filename.endswith(".zip") or download_url.endswith(".zip") or tmp_path.endswith(".zip")
+
+                logger.info(f"Archive detection: filename={filename}, is_7z={is_7z}, is_targz={is_targz}, is_zip={is_zip}")
+
+                if is_7z:
+                    logger.info("Extracting as 7z archive")
                     with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
                         archive.extractall(path=extract_dir)
-                elif tmp_path.endswith(".tar.gz") or download_url.endswith(".tar.gz"):
+                elif is_targz:
+                    logger.info("Extracting as tar.gz archive")
                     with tarfile.open(tmp_path, "r:gz") as archive:
                         archive.extractall(path=extract_dir)
-                elif tmp_path.endswith(".zip") or download_url.endswith(".zip"):
+                elif is_zip:
+                    logger.info("Extracting as zip archive")
                     import zipfile
                     with zipfile.ZipFile(tmp_path, "r") as archive:
                         archive.extractall(extract_dir)
                 else:
                     # Try 7z first, then tar.gz
+                    logger.info("Unknown archive type, trying 7z then tar.gz")
                     try:
                         with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
                             archive.extractall(path=extract_dir)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(f"7z extraction failed: {e}, trying tar.gz")
                         with tarfile.open(tmp_path, "r:gz") as archive:
                             archive.extractall(path=extract_dir)
 
@@ -319,6 +338,8 @@ class Agent:
                 full_url,
                 stream=True,
                 timeout=300,
+                headers=self.api._get_headers(),
+                verify=self.config.server.verify_ssl,
             )
             response.raise_for_status()
 

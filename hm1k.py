@@ -13090,6 +13090,54 @@ def download_software(software_type: str, package_id: str) -> Response:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/agent/software/<software_type>/<package_id>/download", methods=["GET"])
+@csrf.exempt
+def agent_download_software(software_type: str, package_id: str) -> Response:
+    """
+    Agent-specific software download endpoint.
+
+    Allows agents to download software packages without user login.
+    Verifies request is from a registered agent via User-Agent header.
+    """
+    # Verify request is from an agent
+    user_agent = request.headers.get("User-Agent", "")
+    if "hm1k-agent/" not in user_agent:
+        return jsonify({"error": "Agent authentication required"}), 401
+
+    agent_id = user_agent.split("hm1k-agent/")[-1]
+
+    # Verify agent is registered
+    agent = _get_agent(agent_id)
+    if not agent:
+        logging.warning(f"Download attempt from unknown agent: {agent_id}")
+        return jsonify({"error": "Unknown agent"}), 401
+
+    try:
+        manager = _get_software_manager()
+        package = manager.get_package(package_id)
+
+        if not package:
+            return jsonify({"error": "Package not found"}), 404
+
+        if package.software_type != software_type:
+            return jsonify({"error": "Package type mismatch"}), 400
+
+        if not os.path.exists(package.file_path):
+            return jsonify({"error": "Package file not found"}), 404
+
+        logging.info(f"Agent {agent_id} downloading {software_type} package: {package_id}")
+
+        return send_file(
+            package.file_path,
+            as_attachment=True,
+            download_name=package.filename,
+        )
+
+    except Exception as e:
+        logging.error(f"Failed to download software for agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/agent/<agent_id>/software", methods=["GET"])
 @login_required
 def get_agent_software_status(agent_id: str) -> Response:
@@ -13169,7 +13217,7 @@ def deploy_hashcat_to_agent(agent_id: str, package_id: str) -> Response:
                 "sha256": package.sha256,
                 "size_bytes": package.size_bytes,
                 "make_current": make_current,
-                "download_url": f"/api/software/hashcat/{package_id}/download",
+                "download_url": f"/api/agent/software/hashcat/{package_id}/download",
             }
         })
 
@@ -13216,7 +13264,7 @@ def deploy_driver_to_agent(agent_id: str, driver_type: str, package_id: str) -> 
                 "filename": package.filename,
                 "sha256": package.sha256,
                 "size_bytes": package.size_bytes,
-                "download_url": f"/api/software/{driver_type}/{package_id}/download",
+                "download_url": f"/api/agent/software/{driver_type}/{package_id}/download",
             }
         })
 
