@@ -355,21 +355,25 @@ class Agent:
             )
             response.raise_for_status()
 
-            # Save to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".whl") as tmp:
-                tmp_path = tmp.name
+            # Save to temp directory with proper wheel filename
+            # pip requires wheel files to have proper naming format
+            tmp_dir = tempfile.mkdtemp()
+            wheel_path = os.path.join(tmp_dir, filename)
+
+            with open(wheel_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
-                    tmp.write(chunk)
+                    f.write(chunk)
 
             # Verify hash
             computed_hash = hashlib.sha256()
-            with open(tmp_path, "rb") as f:
+            with open(wheel_path, "rb") as f:
                 for chunk in iter(lambda: f.read(8192), b""):
                     computed_hash.update(chunk)
 
             if computed_hash.hexdigest() != expected_sha256:
                 logger.error(f"Hash mismatch: expected {expected_sha256}, got {computed_hash.hexdigest()}")
-                os.unlink(tmp_path)
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
 
             logger.info("Download complete, hash verified")
@@ -381,9 +385,9 @@ class Agent:
                 # Try to find pip in current environment
                 venv_pip = "pip"
 
-            logger.info(f"Installing wheel with {venv_pip}...")
+            logger.info(f"Installing wheel {filename} with {venv_pip}...")
             result = subprocess.run(
-                [venv_pip, "install", "--force-reinstall", tmp_path],
+                [venv_pip, "install", "--force-reinstall", wheel_path],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -391,13 +395,15 @@ class Agent:
 
             if result.returncode != 0:
                 logger.error(f"Failed to install wheel: {result.stderr}")
-                os.unlink(tmp_path)
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
 
             logger.info("Wheel installed successfully")
 
-            # Clean up temp file
-            os.unlink(tmp_path)
+            # Clean up temp directory
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
             # Restart the agent service
             logger.info("Restarting hm1k-agent service...")
