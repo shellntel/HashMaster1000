@@ -638,7 +638,7 @@
                 return `
                 <div class="agent-card ${statusClass}" id="card-${agent.id}">
                     <div class="agent-header">
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
                             <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
                             ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}</span>` : ''}
                         </div>
@@ -647,7 +647,7 @@
                     <div class="agent-info">
                         <div class="agent-info-row">
                             <span>Agent ID:</span>
-                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.id.substring(0, 8)}...</span>
+                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.id}</span>
                         </div>
                         <div class="agent-info-row">
                             <span>IP Address:</span>
@@ -681,22 +681,13 @@
                     ` : ''}
                     ${agent.resources && agent.resources.cached_count > 0 || agent.hashcat_version ? `
                         <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
-                            ${agent.resources && agent.resources.cached_count > 0 ? `
-                                <div style="display: flex; justify-content: space-between; color: #999;">
-                                    <span>${agent.resources.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists:</span>
-                                    <span style="color: #00d4ff;">${agent.resources.by_type?.wordlists || agent.resources.cached_count} (${(agent.resources.cache_size_mb / 1024).toFixed(1)} GB)</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; color: #999;">
-                                    <span>&#128220; Rules:</span>
-                                    <span style="color: #00d4ff;">${agent.resources.by_type?.rules || 0}</span>
-                                </div>
-                            ` : ''}
-                            ${agent.hashcat_version ? `
-                                <div style="display: flex; justify-content: space-between; color: #999;">
-                                    <span>&#9881; Hashcat:</span>
-                                    <span style="color: #00d4ff;">${agent.hashcat_version}</span>
-                                </div>
-                            ` : ''}
+                            <div style="display: flex; justify-content: space-between; color: #999; margin-bottom: 6px;">
+                                <span>${agent.resources?.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists: <span style="color: #00d4ff;">${agent.resources?.by_type?.wordlists || agent.resources?.cached_count || 0} (${((agent.resources?.cache_size_mb || 0) / 1024).toFixed(1)} GB)</span></span>
+                                ${agent.hashcat_version ? `<span>&#9881; Hashcat: <span style="color: #00d4ff;">${agent.hashcat_version}</span></span>` : ''}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; color: #999;">
+                                <span>&#128220; Rules: <span style="color: #00d4ff;">${agent.resources?.by_type?.rules || 0}</span></span>
+                            </div>
                         </div>
                     ` : ''}
                     ${job ? `
@@ -2994,7 +2985,11 @@
                 }
 
                 if (data.success) {
-                    showNotification('Deployment Queued', 'success', `${data.queued} wordlist(s) (${data.total_size_gb} GB) queued for sync to ${deployModalData.agentName}.`);
+                    let msg = `${data.queued} resource(s) (${data.total_size_gb} GB) queued for sync to ${deployModalData.agentName}.`;
+                    if (data.rules_added > 0) {
+                        msg += ` (includes ${data.rules_added} rule file(s) auto-added)`;
+                    }
+                    showNotification('Deployment Queued', 'success', msg);
                     closeDeployModal();
                 } else if (data.error) {
                     showNotification('Deployment Failed', 'error', data.error);

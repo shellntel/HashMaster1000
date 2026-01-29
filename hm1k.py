@@ -11342,10 +11342,30 @@ def list_agents() -> Response:
             if hardware_raw.get("cpu"):
                 hardware["cpu"] = hardware_raw["cpu"].get("model", "Unknown")
             if hardware_raw.get("gpus"):
-                gpu = hardware_raw["gpus"][0] if hardware_raw["gpus"] else {}
-                gpu_mem = gpu.get("memory_total_mb", 0)
-                gpu_mem_gb = round(gpu_mem / 1024) if gpu_mem else 0
-                hardware["gpu"] = f"{gpu.get('name', 'Unknown')} ({gpu_mem_gb}GB)"
+                gpus = hardware_raw["gpus"]
+                num_gpus = len(gpus)
+                if num_gpus == 1:
+                    # Single GPU - show name and memory
+                    gpu = gpus[0]
+                    gpu_mem = gpu.get("memory_total_mb", 0)
+                    gpu_mem_gb = round(gpu_mem / 1024) if gpu_mem else 0
+                    hardware["gpu"] = f"{gpu.get('name', 'Unknown')} ({gpu_mem_gb}GB)"
+                elif num_gpus > 1:
+                    # Multiple GPUs - check if all same model
+                    gpu_names = [g.get("name", "Unknown") for g in gpus]
+                    unique_names = list(set(gpu_names))
+                    if len(unique_names) == 1:
+                        # All same model
+                        gpu_mem = gpus[0].get("memory_total_mb", 0)
+                        gpu_mem_gb = round(gpu_mem / 1024) if gpu_mem else 0
+                        hardware["gpu"] = f"{num_gpus}x {unique_names[0]} ({gpu_mem_gb}GB each)"
+                    else:
+                        # Different models - list first 2
+                        gpu_list = unique_names[:2]
+                        gpu_summary = ", ".join(gpu_list)
+                        if len(unique_names) > 2:
+                            gpu_summary += f" +{len(unique_names) - 2} more"
+                        hardware["gpu"] = f"{num_gpus} GPUs: {gpu_summary}"
             if hardware_raw.get("memory_total_mb"):
                 ram_gb = round(hardware_raw["memory_total_mb"] / 1024)
                 hardware["ram"] = f"{ram_gb}GB"
@@ -12809,6 +12829,15 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
             resources.append(resource)
             total_size_bytes += resource.size_bytes
 
+    # Automatically include all rules (they're small and commonly needed)
+    all_rules = manager.list_resources(resource_type="rules")
+    added_rules_count = 0
+    for rule in all_rules:
+        if rule.resource_id not in resource_ids:
+            resources.append(rule)
+            total_size_bytes += rule.size_bytes
+            added_rules_count += 1
+
     if not resources:
         return jsonify({"error": "No valid resources found"}), 400
 
@@ -12871,6 +12900,7 @@ def deploy_resources_to_agent(agent_id: str) -> Response:
         "total_size_gb": round(total_size_gb, 2),
         "warning": warning,
         "requires_confirmation": False,
+        "rules_added": added_rules_count,
     })
 
 
