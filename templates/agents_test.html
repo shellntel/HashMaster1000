@@ -682,7 +682,7 @@
                     ${agent.resources && agent.resources.cached_count > 0 ? `
                         <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px; color: #00d4ff;">
-                                <span>&#128230; Cached Resources</span>
+                                <span>${agent.resources.is_server_resources ? '&#128279; Available Resources' : '&#128230; Cached Resources'}</span>
                                 <span>${agent.resources.cached_count} (${(agent.resources.cache_size_mb / 1024).toFixed(1)} GB)</span>
                             </div>
                             <div class="cached-resources-list" style="max-height: 80px; overflow-y: auto; color: #999; font-size: 0.75rem;">

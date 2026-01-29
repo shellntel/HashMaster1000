@@ -11381,6 +11381,32 @@ def list_agents() -> Response:
         resources_info = state.get("resources", {})
         cached_resources = resources_info.get("cached", [])
 
+        # For local agents, show server-side resources (they share filesystem)
+        if is_local and not cached_resources:
+            try:
+                manager = _get_resource_manager()
+                server_resources = []
+                total_size_mb = 0
+                for resource_type in ["wordlists", "rules", "masks"]:
+                    for r in manager.list_resources(resource_type):
+                        size_mb = r.size_bytes / 1024 / 1024
+                        server_resources.append({
+                            "resource_id": r.resource_id,
+                            "name": r.name,
+                            "type": r.resource_type,
+                            "size_mb": size_mb,
+                        })
+                        total_size_mb += size_mb
+                cached_resources = server_resources
+                resources_info = {
+                    "cache_size_mb": total_size_mb,
+                    "cached_count": len(server_resources),
+                    "cached": server_resources,
+                    "is_server_resources": True,  # Flag to indicate these are server resources
+                }
+            except Exception as e:
+                logging.warning(f"Failed to get server resources for local agent: {e}")
+
         agents.append({
             "id": agent_id,
             "name": agent_name,
@@ -11397,6 +11423,7 @@ def list_agents() -> Response:
                 "cache_size_mb": resources_info.get("cache_size_mb", 0),
                 "cached_count": resources_info.get("cached_count", 0),
                 "cached": cached_resources,
+                "is_server_resources": resources_info.get("is_server_resources", False),
             },
         })
 
