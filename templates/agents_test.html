@@ -682,7 +682,7 @@
                     ${agent.resources && agent.resources.cached_count > 0 || agent.hashcat_version ? `
                         <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
                             <div style="display: flex; justify-content: space-between; color: #999; margin-bottom: 6px;">
-                                <span>${agent.resources?.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists: <span style="color: #00d4ff;">${agent.resources?.by_type?.wordlists || agent.resources?.cached_count || 0} (${((agent.resources?.cache_size_mb || 0) / 1024).toFixed(1)} GB)</span></span>
+                                <span>${agent.resources?.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists: <span style="color: #00d4ff;">${agent.resources?.by_type?.wordlists ?? agent.resources?.cached_count ?? 0} (${((agent.resources?.cache_size_mb || 0) / 1024).toFixed(1)} GB)</span></span>
                                 ${agent.hashcat_version ? `<span>&#9881; Hashcat: <span style="color: #00d4ff;">${agent.hashcat_version}</span></span>` : ''}
                             </div>
                             <div style="display: flex; justify-content: space-between; color: #999;">
@@ -715,7 +715,7 @@
                         <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#8635;</span><span style="font-size: 0.7rem;">Refresh</span></button>
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
-                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0}, ${JSON.stringify((agent.resources?.cached || []).map(r => r.resource_id)).replace(/"/g, '&quot;')})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
                         ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
                         ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
@@ -2751,21 +2751,26 @@
             agentFreeSpace: 0,
             categories: null,
             selectedResources: new Set(),
+            cachedResourceIds: new Set(),
             pendingWarning: null,
+            searchFilter: '',
         };
 
-        async function openDeployModal(agentId, agentName, freeSpaceGb) {
+        async function openDeployModal(agentId, agentName, freeSpaceGb, cachedResourceIds = []) {
             deployModalData.agentId = agentId;
             deployModalData.agentName = agentName;
             deployModalData.agentFreeSpace = freeSpaceGb;
             deployModalData.selectedResources = new Set();
+            deployModalData.cachedResourceIds = new Set(cachedResourceIds);
             deployModalData.pendingWarning = null;
+            deployModalData.searchFilter = '';
 
             // Create modal
             const modal = document.createElement('div');
             modal.id = 'deploy-modal';
             modal.className = 'modal-overlay';
             modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            const cachedCount = deployModalData.cachedResourceIds.size;
             modal.innerHTML = `
                 <div class="modal-content" style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -2782,15 +2787,23 @@
                             <span>Selected:</span>
                             <span>0 files (0 GB)</span>
                         </div>
+                        ${cachedCount > 0 ? `<div style="display: flex; justify-content: space-between; color: #ccc; margin-top: 8px;">
+                            <span>Already Deployed:</span>
+                            <span style="color: #22c55e;">${cachedCount} file(s)</span>
+                        </div>` : ''}
                     </div>
 
                     <div id="deploy-warning" style="display: none; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 8px; padding: 12px; margin-bottom: 20px; color: #fca5a5;"></div>
 
-                    <div id="deploy-categories" style="margin-bottom: 20px;">
+                    <div style="margin-bottom: 16px;">
+                        <input type="text" id="deploy-search" placeholder="Search wordlists..." oninput="filterDeployResources(this.value)" style="width: 100%; padding: 10px 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 0.9rem; box-sizing: border-box;">
+                    </div>
+
+                    <div id="deploy-categories" style="margin-bottom: 80px;">
                         <div style="text-align: center; color: #888; padding: 40px;">Loading wordlists...</div>
                     </div>
 
-                    <div style="display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px;">
+                    <div style="position: sticky; bottom: -24px; background: #1a1a2e; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding: 16px 0; margin: 0 -24px -24px -24px; padding-left: 24px; padding-right: 24px;">
                         <button class="advanced-btn advanced-btn-secondary" onclick="closeDeployModal()">Cancel</button>
                         <button id="deploy-btn" class="advanced-btn advanced-btn-primary" onclick="deploySelectedResources()">Deploy Selected</button>
                     </div>
@@ -2828,9 +2841,11 @@
             }
         }
 
-        function renderDeployCategories(data) {
+        function renderDeployCategories(data, searchFilter = '') {
             const container = document.getElementById('deploy-categories');
             const { categories, totals } = data;
+            const cachedIds = deployModalData.cachedResourceIds;
+            const filterLower = searchFilter.toLowerCase();
 
             const categoryLabels = {
                 small: { label: 'Small', desc: '< 100 MB', color: '#22c55e' },
@@ -2850,22 +2865,29 @@
 
                 ${Object.entries(categories).map(([cat, resources]) => {
                     const info = categoryLabels[cat];
-                    if (resources.length === 0) return '';
+                    // Filter resources by search term
+                    const filteredResources = filterLower
+                        ? resources.filter(r => r.name.toLowerCase().includes(filterLower))
+                        : resources;
+                    if (filteredResources.length === 0) return '';
                     return `
                         <div style="margin-bottom: 16px;">
                             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
                                 <span style="color: ${info.color}; font-weight: bold;">${info.label}</span>
                                 <span style="color: #888; font-size: 0.85rem;">(${info.desc})</span>
-                                <span style="color: #888; font-size: 0.85rem; margin-left: auto;">${resources.length} files, ${totals[cat].total_size_gb} GB total</span>
+                                <span style="color: #888; font-size: 0.85rem; margin-left: auto;">${filteredResources.length} files${filterLower ? ' matching' : ''}, ${totals[cat].total_size_gb} GB total</span>
                             </div>
                             <div style="display: grid; gap: 6px; max-height: 200px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
-                                ${resources.map(r => `
-                                    <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; cursor: pointer;">
-                                        <input type="checkbox" class="deploy-checkbox" data-id="${r.resource_id}" data-size="${r.size_bytes}" data-name="${r.name}" onchange="updateDeploySelection()">
-                                        <span style="flex: 1; font-family: monospace; font-size: 0.85rem; color: #ccc;">${r.name}</span>
+                                ${filteredResources.map(r => {
+                                    const isDeployed = cachedIds.has(r.resource_id);
+                                    return `
+                                    <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: ${isDeployed ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)'}; border-radius: 4px; cursor: pointer; ${isDeployed ? 'border: 1px solid rgba(34,197,94,0.3);' : ''}">
+                                        <input type="checkbox" class="deploy-checkbox" data-id="${r.resource_id}" data-size="${r.size_bytes}" data-name="${r.name}" onchange="updateDeploySelection()" ${isDeployed ? 'disabled' : ''}>
+                                        <span style="flex: 1; font-family: monospace; font-size: 0.85rem; color: ${isDeployed ? '#22c55e' : '#ccc'};">${r.name}</span>
+                                        ${isDeployed ? '<span style="color: #22c55e; font-size: 0.75rem; white-space: nowrap;">&#10003; Deployed</span>' : ''}
                                         <span style="color: ${info.color}; font-size: 0.8rem; white-space: nowrap;">${r.size_mb < 1024 ? r.size_mb.toFixed(1) + ' MB' : r.size_gb.toFixed(2) + ' GB'}</span>
                                     </label>
-                                `).join('')}
+                                `}).join('')}
                             </div>
                         </div>
                     `;
@@ -2873,8 +2895,16 @@
             `;
         }
 
+        function filterDeployResources(searchTerm) {
+            deployModalData.searchFilter = searchTerm;
+            if (deployModalData.categories) {
+                renderDeployCategories(deployModalData.categories, searchTerm);
+            }
+        }
+
         function selectCategory(...cats) {
             document.querySelectorAll('.deploy-checkbox').forEach(cb => {
+                if (cb.disabled) return; // Skip already deployed
                 const id = cb.dataset.id;
                 const resource = findResourceById(id);
                 if (resource && cats.includes(resource.category)) {
@@ -2885,7 +2915,9 @@
         }
 
         function selectAllResources() {
-            document.querySelectorAll('.deploy-checkbox').forEach(cb => cb.checked = true);
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => {
+                if (!cb.disabled) cb.checked = true; // Skip already deployed
+            });
             updateDeploySelection();
         }
 
