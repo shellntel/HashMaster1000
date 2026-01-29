@@ -702,6 +702,7 @@
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
                         ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
                         ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
                         ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
                     </div>
@@ -1789,6 +1790,50 @@
                 }
             } catch (error) {
                 log(`Error deleting agent: ${error.message}`, 'error');
+            }
+        }
+
+        async function updateAgent(agentId, agentName) {
+            // Confirm update
+            if (!confirm(`Update agent "${agentName}" to the latest version?\n\nThe agent will restart after the update.`)) {
+                return;
+            }
+
+            log(`Triggering update for ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Update to v${data.version} queued for ${agentName}. Agent will restart shortly.`, 'success');
+                    // Check agent status after a delay
+                    setTimeout(() => loadAgentsFromServer(), 5000);
+                } else {
+                    log(`Failed to update agent: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error updating agent: ${error.message}`, 'error');
             }
         }
 

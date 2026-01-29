@@ -12837,6 +12837,148 @@ def deploy_driver_to_agent(agent_id: str, driver_type: str, package_id: str) -> 
         return jsonify({"error": str(e)}), 500
 
 
+# Agent wheel distribution endpoints
+AGENT_WHEEL_DIR = os.path.join(os.path.dirname(__file__), "internal", "hm1k-agent", "dist")
+
+
+@app.route("/api/agent/wheel/info", methods=["GET"])
+@login_required
+def get_agent_wheel_info() -> Response:
+    """Get information about the available agent wheel package."""
+    try:
+        if not os.path.isdir(AGENT_WHEEL_DIR):
+            return jsonify({"error": "Agent wheel directory not found"}), 404
+
+        # Find the latest wheel file
+        wheel_files = [f for f in os.listdir(AGENT_WHEEL_DIR) if f.endswith(".whl")]
+        if not wheel_files:
+            return jsonify({"error": "No agent wheel files found"}), 404
+
+        # Get the most recent wheel
+        wheel_files.sort(key=lambda f: os.path.getmtime(os.path.join(AGENT_WHEEL_DIR, f)), reverse=True)
+        wheel_file = wheel_files[0]
+        wheel_path = os.path.join(AGENT_WHEEL_DIR, wheel_file)
+
+        # Parse version from filename (hm1k_agent-0.1.0-py3-none-any.whl)
+        import re
+        version_match = re.search(r"hm1k_agent-([^-]+)-", wheel_file)
+        version = version_match.group(1) if version_match else "unknown"
+
+        # Calculate SHA256
+        import hashlib
+        sha256 = hashlib.sha256()
+        with open(wheel_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+
+        return jsonify({
+            "filename": wheel_file,
+            "version": version,
+            "size_bytes": os.path.getsize(wheel_path),
+            "sha256": sha256.hexdigest(),
+            "modified": datetime.fromtimestamp(os.path.getmtime(wheel_path)).isoformat(),
+            "download_url": "/api/agent/wheel/download",
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to get agent wheel info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/wheel/download", methods=["GET"])
+@csrf.exempt  # Allow agents to download without CSRF token
+def download_agent_wheel() -> Response:
+    """Download the agent wheel package."""
+    try:
+        if not os.path.isdir(AGENT_WHEEL_DIR):
+            return jsonify({"error": "Agent wheel directory not found"}), 404
+
+        # Find the latest wheel file
+        wheel_files = [f for f in os.listdir(AGENT_WHEEL_DIR) if f.endswith(".whl")]
+        if not wheel_files:
+            return jsonify({"error": "No agent wheel files found"}), 404
+
+        # Get the most recent wheel
+        wheel_files.sort(key=lambda f: os.path.getmtime(os.path.join(AGENT_WHEEL_DIR, f)), reverse=True)
+        wheel_file = wheel_files[0]
+
+        return send_from_directory(
+            AGENT_WHEEL_DIR,
+            wheel_file,
+            as_attachment=True,
+            download_name=wheel_file,
+        )
+
+    except Exception as e:
+        logging.error(f"Failed to serve agent wheel: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/update", methods=["POST"])
+@login_required
+def trigger_agent_update(agent_id: str) -> Response:
+    """Trigger an agent to update itself to the latest version."""
+    try:
+        # Reload agents from file
+        _load_agents()
+
+        if agent_id not in _agent_registry:
+            return jsonify({"error": "Agent not found"}), 404
+
+        agent = _agent_registry[agent_id]
+        if agent.get("status") not in ("online", "idle"):
+            return jsonify({"error": "Agent is not online"}), 400
+
+        # Get wheel info
+        if not os.path.isdir(AGENT_WHEEL_DIR):
+            return jsonify({"error": "Agent wheel not available on server"}), 404
+
+        wheel_files = [f for f in os.listdir(AGENT_WHEEL_DIR) if f.endswith(".whl")]
+        if not wheel_files:
+            return jsonify({"error": "No agent wheel files found"}), 404
+
+        wheel_files.sort(key=lambda f: os.path.getmtime(os.path.join(AGENT_WHEEL_DIR, f)), reverse=True)
+        wheel_file = wheel_files[0]
+        wheel_path = os.path.join(AGENT_WHEEL_DIR, wheel_file)
+
+        # Calculate SHA256
+        import hashlib
+        sha256 = hashlib.sha256()
+        with open(wheel_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+
+        # Parse version
+        import re
+        version_match = re.search(r"hm1k_agent-([^-]+)-", wheel_file)
+        version = version_match.group(1) if version_match else "unknown"
+
+        # Queue update command
+        _queue_agent_command(agent_id, {
+            "type": "agent:update",
+            "data": {
+                "download_url": "/api/agent/wheel/download",
+                "filename": wheel_file,
+                "version": version,
+                "sha256": sha256.hexdigest(),
+                "size_bytes": os.path.getsize(wheel_path),
+            }
+        })
+
+        agent_name = agent.get("state", {}).get("agent_name") or agent.get("name", agent_id[:8])
+        logging.info(f"Agent update queued for {agent_name} ({agent_id})")
+
+        return jsonify({
+            "success": True,
+            "message": f"Update to version {version} queued for agent {agent_name}",
+            "version": version,
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to trigger agent update: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # Comparison results storage directory
 COMPARISON_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "benchmark_results")
 

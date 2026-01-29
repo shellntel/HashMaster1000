@@ -84,6 +84,7 @@ class Agent:
         """Register handlers for non-job SSE events."""
         self.sse.on(EventType.RESOURCE_SYNC, self._on_resource_sync)
         self.sse.on(EventType.SOFTWARE_INSTALL, self._on_software_install)
+        self.sse.on(EventType.AGENT_UPDATE, self._on_agent_update)
         self.sse.on(EventType.CONFIG_UPDATE, self._on_config_update)
         self.sse.on(EventType.BENCHMARK, self._on_benchmark)
         self.sse.on(EventType.PING, self._on_ping)
@@ -265,6 +266,125 @@ class Agent:
         """Handle config:update event - server changed agent config."""
         # For now, just log. Could reload config in future.
         logger.info("Config update received from server")
+
+    def _on_agent_update(self, event) -> None:
+        """Handle agent:update event - update the agent to a new version."""
+        data = event.data
+        download_url = data.get("download_url")
+        filename = data.get("filename")
+        version = data.get("version")
+        sha256 = data.get("sha256")
+
+        logger.info(f"Received agent update request: version {version}")
+
+        # Run update in background thread
+        thread = threading.Thread(
+            target=self._perform_agent_update,
+            args=(download_url, filename, version, sha256),
+        )
+        thread.daemon = True
+        thread.start()
+
+    def _perform_agent_update(
+        self,
+        download_url: str,
+        filename: str,
+        version: str,
+        expected_sha256: str,
+    ) -> bool:
+        """
+        Download and install agent update, then restart.
+
+        Args:
+            download_url: URL to download wheel from (relative to server)
+            filename: Wheel filename
+            version: Version string
+            expected_sha256: Expected SHA256 hash
+
+        Returns:
+            True if update succeeded (process will restart)
+        """
+        import hashlib
+        import subprocess
+        import tempfile
+
+        logger.info(f"Starting agent update to version {version}...")
+
+        try:
+            # Download the wheel
+            full_url = f"{self.config.server.url}{download_url}"
+            logger.info(f"Downloading from {full_url}")
+
+            response = self.api._session.get(
+                full_url,
+                stream=True,
+                timeout=300,
+            )
+            response.raise_for_status()
+
+            # Save to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".whl") as tmp:
+                tmp_path = tmp.name
+                for chunk in response.iter_content(chunk_size=8192):
+                    tmp.write(chunk)
+
+            # Verify hash
+            computed_hash = hashlib.sha256()
+            with open(tmp_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    computed_hash.update(chunk)
+
+            if computed_hash.hexdigest() != expected_sha256:
+                logger.error(f"Hash mismatch: expected {expected_sha256}, got {computed_hash.hexdigest()}")
+                os.unlink(tmp_path)
+                return False
+
+            logger.info("Download complete, hash verified")
+
+            # Install the wheel using pip
+            # Use the venv's pip to install
+            venv_pip = "/opt/hm1k-agent/venv/bin/pip"
+            if not os.path.exists(venv_pip):
+                # Try to find pip in current environment
+                venv_pip = "pip"
+
+            logger.info(f"Installing wheel with {venv_pip}...")
+            result = subprocess.run(
+                [venv_pip, "install", "--force-reinstall", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Failed to install wheel: {result.stderr}")
+                os.unlink(tmp_path)
+                return False
+
+            logger.info("Wheel installed successfully")
+
+            # Clean up temp file
+            os.unlink(tmp_path)
+
+            # Restart the agent service
+            logger.info("Restarting hm1k-agent service...")
+
+            # Use systemctl to restart (this will kill this process)
+            subprocess.Popen(
+                ["sudo", "systemctl", "restart", "hm1k-agent"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            # Give systemctl a moment to start the restart
+            import time
+            time.sleep(1)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update agent: {e}")
+            return False
 
     def _on_ping(self, event) -> None:
         """Handle ping event - server checking connectivity."""
