@@ -686,15 +686,18 @@
 
         // Update loadStatus to include SQLite info
         const originalLoadStatus = loadStatus;
+        let isFirstLoad = true;
         loadStatus = async function() {
             const dbStatus = document.getElementById('dbStatus');
             const hashCount = document.getElementById('hashCount');
             const configuredPath = document.getElementById('configuredPath');
 
-            // Show loading state
-            dbStatus.textContent = 'Checking...';
-            dbStatus.style.color = '#71717a';
-            dbStatus.style.textShadow = 'none';
+            // Only show "Checking..." on first load to avoid flicker on refreshes
+            if (isFirstLoad) {
+                dbStatus.textContent = 'Checking...';
+                dbStatus.style.color = '#71717a';
+                dbStatus.style.textShadow = 'none';
+            }
 
             try {
                 // Add timeout to prevent hanging
@@ -729,6 +732,7 @@
                 configuredPath.textContent = data.configured_path || '(not configured)';
                 configuredPath.style.cursor = '';
                 configuredPath.onclick = null;
+                isFirstLoad = false;  // Subsequent loads won't show "Checking..."
 
                 // Update SQLite UI
                 updateSqliteUI(data);

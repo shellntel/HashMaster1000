@@ -1553,9 +1553,7 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
                 logger.debug(f"HIBP SQLite info cache hit (memory)")
                 return cached_info
 
-        # Cache miss - need to query database (expensive!)
-        logger.info(f"Querying HIBP SQLite database info (this may take a moment)...")
-
+        # Cache miss - need to query database
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
@@ -1565,9 +1563,33 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             conn.close()
             return None
 
-        # Get row count - this is the expensive query (~2 billion rows)
-        cursor.execute("SELECT COUNT(*) FROM hashes")
-        count = cursor.fetchone()[0]
+        # Try to get row count from metadata table first (instant)
+        count = 0
+        try:
+            cursor.execute("SELECT value FROM metadata WHERE key='hash_count'")
+            meta_row = cursor.fetchone()
+            if meta_row:
+                count = int(meta_row[0])
+                logger.debug(f"HIBP SQLite count from metadata: {count:,}")
+        except Exception:
+            pass  # Table may not exist in older databases
+
+        # Fallback: try sqlite_stat1 (populated by ANALYZE)
+        if count == 0:
+            try:
+                cursor.execute("SELECT stat FROM sqlite_stat1 WHERE tbl='hashes'")
+                stat_row = cursor.fetchone()
+                if stat_row:
+                    count = int(stat_row[0].split()[0])
+                    logger.debug(f"HIBP SQLite count from sqlite_stat1: {count:,}")
+            except Exception:
+                pass
+
+        # Last resort: expensive COUNT(*) query
+        if count == 0:
+            logger.info(f"Querying HIBP SQLite database info (this may take a moment)...")
+            cursor.execute("SELECT COUNT(*) FROM hashes")
+            count = cursor.fetchone()[0]
 
         # Get sample hash to verify format
         cursor.execute("SELECT hash, count FROM hashes LIMIT 1")
