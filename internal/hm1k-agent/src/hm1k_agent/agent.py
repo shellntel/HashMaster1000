@@ -228,7 +228,15 @@ class Agent:
             os.unlink(tmp_path)
 
             # Make hashcat executable
+            # The archive contains hashcat.bin (Linux) and hashcat.exe (Windows)
+            # Rename hashcat.bin to hashcat for Linux compatibility
             hashcat_bin = os.path.join(install_dir, "hashcat")
+            hashcat_bin_file = os.path.join(install_dir, "hashcat.bin")
+
+            if not os.path.exists(hashcat_bin) and os.path.exists(hashcat_bin_file):
+                logger.info("Renaming hashcat.bin to hashcat")
+                shutil.move(hashcat_bin_file, hashcat_bin)
+
             if os.path.exists(hashcat_bin):
                 os.chmod(hashcat_bin, 0o755)
 
