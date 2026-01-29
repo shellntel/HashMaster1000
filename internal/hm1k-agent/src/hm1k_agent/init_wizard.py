@@ -226,9 +226,10 @@ class InitWizard:
 
                 try:
                     # Create temporary config to test
+                    import socket
                     temp_config = Config(
                         server=ServerConfig(url=server_url),
-                        agent=AgentConfig(),
+                        agent=AgentConfig(id="temp", name=socket.gethostname()),
                         hashcat=HashcatConfig(),
                     )
                     api = APIClient(temp_config)
@@ -269,9 +270,10 @@ class InitWizard:
         console.print()
 
         # Create temporary config
+        import socket
         temp_config = Config(
             server=ServerConfig(url=server_url),
-            agent=AgentConfig(),
+            agent=AgentConfig(id="temp", name=socket.gethostname()),
             hashcat=HashcatConfig(),
         )
 
