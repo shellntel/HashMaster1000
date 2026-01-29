@@ -1507,8 +1507,9 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
     """
     Get information about an existing HIBP SQLite database.
 
-    Uses caching to avoid expensive COUNT(*) queries on subsequent calls.
-    Cache is invalidated if the file modification time changes.
+    Uses file-based caching to avoid expensive COUNT(*) queries.
+    Cache is stored alongside the database and shared across all workers.
+    Cache is invalidated if the database modification time changes.
 
     Args:
         db_path: Path to the SQLite database
@@ -1519,7 +1520,6 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
     global _sqlite_info_cache
 
     if not os.path.exists(db_path):
-        # Remove from cache if file no longer exists
         _sqlite_info_cache.pop(db_path, None)
         return None
 
@@ -1527,18 +1527,33 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
         return None
 
     try:
-        # Get current modification time
         current_mtime = os.path.getmtime(db_path)
+        file_size = os.path.getsize(db_path)
 
-        # Check cache
+        # File-based cache path (alongside the database)
+        cache_file = db_path + ".cache.json"
+
+        # Check file-based cache first (shared across workers)
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                if cached_data.get('mtime') == current_mtime:
+                    logger.debug(f"HIBP SQLite info loaded from file cache")
+                    # Also populate memory cache for this worker
+                    _sqlite_info_cache[db_path] = (current_mtime, cached_data['info'])
+                    return cached_data['info']
+            except Exception as e:
+                logger.debug(f"Could not read cache file: {e}")
+
+        # Check in-memory cache (for same worker)
         if db_path in _sqlite_info_cache:
             cached_mtime, cached_info = _sqlite_info_cache[db_path]
             if cached_mtime == current_mtime:
-                # Cache hit - return cached info
-                logger.debug(f"HIBP SQLite info cache hit for {db_path}")
+                logger.debug(f"HIBP SQLite info cache hit (memory)")
                 return cached_info
 
-        # Cache miss or stale - need to query database
+        # Cache miss - need to query database (expensive!)
         logger.info(f"Querying HIBP SQLite database info (this may take a moment)...")
 
         conn = sqlite3.connect(db_path)
@@ -1560,8 +1575,6 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
 
         conn.close()
 
-        file_size = os.path.getsize(db_path)
-
         # Get file modification time for display
         stat_info = os.stat(db_path)
         if hasattr(stat_info, 'st_birthtime'):
@@ -1581,9 +1594,18 @@ def get_sqlite_db_info(db_path: str) -> dict | None:
             "valid": True
         }
 
-        # Cache the result
+        # Cache to memory
         _sqlite_info_cache[db_path] = (current_mtime, info)
-        logger.info(f"Cached HIBP SQLite info: {count:,} hashes")
+
+        # Cache to file (for other workers)
+        try:
+            cache_data = {'mtime': current_mtime, 'info': info}
+            with open(cache_file, 'w') as f:
+                json.dump(cache_data, f)
+            logger.info(f"Cached HIBP SQLite info: {count:,} hashes (saved to {cache_file})")
+        except Exception as e:
+            logger.warning(f"Could not write cache file: {e}")
+            logger.info(f"Cached HIBP SQLite info: {count:,} hashes (memory only)")
 
         return info
 
