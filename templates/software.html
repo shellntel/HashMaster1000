@@ -578,7 +578,7 @@
                 select.innerHTML = '<option value="">No online agents available</option>';
             } else {
                 select.innerHTML = onlineAgents.map(a =>
-                    `<option value="${a.agent_id}">${escapeHtml(a.name || a.agent_id)} (${a.status})</option>`
+                    `<option value="${a.id}">${escapeHtml(a.name || a.id)} (${a.status})</option>`
                 ).join('');
             }
 
