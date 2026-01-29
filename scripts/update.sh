@@ -125,6 +125,26 @@ update_code() {
     log_detail "Updated to: $(git log -1 --pretty=format:'%h - %s')"
 }
 
+# Fix file permissions for static assets
+fix_permissions() {
+    log_step "Fixing file permissions"
+
+    cd "$APP_DIR"
+
+    # Ensure static files are readable by web server
+    log_cmd "find static -type f -exec chmod 644 {} \\;"
+    find static -type f -exec chmod 644 {} \;
+
+    log_cmd "find static -type d -exec chmod 755 {} \\;"
+    find static -type d -exec chmod 755 {} \;
+
+    # Ensure templates are readable
+    log_cmd "find templates -type f -exec chmod 644 {} \\;"
+    find templates -type f -exec chmod 644 {} \;
+
+    log_detail "Permissions fixed for static/ and templates/"
+}
+
 # Update Python dependencies
 update_dependencies() {
     log_step "Updating Python dependencies"
@@ -334,6 +354,7 @@ main() {
     check_permissions
     stop_service
     update_code
+    fix_permissions
     update_dependencies
     build_agent_wheel
     sync_service_file
