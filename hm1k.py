@@ -9756,24 +9756,24 @@ def ai_benchmark_page() -> str:
         status_indicator = "✓" if server.get("reachable") else "✗"
         server_options += f'<option value="{server["id"]}" {"" if server.get("reachable") else "disabled"}>{status_indicator} {server["name"]}</option>'
 
-    # Build server status cards
+    # Build server status cards (must match JavaScript refreshServers() structure)
     server_cards_html = ""
     for server in servers_status.get("servers", []):
-        status_class = "ok" if server.get("reachable") else "error"
+        status_class = "online" if server.get("reachable") else "offline"
         model_count = len(server.get("available_models", []))
         hardware_info = f" | {server['hardware']}" if server.get("hardware") else ""
         error_info = f" | Error: {server['error']}" if server.get("error") else ""
         server_cards_html += f'''
-        <div class="server-card {status_class}" data-server-id="{server['id']}">
-            <div class="server-header">
-                <span class="server-status-dot"></span>
-                <strong>{server['name']}</strong>
+        <div class="advanced-server-card {status_class}" data-server-id="{server['id']}">
+            <div class="advanced-server-header">
+                <div class="advanced-server-status">
+                    <span class="advanced-status-dot"></span>
+                    <span class="advanced-server-name">{server['name']}</span>
+                </div>
             </div>
-            <div class="server-details">
-                <div class="server-host">{server['host']}</div>
-                <div class="server-info">{server['description']}{hardware_info}</div>
-                <div class="server-models">{model_count} models available{error_info}</div>
-            </div>
+            <div class="advanced-server-host">{server['host']}</div>
+            <div class="advanced-server-desc">{server['description']}{hardware_info}</div>
+            <div class="advanced-server-desc" style="margin-top: 4px; color: #555;">{model_count} models available{error_info}</div>
         </div>
         '''
 
