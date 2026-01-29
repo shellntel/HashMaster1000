@@ -423,6 +423,13 @@ _user_activity: dict[str, float] = {}
 _SHARED_STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'state')
 os.makedirs(_SHARED_STATE_DIR, exist_ok=True)
 
+# Import fcntl for file locking (Unix only, but we only run on Linux)
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
+
 
 def _get_sse_connections_file() -> str:
     """Get path to file tracking SSE connections."""
@@ -434,25 +441,84 @@ def _get_user_activity_file() -> str:
     return os.path.join(_SHARED_STATE_DIR, 'user_activity.json')
 
 
+def _read_json_with_lock(filepath: str) -> dict:
+    """Read JSON file with file locking to prevent race conditions."""
+    if not os.path.exists(filepath):
+        return {}
+    try:
+        with open(filepath, 'r') as f:
+            if _HAS_FCNTL:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # Shared lock for reading
+            try:
+                return json.load(f)
+            finally:
+                if _HAS_FCNTL:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except (json.JSONDecodeError, ValueError):
+        # File is corrupted, return empty dict
+        return {}
+
+
+def _write_json_with_lock(filepath: str, data: dict) -> None:
+    """Write JSON file with file locking to prevent race conditions."""
+    # Use a lock file to coordinate between processes
+    lockfile = filepath + '.lock'
+    with open(lockfile, 'w') as lock:
+        if _HAS_FCNTL:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)  # Exclusive lock for writing
+        try:
+            # Re-read the file under lock to get latest data
+            existing = {}
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r') as f:
+                        existing = json.load(f)
+                except (json.JSONDecodeError, ValueError):
+                    existing = {}
+            # Merge the new data with existing
+            existing.update(data)
+            # Write atomically using temp file
+            tmpfile = filepath + '.tmp'
+            with open(tmpfile, 'w') as f:
+                json.dump(existing, f)
+            os.replace(tmpfile, filepath)
+        finally:
+            if _HAS_FCNTL:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def _track_sse_connection(agent_id: str, connected: bool) -> None:
     """Track SSE connection state in shared file."""
     filepath = _get_sse_connections_file()
+    lockfile = filepath + '.lock'
     try:
-        connections = {}
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                connections = json.load(f)
+        with open(lockfile, 'w') as lock:
+            if _HAS_FCNTL:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                connections = {}
+                if os.path.exists(filepath):
+                    try:
+                        with open(filepath, 'r') as f:
+                            connections = json.load(f)
+                    except (json.JSONDecodeError, ValueError):
+                        connections = {}
 
-        if connected:
-            connections[agent_id] = {
-                'connected_at': time.time(),
-                'worker_pid': os.getpid()
-            }
-        else:
-            connections.pop(agent_id, None)
+                if connected:
+                    connections[agent_id] = {
+                        'connected_at': time.time(),
+                        'worker_pid': os.getpid()
+                    }
+                else:
+                    connections.pop(agent_id, None)
 
-        with open(filepath, 'w') as f:
-            json.dump(connections, f)
+                tmpfile = filepath + '.tmp'
+                with open(tmpfile, 'w') as f:
+                    json.dump(connections, f)
+                os.replace(tmpfile, filepath)
+            finally:
+                if _HAS_FCNTL:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     except Exception as e:
         logging.warning(f"Failed to track SSE connection: {e}")
 
@@ -461,19 +527,15 @@ def _get_sse_connections() -> dict[str, dict]:
     """Get all active SSE connections from shared file."""
     filepath = _get_sse_connections_file()
     try:
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                connections = json.load(f)
-            # Clean up stale connections (older than 2 minutes without heartbeat)
-            now = time.time()
-            active = {
-                k: v for k, v in connections.items()
-                if now - v.get('connected_at', 0) < 120
-            }
-            if len(active) != len(connections):
-                with open(filepath, 'w') as f:
-                    json.dump(active, f)
-            return active
+        connections = _read_json_with_lock(filepath)
+        # Clean up stale connections (older than 2 minutes without heartbeat)
+        now = time.time()
+        active = {
+            k: v for k, v in connections.items()
+            if now - v.get('connected_at', 0) < 120
+        }
+        # Don't write cleanup here - let the heartbeat handle it
+        return active
     except Exception as e:
         logging.warning(f"Failed to read SSE connections: {e}")
     return {}
@@ -482,16 +544,29 @@ def _get_sse_connections() -> dict[str, dict]:
 def _track_user_activity_shared(username: str) -> None:
     """Track user activity in shared file for multi-worker consistency."""
     filepath = _get_user_activity_file()
+    lockfile = filepath + '.lock'
     try:
-        activity = {}
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                activity = json.load(f)
+        with open(lockfile, 'w') as lock:
+            if _HAS_FCNTL:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                activity = {}
+                if os.path.exists(filepath):
+                    try:
+                        with open(filepath, 'r') as f:
+                            activity = json.load(f)
+                    except (json.JSONDecodeError, ValueError):
+                        activity = {}
 
-        activity[username] = time.time()
+                activity[username] = time.time()
 
-        with open(filepath, 'w') as f:
-            json.dump(activity, f)
+                tmpfile = filepath + '.tmp'
+                with open(tmpfile, 'w') as f:
+                    json.dump(activity, f)
+                os.replace(tmpfile, filepath)
+            finally:
+                if _HAS_FCNTL:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     except Exception as e:
         logging.warning(f"Failed to track user activity: {e}")
 
@@ -500,9 +575,7 @@ def _get_user_activity_shared() -> dict[str, float]:
     """Get user activity from shared file."""
     filepath = _get_user_activity_file()
     try:
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                return json.load(f)
+        return _read_json_with_lock(filepath)
     except Exception as e:
         logging.warning(f"Failed to read user activity: {e}")
     return {}
