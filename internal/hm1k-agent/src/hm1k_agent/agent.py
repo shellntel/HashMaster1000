@@ -208,8 +208,20 @@ class Agent:
 
                 if is_7z:
                     logger.info("Extracting as 7z archive")
-                    with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
-                        archive.extractall(path=extract_dir)
+                    try:
+                        with py7zr.SevenZipFile(tmp_path, mode="r") as archive:
+                            archive.extractall(path=extract_dir)
+                    except Exception as e:
+                        # py7zr doesn't support some filters (BCJ2), fall back to system 7z
+                        logger.warning(f"py7zr failed ({e}), trying system 7z command")
+                        import subprocess
+                        result = subprocess.run(
+                            ["7z", "x", "-y", f"-o{extract_dir}", tmp_path],
+                            capture_output=True,
+                            text=True,
+                        )
+                        if result.returncode != 0:
+                            raise RuntimeError(f"7z extraction failed: {result.stderr}")
                 elif is_targz:
                     logger.info("Extracting as tar.gz archive")
                     with tarfile.open(tmp_path, "r:gz") as archive:
