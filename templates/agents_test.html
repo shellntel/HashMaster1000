@@ -703,6 +703,7 @@
                         ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
                         ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
                         ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
+                        ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
                     </div>
                 </div>
             `}).join('');
@@ -1744,6 +1745,50 @@
                 }
             } catch (error) {
                 log(`Error stopping job: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteAgent(agentId, agentName) {
+            // Confirm deletion
+            if (!confirm(`Are you sure you want to delete agent "${agentName}"?\n\nThis will remove all agent data and cannot be undone.`)) {
+                return;
+            }
+
+            log(`Deleting agent ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Agent "${agentName}" has been deleted`, 'success');
+                    // Refresh the agent list
+                    loadAgentsFromServer();
+                } else {
+                    log(`Failed to delete agent: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error deleting agent: ${error.message}`, 'error');
             }
         }
 

@@ -28,6 +28,7 @@ from flask import (
 from flask.wrappers import Response as FlaskResponse
 from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -406,6 +407,10 @@ def _apply_duplicate_handling(
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 Compress(app)  # Enable gzip/brotli compression for static assets
+
+# Apply ProxyFix to correctly handle X-Forwarded-For headers from nginx
+# This ensures request.remote_addr returns the real client IP, not 127.0.0.1
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
 # Track app start time for health endpoint
 _app_start_time = time.time()
@@ -10992,6 +10997,44 @@ def list_agents() -> Response:
         })
 
     return jsonify({"agents": agents})
+
+
+@app.route("/api/agent/<agent_id>/delete", methods=["POST"])
+@login_required
+def delete_agent(agent_id: str) -> Response:
+    """
+    Delete an agent from the registry.
+
+    This removes all agent data including connection info and job history.
+    Only administrators can delete agents.
+    """
+    # Reload from file to get latest state
+    _load_agents()
+
+    if agent_id not in _agent_registry:
+        return jsonify({"error": "Agent not found"}), 404
+
+    agent_data = _agent_registry[agent_id]
+    agent_name = agent_data.get("name", f"Agent-{agent_id[:8]}")
+
+    # Don't allow deleting agents that are currently online/working
+    status = agent_data.get("status", "unknown")
+    if status in ("online", "working"):
+        return jsonify({
+            "error": f"Cannot delete agent '{agent_name}' while it is {status}. "
+                     "Stop the agent first or wait for it to go offline."
+        }), 400
+
+    # Remove from registry
+    del _agent_registry[agent_id]
+    _save_agents()
+
+    logging.info(f"Agent deleted: {agent_name} ({agent_id})")
+
+    return jsonify({
+        "success": True,
+        "message": f"Agent '{agent_name}' has been deleted"
+    })
 
 
 @app.route("/api/agent/<agent_id>/verify-resources", methods=["POST"])
