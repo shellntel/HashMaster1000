@@ -298,8 +298,9 @@
 
             try {
                 // Add timeout to prevent hanging
+                // 90 seconds to allow for first-time cache generation (COUNT(*) on 2B rows)
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const timeoutId = setTimeout(() => controller.abort(), 90000);
 
                 const response = await fetch('/api/hibp/download/info', {
                     signal: controller.signal
@@ -697,8 +698,9 @@
 
             try {
                 // Add timeout to prevent hanging
+                // 90 seconds to allow for first-time cache generation (COUNT(*) on 2B rows)
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                const timeoutId = setTimeout(() => controller.abort(), 90000);
 
                 const response = await fetch('/api/hibp/download/info', {
                     signal: controller.signal
