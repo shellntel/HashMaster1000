@@ -174,7 +174,10 @@ build_agent_wheel() {
         return
     fi
 
-    # Create dist directory if needed
+    # Clean up dist directory (may be owned by root/service user)
+    if [[ -d "dist" ]]; then
+        sudo rm -rf dist/ 2>/dev/null || rm -rf dist/ 2>/dev/null || true
+    fi
     mkdir -p dist/
 
     # Build the wheel
