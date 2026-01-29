@@ -166,10 +166,11 @@
 
                 <!-- SQLite Info -->
                 <div id="sqliteInfo" style="display: none; margin-bottom: 14px; padding: 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 6px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 0.9em;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; font-size: 0.9em;">
                         <div><span style="color: #71717a;">Mode:</span> <span id="sqliteMode" style="color: #a855f7; font-weight: 600;"></span></div>
                         <div><span style="color: #71717a;">Hashes:</span> <span id="sqliteHashes"></span></div>
                         <div><span style="color: #71717a;">Size:</span> <span id="sqliteSize"></span></div>
+                        <div><span style="color: #71717a;">Built:</span> <span id="sqliteCreated"></span></div>
                     </div>
                 </div>
 
@@ -508,6 +509,14 @@
                 document.getElementById('sqliteMode').textContent = 'SQLite (Indexed)';
                 document.getElementById('sqliteHashes').textContent = formatNumber(data.local_database.hash_count);
                 document.getElementById('sqliteSize').textContent = data.local_database.file_size_gb + ' GB';
+                // Format created_at date if available
+                const createdAt = data.sqlite_info?.created_at;
+                if (createdAt) {
+                    const date = new Date(createdAt);
+                    document.getElementById('sqliteCreated').textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                } else {
+                    document.getElementById('sqliteCreated').textContent = '-';
+                }
                 sqliteStatusIcon.textContent = '✓';
                 sqliteStatusIcon.style.color = '#4ade80';
                 sqliteStatusText.textContent = 'Active';
@@ -528,6 +537,14 @@
                 document.getElementById('sqliteMode').textContent = 'SQLite (Available)';
                 document.getElementById('sqliteHashes').textContent = formatNumber(data.sqlite_info.hash_count);
                 document.getElementById('sqliteSize').textContent = data.sqlite_info.file_size_gb + ' GB';
+                // Format created_at date if available
+                const createdAt2 = data.sqlite_info?.created_at;
+                if (createdAt2) {
+                    const date2 = new Date(createdAt2);
+                    document.getElementById('sqliteCreated').textContent = date2.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                } else {
+                    document.getElementById('sqliteCreated').textContent = '-';
+                }
                 sqliteStatusIcon.textContent = '●';
                 sqliteStatusIcon.style.color = '#fbbf24';
                 sqliteStatusText.textContent = 'Available';
