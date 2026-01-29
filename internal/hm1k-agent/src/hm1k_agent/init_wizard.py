@@ -367,7 +367,7 @@ class InitWizard:
                 name=agent_name,
             ),
             hashcat=HashcatConfig(
-                path=Path(hashcat_path),
+                binary=hashcat_path,
             ),
         )
 
