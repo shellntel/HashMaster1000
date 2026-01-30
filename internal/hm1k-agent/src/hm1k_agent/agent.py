@@ -474,11 +474,13 @@ class Agent:
                 venv_pip = "pip"
 
             logger.info(f"Installing wheel {filename} with {venv_pip}...")
+            # Use --upgrade --no-deps for fast updates (dependencies rarely change)
+            # This avoids the slow --force-reinstall which re-downloads all deps
             result = subprocess.run(
-                [venv_pip, "install", "--force-reinstall", wheel_path],
+                [venv_pip, "install", "--upgrade", "--no-deps", wheel_path],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=180,
             )
 
             if result.returncode != 0:
