@@ -317,6 +317,10 @@ create_directories() {
     chown root:$AGENT_GROUP "$CONFIG_DIR"
     chmod 750 "$CONFIG_DIR"
 
+    # Create potfile with correct ownership (prevents root ownership issues)
+    touch "$DATA_DIR/potfiles/agent.potfile"
+    chown "$AGENT_USER:$AGENT_GROUP" "$DATA_DIR/potfiles/agent.potfile"
+
     # Ensure proper permissions on subdirectories
     chmod -R 755 "$DATA_DIR"
 
