@@ -2207,6 +2207,20 @@
             const updatedAt = job.updated_at ? new Date(job.updated_at).toLocaleTimeString() : 'N/A';
             const gpuTemps = job.gpu_temps || [];
             const gpuUtils = job.gpu_utils || [];
+            const gpuSpeeds = job.gpu_speeds || [];
+
+            // Calculate elapsed time from time_start
+            let elapsedStr = 'N/A';
+            if (job.time_start) {
+                const nowSecs = Math.floor(Date.now() / 1000);
+                const elapsedSecs = nowSecs - job.time_start;
+                if (elapsedSecs >= 0) {
+                    elapsedStr = formatDuration(elapsedSecs);
+                }
+            }
+
+            // Determine number of GPUs based on available data
+            const numGpus = Math.max(gpuTemps.length, gpuUtils.length, gpuSpeeds.length);
 
             return `
                 <div class="job-detail-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
@@ -2225,6 +2239,10 @@
                             <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #888;">Agent</span>
                                 <span style="color: #fff;">${agent.name || agent.id.substring(0, 8)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Hashcat</span>
+                                <span style="color: #fff;">${job.hashcat_version || 'N/A'}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #888;">Last Update</span>
@@ -2246,42 +2264,54 @@
                                 <span style="color: #fff;">${(job.progress_percent || 0).toFixed(2)}%</span>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #888;">ETA</span>
+                                <span style="color: #888;">Elapsed Time</span>
+                                <span style="color: #fff;">${elapsedStr}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Est. Completion</span>
                                 <span style="color: #fff;">${job.eta_seconds ? formatEtaFromTimestamp(job.eta_seconds) : 'Calculating...'}</span>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Speed -->
-                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
-                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Performance</h4>
-                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #888;">Speed</span>
-                                <span style="color: #fff; font-weight: bold;">${formatSpeed(job.speed_hashes_per_sec)}</span>
-                            </div>
-                        </div>
+                <!-- GPU Performance (full width) -->
+                <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">GPU Performance</h4>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <span style="color: #888; font-size: 0.9rem;">Total Speed</span>
+                        <span style="color: #fff; font-weight: bold; font-size: 1.1rem;">${formatSpeed(job.speed_hashes_per_sec)}</span>
                     </div>
-
-                    <!-- GPU Stats -->
-                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
-                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">GPU Status</h4>
-                        ${gpuTemps.length > 0 || gpuUtils.length > 0 ? `
-                            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
-                                ${gpuTemps.map((temp, i) => `
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="color: #888;">GPU ${i}</span>
-                                        <span>
-                                            <span style="color: ${temp > 80 ? '#ef4444' : temp > 70 ? '#f59e0b' : '#22c55e'};">🌡️ ${temp}°C</span>
-                                            ${gpuUtils[i] !== undefined ? `<span style="color: #888; margin-left: 12px;">⚡ ${gpuUtils[i]}%</span>` : ''}
-                                        </span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : `
-                            <div style="color: #666; font-size: 0.85rem;">GPU metrics not available</div>
-                        `}
-                    </div>
+                    ${numGpus > 0 ? `
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="color: #666; text-transform: uppercase; font-size: 0.75rem;">
+                                    <th style="text-align: left; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">GPU</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Speed</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Temp</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Util</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Array.from({length: numGpus}, (_, i) => {
+                                    const temp = gpuTemps[i];
+                                    const util = gpuUtils[i];
+                                    const speed = gpuSpeeds[i];
+                                    const tempColor = temp > 80 ? '#ef4444' : temp > 70 ? '#f59e0b' : '#22c55e';
+                                    return `
+                                        <tr>
+                                            <td style="padding: 8px 4px; color: #888;">GPU ${i}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: #fff;">${speed !== undefined ? formatSpeed(speed) : 'N/A'}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: ${tempColor};">${temp !== undefined ? temp + '°C' : 'N/A'}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: #888;">${util !== undefined ? util + '%' : 'N/A'}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    ` : `
+                        <div style="color: #666; font-size: 0.85rem;">GPU metrics not available yet</div>
+                    `}
                 </div>
 
                 <!-- Large Progress Bar -->

@@ -545,7 +545,8 @@ def create_app(agent: "Agent") -> Flask:
         if request.method == "GET":
             # Return current config and available versions
             from hm1k_agent.hardware import detect_hashcat_versions
-            versions = detect_hashcat_versions()
+            # Pass configured binary so is_current reflects agent's config, not just symlink
+            versions = detect_hashcat_versions(configured_binary=agent.config.hashcat.binary)
             return jsonify({
                 "success": True,
                 "current": {

@@ -505,7 +505,7 @@ class SoftwareStatus:
         }
 
 
-def detect_hashcat_versions() -> list[HashcatInstall]:
+def detect_hashcat_versions(configured_binary: Optional[str] = None) -> list[HashcatInstall]:
     """
     Detect all installed hashcat versions.
 
@@ -516,20 +516,33 @@ def detect_hashcat_versions() -> list[HashcatInstall]:
     - /usr/bin/hashcat
     - /usr/local/bin/hashcat
 
+    Args:
+        configured_binary: The agent's currently configured hashcat binary path.
+                          If provided, this is used to determine is_current instead of symlink.
+
     Returns:
         List of HashcatInstall objects
     """
     installations = []
     seen_versions = set()
 
-    # Check for /opt/hashcat/current symlink first
-    current_path = "/opt/hashcat/current"
+    # Determine which binary is "current"
+    # Priority: configured_binary > /opt/hashcat/current symlink
     current_real_path = None
-    if os.path.islink(current_path):
+    if configured_binary and os.path.isfile(configured_binary):
         try:
-            current_real_path = os.path.realpath(current_path)
+            current_real_path = os.path.realpath(os.path.dirname(configured_binary))
         except OSError:
             pass
+
+    # Fall back to /opt/hashcat/current symlink if no configured binary
+    if not current_real_path:
+        current_path = "/opt/hashcat/current"
+        if os.path.islink(current_path):
+            try:
+                current_real_path = os.path.realpath(current_path)
+            except OSError:
+                pass
 
     # Common search paths
     search_paths = [
@@ -578,11 +591,14 @@ def detect_hashcat_versions() -> list[HashcatInstall]:
                 seen_versions.add(version)
 
                 # Check if this is the current version
+                # Priority: exact match on configured binary > realpath match > /opt/hashcat/current
                 real_path = os.path.realpath(path)
                 is_current = (
-                    current_real_path is not None and
-                    real_path.startswith(current_real_path)
-                ) or path == "/opt/hashcat/current/hashcat"
+                    (configured_binary and path == configured_binary) or
+                    (configured_binary and os.path.realpath(configured_binary) == real_path) or
+                    (current_real_path is not None and real_path.startswith(current_real_path)) or
+                    path == "/opt/hashcat/current/hashcat"
+                )
 
                 installations.append(HashcatInstall(
                     path=path,
@@ -732,15 +748,19 @@ def detect_amd_driver() -> Optional[AmdDriverInfo]:
         return None
 
 
-def detect_software() -> SoftwareStatus:
+def detect_software(configured_hashcat_binary: Optional[str] = None) -> SoftwareStatus:
     """
     Detect all installed software (hashcat, drivers).
+
+    Args:
+        configured_hashcat_binary: The agent's currently configured hashcat binary path.
+                                   Used to determine which hashcat version is "current".
 
     Returns:
         SoftwareStatus object with all detected software
     """
     return SoftwareStatus(
-        hashcat_versions=detect_hashcat_versions(),
+        hashcat_versions=detect_hashcat_versions(configured_binary=configured_hashcat_binary),
         nvidia_driver=detect_nvidia_driver(),
         amd_driver=detect_amd_driver(),
     )
@@ -748,21 +768,34 @@ def detect_software() -> SoftwareStatus:
 
 # Cache for software status
 _cached_software_status: Optional[SoftwareStatus] = None
+_cached_hashcat_binary: Optional[str] = None
 
 
-def get_software_status(refresh: bool = False) -> SoftwareStatus:
+def get_software_status(
+    refresh: bool = False,
+    configured_hashcat_binary: Optional[str] = None,
+) -> SoftwareStatus:
     """
     Get cached software installation status.
 
     Args:
         refresh: If True, re-detect software instead of using cache
+        configured_hashcat_binary: The agent's currently configured hashcat binary.
+                                   If this differs from cached value, forces refresh.
 
     Returns:
         SoftwareStatus object
     """
-    global _cached_software_status
+    global _cached_software_status, _cached_hashcat_binary
+
+    # Refresh if binary changed (is_current flags need updating)
+    if configured_hashcat_binary and configured_hashcat_binary != _cached_hashcat_binary:
+        refresh = True
+        _cached_hashcat_binary = configured_hashcat_binary
 
     if _cached_software_status is None or refresh:
-        _cached_software_status = detect_software()
+        _cached_software_status = detect_software(
+            configured_hashcat_binary=configured_hashcat_binary
+        )
 
     return _cached_software_status

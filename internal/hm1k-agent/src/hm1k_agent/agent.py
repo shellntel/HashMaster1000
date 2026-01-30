@@ -299,9 +299,9 @@ class Agent:
 
             logger.info(f"Hashcat {version} installed successfully")
 
-            # Refresh software status cache
+            # Refresh software status cache with new binary
             from hm1k_agent.hardware import get_software_status
-            get_software_status(refresh=True)
+            get_software_status(refresh=True, configured_hashcat_binary=new_binary)
 
             return True
 
@@ -385,6 +385,9 @@ class Agent:
                     return
 
                 self._update_hashcat_config(new_binary)
+
+                # Refresh software status so is_current flags reflect the new config
+                get_software_status(refresh=True, configured_hashcat_binary=new_binary)
 
     def _on_agent_update(self, event) -> None:
         """Handle agent:update event - update the agent to a new version."""
@@ -817,7 +820,10 @@ class Agent:
         refresh_dynamic_info(self.hardware)
 
         # Get software status (cached, refreshed periodically)
-        software_status = get_software_status()
+        # Pass configured binary so is_current reflects agent's config, not just symlink
+        software_status = get_software_status(
+            configured_hashcat_binary=self.config.hashcat.binary
+        )
 
         return {
             "agent_id": self.config.agent.id,

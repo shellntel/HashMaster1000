@@ -58,6 +58,9 @@ class JobStatusUpdate:
     eta_seconds: Optional[int] = None
     gpu_temps: Optional[list[int]] = None
     gpu_utils: Optional[list[int]] = None
+    gpu_speeds: Optional[list[float]] = None
+    hashcat_version: Optional[str] = None
+    time_start: Optional[int] = None
 
 
 class APIClient:
@@ -219,6 +222,9 @@ class APIClient:
                     "eta_seconds": status.eta_seconds,
                     "gpu_temps": status.gpu_temps,
                     "gpu_utils": status.gpu_utils,
+                    "gpu_speeds": status.gpu_speeds,
+                    "hashcat_version": status.hashcat_version,
+                    "time_start": status.time_start,
                 },
             )
             return True

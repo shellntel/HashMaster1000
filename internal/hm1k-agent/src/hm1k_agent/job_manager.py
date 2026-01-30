@@ -67,8 +67,10 @@ class Job:
     peak_speed: float = 0.0
     gpu_temps: list[int] = field(default_factory=list)  # Max temps observed
     gpu_utils: list[int] = field(default_factory=list)  # Utilization readings
+    gpu_speeds: list[float] = field(default_factory=list)  # Current speed per GPU
     keyspace_total: int = 0
     keyspace_processed: int = 0
+    time_start: Optional[int] = None  # Unix timestamp when hashcat started
 
     @classmethod
     def from_sse_event(cls, event: SSEEvent, jobs_dir: str = "/var/lib/hm1k-agent/jobs") -> "Job":
@@ -506,6 +508,10 @@ class JobManager:
             if status.speed_total > job.peak_speed:
                 job.peak_speed = status.speed_total
 
+        # Track time_start from hashcat
+        if status.time_start and not job.time_start:
+            job.time_start = status.time_start
+
         # Track GPU metrics
         for device in status.devices:
             if device.temp is not None:
@@ -522,11 +528,19 @@ class JobManager:
                 # Keep running sum for averaging (simplified approach)
                 job.gpu_utils[device.id] = device.util
 
+            # Track current speed per GPU
+            while len(job.gpu_speeds) <= device.id:
+                job.gpu_speeds.append(0.0)
+            job.gpu_speeds[device.id] = device.speed
+
     def _report_status(self) -> None:
         """Report current job status to server."""
         job = self._current_job
         if not job:
             return
+
+        # Get hashcat version for status updates
+        hashcat_version = self.hashcat.get_hashcat_version()
 
         status = JobStatusUpdate(
             job_id=job.job_id,
@@ -538,6 +552,9 @@ class JobManager:
             eta_seconds=job.eta_seconds,
             gpu_temps=job.gpu_temps if job.gpu_temps else None,
             gpu_utils=job.gpu_utils if job.gpu_utils else None,
+            gpu_speeds=job.gpu_speeds if job.gpu_speeds else None,
+            hashcat_version=hashcat_version,
+            time_start=job.time_start,
         )
 
         try:
