@@ -9908,6 +9908,7 @@ def job_manager_page() -> str:
 # In-memory caches (for performance - database is source of truth)
 _agent_benchmarks: dict[str, dict] = {}  # agent_id -> benchmark status tracking
 _job_metadata: dict[str, dict] = {}  # job_id -> job metadata (hashcat_args, etc.)
+_agent_jobs: dict[str, dict] = {}  # agent_id -> current job status (fast access cache)
 
 # Legacy compatibility - these now use the database
 _agent_registry: dict[str, dict] = {}  # Kept for SSE connection tracking only
