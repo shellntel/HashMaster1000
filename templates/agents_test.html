@@ -62,8 +62,8 @@
                         <span style="color: #00d4ff;">&#9432;</span>
                         Agents auto-register when they connect to the server. Configure agents with the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes.
                     </p>
-                    <span id="server-agent-version" style="color: #00d4ff; font-size: 0.85rem; white-space: nowrap; margin-left: 15px;">
-                        <!-- Populated by JavaScript -->
+                    <span id="server-agent-version" style="color: #666; font-size: 0.85rem; white-space: nowrap; margin-left: 15px;">
+                        Loading...
                     </span>
                 </div>
             </div>
@@ -354,19 +354,29 @@
         let jobPollingInterval = null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
-        // Load server's current agent version
-        async function loadServerAgentVersion() {
+        // Load server's current agent version with retry
+        async function loadServerAgentVersion(retries = 2) {
+            const versionEl = document.getElementById('server-agent-version');
             try {
                 const response = await fetch('/api/agent/wheel/info');
                 if (response.ok) {
                     const data = await response.json();
-                    const versionEl = document.getElementById('server-agent-version');
                     if (versionEl && data.version) {
-                        versionEl.innerHTML = `Server Agent: <strong>v${data.version}</strong>`;
+                        versionEl.innerHTML = `Server Agent: <strong style="color: #00d4ff;">v${data.version}</strong>`;
+                        versionEl.style.color = '#00d4ff';
                     }
+                } else if (retries > 0) {
+                    setTimeout(() => loadServerAgentVersion(retries - 1), 1000);
+                } else if (versionEl) {
+                    versionEl.innerHTML = 'Server Agent: <span style="color: #f59e0b;">unavailable</span>';
                 }
             } catch (error) {
                 console.log('Could not load server agent version:', error);
+                if (retries > 0) {
+                    setTimeout(() => loadServerAgentVersion(retries - 1), 1000);
+                } else if (versionEl) {
+                    versionEl.innerHTML = 'Server Agent: <span style="color: #f59e0b;">unavailable</span>';
+                }
             }
         }
 
@@ -589,7 +599,8 @@
             }, 6000);
         }
 
-        // Load agents from server API
+        // Load agents from server API with retry
+        let loadAgentsRetryCount = 0;
         async function loadAgentsFromServer() {
             log('Loading agents from server...', 'info');
 
@@ -601,6 +612,7 @@
                     log(`Loaded ${agents.length} agent(s) from server`, 'success');
                     renderAgents();
                     populateAgentDropdown();
+                    loadAgentsRetryCount = 0;  // Reset on success
 
                     // Start polling if any agents have active jobs
                     if (agents.some(a => a.current_job)) {
@@ -608,11 +620,23 @@
                     }
                 } else {
                     log(`Failed to load agents: HTTP ${response.status}`, 'error');
-                    renderAgents();
+                    if (loadAgentsRetryCount < 2) {
+                        loadAgentsRetryCount++;
+                        setTimeout(() => loadAgentsFromServer(), 1000);
+                    } else {
+                        renderAgents();
+                        loadAgentsRetryCount = 0;
+                    }
                 }
             } catch (error) {
                 log(`Error loading agents: ${error.message}`, 'error');
-                renderAgents();
+                if (loadAgentsRetryCount < 2) {
+                    loadAgentsRetryCount++;
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    renderAgents();
+                    loadAgentsRetryCount = 0;
+                }
             }
         }
 
