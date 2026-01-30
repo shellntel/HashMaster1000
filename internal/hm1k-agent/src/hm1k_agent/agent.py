@@ -53,6 +53,9 @@ class Agent:
         self._running = False
         self._shutdown_event = threading.Event()
         self._start_time: float = 0
+        # Cache version at startup - this is the actual running version
+        # (not affected by pip upgrades until restart)
+        self._startup_version = __version__
 
         # Detect system hardware
         self.hardware = get_system_info()
@@ -490,6 +493,12 @@ class Agent:
             import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+            # Wait for pip to fully clean up before restarting
+            # This prevents corrupt package remnants in the venv
+            import time
+            logger.info("Waiting for pip cleanup to complete...")
+            time.sleep(3)
+
             # Restart the agent service
             logger.info("Restarting hm1k-agent service...")
 
@@ -501,7 +510,6 @@ class Agent:
             )
 
             # Give systemctl a moment to start the restart
-            import time
             time.sleep(1)
 
             return True
@@ -731,7 +739,7 @@ class Agent:
         return {
             "agent_id": self.config.agent.id,
             "agent_name": self.config.agent.name,
-            "version": __version__,
+            "version": self._startup_version,  # Use cached version from startup
             "timestamp": time.time(),
             "status": {
                 "state": "busy" if current_job else "idle",
@@ -889,7 +897,7 @@ class Agent:
             "agent": {
                 "id": self.config.agent.id,
                 "name": self.config.agent.name,
-                "version": __version__,
+                "version": self._startup_version,  # Use cached version from startup
                 "running": self._running,
             },
             "server": {
