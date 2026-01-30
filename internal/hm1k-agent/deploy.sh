@@ -274,6 +274,41 @@ check_hashcat() {
     fi
 }
 
+# Fix hashcat directory permissions
+# Hashcat creates session files (.pid, .restore, .outfiles/) in its installation directory
+# The agent user needs write access to this directory for sessions to work
+fix_hashcat_permissions() {
+    log_info "Fixing hashcat directory permissions..."
+
+    # Find all hashcat directories in /opt/hashcat
+    if [[ -d "/opt/hashcat" ]]; then
+        # Fix permissions on versions directory if it exists
+        if [[ -d "/opt/hashcat/versions" ]]; then
+            chown -R "$AGENT_USER:$AGENT_GROUP" /opt/hashcat/versions
+            log_success "Fixed permissions: /opt/hashcat/versions"
+        fi
+
+        # Fix permissions on any version-specific directories (e.g., hashcat-7.1.2)
+        for dir in /opt/hashcat/hashcat-*; do
+            if [[ -d "$dir" ]]; then
+                chown -R "$AGENT_USER:$AGENT_GROUP" "$dir"
+                log_success "Fixed permissions: $dir"
+            fi
+        done
+
+        # If there's a current symlink, fix the target directory
+        if [[ -L "/opt/hashcat/current" ]]; then
+            TARGET=$(readlink -f /opt/hashcat/current)
+            if [[ -d "$TARGET" ]]; then
+                chown -R "$AGENT_USER:$AGENT_GROUP" "$TARGET"
+                log_success "Fixed permissions: $TARGET (via /opt/hashcat/current symlink)"
+            fi
+        fi
+    else
+        log_info "No /opt/hashcat directory found, skipping hashcat permission fix"
+    fi
+}
+
 # Create agent user
 create_user() {
     log_info "Creating agent user..."
@@ -552,6 +587,7 @@ main() {
     check_python
     check_hashcat
     create_user
+    fix_hashcat_permissions
     create_directories
     install_agent
     install_config
