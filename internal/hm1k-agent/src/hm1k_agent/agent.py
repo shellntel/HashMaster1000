@@ -531,23 +531,27 @@ class Agent:
             # Restart the agent service
             logger.info("Restarting hm1k-agent service...")
 
-            # Use systemd-run to execute restart in a separate transient scope
-            # This ensures the restart survives when systemd kills this service's cgroup
-            # The --scope creates a transient scope unit, --quiet suppresses output
-            # IMPORTANT: Use full paths - sudoers requires exact command match
+            # Write a restart script and execute it with nohup
+            # This ensures the restart process survives when systemd kills this cgroup
+            restart_script = "/tmp/hm1k-agent-restart.sh"
+            with open(restart_script, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write("sleep 1\n")  # Brief delay to let this process release
+                f.write("sudo /usr/bin/systemctl restart hm1k-agent\n")
+
+            os.chmod(restart_script, 0o755)
+
+            # Run the script with nohup, fully detached from this process
             subprocess.Popen(
-                [
-                    "sudo", "/usr/bin/systemd-run", "--scope", "--quiet",
-                    "/usr/bin/systemctl", "restart", "hm1k-agent"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                ["nohup", restart_script],
+                stdout=open("/dev/null", "w"),
+                stderr=open("/dev/null", "w"),
+                stdin=open("/dev/null", "r"),
                 start_new_session=True,
+                close_fds=True,
             )
 
-            # Give systemd-run a moment to start the scope
-            time.sleep(2)
-
+            logger.info("Restart script launched, agent will restart shortly")
             return True
 
         except Exception as e:
