@@ -389,6 +389,13 @@ class Agent:
                 # Refresh software status so is_current flags reflect the new config
                 get_software_status(refresh=True, configured_hashcat_binary=new_binary)
 
+                # Send immediate heartbeat so server gets the updated state
+                try:
+                    self._send_heartbeat()
+                    logger.info("Sent immediate heartbeat after config update")
+                except Exception as e:
+                    logger.warning(f"Failed to send immediate heartbeat: {e}")
+
     def _on_agent_update(self, event) -> None:
         """Handle agent:update event - update the agent to a new version."""
         data = event.data
