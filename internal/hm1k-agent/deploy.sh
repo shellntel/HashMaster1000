@@ -145,6 +145,12 @@ uninstall_agent() {
         log_success "Removed systemd service"
     fi
 
+    # Remove sudoers entry
+    if [[ -f /etc/sudoers.d/hm1k-agent ]]; then
+        rm -f /etc/sudoers.d/hm1k-agent
+        log_success "Removed sudoers entry"
+    fi
+
     # Remove directories
     for dir in "$INSTALL_DIR" "$LOG_DIR"; do
         if [[ -d "$dir" ]]; then
@@ -428,6 +434,16 @@ EOF
 
     systemctl daemon-reload
     log_success "Installed systemd service"
+
+    # Install sudoers entry to allow agent to restart itself (for self-updates)
+    SUDOERS_FILE="/etc/sudoers.d/hm1k-agent"
+    if [[ ! -f "$SUDOERS_FILE" ]]; then
+        echo "$AGENT_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart hm1k-agent" > "$SUDOERS_FILE"
+        chmod 440 "$SUDOERS_FILE"
+        log_success "Installed sudoers entry for self-restart"
+    else
+        log_info "Sudoers entry already exists"
+    fi
 
     echo ""
     log_info "To enable and start the service:"
