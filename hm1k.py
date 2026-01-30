@@ -10776,6 +10776,9 @@ def agent_job_status() -> Response:
         "eta_seconds": data.get("eta_seconds"),
         "gpu_temps": data.get("gpu_temps"),
         "gpu_utils": data.get("gpu_utils"),
+        "gpu_speeds": data.get("gpu_speeds"),  # Individual GPU speeds
+        "hashcat_version": data.get("hashcat_version"),  # Hashcat version in use
+        "time_start": data.get("time_start"),  # Unix timestamp when hashcat started
         "updated_at": now_iso,
     }
 
@@ -11398,6 +11401,9 @@ def list_agents() -> Response:
         current_hashcat = next((h for h in hashcat_versions if h.get("is_current")), None)
         hashcat_version = current_hashcat.get("version") if current_hashcat else None
 
+        # Get update status if any
+        update_status = state.get("update_status")
+
         agents.append({
             "id": agent_id,
             "name": agent_name,
@@ -11412,6 +11418,7 @@ def list_agents() -> Response:
             "version": state.get("version"),
             "hashcat_version": hashcat_version,
             "hashcat_versions": hashcat_versions,  # Full list of installed versions
+            "update_status": update_status,  # Update progress/error info
             "resources": {
                 "cache_size_mb": resources_info.get("cache_size_mb", 0),
                 "cached_count": resources_info.get("cached_count", 0),
@@ -13575,6 +13582,56 @@ def trigger_agent_update(agent_id: str) -> Response:
     except Exception as e:
         logging.error(f"Failed to trigger agent update: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/update/status", methods=["POST"])
+@csrf.exempt
+def agent_update_status() -> Response:
+    """
+    Receive agent update status reports.
+
+    Called by agents during the update process to report progress or errors.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
+    agent_id = data.get("agent_id")
+    version = data.get("version")
+    status = data.get("status")  # downloading, installed, restarting, error
+    message = data.get("message")
+    error = data.get("error")
+
+    if not agent_id:
+        return jsonify({"error": "agent_id required"}), 400
+
+    db = _get_db()
+    agent = db.get_agent(agent_id)
+    if not agent:
+        return jsonify({"error": "Agent not found"}), 404
+
+    # Store update status in agent state
+    update_status = {
+        "version": version,
+        "status": status,
+        "message": message,
+        "error": error,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    # Update the agent's update_status field
+    state = agent.get("state", {})
+    state["update_status"] = update_status
+    db.update_agent_state(agent_id, state)
+
+    agent_name = state.get("agent_name") or agent.get("name", agent_id[:8])
+
+    if status == "error":
+        logging.warning(f"Agent update failed for {agent_name}: {error or message}")
+    else:
+        logging.info(f"Agent update status for {agent_name}: {status} - {message}")
+
+    return jsonify({"status": "ok"})
 
 
 # Comparison results storage directory

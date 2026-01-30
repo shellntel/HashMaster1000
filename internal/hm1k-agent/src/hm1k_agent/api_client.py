@@ -293,6 +293,42 @@ class APIClient:
             logger.error(f"Job error report failed: {e}")
             return False
 
+    def report_update_status(
+        self,
+        version: str,
+        status: str,
+        message: str,
+        error: Optional[str] = None,
+    ) -> bool:
+        """
+        Report agent update status to server.
+
+        Args:
+            version: Target version being updated to
+            status: Status (downloading, installed, restarting, error)
+            message: Human-readable status message
+            error: Error details if status is 'error'
+
+        Returns:
+            True if report was accepted
+        """
+        try:
+            self._request(
+                "POST",
+                "/api/agent/update/status",
+                data={
+                    "agent_id": self.config.agent.id,
+                    "version": version,
+                    "status": status,
+                    "message": message,
+                    "error": error,
+                },
+            )
+            return True
+        except requests.RequestException as e:
+            logger.warning(f"Update status report failed: {e}")
+            return False
+
     def get_resource_list(self, resource_type: str) -> list[dict]:
         """
         Get list of available resources.

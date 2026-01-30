@@ -462,7 +462,14 @@ class Agent:
                     computed_hash.update(chunk)
 
             if computed_hash.hexdigest() != expected_sha256:
-                logger.error(f"Hash mismatch: expected {expected_sha256}, got {computed_hash.hexdigest()}")
+                error_msg = f"Hash mismatch: expected {expected_sha256}, got {computed_hash.hexdigest()}"
+                logger.error(error_msg)
+                self.api.report_update_status(
+                    version=version,
+                    status="error",
+                    message="Update failed: hash verification failed",
+                    error=error_msg,
+                )
                 import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
@@ -487,7 +494,14 @@ class Agent:
             )
 
             if result.returncode != 0:
-                logger.error(f"Failed to install wheel: {result.stderr}")
+                error_msg = f"pip install failed: {result.stderr}"
+                logger.error(error_msg)
+                self.api.report_update_status(
+                    version=version,
+                    status="error",
+                    message="Update failed: pip install failed",
+                    error=error_msg,
+                )
                 import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
@@ -504,14 +518,26 @@ class Agent:
             logger.info("Waiting for pip cleanup to complete...")
             time.sleep(3)
 
+            # Report successful install to server before restarting
+            try:
+                self.api.report_update_status(
+                    version=version,
+                    status="installed",
+                    message=f"Agent {version} installed successfully, restarting...",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to report update status: {e}")
+
             # Restart the agent service
             logger.info("Restarting hm1k-agent service...")
 
-            # Use systemctl to restart (this will kill this process)
+            # Use systemctl to restart with start_new_session=True
+            # This detaches the process so it survives when systemd kills this agent
             subprocess.Popen(
                 ["sudo", "systemctl", "restart", "hm1k-agent"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                start_new_session=True,  # Detach from agent's process group
             )
 
             # Give systemctl a moment to start the restart
@@ -520,7 +546,17 @@ class Agent:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to update agent: {e}")
+            error_msg = str(e)
+            logger.error(f"Failed to update agent: {error_msg}")
+            try:
+                self.api.report_update_status(
+                    version=version,
+                    status="error",
+                    message="Update failed unexpectedly",
+                    error=error_msg,
+                )
+            except Exception:
+                pass  # Don't let reporting failure mask the original error
             return False
 
     def _on_ping(self, event) -> None:
