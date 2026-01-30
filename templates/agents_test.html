@@ -2114,6 +2114,75 @@
             return `${avgUtil}% (avg)`;
         }
 
+        // Format hashcat command with placeholders for file paths
+        function formatHashcatCommand(args) {
+            if (!args || args.length === 0) return '';
+
+            const result = [];
+            let i = 0;
+            let foundHashFile = false;
+            let foundWordlist = false;
+
+            // Options that take a file/path argument
+            const fileOptions = new Set(['-r', '--rules-file', '-o', '--outfile', '--potfile-path',
+                                         '--restore-file-path', '--session', '-d', '--backend-devices']);
+            // Options that take a non-file argument
+            const valueOptions = new Set(['-m', '--hash-type', '-a', '--attack-mode', '-w', '--workload-profile',
+                                          '-n', '--kernel-accel', '-u', '--kernel-loops', '-T', '--kernel-threads',
+                                          '-t', '--markov-threshold', '-j', '-k', '--increment-min', '--increment-max',
+                                          '-1', '-2', '-3', '-4', '--custom-charset1', '--custom-charset2',
+                                          '--custom-charset3', '--custom-charset4', '--skip', '--limit',
+                                          '--scrypt-tmto', '--generate-rules', '--debug-mode', '--debug-file',
+                                          '--induction-dir', '--outfile-check-dir', '--hwmon-temp-abort']);
+
+            while (i < args.length) {
+                const arg = args[i];
+
+                if (arg.startsWith('-')) {
+                    // It's an option
+                    if (arg === '-r' || arg === '--rules-file') {
+                        result.push(arg);
+                        if (i + 1 < args.length) {
+                            i++;
+                            result.push('{rules}');
+                        }
+                    } else if (fileOptions.has(arg)) {
+                        result.push(arg);
+                        if (i + 1 < args.length) {
+                            i++;
+                            result.push(args[i]);  // Keep other file options as-is
+                        }
+                    } else if (valueOptions.has(arg)) {
+                        result.push(arg);
+                        if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+                            i++;
+                            result.push(args[i]);
+                        }
+                    } else {
+                        // Flag without value (like -O, --username, etc.)
+                        result.push(arg);
+                    }
+                } else {
+                    // Positional argument
+                    if (!foundHashFile) {
+                        // First positional is the hash file
+                        result.push('{hash_file}');
+                        foundHashFile = true;
+                    } else if (!foundWordlist && !arg.includes('?')) {
+                        // Second positional that's not a mask is the wordlist
+                        result.push('{wordlist}');
+                        foundWordlist = true;
+                    } else {
+                        // Mask or other positional
+                        result.push(arg);
+                    }
+                }
+                i++;
+            }
+
+            return 'hashcat ' + result.join(' ');
+        }
+
         // Convert eta_seconds (Unix timestamp or seconds) to remaining time string
         function formatEtaFromTimestamp(etaValue) {
             if (!etaValue || etaValue <= 0) return null;
@@ -2315,7 +2384,7 @@
 
                 <!-- GPU Performance (full width) -->
                 <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
-                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">GPU Performance</h4>
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Cracking Performance & GPU Monitors</h4>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
                         <span style="color: #888; font-size: 0.9rem;">Total Speed</span>
                         <span style="color: #fff; font-weight: bold; font-size: 1.1rem;">${formatSpeed(job.speed_hashes_per_sec)}</span>
@@ -2369,7 +2438,7 @@
                 <!-- Hashcat Command -->
                 <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
                     <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Hashcat Command</h4>
-                    <code style="display: block; background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #22c55e; word-break: break-all; border: 1px solid rgba(0,212,255,0.2);">hashcat ${job.hashcat_args.join(' ')}</code>
+                    <code style="display: block; background: rgba(0,0,0,0.4); padding: 12px; border-radius: 6px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; color: #22c55e; word-break: break-all; border: 1px solid rgba(0,212,255,0.2);">${formatHashcatCommand(job.hashcat_args)}</code>
                 </div>
                 ` : ''}
             `;
