@@ -57,11 +57,14 @@
                 </div>
 
                 <!-- Agent Info Banner -->
-                <div class="agent-info-banner" style="margin-top: 20px; padding: 15px; background: rgba(0,100,200,0.15); border-radius: 8px; border: 1px solid rgba(0,212,255,0.3);">
+                <div class="agent-info-banner" style="margin-top: 20px; padding: 15px; background: rgba(0,100,200,0.15); border-radius: 8px; border: 1px solid rgba(0,212,255,0.3); display: flex; justify-content: space-between; align-items: center;">
                     <p style="margin: 0; color: #999; font-size: 0.9rem;">
                         <span style="color: #00d4ff;">&#9432;</span>
                         Agents auto-register when they connect to the server. Configure agents with the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes.
                     </p>
+                    <span id="server-agent-version" style="color: #00d4ff; font-size: 0.85rem; white-space: nowrap; margin-left: 15px;">
+                        <!-- Populated by JavaScript -->
+                    </span>
                 </div>
             </div>
         </div>
@@ -351,9 +354,26 @@
         let jobPollingInterval = null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
+        // Load server's current agent version
+        async function loadServerAgentVersion() {
+            try {
+                const response = await fetch('/api/agent/wheel/info');
+                if (response.ok) {
+                    const data = await response.json();
+                    const versionEl = document.getElementById('server-agent-version');
+                    if (versionEl && data.version) {
+                        versionEl.innerHTML = `Server Agent: <strong>v${data.version}</strong>`;
+                    }
+                }
+            } catch (error) {
+                console.log('Could not load server agent version:', error);
+            }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadAgentsFromServer();
+            loadServerAgentVersion();
             loadPendingRegistrations();
             loadJobTemplates();
             loadWordlistsForDropdown();
