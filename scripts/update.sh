@@ -158,11 +158,14 @@ fix_permissions() {
         fi
     done
 
-    # --- Sensitive files (restrict access) ---
+    # --- Sensitive files (restrict access, must be owned by service user) ---
+    log_detail "Fixing sensitive file ownership..."
     if [[ -f "$APP_DIR/key.pem" ]]; then
+        sudo chown "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/key.pem"
         chmod 640 "$APP_DIR/key.pem"
     fi
     if [[ -f "$APP_DIR/.env" ]]; then
+        sudo chown "$SERVICE_USER:$SERVICE_USER" "$APP_DIR/.env"
         chmod 640 "$APP_DIR/.env"
     fi
 
