@@ -238,6 +238,22 @@ class AgentStateDB:
                 WHERE id = ?
             """, (job_json, status, agent_id))
 
+    def update_agent_state(self, agent_id: str, state: dict) -> bool:
+        """
+        Update just the state JSON for an agent.
+
+        Used for things like update status that shouldn't affect heartbeat timestamp.
+
+        Returns True if agent was found and updated.
+        """
+        with self._transaction() as conn:
+            state_json = json.dumps(state)
+            cursor = conn.execute("""
+                UPDATE agents SET state_json = ?
+                WHERE id = ?
+            """, (state_json, agent_id))
+            return cursor.rowcount > 0
+
     def delete_agent(self, agent_id: str) -> bool:
         """Delete an agent."""
         with self._transaction() as conn:

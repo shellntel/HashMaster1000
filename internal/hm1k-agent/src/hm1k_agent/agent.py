@@ -534,10 +534,11 @@ class Agent:
             # Use systemd-run to execute restart in a separate transient scope
             # This ensures the restart survives when systemd kills this service's cgroup
             # The --scope creates a transient scope unit, --quiet suppresses output
+            # IMPORTANT: Use full paths - sudoers requires exact command match
             subprocess.Popen(
                 [
-                    "sudo", "systemd-run", "--scope", "--quiet",
-                    "systemctl", "restart", "hm1k-agent"
+                    "sudo", "/usr/bin/systemd-run", "--scope", "--quiet",
+                    "/usr/bin/systemctl", "restart", "hm1k-agent"
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
