@@ -765,10 +765,10 @@
                                                 style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.3); color: ${pendingBinary ? '#f59e0b' : '#00d4ff'}; padding: 2px 4px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;"
                                                 title="${pendingBinary ? 'Version change pending...' : 'Select hashcat version'}">
                                                 ${agent.hashcat_versions.map(v => {
-                                                    const isSelected = pendingBinary ? v.binary === pendingBinary : v.is_current;
+                                                    const isSelected = pendingBinary ? v.path === pendingBinary : v.is_current;
                                                     return `
-                                                    <option value="${v.binary}" ${isSelected ? 'selected' : ''}>
-                                                        ${v.version}${v.is_current ? ' (current)' : ''}${pendingBinary === v.binary && !v.is_current ? ' (pending)' : ''}
+                                                    <option value="${v.path}" ${isSelected ? 'selected' : ''}>
+                                                        ${v.version}${v.is_current ? ' (current)' : ''}${pendingBinary === v.path && !v.is_current ? ' (pending)' : ''}
                                                     </option>`;
                                                 }).join('')}
                                             </select>`;
@@ -2077,7 +2077,7 @@
                         await loadAgentsFromServer();
                         const agent = agents.find(a => a.id === agentId);
                         const currentVersion = agent?.hashcat_versions?.find(v => v.is_current);
-                        if (currentVersion && currentVersion.binary === binaryPath) {
+                        if (currentVersion && currentVersion.path === binaryPath) {
                             // Server confirmed the change
                             delete pendingHashcatVersions[agentId];
                             clearInterval(checkInterval);
