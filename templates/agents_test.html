@@ -2252,8 +2252,8 @@
                     <div id="job-detail-content">
                         ${renderJobDetailContent(agent)}
                     </div>
-                    <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agentId}'); document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Stop Job</button>
+                    <div id="job-detail-buttons" style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="job-stop-btn" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agentId}'); document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Stop Job</button>
                         <button class="advanced-btn advanced-btn-secondary" onclick="document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Close</button>
                     </div>
                 </div>
@@ -2300,6 +2300,9 @@
                                 indicator.style.color = '#999';
                                 indicator.style.animation = 'none';
                             }
+                            // Hide Stop Job button
+                            const stopBtn = document.getElementById('job-stop-btn');
+                            if (stopBtn) stopBtn.style.display = 'none';
                             // Refresh agent list
                             loadAgentsFromServer();
                         }
