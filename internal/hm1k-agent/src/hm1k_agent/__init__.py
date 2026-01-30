@@ -5,7 +5,7 @@ A lightweight Python agent that runs on cracking servers to execute
 hashcat jobs and report status back to the HM1K server.
 """
 
-__version__ = "0.1.17"
+__version__ = "0.1.18"
 __author__ = "Brian Judd"
 
 from hm1k_agent.agent import Agent

@@ -335,7 +335,9 @@ class HashcatRunner:
         # Use sessions_dir for hashcat session files (avoids permission issues with hashcat install dir)
         sessions_dir = Path(self.config.resources.sessions_dir)
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        session_path = str(sessions_dir / job.job_id)
+        # Sanitize session name - hashcat only allows alphanumeric characters
+        session_name = job.job_id.replace("-", "_")
+        session_path = str(sessions_dir / session_name)
 
         cmd = [
             self.hashcat_binary,
