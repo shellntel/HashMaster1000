@@ -680,8 +680,7 @@
                     <div class="agent-header">
                         <div style="display: flex; flex-direction: column; gap: 6px;">
                             <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
-                            ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}</span>` : ''}
-                            ${agent.update_status ? renderUpdateStatus(agent.update_status) : ''}
+                            ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}${agent.update_status ? ' ' + renderUpdateStatus(agent.update_status, agent.version) : ''}</span>` : ''}
                         </div>
                         <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
                     </div>
@@ -2053,20 +2052,21 @@
         }
 
         // Render agent update status indicator
-        function renderUpdateStatus(updateStatus) {
+        function renderUpdateStatus(updateStatus, agentVersion) {
             if (!updateStatus) return '';
 
             const status = updateStatus.status;
             const message = updateStatus.message || '';
             const timestamp = updateStatus.timestamp;
+            const targetVersion = updateStatus.version;
 
             // Check if status is recent (within last 5 minutes)
             if (timestamp) {
                 const statusTime = new Date(timestamp);
                 const now = new Date();
                 const ageMinutes = (now - statusTime) / 1000 / 60;
-                // Don't show old success messages (after agent has restarted with new version)
-                if (ageMinutes > 5 && status === 'installed') {
+                // Don't show old messages after 5 minutes
+                if (ageMinutes > 5) {
                     return '';
                 }
             }
@@ -2074,9 +2074,17 @@
             if (status === 'error') {
                 return `<span style="color: #ef4444; font-size: 0.75rem;" title="${updateStatus.error || message}">&#9888; Update failed</span>`;
             } else if (status === 'installed') {
-                return `<span style="color: #22c55e; font-size: 0.75rem;" title="${message}">&#10003; Updated to v${updateStatus.version}</span>`;
+                // Check if agent is now running the target version
+                if (agentVersion === targetVersion) {
+                    return `<span style="color: #22c55e; font-size: 0.75rem;" title="${message}">&#10003; Updated to v${targetVersion}</span>`;
+                } else {
+                    // Update installed but agent hasn't restarted yet
+                    return `<span style="color: #f59e0b; font-size: 0.75rem;" title="Waiting for restart...">&#8635; Restarting to v${targetVersion}...</span>`;
+                }
             } else if (status === 'downloading') {
                 return `<span style="color: #f59e0b; font-size: 0.75rem;">&#8635; Downloading...</span>`;
+            } else if (status === 'queued') {
+                return `<span style="color: #f59e0b; font-size: 0.75rem;">&#8635; Starting update to v${targetVersion}...</span>`;
             }
             return '';
         }

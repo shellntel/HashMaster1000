@@ -13570,6 +13570,17 @@ def trigger_agent_update(agent_id: str) -> Response:
             }
         })
 
+        # Set initial update status
+        update_status = {
+            "status": "queued",
+            "version": version,
+            "message": f"Update to v{version} queued",
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        state = agent.get("state", {})
+        state["update_status"] = update_status
+        db.update_agent_state(agent_id, state)
+
         agent_name = agent.get("state", {}).get("agent_name") or agent.get("name", agent_id[:8])
         logging.info(f"Agent update queued for {agent_name} ({agent_id})")
 

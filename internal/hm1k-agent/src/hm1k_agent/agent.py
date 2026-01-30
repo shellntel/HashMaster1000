@@ -528,30 +528,27 @@ class Agent:
             except Exception as e:
                 logger.warning(f"Failed to report update status: {e}")
 
-            # Restart the agent service
+            # Restart the agent service using systemd-run to escape the cgroup
+            # This runs the restart in a separate scope so it won't be killed
+            # when systemd terminates this service's cgroup
             logger.info("Restarting hm1k-agent service...")
 
-            # Write a restart script and execute it with nohup
-            # This ensures the restart process survives when systemd kills this cgroup
-            restart_script = "/tmp/hm1k-agent-restart.sh"
-            with open(restart_script, "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write("sleep 1\n")  # Brief delay to let this process release
-                f.write("sudo /usr/bin/systemctl restart hm1k-agent\n")
-
-            os.chmod(restart_script, 0o755)
-
-            # Run the script with nohup, fully detached from this process
-            subprocess.Popen(
-                ["nohup", restart_script],
-                stdout=open("/dev/null", "w"),
-                stderr=open("/dev/null", "w"),
-                stdin=open("/dev/null", "r"),
-                start_new_session=True,
-                close_fds=True,
+            result = subprocess.run(
+                [
+                    "sudo", "/usr/bin/systemd-run",
+                    "--scope",                    # Run in transient scope (separate cgroup)
+                    "--",                         # End of systemd-run options
+                    "/usr/bin/systemctl", "restart", "hm1k-agent"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
 
-            logger.info("Restart script launched, agent will restart shortly")
+            if result.returncode == 0:
+                logger.info("Restart command issued, agent will restart shortly")
+            else:
+                logger.error(f"Restart command failed: {result.stderr}")
             return True
 
         except Exception as e:
