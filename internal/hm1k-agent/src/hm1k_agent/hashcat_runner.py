@@ -333,11 +333,11 @@ class HashcatRunner:
         logger.debug(f"Potfile has {self._potfile_start_lines} entries before job start")
 
         # Use sessions_dir for hashcat session files (avoids permission issues with hashcat install dir)
+        # Hashcat creates session files (.pid, .restore, etc.) in the working directory
         sessions_dir = Path(self.config.resources.sessions_dir)
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        # Sanitize session name - hashcat only allows alphanumeric characters
+        # Sanitize session name - hashcat only allows alphanumeric characters (no paths!)
         session_name = job.job_id.replace("-", "_")
-        session_path = str(sessions_dir / session_name)
 
         cmd = [
             self.hashcat_binary,
@@ -345,7 +345,7 @@ class HashcatRunner:
             "--status-json",
             "--status-timer", str(self.status_timer),
             "--potfile-path", potfile_path,
-            "--session", session_path,
+            "--session", session_name,
             "-o", str(job_dir / "cracked.txt"),
             job.hash_file,
         ]
@@ -365,7 +365,7 @@ class HashcatRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                cwd=str(job_dir),
+                cwd=str(sessions_dir),  # Session files created here
             )
             self._current_job = job
             self._latest_status = None
