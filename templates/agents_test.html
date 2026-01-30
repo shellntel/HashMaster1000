@@ -354,6 +354,10 @@
         let jobPollingInterval = null;
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
 
+        // Track pending hashcat version changes to prevent UI reversion
+        // Maps agent_id -> { binary: string, timestamp: number }
+        const pendingHashcatVersions = {};
+
         // Load server's current agent version with retry
         async function loadServerAgentVersion(retries = 2) {
             const versionEl = document.getElementById('server-agent-version');
@@ -751,18 +755,24 @@
                                 ${agent.hashcat_version ? `
                                     <span style="display: flex; align-items: center; gap: 4px;">
                                         &#9881; Hashcat:
-                                        ${agent.hashcat_versions && agent.hashcat_versions.length > 1 && agent.status === 'online' ? `
+                                        ${agent.hashcat_versions && agent.hashcat_versions.length > 1 && agent.status === 'online' ? (() => {
+                                            // Check for pending version change
+                                            const pending = pendingHashcatVersions[agent.id];
+                                            const pendingBinary = pending && (Date.now() - pending.timestamp < 30000) ? pending.binary : null;
+                                            return `
                                             <select
                                                 onchange="setAgentHashcatVersion('${agent.id}', this.value)"
-                                                style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.3); color: #00d4ff; padding: 2px 4px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;"
-                                                title="Select hashcat version">
-                                                ${agent.hashcat_versions.map(v => `
-                                                    <option value="${v.binary}" ${v.is_current ? 'selected' : ''}>
-                                                        ${v.version}${v.is_current ? ' (current)' : ''}
-                                                    </option>
-                                                `).join('')}
-                                            </select>
-                                        ` : `<span style="color: #00d4ff;">${agent.hashcat_version}</span>`}
+                                                style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.3); color: ${pendingBinary ? '#f59e0b' : '#00d4ff'}; padding: 2px 4px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;"
+                                                title="${pendingBinary ? 'Version change pending...' : 'Select hashcat version'}">
+                                                ${agent.hashcat_versions.map(v => {
+                                                    const isSelected = pendingBinary ? v.binary === pendingBinary : v.is_current;
+                                                    return `
+                                                    <option value="${v.binary}" ${isSelected ? 'selected' : ''}>
+                                                        ${v.version}${v.is_current ? ' (current)' : ''}${pendingBinary === v.binary && !v.is_current ? ' (pending)' : ''}
+                                                    </option>`;
+                                                }).join('')}
+                                            </select>`;
+                                        })() : `<span style="color: #00d4ff;">${agent.hashcat_version}</span>`}
                                     </span>
                                 ` : ''}
                             </div>
@@ -1945,6 +1955,9 @@
 
             log(`Setting hashcat version on ${agentName}...`, 'info');
 
+            // Track pending version change to prevent UI reversion
+            pendingHashcatVersions[agentId] = { binary: binaryPath, timestamp: Date.now() };
+
             try {
                 const response = await fetch(`/api/agent/${agentId}/hashcat/set-current`, {
                     method: 'POST',
@@ -1963,6 +1976,7 @@
                     } else {
                         log(`Server returned non-JSON response (status ${response.status})`, 'error');
                     }
+                    delete pendingHashcatVersions[agentId];
                     return;
                 }
 
@@ -1970,13 +1984,34 @@
 
                 if (response.ok && data.success) {
                     log(`Hashcat version update queued for ${agentName}`, 'success');
-                    // Refresh after delay to let the agent process and send updated heartbeat
-                    setTimeout(() => loadAgentsFromServer(), 3000);
+                    // Poll until server confirms the change (up to 30 seconds)
+                    const checkInterval = setInterval(async () => {
+                        await loadAgentsFromServer();
+                        const agent = agents.find(a => a.id === agentId);
+                        const currentVersion = agent?.hashcat_versions?.find(v => v.is_current);
+                        if (currentVersion && currentVersion.binary === binaryPath) {
+                            // Server confirmed the change
+                            delete pendingHashcatVersions[agentId];
+                            clearInterval(checkInterval);
+                            log(`Hashcat version confirmed for ${agentName}`, 'success');
+                        }
+                    }, 3000);
+                    // Stop checking after 30 seconds
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                        if (pendingHashcatVersions[agentId]) {
+                            log(`Hashcat version change timed out for ${agentName}`, 'warning');
+                            delete pendingHashcatVersions[agentId];
+                            loadAgentsFromServer();
+                        }
+                    }, 30000);
                 } else {
                     log(`Failed to set hashcat version: ${data.error || 'Unknown error'}`, 'error');
+                    delete pendingHashcatVersions[agentId];
                 }
             } catch (error) {
                 log(`Error setting hashcat version: ${error.message}`, 'error');
+                delete pendingHashcatVersions[agentId];
             }
         }
 
