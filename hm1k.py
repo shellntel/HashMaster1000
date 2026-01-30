@@ -12089,6 +12089,8 @@ def receive_benchmark_results() -> Response:
                 gpus=gpus,
                 timestamp=data.get("timestamp"),
                 hashcat_version=data.get("hashcat_version"),
+                cuda_version=data.get("cuda_version"),
+                driver_version=data.get("driver_version"),
             )
             tracker.save_benchmark(benchmark)
             saved_count += 1
@@ -12286,6 +12288,8 @@ def trigger_agent_benchmark(agent_id: str) -> Response:
 
     Optional JSON body:
         - hash_modes: List of hash modes to benchmark (default: recommended modes)
+        - hashcat_binary: Path to specific hashcat binary to use (default: agent's configured binary)
+        - all_versions: If true, benchmark all installed hashcat versions sequentially
     """
     db = _get_db()
     agent_data = db.get_agent(agent_id)
@@ -12300,35 +12304,85 @@ def trigger_agent_benchmark(agent_id: str) -> Response:
     if agent_data.get("current_job"):
         return jsonify({"error": "Agent is busy with a job"}), 400
 
-    # Get optional hash modes from request
+    # Get optional parameters from request
     data = request.get_json() or {}
     hash_modes = data.get("hash_modes")  # None means use defaults
+    hashcat_binary = data.get("hashcat_binary")  # None means use agent's configured binary
+    all_versions = data.get("all_versions", False)  # Benchmark all installed versions
 
     # Track benchmark status (file-backed for multi-worker)
     modes_to_run = hash_modes or BENCHMARK_HASH_MODES
-    _set_benchmark_status(agent_id, {
-        "status": "running",
-        "started_at": datetime.now().isoformat(),
-        "hash_modes": list(modes_to_run),
-        "completed_modes": 0,
-        "total_modes": len(modes_to_run),
-    })
 
-    # Queue the benchmark command for the agent
-    _queue_agent_command(agent_id, {
-        "type": "benchmark",
-        "data": {
-            "hash_modes": hash_modes,
-        }
-    })
+    if all_versions:
+        # Get all installed hashcat versions from agent's software status
+        software = agent_data.get("software", {})
+        hashcat_versions = software.get("hashcat_versions", [])
 
-    logging.info(f"Benchmark command queued for agent {agent_id}")
+        if not hashcat_versions:
+            return jsonify({"error": "No hashcat versions found on agent"}), 400
 
-    return jsonify({
-        "success": True,
-        "message": f"Benchmark command sent to agent {agent_id}",
-        "hash_modes": modes_to_run,
-    })
+        # Queue benchmark commands for each version
+        queued_versions = []
+        for version_info in hashcat_versions:
+            binary_path = version_info.get("path")
+            version = version_info.get("version")
+            if binary_path:
+                _queue_agent_command(agent_id, {
+                    "type": "benchmark",
+                    "data": {
+                        "hash_modes": hash_modes,
+                        "hashcat_binary": binary_path,
+                    }
+                })
+                queued_versions.append({"path": binary_path, "version": version})
+
+        _set_benchmark_status(agent_id, {
+            "status": "running",
+            "started_at": datetime.now().isoformat(),
+            "hash_modes": list(modes_to_run),
+            "completed_modes": 0,
+            "total_modes": len(modes_to_run) * len(queued_versions),
+            "all_versions": True,
+            "queued_versions": queued_versions,
+        })
+
+        logging.info(f"Benchmark commands queued for agent {agent_id}: {len(queued_versions)} versions")
+
+        return jsonify({
+            "success": True,
+            "message": f"Benchmark commands sent for {len(queued_versions)} hashcat versions",
+            "hash_modes": modes_to_run,
+            "versions": queued_versions,
+        })
+
+    else:
+        # Single version benchmark
+        _set_benchmark_status(agent_id, {
+            "status": "running",
+            "started_at": datetime.now().isoformat(),
+            "hash_modes": list(modes_to_run),
+            "completed_modes": 0,
+            "total_modes": len(modes_to_run),
+            "hashcat_binary": hashcat_binary,
+        })
+
+        # Queue the benchmark command for the agent
+        _queue_agent_command(agent_id, {
+            "type": "benchmark",
+            "data": {
+                "hash_modes": hash_modes,
+                "hashcat_binary": hashcat_binary,
+            }
+        })
+
+        logging.info(f"Benchmark command queued for agent {agent_id}" + (f" (binary: {hashcat_binary})" if hashcat_binary else ""))
+
+        return jsonify({
+            "success": True,
+            "message": f"Benchmark command sent to agent {agent_id}",
+            "hash_modes": modes_to_run,
+            "hashcat_binary": hashcat_binary,
+        })
 
 
 @app.route("/api/performance/summary", methods=["GET"])

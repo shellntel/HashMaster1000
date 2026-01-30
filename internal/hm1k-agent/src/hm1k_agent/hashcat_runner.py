@@ -177,19 +177,23 @@ class HashcatRunner:
         self._output_lines: list[str] = []  # Capture non-JSON output for error reporting
         self._output_lock = threading.Lock()  # Protect output_lines access
 
-    def verify_hashcat(self) -> tuple[bool, str]:
+    def verify_hashcat(self, hashcat_binary: Optional[str] = None) -> tuple[bool, str]:
         """
         Verify hashcat is installed and working.
+
+        Args:
+            hashcat_binary: Optional path to hashcat binary. If None, uses configured binary.
 
         Returns:
             Tuple of (success, version_string or error)
         """
-        if not shutil.which(self.hashcat_binary):
-            return False, f"Hashcat not found at {self.hashcat_binary}"
+        binary = hashcat_binary or self.hashcat_binary
+        if not shutil.which(binary):
+            return False, f"Hashcat not found at {binary}"
 
         try:
             result = subprocess.run(
-                [self.hashcat_binary, "--version"],
+                [binary, "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -226,23 +230,26 @@ class HashcatRunner:
             logger.error(f"Failed to detect devices: {e}")
             return []
 
-    def benchmark(self, hash_mode: int = 1000) -> BenchmarkResult:
+    def benchmark(self, hash_mode: int = 1000, hashcat_binary: Optional[str] = None) -> BenchmarkResult:
         """
         Run hashcat benchmark for a specific hash mode.
 
         Args:
             hash_mode: Hash mode to benchmark (default: 1000 NTLM)
+            hashcat_binary: Optional path to hashcat binary. If None, uses configured binary.
 
         Returns:
             BenchmarkResult with device speeds
         """
+        binary = hashcat_binary or self.hashcat_binary
+
         try:
             # Ensure workdir exists for hashcat to write session files
             self.workdir.mkdir(parents=True, exist_ok=True)
 
             result = subprocess.run(
                 [
-                    self.hashcat_binary,
+                    binary,
                     "-b",
                     "-m", str(hash_mode),
                     "--machine-readable",
@@ -579,12 +586,17 @@ class HashcatRunner:
             lines = self._output_lines[-max_lines:] if max_lines else self._output_lines
             return "\n".join(lines)
 
-    def benchmark_all(self, hash_modes: Optional[list[int]] = None) -> list[BenchmarkResult]:
+    def benchmark_all(
+        self,
+        hash_modes: Optional[list[int]] = None,
+        hashcat_binary: Optional[str] = None,
+    ) -> list[BenchmarkResult]:
         """
         Run hashcat benchmark for multiple hash modes.
 
         Args:
             hash_modes: List of hash modes to benchmark. If None, uses common modes.
+            hashcat_binary: Optional path to hashcat binary. If None, uses configured binary.
 
         Returns:
             List of BenchmarkResult objects
@@ -605,10 +617,11 @@ class HashcatRunner:
                 18200,  # Kerberos AS-REP
             ]
 
+        binary = hashcat_binary or self.hashcat_binary
         results = []
         for mode in hash_modes:
-            logger.info(f"Benchmarking hash mode {mode}...")
-            result = self.benchmark(mode)
+            logger.info(f"Benchmarking hash mode {mode} with {binary}...")
+            result = self.benchmark(mode, hashcat_binary=binary)
             results.append(result)
             if result.success:
                 logger.info(f"Hash mode {mode}: {result.total_speed:.0f} H/s")
@@ -617,7 +630,15 @@ class HashcatRunner:
 
         return results
 
-    def get_hashcat_version(self) -> Optional[str]:
-        """Get hashcat version string."""
-        success, version = self.verify_hashcat()
+    def get_hashcat_version(self, hashcat_binary: Optional[str] = None) -> Optional[str]:
+        """
+        Get hashcat version string.
+
+        Args:
+            hashcat_binary: Optional path to hashcat binary. If None, uses configured binary.
+
+        Returns:
+            Version string or None if hashcat is not available
+        """
+        success, version = self.verify_hashcat(hashcat_binary)
         return version if success else None

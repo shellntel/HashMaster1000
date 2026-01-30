@@ -62,6 +62,8 @@ class BenchmarkResult:
     gpus: list[GPUMetrics] = field(default_factory=list)
     timestamp: Optional[str] = None
     hashcat_version: Optional[str] = None
+    cuda_version: Optional[str] = None
+    driver_version: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +73,8 @@ class BenchmarkResult:
             "gpus": [g.to_dict() for g in self.gpus],
             "timestamp": self.timestamp,
             "hashcat_version": self.hashcat_version,
+            "cuda_version": self.cuda_version,
+            "driver_version": self.driver_version,
         }
 
     @classmethod
@@ -82,6 +86,8 @@ class BenchmarkResult:
             gpus=[GPUMetrics.from_dict(g) for g in data.get("gpus", [])],
             timestamp=data.get("timestamp"),
             hashcat_version=data.get("hashcat_version"),
+            cuda_version=data.get("cuda_version"),
+            driver_version=data.get("driver_version"),
         )
 
 
@@ -205,18 +211,49 @@ class PerformanceTracker:
     def _init_db(self) -> None:
         """Initialize the SQLite database with required tables."""
         with sqlite3.connect(str(self.db_path)) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS benchmarks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    agent_id TEXT NOT NULL,
-                    hash_mode INTEGER NOT NULL,
-                    total_speed_hs REAL NOT NULL,
-                    gpus_json TEXT,
-                    timestamp TEXT NOT NULL,
-                    hashcat_version TEXT,
-                    UNIQUE(agent_id, hash_mode)
-                )
-            """)
+            # Check if we need to migrate the old schema
+            cursor = conn.execute("PRAGMA table_info(benchmarks)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            if "cuda_version" not in columns and "benchmarks" in [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]:
+                # Migrate existing table: add new columns and recreate with new unique constraint
+                conn.execute("ALTER TABLE benchmarks RENAME TO benchmarks_old")
+                conn.execute("""
+                    CREATE TABLE benchmarks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id TEXT NOT NULL,
+                        hash_mode INTEGER NOT NULL,
+                        total_speed_hs REAL NOT NULL,
+                        gpus_json TEXT,
+                        timestamp TEXT NOT NULL,
+                        hashcat_version TEXT,
+                        cuda_version TEXT,
+                        driver_version TEXT,
+                        UNIQUE(agent_id, hash_mode, hashcat_version)
+                    )
+                """)
+                # Copy data from old table
+                conn.execute("""
+                    INSERT INTO benchmarks (agent_id, hash_mode, total_speed_hs, gpus_json, timestamp, hashcat_version)
+                    SELECT agent_id, hash_mode, total_speed_hs, gpus_json, timestamp, hashcat_version
+                    FROM benchmarks_old
+                """)
+                conn.execute("DROP TABLE benchmarks_old")
+            else:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS benchmarks (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id TEXT NOT NULL,
+                        hash_mode INTEGER NOT NULL,
+                        total_speed_hs REAL NOT NULL,
+                        gpus_json TEXT,
+                        timestamp TEXT NOT NULL,
+                        hashcat_version TEXT,
+                        cuda_version TEXT,
+                        driver_version TEXT,
+                        UNIQUE(agent_id, hash_mode, hashcat_version)
+                    )
+                """)
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS job_metrics (
@@ -248,6 +285,7 @@ class PerformanceTracker:
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_benchmarks_agent ON benchmarks(agent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_benchmarks_hash ON benchmarks(hash_mode)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_benchmarks_version ON benchmarks(hashcat_version)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_agent ON job_metrics(agent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_hash ON job_metrics(hash_mode)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_attack ON job_metrics(attack_mode)")
@@ -255,7 +293,7 @@ class PerformanceTracker:
 
     def save_benchmark(self, result: BenchmarkResult) -> None:
         """
-        Save a benchmark result. Replaces existing benchmark for same agent/hash_mode.
+        Save a benchmark result. Replaces existing benchmark for same agent/hash_mode/version.
 
         Args:
             result: BenchmarkResult to save
@@ -264,8 +302,8 @@ class PerformanceTracker:
             with sqlite3.connect(str(self.db_path)) as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO benchmarks
-                    (agent_id, hash_mode, total_speed_hs, gpus_json, timestamp, hashcat_version)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (agent_id, hash_mode, total_speed_hs, gpus_json, timestamp, hashcat_version, cuda_version, driver_version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     result.agent_id,
                     result.hash_mode,
@@ -273,6 +311,8 @@ class PerformanceTracker:
                     json.dumps([g.to_dict() for g in result.gpus]),
                     result.timestamp or datetime.now().isoformat(),
                     result.hashcat_version,
+                    result.cuda_version,
+                    result.driver_version,
                 ))
                 conn.commit()
         logger.info(f"Saved benchmark for agent {result.agent_id}, hash mode {result.hash_mode}: {result.total_speed_hs:.0f} H/s")
@@ -345,6 +385,8 @@ class PerformanceTracker:
                     gpus=[GPUMetrics.from_dict(g) for g in json.loads(row["gpus_json"] or "[]")],
                     timestamp=row["timestamp"],
                     hashcat_version=row["hashcat_version"],
+                    cuda_version=row["cuda_version"],
+                    driver_version=row["driver_version"],
                 ))
             return results
 
@@ -376,6 +418,8 @@ class PerformanceTracker:
                 gpus=[GPUMetrics.from_dict(g) for g in json.loads(row["gpus_json"] or "[]")],
                 timestamp=row["timestamp"],
                 hashcat_version=row["hashcat_version"],
+                cuda_version=row["cuda_version"],
+                driver_version=row["driver_version"],
             )
 
     def get_agent_job_history(

@@ -579,9 +579,10 @@ class Agent:
     def _on_benchmark(self, event) -> None:
         """Handle benchmark event - server requesting benchmark run."""
         hash_modes = event.data.get("hash_modes")
-        logger.info(f"Received benchmark request from server (modes: {hash_modes or 'all'})")
+        hashcat_binary = event.data.get("hashcat_binary")
+        logger.info(f"Received benchmark request from server (modes: {hash_modes or 'all'}, binary: {hashcat_binary or 'configured'})")
         # Run benchmark in background thread to not block other events
-        thread = threading.Thread(target=self.run_benchmark, args=(hash_modes,))
+        thread = threading.Thread(target=self.run_benchmark, args=(hash_modes, hashcat_binary))
         thread.daemon = True
         thread.start()
 
@@ -911,25 +912,36 @@ class Agent:
             "permissions": self._check_permissions_health(),
         }
 
-    def run_benchmark(self, hash_modes: list[int] = None) -> dict:
+    def run_benchmark(self, hash_modes: list[int] = None, hashcat_binary: str = None) -> dict:
         """
         Run hashcat benchmark for multiple hash modes and report to server.
 
         Args:
             hash_modes: List of hash modes to benchmark. If None, uses common modes.
+            hashcat_binary: Optional path to hashcat binary. If None, uses configured binary.
 
         Returns:
             Dictionary with benchmark results
         """
         from datetime import datetime
+        from hm1k_agent.hardware import detect_nvidia_driver
 
-        logger.info("Running comprehensive hashcat benchmark...")
+        binary = hashcat_binary or self.config.hashcat.binary
+        logger.info(f"Running comprehensive hashcat benchmark with {binary}...")
 
-        # Run benchmarks for all specified hash modes
-        results = self.hashcat.benchmark_all(hash_modes)
+        # Run benchmarks for all specified hash modes using specified binary
+        results = self.hashcat.benchmark_all(hash_modes, hashcat_binary=binary)
 
-        # Get hashcat version
-        hashcat_version = self.hashcat.get_hashcat_version()
+        # Get hashcat version for the specific binary
+        hashcat_version = self.hashcat.get_hashcat_version(binary)
+
+        # Get CUDA and driver versions from nvidia-smi
+        cuda_version = None
+        driver_version = None
+        nvidia_info = detect_nvidia_driver()
+        if nvidia_info:
+            cuda_version = nvidia_info.cuda_version or None
+            driver_version = nvidia_info.version or None
 
         # Build report data
         successful_results = [r for r in results if r.success]
@@ -937,6 +949,8 @@ class Agent:
             "agent_id": self.config.agent.id,
             "timestamp": datetime.now().isoformat(),
             "hashcat_version": hashcat_version,
+            "cuda_version": cuda_version,
+            "driver_version": driver_version,
             "results": [r.to_dict() for r in successful_results],
         }
 
