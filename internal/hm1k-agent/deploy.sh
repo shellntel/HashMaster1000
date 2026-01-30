@@ -443,9 +443,11 @@ EOF
     log_success "Installed systemd service"
 
     # Install sudoers entry to allow agent to restart itself (for self-updates)
+    # Uses systemd-run --scope to escape the service cgroup during restart
     SUDOERS_FILE="/etc/sudoers.d/hm1k-agent"
-    if [[ ! -f "$SUDOERS_FILE" ]]; then
-        echo "$AGENT_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart hm1k-agent" > "$SUDOERS_FILE"
+    SUDOERS_ENTRY="$AGENT_USER ALL=(root) NOPASSWD: /usr/bin/systemd-run --scope --quiet /usr/bin/systemctl restart hm1k-agent"
+    if [[ ! -f "$SUDOERS_FILE" ]] || ! grep -q "systemd-run" "$SUDOERS_FILE"; then
+        echo "$SUDOERS_ENTRY" > "$SUDOERS_FILE"
         chmod 440 "$SUDOERS_FILE"
         log_success "Installed sudoers entry for self-restart"
     else

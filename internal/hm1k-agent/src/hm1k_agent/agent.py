@@ -531,17 +531,21 @@ class Agent:
             # Restart the agent service
             logger.info("Restarting hm1k-agent service...")
 
-            # Use systemctl to restart with start_new_session=True
-            # This detaches the process so it survives when systemd kills this agent
+            # Use systemd-run to execute restart in a separate transient scope
+            # This ensures the restart survives when systemd kills this service's cgroup
+            # The --scope creates a transient scope unit, --quiet suppresses output
             subprocess.Popen(
-                ["sudo", "systemctl", "restart", "hm1k-agent"],
+                [
+                    "sudo", "systemd-run", "--scope", "--quiet",
+                    "systemctl", "restart", "hm1k-agent"
+                ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True,  # Detach from agent's process group
+                start_new_session=True,
             )
 
-            # Give systemctl a moment to start the restart
-            time.sleep(1)
+            # Give systemd-run a moment to start the scope
+            time.sleep(2)
 
             return True
 
