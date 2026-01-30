@@ -459,6 +459,8 @@
                     return;
                 }
 
+                // Small delay to allow session to sync across workers
+                await new Promise(resolve => setTimeout(resolve, 300));
                 window.location.href = '/report';
             } catch (error) {
                 alert('Failed to load session: ' + error.message);

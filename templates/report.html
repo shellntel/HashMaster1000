@@ -5569,6 +5569,25 @@
 
 			// ----------------------------- Load Data from JSON Files ------------------------------- \\
 
+			// Helper function to fetch with retry for session sync race conditions
+			async function fetchWithRetry(url, maxRetries = 3, delayMs = 200) {
+				for (let attempt = 1; attempt <= maxRetries; attempt++) {
+					try {
+						const res = await fetch(url);
+						const data = await res.json();
+						// Check if we got "No data" error (session not synced yet)
+						if (data.error && data.error.includes('No data') && attempt < maxRetries) {
+							await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+							continue;
+						}
+						return data;
+					} catch (e) {
+						if (attempt === maxRetries) throw e;
+						await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+					}
+				}
+			}
+
 			// Fetch JSON file and populate the Cracking Stats table
 			// ============================================================
 			// Enhanced Statistics Section
@@ -5576,9 +5595,9 @@
 
 			// Fetch data and populate enhanced statistics section
 			Promise.all([
-				fetch("cracking_stats_table").then(res => res.json()),
-				fetch("pw_account_pie").then(res => res.json()),
-				fetch("pw_ntlm_hash_pie").then(res => res.json()),
+				fetchWithRetry("cracking_stats_table"),
+				fetchWithRetry("pw_account_pie"),
+				fetchWithRetry("pw_ntlm_hash_pie"),
 				fetch("breach_stats").then(res => res.json()).catch(() => null)
 			]).then(([statsData, accountPieData, hashPieData, breachData]) => {
 				// Create lookup map for stats data
@@ -5803,15 +5822,7 @@
 			// Fetch and create Password Length Distribution Bar Chart
 			let passwordLengthChartInstance; // Declare the chart instance globally
 
-			fetch("pw_length_distribution")
-				.then((response) => {
-					if (!response.ok) {
-						throw new Error(
-							`HTTP error! status: ${response.status}`
-						);
-					}
-					return response.json();
-				})
+			fetchWithRetry("pw_length_distribution")
 				.then((data) => {
 					if (!data || typeof data !== "object") {
 						throw new Error(
@@ -6117,8 +6128,7 @@
 			let topPasswordsData; // Global variable to store fetched data (as array of [password, count] pairs)
 
 			// Initial fetch and chart creation
-			fetch("pw_top_passwords")
-				.then((response) => response.json())
+			fetchWithRetry("pw_top_passwords")
 				.then((data) => {
 					// Store the data as a sorted ARRAY to preserve order
 					// (JavaScript objects don't maintain insertion order for numeric-like keys)
@@ -6269,8 +6279,7 @@
 				});
 
 			// Initial Top Substrings bar chart JSON file data load
-			fetch("pw_substrings")
-				.then((response) => response.json())
+			fetchWithRetry("pw_substrings")
 				.then((data) => {
 					if (!data || data.length === 0) {
 						console.error("No valid data found for pw_substrings.");
@@ -6439,8 +6448,7 @@
 				);
 
 			// Initial Top Dictionary Words bar chart JSON file data load
-			fetch("pw_dict_words")
-				.then((response) => response.json())
+			fetchWithRetry("pw_dict_words")
 				.then((data) => {
 					const ctx = document
 						.getElementById("topDictionaryWordsChart")
@@ -6546,8 +6554,7 @@
 			let badPracticesChartInstance;
 			let badPracticesRawData;
 
-			fetch("pw_bad_practices")
-				.then((response) => response.json())
+			fetchWithRetry("pw_bad_practices")
 				.then((data) => {
 					// Store raw data for filtering
 					badPracticesRawData = data;
@@ -6752,8 +6759,7 @@
 				});
 
 			// Fetch and populate the Password (Hash) Reuse table
-			fetch("pw_reuse_table")
-				.then((response) => response.json())
+			fetchWithRetry("pw_reuse_table")
 				.then((data) => {
 					// Initialize the DataTable with expandable rows and a hidden column for accounts
 					const table = $("#passwordReuseTable").DataTable({
