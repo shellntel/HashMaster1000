@@ -237,6 +237,82 @@ def validate_files() -> None:
     print("\n--> All required files are in place.")
 
 
+def validate_permissions() -> None:
+    """
+    Validate that all required directories are writable and files are accessible.
+    This prevents permission-related failures during operation.
+    """
+    issues: list[str] = []
+
+    # Directories that must exist and be writable
+    required_dirs = [
+        ("uploads", "File uploads"),
+        ("flask_session", "Flask session storage"),
+        ("data", "Application data"),
+    ]
+
+    for dir_path, description in required_dirs:
+        abs_path = os.path.abspath(dir_path)
+        if not os.path.exists(abs_path):
+            try:
+                os.makedirs(abs_path, exist_ok=True)
+                print(f"--> Created {description} directory: {abs_path}")
+            except Exception as e:
+                issues.append(f"{description} directory missing and cannot create: {abs_path} ({e})")
+                continue
+
+        if not os.path.isdir(abs_path):
+            issues.append(f"{description} path is not a directory: {abs_path}")
+            continue
+
+        if not os.access(abs_path, os.W_OK):
+            issues.append(f"{description} directory not writable: {abs_path}")
+
+    # Check master potfile if enabled
+    master_potfile_enabled = os.getenv("MASTER_POTFILE_ENABLED", "false").lower() == "true"
+    master_potfile_path = os.getenv("MASTER_POTFILE_PATH", "data/master.potfile")
+
+    if master_potfile_enabled:
+        abs_potfile = os.path.abspath(master_potfile_path)
+        potfile_dir = os.path.dirname(abs_potfile)
+
+        # Ensure potfile directory exists
+        if not os.path.exists(potfile_dir):
+            try:
+                os.makedirs(potfile_dir, exist_ok=True)
+            except Exception as e:
+                issues.append(f"Master potfile directory cannot be created: {potfile_dir} ({e})")
+
+        # Check if potfile exists and is writable, or if directory is writable
+        if os.path.exists(abs_potfile):
+            if not os.access(abs_potfile, os.W_OK):
+                issues.append(f"Master potfile not writable: {abs_potfile}")
+        elif potfile_dir and not os.access(potfile_dir, os.W_OK):
+            issues.append(f"Master potfile directory not writable (cannot create potfile): {potfile_dir}")
+
+    # Check SSL certificate files are readable
+    for cert_file in ["cert.pem", "key.pem"]:
+        if os.path.exists(cert_file) and not os.access(cert_file, os.R_OK):
+            issues.append(f"SSL certificate not readable: {cert_file}")
+
+    # Report results
+    if issues:
+        print("\n" + "=" * 60)
+        print("PERMISSION AUDIT FAILED")
+        print("=" * 60)
+        print("\nThe following permission issues were detected:\n")
+        for issue in issues:
+            print(f"  - {issue}")
+        print("\nPlease fix these permission issues before starting Hash Master.")
+        print("Typical fixes:")
+        print("  - sudo chown -R $USER:$USER uploads/ flask_session/ data/")
+        print("  - chmod 755 uploads/ flask_session/ data/")
+        print("=" * 60 + "\n")
+        sys.exit(1)
+
+    print("\n--> Permission audit passed: all directories are writable.")
+
+
 def is_safe_redirect_url(target: str) -> bool:
     """
     Check if the redirect URL is safe (relative to this application).
@@ -13642,6 +13718,7 @@ if __name__ == "__main__":
     # Validate libraries and files before starting the app
     validate_libraries()
     validate_files()
+    validate_permissions()
 
     # Validate required environment variables (SECRET_KEY already validated at module level)
     if not ADMIN_USERNAME:

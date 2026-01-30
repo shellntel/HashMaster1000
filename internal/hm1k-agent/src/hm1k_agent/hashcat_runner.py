@@ -332,13 +332,18 @@ class HashcatRunner:
         self._potfile_start_lines = self._count_potfile_lines(potfile_path)
         logger.debug(f"Potfile has {self._potfile_start_lines} entries before job start")
 
+        # Use sessions_dir for hashcat session files (avoids permission issues with hashcat install dir)
+        sessions_dir = Path(self.config.resources.sessions_dir)
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        session_path = str(sessions_dir / job.job_id)
+
         cmd = [
             self.hashcat_binary,
             "--status",
             "--status-json",
             "--status-timer", str(self.status_timer),
             "--potfile-path", potfile_path,
-            "--session", job.job_id,
+            "--session", session_path,
             "-o", str(job_dir / "cracked.txt"),
             job.hash_file,
         ]

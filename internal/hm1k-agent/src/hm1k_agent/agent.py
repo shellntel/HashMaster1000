@@ -571,6 +571,81 @@ class Agent:
             logger.warning(f"Failed to send buffered message: {e}")
             return False
 
+    def _audit_permissions(self) -> bool:
+        """
+        Audit file and directory permissions at startup.
+
+        Checks that all required directories are writable and files
+        have correct permissions. Logs warnings for issues and attempts
+        to fix them where possible.
+
+        Returns:
+            True if all permissions are OK, False if critical issues exist
+        """
+        issues = []
+        warnings = []
+
+        # Directories that must be writable
+        required_dirs = [
+            (self.config.resources.cache_dir, "Resource cache"),
+            (self.config.resources.jobs_dir, "Jobs"),
+            (self.config.resources.potfiles_dir, "Potfiles"),
+            (self.config.resources.sessions_dir, "Hashcat sessions"),
+            (self.config.resources.data_dir, "Data"),
+        ]
+
+        for dir_path, name in required_dirs:
+            path = os.path.realpath(dir_path)
+            if not os.path.exists(path):
+                try:
+                    os.makedirs(path, exist_ok=True)
+                    logger.info(f"Created missing directory: {path}")
+                except Exception as e:
+                    issues.append(f"{name} directory missing and cannot create: {path} ({e})")
+                    continue
+
+            if not os.access(path, os.W_OK):
+                issues.append(f"{name} directory not writable: {path}")
+
+        # Potfile must be writable (create if missing)
+        potfile_path = self.config.resources.potfile_path
+        if os.path.exists(potfile_path):
+            if not os.access(potfile_path, os.W_OK):
+                issues.append(f"Potfile not writable: {potfile_path}")
+        else:
+            # Try to create it
+            try:
+                with open(potfile_path, 'a'):
+                    pass
+                logger.info(f"Created missing potfile: {potfile_path}")
+            except Exception as e:
+                issues.append(f"Cannot create potfile: {potfile_path} ({e})")
+
+        # Hashcat binary must be executable
+        hashcat_path = self.config.hashcat.binary
+        if not os.path.exists(hashcat_path):
+            # Try to resolve symlink
+            if os.path.islink(hashcat_path):
+                issues.append(f"Hashcat binary symlink broken: {hashcat_path}")
+            else:
+                issues.append(f"Hashcat binary not found: {hashcat_path}")
+        elif not os.access(hashcat_path, os.X_OK):
+            issues.append(f"Hashcat binary not executable: {hashcat_path}")
+
+        # Log results
+        if issues:
+            logger.error("Permission audit FAILED - the following issues must be fixed:")
+            for issue in issues:
+                logger.error(f"  - {issue}")
+            return False
+
+        if warnings:
+            for warning in warnings:
+                logger.warning(f"Permission audit warning: {warning}")
+
+        logger.info("Permission audit passed")
+        return True
+
     def start(self) -> None:
         """
         Start the agent daemon.
@@ -582,9 +657,15 @@ class Agent:
             logger.warning("Agent already running")
             return
 
-        logger.info(f"Starting HM1K Agent v{__version__}")
+        logger.info(f"Starting HM1K Agent v{self._startup_version}")
         logger.info(f"Agent ID: {self.config.agent.id}")
         logger.info(f"Server: {self.config.server.url}")
+
+        # Audit permissions before starting
+        if not self._audit_permissions():
+            logger.error("Agent startup aborted due to permission issues")
+            logger.error("Fix the issues above and restart the agent")
+            raise SystemExit(1)
 
         self._running = True
         self._start_time = time.time()
