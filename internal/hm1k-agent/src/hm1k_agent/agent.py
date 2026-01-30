@@ -290,6 +290,10 @@ class Agent:
                 os.symlink(install_dir, current_link)
                 logger.info(f"Set {version} as current version")
 
+                # Also update the agent config to use the new binary
+                new_binary = os.path.join(current_link, "hashcat")
+                self._update_hashcat_config(new_binary)
+
             logger.info(f"Hashcat {version} installed successfully")
 
             # Refresh software status cache
@@ -302,10 +306,82 @@ class Agent:
             logger.error(f"Failed to install hashcat: {e}")
             return False
 
+    def _update_hashcat_config(self, new_binary: str) -> bool:
+        """
+        Update the hashcat binary path in the agent config file.
+
+        Args:
+            new_binary: Path to the new hashcat binary
+
+        Returns:
+            True if update succeeded
+        """
+        import yaml
+
+        try:
+            config_path = self.config._config_path if hasattr(self.config, '_config_path') else "/etc/hm1k-agent/config.yaml"
+
+            # Read current config
+            with open(config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
+
+            # Update hashcat binary
+            if 'hashcat' not in config_data:
+                config_data['hashcat'] = {}
+            old_binary = config_data['hashcat'].get('binary', 'unknown')
+            config_data['hashcat']['binary'] = new_binary
+
+            # Write updated config
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f, default_flow_style=False)
+
+            # Update in-memory config
+            self.config.hashcat.binary = new_binary
+
+            logger.info(f"Hashcat config updated: {old_binary} -> {new_binary}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update hashcat config: {e}")
+            return False
+
     def _on_config_update(self, event) -> None:
-        """Handle config:update event - server changed agent config."""
-        # For now, just log. Could reload config in future.
-        logger.info("Config update received from server")
+        """
+        Handle config:update event - server changed agent config.
+
+        Event data format:
+            {
+                "section": "hashcat",  # config section to update
+                "updates": {
+                    "binary": "/opt/hashcat/hashcat-7.1.2/hashcat"
+                }
+            }
+        """
+        import os
+
+        data = event.data
+        section = data.get("section")
+        updates = data.get("updates", {})
+
+        logger.info(f"Config update received: section={section}, updates={updates}")
+
+        if not section or not updates:
+            logger.warning("Config update missing section or updates")
+            return
+
+        # Handle hashcat section updates
+        if section == "hashcat":
+            new_binary = updates.get("binary")
+            if new_binary:
+                # Validate the new binary exists and is executable
+                if not os.path.isfile(new_binary):
+                    logger.error(f"Hashcat binary not found: {new_binary}")
+                    return
+                if not os.access(new_binary, os.X_OK):
+                    logger.error(f"Hashcat binary not executable: {new_binary}")
+                    return
+
+                self._update_hashcat_config(new_binary)
 
     def _on_agent_update(self, event) -> None:
         """Handle agent:update event - update the agent to a new version."""

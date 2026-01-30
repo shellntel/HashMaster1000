@@ -526,6 +526,85 @@ def create_app(agent: "Agent") -> Flask:
             "all_accessible": all_accessible,
         })
 
+    # =========================================================================
+    # Configuration Management Endpoints
+    # =========================================================================
+
+    @app.route("/config/hashcat", methods=["GET", "POST"])
+    @require_api_key
+    def config_hashcat():
+        """
+        Get or update hashcat configuration.
+
+        GET: Return current hashcat config and available versions
+        POST: Update hashcat binary path
+            Body: {"binary": "/opt/hashcat/current/hashcat"}
+        """
+        agent = get_agent()
+
+        if request.method == "GET":
+            # Return current config and available versions
+            from hm1k_agent.hardware import detect_hashcat_versions
+            versions = detect_hashcat_versions()
+            return jsonify({
+                "success": True,
+                "current": {
+                    "binary": agent.config.hashcat.binary,
+                },
+                "installed_versions": [v.to_dict() for v in versions],
+            })
+
+        # POST - update hashcat binary
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "JSON body required"}), 400
+
+        new_binary = data.get("binary")
+        if not new_binary:
+            return jsonify({"error": "Missing 'binary' field"}), 400
+
+        # Validate the new binary exists and is executable
+        import os
+        if not os.path.isfile(new_binary):
+            return jsonify({"error": f"Binary not found: {new_binary}"}), 400
+        if not os.access(new_binary, os.X_OK):
+            return jsonify({"error": f"Binary not executable: {new_binary}"}), 400
+
+        # Update the config file
+        try:
+            config_path = agent.config._config_path if hasattr(agent.config, '_config_path') else "/etc/hm1k-agent/config.yaml"
+
+            # Read current config
+            import yaml
+            with open(config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
+
+            # Update hashcat binary
+            if 'hashcat' not in config_data:
+                config_data['hashcat'] = {}
+            old_binary = config_data['hashcat'].get('binary', 'unknown')
+            config_data['hashcat']['binary'] = new_binary
+
+            # Write updated config
+            with open(config_path, 'w') as f:
+                yaml.dump(config_data, f, default_flow_style=False)
+
+            # Update in-memory config
+            agent.config.hashcat.binary = new_binary
+
+            logger.info(f"Hashcat binary updated: {old_binary} -> {new_binary}")
+
+            return jsonify({
+                "success": True,
+                "message": f"Hashcat binary updated to {new_binary}",
+                "old_binary": old_binary,
+                "new_binary": new_binary,
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to update hashcat config: {e}")
+            return jsonify({"error": f"Failed to update config: {e}"}), 500
+
     return app
 
 

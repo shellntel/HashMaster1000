@@ -704,7 +704,23 @@
                         <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
                             <div style="display: flex; justify-content: space-between; color: #999; margin-bottom: 6px;">
                                 <span>${agent.resources?.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists: <span style="color: #00d4ff;">${agent.resources?.by_type?.wordlists ?? agent.resources?.cached_count ?? 0} (${((agent.resources?.cache_size_mb || 0) / 1024).toFixed(1)} GB)</span></span>
-                                ${agent.hashcat_version ? `<span>&#9881; Hashcat: <span style="color: #00d4ff;">${agent.hashcat_version}</span></span>` : ''}
+                                ${agent.hashcat_version ? `
+                                    <span style="display: flex; align-items: center; gap: 4px;">
+                                        &#9881; Hashcat:
+                                        ${agent.hashcat_versions && agent.hashcat_versions.length > 1 && agent.status === 'online' ? `
+                                            <select
+                                                onchange="setAgentHashcatVersion('${agent.id}', this.value)"
+                                                style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.3); color: #00d4ff; padding: 2px 4px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;"
+                                                title="Select hashcat version">
+                                                ${agent.hashcat_versions.map(v => `
+                                                    <option value="${v.binary}" ${v.is_current ? 'selected' : ''}>
+                                                        ${v.version}${v.is_current ? ' (current)' : ''}
+                                                    </option>
+                                                `).join('')}
+                                            </select>
+                                        ` : `<span style="color: #00d4ff;">${agent.hashcat_version}</span>`}
+                                    </span>
+                                ` : ''}
                             </div>
                             <div style="display: flex; justify-content: space-between; color: #999;">
                                 <span>&#128220; Rules: <span style="color: #00d4ff;">${agent.resources?.by_type?.rules || 0}</span></span>
@@ -1870,6 +1886,48 @@
                 }
             } catch (error) {
                 log(`Error updating agent: ${error.message}`, 'error');
+            }
+        }
+
+        async function setAgentHashcatVersion(agentId, binaryPath) {
+            // Find the agent to get its name
+            const agent = agents.find(a => a.id === agentId);
+            const agentName = agent?.name || agentId;
+
+            log(`Setting hashcat version on ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/hashcat/set-current`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ binary: binaryPath })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Hashcat version update queued for ${agentName}`, 'success');
+                    // Refresh after a short delay to let the config update happen
+                    setTimeout(() => loadAgentsFromServer(), 2000);
+                } else {
+                    log(`Failed to set hashcat version: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error setting hashcat version: ${error.message}`, 'error');
             }
         }
 

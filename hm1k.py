@@ -11334,6 +11334,7 @@ def list_agents() -> Response:
             "is_local": is_local,
             "version": state.get("version"),
             "hashcat_version": hashcat_version,
+            "hashcat_versions": hashcat_versions,  # Full list of installed versions
             "resources": {
                 "cache_size_mb": resources_info.get("cache_size_mb", 0),
                 "cached_count": resources_info.get("cached_count", 0),
@@ -13256,6 +13257,58 @@ def deploy_hashcat_to_agent(agent_id: str, package_id: str) -> Response:
 
     except Exception as e:
         logging.error(f"Failed to deploy hashcat to agent: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/<agent_id>/hashcat/set-current", methods=["POST"])
+@login_required
+def set_agent_hashcat_version(agent_id: str) -> Response:
+    """
+    Set the current hashcat version for an agent.
+
+    This updates the agent's config to use the specified hashcat binary path.
+    Used after deployment or to switch between installed versions.
+
+    Request body:
+        {"binary": "/opt/hashcat/hashcat-7.1.2/hashcat"}
+        or
+        {"version": "7.1.2"}  (will use /opt/hashcat/hashcat-{version}/hashcat)
+    """
+    try:
+        data = request.get_json() or {}
+        binary = data.get("binary")
+        version = data.get("version")
+
+        if not binary and not version:
+            return jsonify({"error": "Must specify 'binary' path or 'version'"}), 400
+
+        if not binary and version:
+            binary = f"/opt/hashcat/hashcat-{version}/hashcat"
+
+        # Check if agent is online
+        agent = _get_agent(agent_id)
+        if not agent or agent.get("status") != "online":
+            return jsonify({"error": "Agent is not online"}), 400
+
+        # Queue command to update agent config
+        _queue_agent_command(agent_id, {
+            "type": "config:update",
+            "data": {
+                "section": "hashcat",
+                "updates": {
+                    "binary": binary
+                }
+            }
+        })
+
+        return jsonify({
+            "success": True,
+            "message": f"Hashcat config update queued for agent {agent_id}",
+            "binary": binary,
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to set agent hashcat version: {e}")
         return jsonify({"error": str(e)}), 500
 
 
