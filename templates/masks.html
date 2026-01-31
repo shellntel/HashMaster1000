@@ -117,13 +117,26 @@
                     <div id="tab-bulk" style="display: none;">
                         <form id="bulk-mask-form" onsubmit="addBulkMasks(event)">
                             <div class="form-group">
-                                <label style="font-size: 0.85rem;">Paste masks (one per line or comma-separated)</label>
-                                <textarea id="bulk-patterns" class="advanced-input" rows="4" placeholder="?u?l?l?l?l?d?d&#10;?d?d?d?d?d?d?d?d&#10;?u?l?l?l?l?l?l?d"></textarea>
+                                <label style="font-size: 0.85rem;">Paste masks or upload a file</label>
+                                <textarea id="bulk-patterns" class="advanced-input" rows="4" placeholder="# Charset definitions (optional)&#10;?2=!@#$%&amp;*&#10;&#10;# Masks&#10;Fall?2?d?d?d?d&#10;Spring?2?d?d?d?d"></textarea>
                             </div>
-                            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                            <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                                <div id="file-drop-zone" onclick="document.getElementById('mask-file-input').click()" style="flex: 1; border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 8px 12px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                                    <input type="file" id="mask-file-input" style="display: none;" onchange="handleMaskFileSelect(this)" accept=".txt,.hcmask,.json">
+                                    <span style="color: #888; font-size: 0.8rem;">&#128196; Drop .txt/.hcmask/.json file or click</span>
+                                </div>
                                 <button type="submit" class="advanced-btn advanced-btn-primary">Import Masks</button>
                             </div>
+                            <div id="file-info" style="display: none; margin-top: 8px; padding: 8px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span id="file-name" style="font-family: monospace; font-size: 0.85rem;"></span>
+                                    <button type="button" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="clearMaskFile()">Remove</button>
+                                </div>
+                            </div>
                         </form>
+                        <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.8rem; color: #888;">
+                            <strong>File format:</strong> Masks one per line. Add <code>?N=charset</code> lines to define custom charsets.
+                        </div>
                     </div>
 
                     <!-- Custom charsets (hidden by default) -->
@@ -447,16 +460,45 @@
             }
         }
 
+        let maskFileContent = null;
+
+        function handleMaskFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                maskFileContent = e.target.result;
+                document.getElementById('file-name').textContent = file.name + ' (' + (maskFileContent.split('\n').length) + ' lines)';
+                document.getElementById('file-info').style.display = 'block';
+                document.getElementById('file-drop-zone').style.display = 'none';
+                // Also populate textarea for visibility
+                document.getElementById('bulk-patterns').value = maskFileContent;
+            };
+            reader.readAsText(file);
+        }
+
+        function clearMaskFile() {
+            maskFileContent = null;
+            document.getElementById('mask-file-input').value = '';
+            document.getElementById('file-info').style.display = 'none';
+            document.getElementById('file-drop-zone').style.display = 'block';
+            document.getElementById('bulk-patterns').value = '';
+        }
+
         async function addBulkMasks(event) {
             event.preventDefault();
 
-            const patterns = document.getElementById('bulk-patterns').value.trim();
-            if (!patterns) {
-                showNotification('Error', 'error', 'Please enter at least one mask pattern');
+            const textareaContent = document.getElementById('bulk-patterns').value.trim();
+            const content = maskFileContent || textareaContent;
+
+            if (!content) {
+                showNotification('Error', 'error', 'Please enter masks or upload a file');
                 return;
             }
 
             try {
+                // Use file_content for the new parser that handles embedded charsets
                 const response = await fetch('/api/masks', {
                     method: 'POST',
                     headers: {
@@ -464,7 +506,7 @@
                         'X-CSRFToken': csrfToken
                     },
                     body: JSON.stringify({
-                        patterns: patterns,
+                        file_content: content,
                         custom_charsets: getCustomCharsets()
                     })
                 });
@@ -473,6 +515,10 @@
                 if (!response.ok) throw new Error(data.error || 'Failed to import masks');
 
                 let message = `Added ${data.added_count} mask(s)`;
+                if (data.charsets_detected && Object.keys(data.charsets_detected).length > 0) {
+                    const charsetInfo = Object.entries(data.charsets_detected).map(([k, v]) => `?${k}=${v}`).join(', ');
+                    message += ` (charsets: ${charsetInfo})`;
+                }
                 if (data.errors && data.errors.length > 0) {
                     message += `, ${data.errors.length} failed`;
                 }
@@ -482,7 +528,7 @@
                     console.log('Import errors:', data.errors);
                 }
 
-                document.getElementById('bulk-patterns').value = '';
+                clearMaskFile();
                 loadMasks();
             } catch (error) {
                 showNotification('Error', 'error', error.message);
@@ -766,6 +812,28 @@
             container.appendChild(notification);
             setTimeout(() => notification.remove(), 5000);
         }
+
+        // Drag and drop support for mask file upload
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropZone = document.getElementById('file-drop-zone');
+            if (dropZone) {
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    dropZone.style.borderColor = '#00d4ff';
+                });
+                dropZone.addEventListener('dragleave', () => {
+                    dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+                });
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+                    if (e.dataTransfer.files.length > 0) {
+                        document.getElementById('mask-file-input').files = e.dataTransfer.files;
+                        handleMaskFileSelect(document.getElementById('mask-file-input'));
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

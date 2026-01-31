@@ -543,6 +543,70 @@ class MaskManager:
                 patterns.append(line)
         return patterns
 
+    def parse_mask_file(self, content: str) -> tuple[list[str], dict[str, str]]:
+        """
+        Parse mask file content with embedded charset definitions.
+
+        Supports two formats:
+        1. JSON format (detected by starting with '{'):
+           {
+             "custom_charsets": {"2": "!@#$%&*"},
+             "masks": ["Fall?2?d?d?d?d", "Spring?2?d?d?d?d"]
+           }
+
+        2. Text format with ?N=charset lines:
+           # Custom charsets
+           ?2=!@#$%&*
+
+           # Masks
+           Fall?2?d?d?d?d
+           Spring?2?d?d?d?d
+
+        Args:
+            content: File content
+
+        Returns:
+            Tuple of (list of mask patterns, dict of custom charsets)
+        """
+        content = content.strip()
+
+        # Try JSON format first
+        if content.startswith("{"):
+            try:
+                data = json.loads(content)
+                masks = data.get("masks", [])
+                charsets = data.get("custom_charsets", {})
+                # Normalize charset keys to strings
+                charsets = {str(k): v for k, v in charsets.items()}
+                return masks, charsets
+            except json.JSONDecodeError:
+                pass  # Fall through to text format
+
+        # Text format with ?N=charset lines
+        patterns = []
+        charsets = {}
+
+        for line in content.split("\n"):
+            line = line.strip()
+
+            # Skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+
+            # Check for charset definition: ?1=abc or ?2=!@#$%
+            if line.startswith("?") and "=" in line and len(line) > 3:
+                char_num = line[1]
+                if char_num in "1234":
+                    charset_value = line[3:]  # Everything after "?N="
+                    if charset_value:
+                        charsets[char_num] = charset_value
+                    continue
+
+            # Regular mask pattern
+            patterns.append(line)
+
+        return patterns, charsets
+
     # Group operations
 
     def create_group(

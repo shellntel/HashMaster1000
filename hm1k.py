@@ -13174,6 +13174,29 @@ def add_masks() -> Response:
             else:
                 return jsonify({"error": error}), 400
 
+        elif "file_content" in data:
+            # File import with embedded charsets
+            file_content = data["file_content"]
+            patterns, file_charsets = manager.parse_mask_file(file_content)
+
+            # File charsets override/merge with provided custom_charsets
+            if file_charsets:
+                custom_charsets = {**custom_charsets, **file_charsets}
+
+            added, errors = manager.add_masks_bulk(
+                patterns=patterns,
+                custom_charsets=custom_charsets if custom_charsets else None,
+                created_by=created_by,
+            )
+
+            return jsonify({
+                "success": len(added) > 0,
+                "added_count": len(added),
+                "added": [m.to_dict() for m in added],
+                "errors": errors,
+                "charsets_detected": file_charsets,
+            })
+
         elif "patterns" in data:
             # Bulk input (list of patterns)
             patterns = data["patterns"]
