@@ -3280,7 +3280,7 @@ def master_potfile_status() -> Response:
     # Load cache (will reload if file mtime changed, e.g., from agent merges)
     cache = get_master_cache()
     cached_potfile = cache.load(MASTER_POTFILE_PATH)
-    count = cached_potfile.ntlm_count if cached_potfile else 0
+    count = cached_potfile.total_entries if cached_potfile else 0
 
     return jsonify({
         "enabled": True,
