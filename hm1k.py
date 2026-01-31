@@ -13334,6 +13334,20 @@ def list_mask_groups() -> Response:
         for group in groups:
             group_dict = group.to_dict()
             group_dict["mask_count"] = len(group.mask_ids)
+
+            # Calculate total keyspace for the group
+            total_keyspace = 0
+            for mask_id in group.mask_ids:
+                mask = manager.get_mask(mask_id)
+                if mask:
+                    total_keyspace += mask.keyspace
+            group_dict["total_keyspace"] = total_keyspace
+            group_dict["total_keyspace_formatted"] = format_keyspace(total_keyspace)
+
+            # Calculate estimated crack time for total keyspace
+            crack_time = manager.estimate_crack_time(total_keyspace)
+            group_dict["total_crack_time_formatted"] = format_duration(crack_time) if crack_time else "N/A"
+
             groups_data.append(group_dict)
 
         return jsonify({"groups": groups_data})
