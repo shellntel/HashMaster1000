@@ -1138,10 +1138,20 @@
                 benchmarksHtml = sortedModes.map(mode => {
                     const modeName = hashModeNames[mode] || '';
                     const modeDisplay = modeName ? `${mode} (${modeName})` : mode;
-                    const cells = versions.map(v => {
+
+                    // Find the fastest speed for this hash mode
+                    const speeds = versions.map(v => {
                         const b = benchmarksByMode[mode][v];
-                        return b ? `<td style="padding: 6px 12px; text-align: center;">${formatSpeed(b.total_speed_hs)}</td>`
-                                 : `<td style="padding: 6px 12px; text-align: center; color: #666;">-</td>`;
+                        return b ? b.total_speed_hs : 0;
+                    });
+                    const maxSpeed = Math.max(...speeds);
+
+                    const cells = versions.map((v, idx) => {
+                        const b = benchmarksByMode[mode][v];
+                        if (!b) return `<td style="padding: 6px 12px; text-align: center; color: #666;">-</td>`;
+                        const isFastest = speeds[idx] === maxSpeed && maxSpeed > 0;
+                        const color = isFastest ? 'color: #22c55e;' : '';
+                        return `<td style="padding: 6px 12px; text-align: center; ${color}">${formatSpeed(b.total_speed_hs)}</td>`;
                     }).join('');
                     return `<tr><td style="padding: 6px 12px;">${modeDisplay}</td>${cells}</tr>`;
                 }).join('');
