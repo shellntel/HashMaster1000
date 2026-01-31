@@ -189,8 +189,26 @@
                     <!-- Mask Input (shown for mask attacks) -->
                     <div class="form-row" id="mask-row" style="display: none;">
                         <label>Mask:</label>
-                        <input type="text" id="job-mask" placeholder="?a?a?a?a?a?a" class="advanced-input" style="flex: 1;" oninput="updateHashcatArgs()">
-                        <span class="form-hint">?l=lowercase ?u=uppercase ?d=digit ?s=special ?a=all</span>
+                        <div style="display: flex; flex: 1; gap: 10px; align-items: center;">
+                            <select id="job-mask-source" class="advanced-input" style="width: 140px;" onchange="onMaskSourceChange()">
+                                <option value="manual">Manual</option>
+                                <option value="single">From Library</option>
+                                <option value="group">Mask Group</option>
+                            </select>
+                            <select id="job-mask-library" class="advanced-input" style="flex: 1; display: none;" onchange="onMaskLibrarySelect()">
+                                <option value="">-- Select Mask --</option>
+                            </select>
+                            <select id="job-mask-group" class="advanced-input" style="flex: 1; display: none;" onchange="onMaskGroupSelect()">
+                                <option value="">-- Select Mask Group --</option>
+                            </select>
+                            <input type="text" id="job-mask" placeholder="?a?a?a?a?a?a?a?a" class="advanced-input" style="flex: 1;" oninput="updateHashcatArgs()">
+                        </div>
+                    </div>
+                    <div class="form-row" id="mask-info-row" style="display: none;">
+                        <label></label>
+                        <div id="mask-info" style="flex: 1; font-size: 0.85rem; color: #888;">
+                            ?l=lowercase ?u=uppercase ?d=digit ?s=special ?a=all
+                        </div>
                     </div>
 
                     <div class="form-row">
@@ -422,6 +440,7 @@
             loadJobTemplates();
             loadWordlistsForDropdown();
             loadRulesForDropdown();
+            loadMasksForDropdown();
             updateAttackMode();  // Initialize visibility
 
             // Handle Exit Advanced Mode referrer
@@ -488,12 +507,186 @@
             }
         }
 
+        // Mask library data
+        let masksLibrary = [];
+        let maskGroupsLibrary = [];
+        let selectedMaskCharsets = {};
+        let selectedGroupData = null;
+
+        // Load masks from server for dropdown
+        async function loadMasksForDropdown() {
+            try {
+                const [masksResponse, groupsResponse] = await Promise.all([
+                    fetch('/api/masks'),
+                    fetch('/api/mask-groups')
+                ]);
+
+                if (masksResponse.ok) {
+                    const data = await masksResponse.json();
+                    masksLibrary = [];
+                    // Flatten masks from grouped structure
+                    Object.values(data.masks_by_length || {}).forEach(masks => {
+                        masksLibrary.push(...masks);
+                    });
+
+                    const select = document.getElementById('job-mask-library');
+                    select.innerHTML = '<option value="">-- Select Mask --</option>';
+
+                    // Group by length for display
+                    const byLength = {};
+                    masksLibrary.forEach(mask => {
+                        if (!byLength[mask.length]) byLength[mask.length] = [];
+                        byLength[mask.length].push(mask);
+                    });
+
+                    Object.keys(byLength).sort((a, b) => a - b).forEach(length => {
+                        const optgroup = document.createElement('optgroup');
+                        optgroup.label = `Length ${length}`;
+                        byLength[length].forEach(mask => {
+                            const option = document.createElement('option');
+                            option.value = mask.mask_id;
+                            const hasCharsets = mask.custom_charsets && Object.keys(mask.custom_charsets).length > 0;
+                            option.textContent = `${mask.pattern} (${mask.keyspace_formatted})${hasCharsets ? ' *' : ''}`;
+                            option.title = mask.description || mask.pattern;
+                            optgroup.appendChild(option);
+                        });
+                        select.appendChild(optgroup);
+                    });
+                }
+
+                if (groupsResponse.ok) {
+                    const data = await groupsResponse.json();
+                    maskGroupsLibrary = data.groups || [];
+
+                    const select = document.getElementById('job-mask-group');
+                    select.innerHTML = '<option value="">-- Select Mask Group --</option>';
+
+                    maskGroupsLibrary.forEach(group => {
+                        const option = document.createElement('option');
+                        option.value = group.group_id;
+                        const hasCharsets = group.custom_charsets && Object.keys(group.custom_charsets).length > 0;
+                        option.textContent = `${group.name} (${group.mask_count} masks, ${group.total_keyspace_formatted})${hasCharsets ? ' *' : ''}`;
+                        option.title = group.description || '';
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.warn('Failed to load masks:', error);
+            }
+        }
+
+        // Handle mask source change (Manual, Library, Group)
+        function onMaskSourceChange() {
+            const source = document.getElementById('job-mask-source').value;
+            const librarySelect = document.getElementById('job-mask-library');
+            const groupSelect = document.getElementById('job-mask-group');
+            const maskInput = document.getElementById('job-mask');
+            const maskInfo = document.getElementById('mask-info');
+
+            // Reset
+            selectedMaskCharsets = {};
+            selectedGroupData = null;
+
+            if (source === 'manual') {
+                librarySelect.style.display = 'none';
+                groupSelect.style.display = 'none';
+                maskInput.style.display = 'block';
+                maskInput.readOnly = false;
+                maskInput.placeholder = '?a?a?a?a?a?a?a?a';
+                maskInfo.textContent = '?l=lowercase ?u=uppercase ?d=digit ?s=special ?a=all';
+            } else if (source === 'single') {
+                librarySelect.style.display = 'block';
+                groupSelect.style.display = 'none';
+                maskInput.style.display = 'block';
+                maskInput.readOnly = true;
+                maskInput.placeholder = 'Select a mask from library';
+                librarySelect.value = '';
+                maskInput.value = '';
+                maskInfo.textContent = 'Select a mask from the library (* = has custom charsets)';
+            } else if (source === 'group') {
+                librarySelect.style.display = 'none';
+                groupSelect.style.display = 'block';
+                maskInput.style.display = 'none';
+                groupSelect.value = '';
+                maskInfo.textContent = 'Select a mask group to use all masks in sequence (* = has custom charsets)';
+            }
+
+            updateHashcatArgs();
+        }
+
+        // Handle mask library selection
+        function onMaskLibrarySelect() {
+            const maskId = document.getElementById('job-mask-library').value;
+            const maskInput = document.getElementById('job-mask');
+            const maskInfo = document.getElementById('mask-info');
+
+            selectedMaskCharsets = {};
+
+            if (maskId) {
+                const mask = masksLibrary.find(m => m.mask_id === maskId);
+                if (mask) {
+                    maskInput.value = mask.pattern;
+                    selectedMaskCharsets = mask.custom_charsets || {};
+
+                    let info = `Keyspace: ${mask.keyspace_formatted} | Time: ${mask.crack_time_formatted}`;
+                    if (Object.keys(selectedMaskCharsets).length > 0) {
+                        const charsetStr = Object.entries(selectedMaskCharsets)
+                            .map(([k, v]) => `?${k}=${v}`).join(' ');
+                        info += ` | Charsets: ${charsetStr}`;
+                    }
+                    maskInfo.innerHTML = info;
+                }
+            } else {
+                maskInput.value = '';
+                maskInfo.textContent = 'Select a mask from the library (* = has custom charsets)';
+            }
+
+            updateHashcatArgs();
+        }
+
+        // Handle mask group selection
+        async function onMaskGroupSelect() {
+            const groupId = document.getElementById('job-mask-group').value;
+            const maskInfo = document.getElementById('mask-info');
+
+            selectedMaskCharsets = {};
+            selectedGroupData = null;
+
+            if (groupId) {
+                // Fetch full group details
+                try {
+                    const response = await fetch(`/api/mask-groups/${groupId}`);
+                    if (response.ok) {
+                        selectedGroupData = await response.json();
+                        selectedMaskCharsets = selectedGroupData.custom_charsets || {};
+
+                        const group = maskGroupsLibrary.find(g => g.group_id === groupId);
+                        let info = `${selectedGroupData.masks?.length || 0} masks | Keyspace: ${group?.total_keyspace_formatted || 'N/A'} | Time: ${group?.total_crack_time_formatted || 'N/A'}`;
+                        if (Object.keys(selectedMaskCharsets).length > 0) {
+                            const charsetStr = Object.entries(selectedMaskCharsets)
+                                .map(([k, v]) => `?${k}=${v}`).join(' ');
+                            info += ` | Charsets: ${charsetStr}`;
+                        }
+                        maskInfo.innerHTML = info;
+                    }
+                } catch (error) {
+                    console.warn('Failed to load group details:', error);
+                    maskInfo.textContent = 'Error loading group details';
+                }
+            } else {
+                maskInfo.textContent = 'Select a mask group to use all masks in sequence (* = has custom charsets)';
+            }
+
+            updateHashcatArgs();
+        }
+
         // Update attack mode UI visibility
         function updateAttackMode() {
             const attackMode = document.getElementById('job-attack-mode').value;
             const wordlistRow = document.getElementById('wordlist-row');
             const rulesRow = document.getElementById('rules-row');
             const maskRow = document.getElementById('mask-row');
+            const maskInfoRow = document.getElementById('mask-info-row');
 
             // Attack modes: 0=dictionary, 3=brute force/mask, 6=hybrid wordlist+mask, 7=hybrid mask+wordlist
             if (attackMode === '0') {
@@ -501,21 +694,25 @@
                 wordlistRow.style.display = 'flex';
                 rulesRow.style.display = 'flex';
                 maskRow.style.display = 'none';
+                maskInfoRow.style.display = 'none';
             } else if (attackMode === '3') {
                 // Brute force/mask: hide wordlist/rules, show mask
                 wordlistRow.style.display = 'none';
                 rulesRow.style.display = 'none';
                 maskRow.style.display = 'flex';
+                maskInfoRow.style.display = 'flex';
             } else if (attackMode === '6') {
                 // Hybrid wordlist+mask: show wordlist and mask, hide rules
                 wordlistRow.style.display = 'flex';
                 rulesRow.style.display = 'none';
                 maskRow.style.display = 'flex';
+                maskInfoRow.style.display = 'flex';
             } else if (attackMode === '7') {
                 // Hybrid mask+wordlist: show wordlist and mask, hide rules
                 wordlistRow.style.display = 'flex';
                 rulesRow.style.display = 'none';
                 maskRow.style.display = 'flex';
+                maskInfoRow.style.display = 'flex';
             }
 
             updateHashcatArgs();
@@ -528,6 +725,7 @@
             const wordlist = document.getElementById('job-wordlist').value;
             const rules = document.getElementById('job-rules').value;
             const mask = document.getElementById('job-mask').value;
+            const maskSource = document.getElementById('job-mask-source')?.value || 'manual';
 
             let args = [];
 
@@ -542,6 +740,15 @@
             // Helper to quote paths with spaces
             const quotePath = (path) => path.includes(' ') ? `"${path}"` : path;
 
+            // Add custom charset arguments if defined
+            const addCharsetArgs = () => {
+                if (selectedMaskCharsets && Object.keys(selectedMaskCharsets).length > 0) {
+                    Object.entries(selectedMaskCharsets).sort((a, b) => a[0].localeCompare(b[0])).forEach(([key, value]) => {
+                        args.push(`-${key} ${value}`);
+                    });
+                }
+            };
+
             // Add resources based on attack mode
             if (attackMode === '0') {
                 // Dictionary attack
@@ -553,24 +760,34 @@
                 }
             } else if (attackMode === '3') {
                 // Brute force/mask attack
-                if (mask) {
+                addCharsetArgs();
+                if (maskSource === 'group' && selectedGroupData) {
+                    // Group mode - will use mask file
+                    args.push('[mask file]');
+                } else if (mask) {
                     args.push(mask);
                 } else {
-                    args.push('?a?a?a?a?a?a');  // Default mask
+                    args.push('?a?a?a?a?a?a?a?a');  // Default mask
                 }
             } else if (attackMode === '6') {
                 // Hybrid wordlist+mask
                 if (wordlist) {
                     args.push(quotePath(wordlist));
                 }
-                if (mask) {
+                addCharsetArgs();
+                if (maskSource === 'group' && selectedGroupData) {
+                    args.push('[mask file]');
+                } else if (mask) {
                     args.push(mask);
                 } else {
                     args.push('?d?d?d');  // Default mask suffix
                 }
             } else if (attackMode === '7') {
                 // Hybrid mask+wordlist
-                if (mask) {
+                addCharsetArgs();
+                if (maskSource === 'group' && selectedGroupData) {
+                    args.push('[mask file]');
+                } else if (mask) {
                     args.push(mask);
                 } else {
                     args.push('?d?d?d');  // Default mask prefix
@@ -1760,8 +1977,9 @@
                 return;
             }
 
-            // Parse args string into array
-            const hashcatArgs = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+            // Parse args string into array (remove [mask file] placeholder)
+            let hashcatArgs = (argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || []).filter(arg => arg !== '[mask');
+            hashcatArgs = hashcatArgs.filter(arg => arg !== 'file]');
 
             // Add checked options
             if (document.getElementById('opt-username').checked) {
@@ -1772,6 +1990,37 @@
             }
             if (document.getElementById('opt-optimized').checked) {
                 hashcatArgs.push('-O');
+            }
+
+            // Check if we're using a mask group
+            const maskSource = document.getElementById('job-mask-source')?.value || 'manual';
+            let maskFileContent = null;
+            let maskFileName = null;
+
+            if (maskSource === 'group' && selectedGroupData) {
+                // Generate mask file content from group
+                const lines = [];
+
+                // Add charset definitions at the top
+                if (selectedGroupData.custom_charsets && Object.keys(selectedGroupData.custom_charsets).length > 0) {
+                    lines.push('# Custom Charsets');
+                    Object.entries(selectedGroupData.custom_charsets).sort((a, b) => a[0].localeCompare(b[0])).forEach(([key, value]) => {
+                        lines.push(`?${key}=${value}`);
+                    });
+                    lines.push('');
+                }
+
+                // Add mask patterns
+                if (selectedGroupData.masks) {
+                    selectedGroupData.masks.forEach(mask => {
+                        lines.push(mask.pattern);
+                    });
+                }
+
+                maskFileContent = lines.join('\n');
+                maskFileName = `${selectedGroupData.name.replace(/[^a-zA-Z0-9_-]/g, '_')}.hcmask`;
+
+                log(`Using mask group: ${selectedGroupData.name} (${selectedGroupData.masks?.length || 0} masks)`, 'info');
             }
 
             // Verify resources are accessible on the agent before submitting
@@ -1831,8 +2080,14 @@
                 payload.job_id = jobId;
             }
 
+            // Add mask file content if using a mask group
+            if (maskFileContent) {
+                payload.mask_file_content = maskFileContent;
+                payload.mask_filename = maskFileName;
+            }
+
             log(`Submitting job to ${agent.name || agent.id}...`, 'info');
-            log(`Command: hashcat ${hashcatArgs.join(' ')}`, 'info');
+            log(`Command: hashcat ${hashcatArgs.join(' ')}${maskFileName ? ' ' + maskFileName : ''}`, 'info');
 
             try {
                 const response = await fetch(`/api/agent/${agentId}/job`, {
