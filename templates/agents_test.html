@@ -62,9 +62,14 @@
                         <span style="color: #00d4ff;">&#9432;</span>
                         Agents auto-register when they connect to the server. Configure agents with the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes.
                     </p>
-                    <span id="server-agent-version" style="color: #666; font-size: 0.85rem; white-space: nowrap; margin-left: 15px;">
-                        Loading...
-                    </span>
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <span id="master-potfile-count" style="color: #666; font-size: 0.85rem; white-space: nowrap;" title="Master potfile entries synced across all agents">
+                            <span style="color: #00d4ff;">&#128274;</span> Potfile: <span class="count">-</span>
+                        </span>
+                        <span id="server-agent-version" style="color: #666; font-size: 0.85rem; white-space: nowrap;">
+                            Loading...
+                        </span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -384,10 +389,34 @@
             }
         }
 
+        // Load master potfile count
+        async function loadMasterPotfileCount() {
+            const potfileEl = document.getElementById('master-potfile-count');
+            if (!potfileEl) return;
+
+            try {
+                const response = await fetch('/api/master_potfile/status');
+                if (response.ok) {
+                    const data = await response.json();
+                    const countSpan = potfileEl.querySelector('.count');
+                    if (data.enabled && countSpan) {
+                        countSpan.textContent = data.count.toLocaleString();
+                        countSpan.style.color = '#22c55e';
+                    } else if (countSpan) {
+                        countSpan.textContent = 'disabled';
+                        countSpan.style.color = '#666';
+                    }
+                }
+            } catch (error) {
+                console.log('Could not load master potfile count:', error);
+            }
+        }
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadAgentsFromServer();
             loadServerAgentVersion();
+            loadMasterPotfileCount();
             loadPendingRegistrations();
             loadJobTemplates();
             loadWordlistsForDropdown();
@@ -778,6 +807,7 @@
                             </div>
                             <div style="display: flex; justify-content: space-between; color: #999;">
                                 <span>&#128220; Rules: <span style="color: #00d4ff;">${agent.resources?.by_type?.rules || 0}</span></span>
+                                <span title="Local potfile entries${agent.potfile?.sync_healthy === false ? ' (sync error)' : ''}">&#128274; Potfile: <span style="color: ${agent.potfile?.sync_healthy === false ? '#f59e0b' : '#00d4ff'};">${(agent.potfile?.local_entries || 0).toLocaleString()}</span></span>
                             </div>
                         </div>
                     ` : ''}

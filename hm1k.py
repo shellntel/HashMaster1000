@@ -11404,6 +11404,9 @@ def list_agents() -> Response:
         # Get update status if any
         update_status = state.get("update_status")
 
+        # Get potfile info
+        potfile_info = state.get("potfile", {})
+
         agents.append({
             "id": agent_id,
             "name": agent_name,
@@ -11425,6 +11428,10 @@ def list_agents() -> Response:
                 "by_type": resources_info.get("by_type", {}),
                 "cached": cached_resources,
                 "is_server_resources": resources_info.get("is_server_resources", False),
+            },
+            "potfile": {
+                "local_entries": potfile_info.get("local_entries", 0),
+                "sync_healthy": potfile_info.get("sync_healthy", True),
             },
         })
 

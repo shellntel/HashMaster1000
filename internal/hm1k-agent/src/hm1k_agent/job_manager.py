@@ -434,6 +434,11 @@ class JobManager:
                 )
                 logger.info(f"Queued error report for job {job.job_id} for later retry")
 
+        # Sync potfile after failed job - may have cracked some hashes before failing
+        if self.potfile_sync:
+            if not self.potfile_sync.sync_after_job():
+                logger.warning("Potfile sync failed after job failure")
+
         self._current_job = None
         self._start_next_job()
 

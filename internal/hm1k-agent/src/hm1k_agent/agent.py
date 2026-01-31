@@ -909,6 +909,7 @@ class Agent:
             "offline_buffer": {
                 "pending": self.offline_buffer.pending_count,
             },
+            "potfile": self.potfile_sync.get_stats(),
             "permissions": self._check_permissions_health(),
         }
 
