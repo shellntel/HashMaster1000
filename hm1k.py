@@ -12105,13 +12105,46 @@ def receive_benchmark_results() -> Response:
         # Update benchmark status tracking (file-backed for multi-worker)
         current_status = _get_benchmark_status(agent_id)
         if current_status and current_status.get("status") == "running":
-            _set_benchmark_status(agent_id, {
-                "status": "completed",
-                "completed_at": datetime.now().isoformat(),
-                "completed_modes": saved_count,
-                "total_modes": saved_count,
-            })
-            logging.info(f"Benchmark completed for agent {agent_id}: {saved_count} modes")
+            hashcat_version = data.get("hashcat_version", "unknown")
+
+            if current_status.get("all_versions"):
+                # Multi-version benchmark - track which versions have completed
+                completed_versions = set(current_status.get("completed_versions", []))
+                completed_versions.add(hashcat_version)
+                queued_versions = current_status.get("queued_versions", [])
+                queued_version_names = {v.get("version") for v in queued_versions}
+
+                # Calculate total completed modes across all versions
+                total_completed = len(completed_versions) * len(current_status.get("hash_modes", []))
+
+                if completed_versions >= queued_version_names:
+                    # All versions completed
+                    _set_benchmark_status(agent_id, {
+                        "status": "completed",
+                        "completed_at": datetime.now().isoformat(),
+                        "completed_modes": total_completed,
+                        "total_modes": current_status.get("total_modes", total_completed),
+                        "all_versions": True,
+                        "completed_versions": list(completed_versions),
+                    })
+                    logging.info(f"All benchmarks completed for agent {agent_id}: {len(completed_versions)} versions, {total_completed} total modes")
+                else:
+                    # Still waiting for more versions
+                    _set_benchmark_status(agent_id, {
+                        **current_status,
+                        "completed_versions": list(completed_versions),
+                        "completed_modes": total_completed,
+                    })
+                    logging.info(f"Benchmark progress for agent {agent_id}: {len(completed_versions)}/{len(queued_versions)} versions completed")
+            else:
+                # Single version benchmark
+                _set_benchmark_status(agent_id, {
+                    "status": "completed",
+                    "completed_at": datetime.now().isoformat(),
+                    "completed_modes": saved_count,
+                    "total_modes": saved_count,
+                })
+                logging.info(f"Benchmark completed for agent {agent_id}: {saved_count} modes")
 
         return jsonify({
             "success": True,
