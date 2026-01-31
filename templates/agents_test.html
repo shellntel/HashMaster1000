@@ -637,6 +637,10 @@
         async function loadAgentsFromServer() {
             log('Loading agents from server...', 'info');
 
+            // Save scroll position before re-render
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+
             try {
                 const response = await fetch('/api/agent/list');
                 if (response.ok) {
@@ -671,6 +675,9 @@
                     loadAgentsRetryCount = 0;
                 }
             }
+
+            // Restore scroll position after re-render
+            window.scrollTo(scrollX, scrollY);
         }
 
         // Benchmark status cache per agent
