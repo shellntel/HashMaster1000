@@ -10780,6 +10780,9 @@ def agent_job_status() -> Response:
         "gpu_speeds": data.get("gpu_speeds"),  # Individual GPU speeds
         "hashcat_version": data.get("hashcat_version"),  # Hashcat version in use
         "time_start": data.get("time_start"),  # Unix timestamp when hashcat started
+        "mask_current": data.get("mask_current", 0),  # Current mask index (1-based)
+        "mask_total": data.get("mask_total", 0),  # Total number of masks
+        "mask_pattern": data.get("mask_pattern"),  # Current mask pattern
         "updated_at": now_iso,
     }
 
@@ -11608,6 +11611,14 @@ def assign_job_to_agent(agent_id: str) -> Response:
     # Build job metadata
     job_metadata = data.get("metadata", {})
     job_metadata["job_type"] = "lm" if is_lm_job else "standard"
+
+    # Handle mask file content for mask attacks
+    mask_file_content = data.get("mask_file_content")
+    mask_filename = data.get("mask_filename")
+    if mask_file_content:
+        job_metadata["mask_file_content"] = mask_file_content
+        job_metadata["mask_filename"] = mask_filename or "masks.hcmask"
+        logging.info(f"Job {job_id} includes mask file ({len(mask_file_content)} bytes)")
 
     # Handle LM job preprocessing
     if is_lm_job and hash_content:

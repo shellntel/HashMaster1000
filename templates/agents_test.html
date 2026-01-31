@@ -1046,7 +1046,7 @@
                                 <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
-                                <span>${(job.progress_percent || 0).toFixed(1)}%</span>
+                                <span>${(job.progress_percent || 0).toFixed(1)}%${job.mask_total > 1 ? ` (Mask ${job.mask_current || 1}/${job.mask_total})` : ''}</span>
                                 <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
                                 <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
                             </div>
@@ -2214,6 +2214,12 @@
                             <div class="job-stat-value">${(job.progress_percent || 0).toFixed(1)}%</div>
                             <div class="job-stat-label">Progress</div>
                         </div>
+                        ${job.mask_total > 1 ? `
+                        <div class="job-stat">
+                            <div class="job-stat-value">${job.mask_current || 1}/${job.mask_total}</div>
+                            <div class="job-stat-label">Mask</div>
+                        </div>
+                        ` : ''}
                         <div class="job-stat">
                             <div class="job-stat-value">${formatSpeed(job.speed_hashes_per_sec)}</div>
                             <div class="job-stat-label">Speed</div>
@@ -2627,6 +2633,8 @@
             let i = 0;
             let foundHashFile = false;
             let foundWordlist = false;
+            let attackMode = 0;
+            let hasRules = false;
 
             // Options that take a file/path argument
             const fileOptions = new Set(['-r', '--rules-file', '-o', '--outfile', '--potfile-path',
@@ -2639,6 +2647,16 @@
                                           '--custom-charset3', '--custom-charset4', '--skip', '--limit',
                                           '--scrypt-tmto', '--generate-rules', '--debug-mode', '--debug-file',
                                           '--induction-dir', '--outfile-check-dir', '--hwmon-temp-abort']);
+
+            // First pass: detect attack mode and rules
+            for (let j = 0; j < args.length; j++) {
+                if ((args[j] === '-a' || args[j] === '--attack-mode') && j + 1 < args.length) {
+                    attackMode = parseInt(args[j + 1]) || 0;
+                }
+                if (args[j] === '-r' || args[j] === '--rules-file') {
+                    hasRules = true;
+                }
+            }
 
             while (i < args.length) {
                 const arg = args[i];
@@ -2683,6 +2701,18 @@
                     }
                 }
                 i++;
+            }
+
+            // If no positional args found, add placeholders based on attack mode
+            if (!foundHashFile) {
+                result.push('{hash_file}');
+            }
+            if (attackMode === 0 && !foundWordlist) {
+                // Dictionary attack
+                result.push('{wordlist}');
+            } else if (attackMode === 3 && !result.some(r => r.includes('?') || r === '{mask_file}')) {
+                // Mask attack - add mask file placeholder
+                result.push('{mask_file}');
             }
 
             return 'hashcat ' + result.join(' ');
@@ -2874,6 +2904,12 @@
                                 <span style="color: #888;">Cracked</span>
                                 <span style="color: #22c55e; font-weight: bold;">${job.recovered_hashes || 0} / ${job.total_hashes || 0}</span>
                             </div>
+                            ${job.mask_total > 1 ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Mask Progress</span>
+                                <span style="color: #f59e0b; font-weight: bold;">${job.mask_current || 1} of ${job.mask_total}</span>
+                            </div>
+                            ` : ''}
                             <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #888;">Keyspace</span>
                                 <span style="color: #fff;">${(job.progress_percent || 0).toFixed(2)}%</span>
@@ -2932,7 +2968,7 @@
                 <!-- Large Progress Bar -->
                 <div style="margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
-                        <span style="color: #888;">Overall Progress</span>
+                        <span style="color: #888;">${job.mask_total > 1 ? `Mask ${job.mask_current || 1}/${job.mask_total} Progress` : 'Overall Progress'}</span>
                         <span style="color: #fff; font-weight: bold;">${(job.progress_percent || 0).toFixed(2)}%</span>
                     </div>
                     <div style="height: 24px; background: rgba(0,0,0,0.4); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,212,255,0.2);">
@@ -2940,6 +2976,11 @@
                             ${(job.progress_percent || 0) > 15 ? `<span style="color: #fff; font-size: 0.75rem; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${(job.progress_percent || 0).toFixed(1)}%</span>` : ''}
                         </div>
                     </div>
+                    ${job.mask_pattern ? `
+                    <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
+                        Current mask: <code style="color: #f59e0b; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${job.mask_pattern}</code>
+                    </div>
+                    ` : ''}
                 </div>
 
                 ${job.hashcat_args && job.hashcat_args.length > 0 ? `
@@ -3469,7 +3510,7 @@
                             <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
-                            <span>${(job.progress_percent || 0).toFixed(1)}%</span>
+                            <span>${(job.progress_percent || 0).toFixed(1)}%${job.mask_total > 1 ? ` (Mask ${job.mask_current || 1}/${job.mask_total})` : ''}</span>
                             <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
                             <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
                         </div>

@@ -71,6 +71,10 @@ class Job:
     keyspace_total: int = 0
     keyspace_processed: int = 0
     time_start: Optional[int] = None  # Unix timestamp when hashcat started
+    # Multi-mask progress
+    mask_current: int = 0  # Current mask index (1-based)
+    mask_total: int = 0  # Total number of masks
+    mask_pattern: Optional[str] = None  # Current mask pattern
 
     @classmethod
     def from_sse_event(cls, event: SSEEvent, jobs_dir: str = "/var/lib/hm1k-agent/jobs") -> "Job":
@@ -529,6 +533,11 @@ class JobManager:
         if status.time_start and not job.time_start:
             job.time_start = status.time_start
 
+        # Track multi-mask progress
+        job.mask_current = status.mask_current
+        job.mask_total = status.mask_total
+        job.mask_pattern = status.mask_pattern
+
         # Track GPU metrics
         for device in status.devices:
             if device.temp is not None:
@@ -572,6 +581,9 @@ class JobManager:
             gpu_speeds=job.gpu_speeds if job.gpu_speeds else None,
             hashcat_version=hashcat_version,
             time_start=job.time_start,
+            mask_current=job.mask_current,
+            mask_total=job.mask_total,
+            mask_pattern=job.mask_pattern,
         )
 
         try:

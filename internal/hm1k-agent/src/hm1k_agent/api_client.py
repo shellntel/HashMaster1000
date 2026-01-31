@@ -61,6 +61,10 @@ class JobStatusUpdate:
     gpu_speeds: Optional[list[float]] = None
     hashcat_version: Optional[str] = None
     time_start: Optional[int] = None
+    # Multi-mask progress
+    mask_current: int = 0  # Current mask index (1-based)
+    mask_total: int = 0  # Total number of masks
+    mask_pattern: Optional[str] = None  # Current mask pattern
 
 
 class APIClient:
@@ -225,6 +229,9 @@ class APIClient:
                     "gpu_speeds": status.gpu_speeds,
                     "hashcat_version": status.hashcat_version,
                     "time_start": status.time_start,
+                    "mask_current": status.mask_current,
+                    "mask_total": status.mask_total,
+                    "mask_pattern": status.mask_pattern,
                 },
             )
             return True

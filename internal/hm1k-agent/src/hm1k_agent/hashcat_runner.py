@@ -49,6 +49,10 @@ class HashcatStatus:
     estimated_stop: Optional[int]  # Unix timestamp
     devices: list[DeviceInfo] = field(default_factory=list)
     raw_json: dict = field(default_factory=dict)
+    # Multi-mask progress (from hashcat's guess object)
+    mask_current: int = 0  # Current mask index (1-based for display)
+    mask_total: int = 0  # Total number of masks
+    mask_pattern: Optional[str] = None  # Current mask pattern being processed
 
     @classmethod
     def from_json(cls, data: dict) -> "HashcatStatus":
@@ -93,6 +97,12 @@ class HashcatStatus:
         else:
             progress_percent = 0
 
+        # Extract multi-mask progress from guess object
+        guess = data.get("guess", {})
+        mask_current = guess.get("guess_queue", 0) + 1  # Convert 0-based to 1-based
+        mask_total = guess.get("guess_mode_count", 0)
+        mask_pattern = guess.get("guess_mask")
+
         return cls(
             status=status_code,
             status_text=status_map.get(status_code, "Unknown"),
@@ -104,6 +114,9 @@ class HashcatStatus:
             estimated_stop=data.get("estimated_stop"),
             devices=devices,
             raw_json=data,
+            mask_current=mask_current,
+            mask_total=mask_total,
+            mask_pattern=mask_pattern,
         )
 
 
