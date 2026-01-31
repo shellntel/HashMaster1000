@@ -13353,10 +13353,14 @@ def create_mask_group() -> Response:
 
         manager = _get_mask_manager()
 
+        # Handle null from JS
+        custom_charsets = data.get("custom_charsets") or {}
+
         group, error = manager.create_group(
             name=data.get("name", ""),
             description=data.get("description", ""),
             mask_ids=data.get("mask_ids", []),
+            custom_charsets=custom_charsets,
         )
 
         if group:
@@ -13406,11 +13410,17 @@ def update_mask_group(group_id: str) -> Response:
         data = request.get_json()
         manager = _get_mask_manager()
 
+        # Only pass custom_charsets if it was explicitly provided
+        custom_charsets = None
+        if "custom_charsets" in data:
+            custom_charsets = data.get("custom_charsets") or {}
+
         group, error = manager.update_group(
             group_id=group_id,
             name=data.get("name"),
             description=data.get("description"),
             mask_ids=data.get("mask_ids"),
+            custom_charsets=custom_charsets,
         )
 
         if group:

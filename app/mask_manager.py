@@ -86,6 +86,7 @@ class MaskGroup:
     name: str
     description: str = ""
     mask_ids: list[str] = field(default_factory=list)
+    custom_charsets: dict[str, str] = field(default_factory=dict)
     created_at: str = ""
 
     def to_dict(self) -> dict:
@@ -94,6 +95,7 @@ class MaskGroup:
             "name": self.name,
             "description": self.description,
             "mask_ids": self.mask_ids,
+            "custom_charsets": self.custom_charsets,
             "created_at": self.created_at,
         }
 
@@ -104,6 +106,7 @@ class MaskGroup:
             name=data["name"],
             description=data.get("description", ""),
             mask_ids=data.get("mask_ids", []),
+            custom_charsets=data.get("custom_charsets", {}),
             created_at=data.get("created_at", ""),
         )
 
@@ -614,6 +617,7 @@ class MaskManager:
         name: str,
         description: str = "",
         mask_ids: Optional[list[str]] = None,
+        custom_charsets: Optional[dict[str, str]] = None,
     ) -> tuple[Optional[MaskGroup], str]:
         """
         Create a new mask group.
@@ -622,6 +626,7 @@ class MaskManager:
             name: Group name
             description: Optional description
             mask_ids: Optional list of mask IDs to include
+            custom_charsets: Optional shared charsets for the group
 
         Returns:
             Tuple of (MaskGroup or None, error_message)
@@ -632,6 +637,8 @@ class MaskManager:
         name = name.strip()
         if mask_ids is None:
             mask_ids = []
+        if custom_charsets is None:
+            custom_charsets = {}
 
         data = self._load_data()
 
@@ -651,6 +658,7 @@ class MaskManager:
             name=name,
             description=description,
             mask_ids=mask_ids,
+            custom_charsets=custom_charsets,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -674,6 +682,7 @@ class MaskManager:
         name: Optional[str] = None,
         description: Optional[str] = None,
         mask_ids: Optional[list[str]] = None,
+        custom_charsets: Optional[dict[str, str]] = None,
     ) -> tuple[Optional[MaskGroup], str]:
         """
         Update a group.
@@ -683,6 +692,7 @@ class MaskManager:
             name: New name (if provided)
             description: New description (if provided)
             mask_ids: New mask IDs (if provided)
+            custom_charsets: New custom charsets (if provided)
 
         Returns:
             Tuple of (updated MaskGroup or None, error_message)
@@ -711,6 +721,9 @@ class MaskManager:
                     if invalid_ids:
                         return None, f"Invalid mask IDs: {', '.join(invalid_ids)}"
                     group_data["mask_ids"] = mask_ids
+
+                if custom_charsets is not None:
+                    group_data["custom_charsets"] = custom_charsets
 
                 data["groups"][i] = group_data
                 self._save_data(data)
@@ -771,6 +784,10 @@ class MaskManager:
         """
         Export a group as .hcmask file content.
 
+        Includes group-level custom charsets as ?N=charset definitions
+        at the top of the file. Individual mask charsets are also included
+        inline if they differ from group charsets.
+
         Args:
             group_id: Group ID
 
@@ -787,10 +804,26 @@ class MaskManager:
             lines.append(f"# {group.description}")
         lines.append("")
 
+        # Add group-level charset definitions
+        if group.custom_charsets:
+            lines.append("# Custom Charsets")
+            for key in sorted(group.custom_charsets.keys()):
+                lines.append(f"?{key}={group.custom_charsets[key]}")
+            lines.append("")
+            lines.append("# Masks")
+
         for mask in masks:
-            # Include custom charset definitions if needed
-            if mask.custom_charsets:
-                charset_defs = ",".join(f"{mask.custom_charsets[k]}" for k in sorted(mask.custom_charsets.keys()))
+            # Include inline charset definitions if mask has its own charsets
+            # that differ from group charsets
+            mask_charsets = mask.custom_charsets or {}
+            group_charsets = group.custom_charsets or {}
+
+            # Check if mask has additional/different charsets
+            extra_charsets = {k: v for k, v in mask_charsets.items()
+                             if k not in group_charsets or group_charsets[k] != v}
+
+            if extra_charsets:
+                charset_defs = ",".join(f"{extra_charsets[k]}" for k in sorted(extra_charsets.keys()))
                 lines.append(f"{charset_defs},{mask.pattern}")
             else:
                 lines.append(mask.pattern)

@@ -192,6 +192,7 @@
         let groupsData = [];
         let allMasks = [];
         let collapsedLengths = new Set();
+        let collapsedGroups = new Set();  // Start collapsed by populating this in loadMasks
 
         // Load data on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -252,6 +253,11 @@
                     allMasks.push(...masks);
                 });
 
+                // Start with all groups collapsed (on first load only)
+                if (collapsedGroups.size === 0 && groupsData.length > 0) {
+                    groupsData.forEach(g => collapsedGroups.add(g.group_id));
+                }
+
                 updateStats(masksResult.stats);
                 renderMasks();
                 renderGroups();
@@ -306,10 +312,16 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${masks.map(mask => `
+                                        ${masks.map(mask => {
+                                            const hasCharsets = mask.custom_charsets && Object.keys(mask.custom_charsets).length > 0;
+                                            const charsetDisplay = hasCharsets
+                                                ? Object.entries(mask.custom_charsets).map(([k, v]) => `?${k}=${escapeHtml(v)}`).join(' ')
+                                                : '';
+                                            return `
                                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
                                                 <td style="padding: 8px 12px;">
                                                     <code style="color: #fff; font-size: 0.9rem;">${escapeHtml(mask.pattern)}</code>
+                                                    ${hasCharsets ? `<div style="font-size: 0.7rem; color: #f59e0b; margin-top: 2px;">Charsets: ${charsetDisplay}</div>` : ''}
                                                     ${mask.description ? `<div style="font-size: 0.75rem; color: #888; margin-top: 2px;">${escapeHtml(mask.description)}</div>` : ''}
                                                 </td>
                                                 <td style="padding: 8px 12px; text-align: right; color: #22c55e; font-family: monospace;">${mask.keyspace_formatted}</td>
@@ -322,7 +334,7 @@
                                                     <button class="action-btn action-btn-delete" onclick="deleteMask('${mask.mask_id}')" title="Delete">&#128465;</button>
                                                 </td>
                                             </tr>
-                                        `).join('')}
+                                        `}).join('')}
                                     </tbody>
                                 </table>
                             </div>
@@ -353,26 +365,58 @@
                 return;
             }
 
-            container.innerHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;">
-                    ${groupsData.map(group => `
-                        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.2); border-radius: 8px; padding: 15px;">
-                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                                <div>
-                                    <div style="font-weight: 500; color: #fff;">${escapeHtml(group.name)}</div>
-                                    <div style="font-size: 0.8rem; color: #888;">${group.mask_count} mask${group.mask_count !== 1 ? 's' : ''}</div>
-                                </div>
-                            </div>
-                            ${group.description ? `<div style="font-size: 0.85rem; color: #888; margin-bottom: 10px;">${escapeHtml(group.description)}</div>` : ''}
-                            <div style="display: flex; gap: 8px;">
+            container.innerHTML = groupsData.map(group => {
+                const isCollapsed = collapsedGroups.has(group.group_id);
+                const charsets = group.custom_charsets || {};
+                const hasCharsets = Object.keys(charsets).length > 0;
+                const charsetDisplay = hasCharsets
+                    ? Object.entries(charsets).map(([k, v]) => `?${k}=${escapeHtml(v)}`).join(', ')
+                    : '';
+
+                return `
+                    <div class="mask-group-item" style="margin-bottom: 15px;">
+                        <div onclick="toggleGroup('${group.group_id}')" style="cursor: pointer; padding: 12px 15px; background: rgba(34,197,94,0.1); border-radius: 8px 8px ${isCollapsed ? '8px 8px' : '0 0'}; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 500;">
+                                <span style="color: #22c55e;">${isCollapsed ? '&#9654;' : '&#9660;'}</span>
+                                ${escapeHtml(group.name)}
+                                <span style="color: #888; font-size: 0.85rem; margin-left: 8px;">(${group.mask_count} mask${group.mask_count !== 1 ? 's' : ''})</span>
+                            </span>
+                            <div style="display: flex; gap: 8px;" onclick="event.stopPropagation();">
                                 <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="exportGroup('${group.group_id}', '${escapeHtml(group.name)}')" title="Export as .hcmask">&#11015; Export</button>
                                 <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="editGroup('${group.group_id}')" title="Edit">&#9998; Edit</button>
                                 <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteGroup('${group.group_id}')" title="Delete">&#128465;</button>
                             </div>
                         </div>
-                    `).join('')}
-                </div>
-            `;
+                        ${!isCollapsed ? `
+                            <div style="border: 1px solid rgba(34,197,94,0.2); border-top: none; border-radius: 0 0 8px 8px; padding: 12px; background: rgba(0,0,0,0.2);">
+                                ${group.description ? `<div style="font-size: 0.85rem; color: #888; margin-bottom: 10px;">${escapeHtml(group.description)}</div>` : ''}
+                                ${hasCharsets ? `
+                                    <div style="margin-bottom: 10px; padding: 8px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px;">
+                                        <div style="color: #f59e0b; font-size: 0.8rem; margin-bottom: 4px;">Custom Charsets:</div>
+                                        <code style="color: #fff; font-size: 0.85rem;">${charsetDisplay}</code>
+                                    </div>
+                                ` : ''}
+                                <div style="font-size: 0.8rem; color: #666;">
+                                    Masks in this group: ${group.mask_ids ? group.mask_ids.slice(0, 5).map(id => {
+                                        const mask = allMasks.find(m => m.mask_id === id);
+                                        return mask ? `<code style="color: #888;">${escapeHtml(mask.pattern)}</code>` : '';
+                                    }).filter(Boolean).join(', ') : ''}
+                                    ${group.mask_ids && group.mask_ids.length > 5 ? `<span style="color: #888;">... and ${group.mask_ids.length - 5} more</span>` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleGroup(groupId) {
+            if (collapsedGroups.has(groupId)) {
+                collapsedGroups.delete(groupId);
+            } else {
+                collapsedGroups.add(groupId);
+            }
+            renderGroups();
         }
 
         // Validation
@@ -569,6 +613,11 @@
             const closeModal = () => modal.remove();
             modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
+            const hasCharsets = mask.custom_charsets && Object.keys(mask.custom_charsets).length > 0;
+            const charsetDisplay = hasCharsets
+                ? Object.entries(mask.custom_charsets).map(([k, v]) => `?${k}=${escapeHtml(v)}`).join(', ')
+                : '';
+
             modal.innerHTML = `
                 <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 450px; max-width: 90vw;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -580,6 +629,12 @@
                         <div style="margin-top: 5px; font-size: 0.85rem; color: #888;">
                             Keyspace: ${mask.keyspace_formatted} | Time: ${mask.crack_time_formatted}
                         </div>
+                        ${hasCharsets ? `
+                            <div style="margin-top: 8px; padding: 6px 8px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 4px;">
+                                <span style="color: #f59e0b; font-size: 0.8rem;">Charsets:</span>
+                                <code style="color: #fff; font-size: 0.85rem; margin-left: 5px;">${charsetDisplay}</code>
+                            </div>
+                        ` : ''}
                     </div>
                     <form id="edit-mask-form">
                         <div class="form-group" style="margin-bottom: 15px;">
@@ -676,6 +731,7 @@
             modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
             const selectedMaskIds = new Set(group?.mask_ids || []);
+            const groupCharsets = group?.custom_charsets || {};
 
             modal.innerHTML = `
                 <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 550px; max-width: 90vw; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
@@ -692,6 +748,15 @@
                             <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Description</label>
                             <input type="text" id="group-description" class="advanced-input" value="${escapeHtml(group?.description || '')}" style="width: 100%;">
                         </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Group Charsets (shared by all masks in group)</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <input type="text" id="group-charset-1" class="advanced-input" placeholder="?1 charset" value="${escapeHtml(groupCharsets['1'] || '')}" style="font-size: 0.85rem;">
+                                <input type="text" id="group-charset-2" class="advanced-input" placeholder="?2 charset" value="${escapeHtml(groupCharsets['2'] || '')}" style="font-size: 0.85rem;">
+                                <input type="text" id="group-charset-3" class="advanced-input" placeholder="?3 charset" value="${escapeHtml(groupCharsets['3'] || '')}" style="font-size: 0.85rem;">
+                                <input type="text" id="group-charset-4" class="advanced-input" placeholder="?4 charset" value="${escapeHtml(groupCharsets['4'] || '')}" style="font-size: 0.85rem;">
+                            </div>
+                        </div>
                         <div class="form-group" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
                             <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Select Masks</label>
                             <div id="mask-selector" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 10px;">
@@ -702,6 +767,7 @@
                                             <div style="flex: 1;">
                                                 <code style="color: #fff;">${escapeHtml(m.pattern)}</code>
                                                 <span style="color: #888; font-size: 0.8rem; margin-left: 10px;">${m.keyspace_formatted}</span>
+                                                ${m.custom_charsets && Object.keys(m.custom_charsets).length > 0 ? `<span style="color: #f59e0b; font-size: 0.75rem; margin-left: 5px;">(has charsets)</span>` : ''}
                                             </div>
                                         </label>
                                     `).join('')
@@ -726,6 +792,13 @@
                 const description = document.getElementById('group-description').value.trim();
                 const mask_ids = Array.from(document.querySelectorAll('.mask-checkbox:checked')).map(cb => cb.value);
 
+                // Collect group charsets
+                const custom_charsets = {};
+                for (let i = 1; i <= 4; i++) {
+                    const value = document.getElementById(`group-charset-${i}`).value.trim();
+                    if (value) custom_charsets[i.toString()] = value;
+                }
+
                 if (!name) {
                     showNotification('Error', 'error', 'Group name is required');
                     return;
@@ -741,7 +814,7 @@
                             'Content-Type': 'application/json',
                             'X-CSRFToken': csrfToken
                         },
-                        body: JSON.stringify({ name, description, mask_ids })
+                        body: JSON.stringify({ name, description, mask_ids, custom_charsets })
                     });
 
                     if (!response.ok) {
