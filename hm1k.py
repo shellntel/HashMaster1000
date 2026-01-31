@@ -42,7 +42,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 # werkzeug.security not used - using bcrypt directly for password verification
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 # Import file parser module for validation
 from app import file_parser
@@ -13636,7 +13636,7 @@ def trigger_agent_update(agent_id: str) -> Response:
             "status": "queued",
             "version": version,
             "message": f"Update to v{version} queued",
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         state = agent.get("state", {})
         state["update_status"] = update_status
