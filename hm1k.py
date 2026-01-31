@@ -12322,7 +12322,8 @@ def trigger_agent_benchmark(agent_id: str) -> Response:
 
     if all_versions:
         # Get all installed hashcat versions from agent's software status
-        software = agent_data.get("software", {})
+        state = agent_data.get("state", {})
+        software = state.get("software", {})
         hashcat_versions = software.get("hashcat_versions", [])
 
         if not hashcat_versions:
