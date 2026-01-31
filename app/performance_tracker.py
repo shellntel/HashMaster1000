@@ -422,6 +422,40 @@ class PerformanceTracker:
                 driver_version=row["driver_version"],
             )
 
+    def get_fastest_benchmark(self, hash_mode: int) -> Optional[BenchmarkResult]:
+        """
+        Get the fastest benchmark for a hash mode across all agents.
+
+        Args:
+            hash_mode: Hash mode to query
+
+        Returns:
+            BenchmarkResult with highest speed or None if not found
+        """
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM benchmarks
+                WHERE hash_mode = ?
+                ORDER BY total_speed_hs DESC
+                LIMIT 1
+            """, (hash_mode,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return BenchmarkResult(
+                agent_id=row["agent_id"],
+                hash_mode=row["hash_mode"],
+                total_speed_hs=row["total_speed_hs"],
+                gpus=[GPUMetrics.from_dict(g) for g in json.loads(row["gpus_json"] or "[]")],
+                timestamp=row["timestamp"],
+                hashcat_version=row["hashcat_version"],
+                cuda_version=row["cuda_version"],
+                driver_version=row["driver_version"],
+            )
+
     def get_agent_job_history(
         self,
         agent_id: str,

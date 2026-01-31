@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Mask Manager</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Mask Manager</h1>
+                <p class="advanced-subtitle">Create and manage hashcat masks for brute force attacks</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Brute Force
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link">Agents</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/masks" class="advanced-nav-link active">Masks</a>
+            <a href="/agents/software" class="advanced-nav-link">Software</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Stats and Input Section - Side by Side -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+            <!-- Stats Section -->
+            <div class="advanced-section" style="margin-bottom: 0;">
+                <div class="advanced-section-header">
+                    <span class="advanced-section-icon">&#128202;</span>
+                    <h2 class="advanced-section-title">Overview</h2>
+                </div>
+                <div class="advanced-section-content">
+                    <div id="stats-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                        <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #00d4ff;">
+                            <div style="color: #888; font-size: 0.75rem;">Total Masks</div>
+                            <div id="stat-mask-count" style="color: #00d4ff; font-size: 1.3rem; font-weight: bold;">-</div>
+                        </div>
+                        <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #22c55e;">
+                            <div style="color: #888; font-size: 0.75rem;">Mask Groups</div>
+                            <div id="stat-group-count" style="color: #22c55e; font-size: 1.3rem; font-weight: bold;">-</div>
+                        </div>
+                        <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #f59e0b;">
+                            <div style="color: #888; font-size: 0.75rem;">Fastest NTLM</div>
+                            <div id="stat-ntlm-speed" style="color: #f59e0b; font-size: 1.3rem; font-weight: bold;">-</div>
+                        </div>
+                    </div>
+                    <!-- Charset Reference -->
+                    <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="color: #888; font-size: 0.75rem; margin-bottom: 6px;">Charset Reference</div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.8rem;">
+                            <span style="background: rgba(0,212,255,0.15); padding: 2px 8px; border-radius: 4px;"><code>?l</code> a-z (26)</span>
+                            <span style="background: rgba(0,212,255,0.15); padding: 2px 8px; border-radius: 4px;"><code>?u</code> A-Z (26)</span>
+                            <span style="background: rgba(0,212,255,0.15); padding: 2px 8px; border-radius: 4px;"><code>?d</code> 0-9 (10)</span>
+                            <span style="background: rgba(0,212,255,0.15); padding: 2px 8px; border-radius: 4px;"><code>?s</code> special (33)</span>
+                            <span style="background: rgba(0,212,255,0.15); padding: 2px 8px; border-radius: 4px;"><code>?a</code> all (95)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Mask Section -->
+            <div class="advanced-section" style="margin-bottom: 0;">
+                <div class="advanced-section-header">
+                    <span class="advanced-section-icon">&#10133;</span>
+                    <h2 class="advanced-section-title">Add Mask</h2>
+                </div>
+                <div class="advanced-section-content">
+                    <!-- Tab buttons -->
+                    <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                        <button class="tab-btn-bordered active" data-tab="single" onclick="switchTab('single')">Single Mask</button>
+                        <button class="tab-btn-bordered" data-tab="bulk" onclick="switchTab('bulk')">Bulk Import</button>
+                    </div>
+
+                    <!-- Single mask input -->
+                    <div id="tab-single">
+                        <form id="single-mask-form" onsubmit="addSingleMask(event)">
+                            <div class="form-group">
+                                <label style="font-size: 0.85rem;">Mask Pattern</label>
+                                <input type="text" id="single-pattern" class="advanced-input" placeholder="e.g., ?u?l?l?l?l?l?d?d" oninput="validateSingleMask()">
+                            </div>
+                            <div id="single-validation" style="display: none; margin-top: 8px; padding: 8px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                                    <span>Length: <strong id="single-length">-</strong></span>
+                                    <span>Keyspace: <strong id="single-keyspace">-</strong></span>
+                                    <span>Time: <strong id="single-time">-</strong></span>
+                                </div>
+                            </div>
+                            <div id="single-error" style="display: none; margin-top: 8px; padding: 8px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; color: #ef4444; font-size: 0.85rem;"></div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                                <button type="button" class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="toggleCustomCharsets()">Custom Charsets</button>
+                                <button type="submit" class="advanced-btn advanced-btn-primary" id="single-add-btn" disabled>Add Mask</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Bulk import -->
+                    <div id="tab-bulk" style="display: none;">
+                        <form id="bulk-mask-form" onsubmit="addBulkMasks(event)">
+                            <div class="form-group">
+                                <label style="font-size: 0.85rem;">Paste masks (one per line or comma-separated)</label>
+                                <textarea id="bulk-patterns" class="advanced-input" rows="4" placeholder="?u?l?l?l?l?d?d&#10;?d?d?d?d?d?d?d?d&#10;?u?l?l?l?l?l?l?d"></textarea>
+                            </div>
+                            <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                                <button type="submit" class="advanced-btn advanced-btn-primary">Import Masks</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Custom charsets (hidden by default) -->
+                    <div id="custom-charsets-section" style="display: none; margin-top: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                        <div style="color: #888; font-size: 0.8rem; margin-bottom: 8px;">Custom Charsets (use ?1, ?2, ?3, ?4 in patterns)</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <input type="text" id="charset-1" class="advanced-input" placeholder="?1 charset (e.g., abc123)" style="font-size: 0.85rem;">
+                            <input type="text" id="charset-2" class="advanced-input" placeholder="?2 charset" style="font-size: 0.85rem;">
+                            <input type="text" id="charset-3" class="advanced-input" placeholder="?3 charset" style="font-size: 0.85rem;">
+                            <input type="text" id="charset-4" class="advanced-input" placeholder="?4 charset" style="font-size: 0.85rem;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Masks List -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128272;</span>
+                <h2 class="advanced-section-title">Masks Library</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadMasks()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="masks-container">
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        Loading masks...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mask Groups -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128193;</span>
+                <h2 class="advanced-section-title">Mask Groups</h2>
+                <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="showCreateGroupModal()" style="margin-left: auto;">+ New Group</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="groups-container">
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        Loading groups...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        let masksData = {};
+        let groupsData = [];
+        let allMasks = [];
+        let collapsedLengths = new Set();
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadMasks();
+
+            // Handle Exit Advanced Mode referrer
+            const referrer = sessionStorage.getItem('advancedModeReferrer');
+            if (referrer) {
+                document.querySelector('.exit-link').href = referrer;
+            }
+            if (document.referrer && !document.referrer.includes('/agents') &&
+                !document.referrer.includes('/ai-') && !document.referrer.includes('/timing-stats') &&
+                !document.referrer.includes('/hidden') && !document.referrer.includes('/hibp')) {
+                sessionStorage.setItem('advancedModeReferrer', document.referrer);
+            }
+        });
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn-bordered').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.tab-btn-bordered[data-tab="${tab}"]`).classList.add('active');
+            document.getElementById('tab-single').style.display = tab === 'single' ? 'block' : 'none';
+            document.getElementById('tab-bulk').style.display = tab === 'bulk' ? 'block' : 'none';
+        }
+
+        function toggleCustomCharsets() {
+            const section = document.getElementById('custom-charsets-section');
+            section.style.display = section.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function getCustomCharsets() {
+            const charsets = {};
+            for (let i = 1; i <= 4; i++) {
+                const value = document.getElementById(`charset-${i}`).value.trim();
+                if (value) charsets[i.toString()] = value;
+            }
+            return Object.keys(charsets).length > 0 ? charsets : null;
+        }
+
+        async function loadMasks() {
+            try {
+                const [masksResponse, groupsResponse] = await Promise.all([
+                    fetch('/api/masks'),
+                    fetch('/api/mask-groups')
+                ]);
+
+                if (!masksResponse.ok) throw new Error('Failed to load masks');
+                if (!groupsResponse.ok) throw new Error('Failed to load groups');
+
+                const masksResult = await masksResponse.json();
+                const groupsResult = await groupsResponse.json();
+
+                masksData = masksResult.masks_by_length;
+                groupsData = groupsResult.groups;
+
+                // Build flat list of all masks
+                allMasks = [];
+                Object.values(masksData).forEach(masks => {
+                    allMasks.push(...masks);
+                });
+
+                updateStats(masksResult.stats);
+                renderMasks();
+                renderGroups();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        function updateStats(stats) {
+            document.getElementById('stat-mask-count').textContent = stats.mask_count || 0;
+            document.getElementById('stat-group-count').textContent = stats.group_count || 0;
+            document.getElementById('stat-ntlm-speed').textContent = stats.fastest_ntlm_speed_formatted || 'N/A';
+        }
+
+        function renderMasks() {
+            const container = document.getElementById('masks-container');
+            const lengths = Object.keys(masksData).map(Number).sort((a, b) => a - b);
+
+            if (lengths.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">&#128272;</div>
+                        <div>No masks added yet. Add a mask to get started.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = lengths.map(length => {
+                const masks = masksData[length.toString()];
+                const isCollapsed = collapsedLengths.has(length);
+
+                return `
+                    <div class="mask-length-group" style="margin-bottom: 15px;">
+                        <div onclick="toggleLength(${length})" style="cursor: pointer; padding: 10px 15px; background: rgba(0,212,255,0.1); border-radius: 8px 8px ${isCollapsed ? '8px 8px' : '0 0'}; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 500;">
+                                <span style="color: #00d4ff;">${isCollapsed ? '&#9654;' : '&#9660;'}</span>
+                                Length ${length}
+                                <span style="color: #888; font-size: 0.85rem; margin-left: 8px;">(${masks.length} mask${masks.length !== 1 ? 's' : ''})</span>
+                            </span>
+                        </div>
+                        ${!isCollapsed ? `
+                            <div style="border: 1px solid rgba(0,212,255,0.2); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <thead style="background: rgba(0,0,0,0.3);">
+                                        <tr>
+                                            <th style="padding: 8px 12px; text-align: left; color: #888; font-size: 0.8rem;">Pattern</th>
+                                            <th style="padding: 8px 12px; text-align: right; color: #888; font-size: 0.8rem;">Keyspace</th>
+                                            <th style="padding: 8px 12px; text-align: right; color: #888; font-size: 0.8rem;">Est. Time</th>
+                                            <th style="padding: 8px 12px; text-align: left; color: #888; font-size: 0.8rem;">Tags</th>
+                                            <th style="padding: 8px 12px; text-align: right; color: #888; font-size: 0.8rem;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${masks.map(mask => `
+                                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                <td style="padding: 8px 12px;">
+                                                    <code style="color: #fff; font-size: 0.9rem;">${escapeHtml(mask.pattern)}</code>
+                                                    ${mask.description ? `<div style="font-size: 0.75rem; color: #888; margin-top: 2px;">${escapeHtml(mask.description)}</div>` : ''}
+                                                </td>
+                                                <td style="padding: 8px 12px; text-align: right; color: #22c55e; font-family: monospace;">${mask.keyspace_formatted}</td>
+                                                <td style="padding: 8px 12px; text-align: right; color: #f59e0b; font-family: monospace;">${mask.crack_time_formatted}</td>
+                                                <td style="padding: 8px 12px;">
+                                                    ${mask.tags.map(t => `<span style="background: rgba(0,212,255,0.2); padding: 2px 6px; border-radius: 8px; font-size: 0.7rem; margin-right: 3px;">${escapeHtml(t)}</span>`).join('')}
+                                                </td>
+                                                <td style="padding: 8px 12px; text-align: right; white-space: nowrap;">
+                                                    <button class="action-btn action-btn-edit" onclick="editMask('${mask.mask_id}')" title="Edit">&#9998;</button>
+                                                    <button class="action-btn action-btn-delete" onclick="deleteMask('${mask.mask_id}')" title="Delete">&#128465;</button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleLength(length) {
+            if (collapsedLengths.has(length)) {
+                collapsedLengths.delete(length);
+            } else {
+                collapsedLengths.add(length);
+            }
+            renderMasks();
+        }
+
+        function renderGroups() {
+            const container = document.getElementById('groups-container');
+
+            if (groupsData.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 30px;">
+                        <div>No mask groups yet. Create a group to organize related masks.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px;">
+                    ${groupsData.map(group => `
+                        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.2); border-radius: 8px; padding: 15px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                <div>
+                                    <div style="font-weight: 500; color: #fff;">${escapeHtml(group.name)}</div>
+                                    <div style="font-size: 0.8rem; color: #888;">${group.mask_count} mask${group.mask_count !== 1 ? 's' : ''}</div>
+                                </div>
+                            </div>
+                            ${group.description ? `<div style="font-size: 0.85rem; color: #888; margin-bottom: 10px;">${escapeHtml(group.description)}</div>` : ''}
+                            <div style="display: flex; gap: 8px;">
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="exportGroup('${group.group_id}', '${escapeHtml(group.name)}')" title="Export as .hcmask">&#11015; Export</button>
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="editGroup('${group.group_id}')" title="Edit">&#9998; Edit</button>
+                                <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteGroup('${group.group_id}')" title="Delete">&#128465;</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Validation
+        let validationTimeout;
+        async function validateSingleMask() {
+            const pattern = document.getElementById('single-pattern').value.trim();
+            const validationDiv = document.getElementById('single-validation');
+            const errorDiv = document.getElementById('single-error');
+            const addBtn = document.getElementById('single-add-btn');
+
+            if (!pattern) {
+                validationDiv.style.display = 'none';
+                errorDiv.style.display = 'none';
+                addBtn.disabled = true;
+                return;
+            }
+
+            clearTimeout(validationTimeout);
+            validationTimeout = setTimeout(async () => {
+                try {
+                    const response = await fetch('/api/masks/validate', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({
+                            pattern: pattern,
+                            custom_charsets: getCustomCharsets()
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.valid) {
+                        document.getElementById('single-length').textContent = data.length;
+                        document.getElementById('single-keyspace').textContent = data.keyspace_formatted;
+                        document.getElementById('single-time').textContent = data.crack_time_formatted;
+                        validationDiv.style.display = 'block';
+                        errorDiv.style.display = 'none';
+                        addBtn.disabled = false;
+                    } else {
+                        validationDiv.style.display = 'none';
+                        errorDiv.textContent = data.error;
+                        errorDiv.style.display = 'block';
+                        addBtn.disabled = true;
+                    }
+                } catch (error) {
+                    errorDiv.textContent = 'Validation failed';
+                    errorDiv.style.display = 'block';
+                    addBtn.disabled = true;
+                }
+            }, 300);
+        }
+
+        async function addSingleMask(event) {
+            event.preventDefault();
+
+            const pattern = document.getElementById('single-pattern').value.trim();
+            if (!pattern) return;
+
+            try {
+                const response = await fetch('/api/masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        pattern: pattern,
+                        custom_charsets: getCustomCharsets()
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to add mask');
+
+                showNotification('Success', 'success', `Mask "${pattern}" added`);
+                document.getElementById('single-pattern').value = '';
+                document.getElementById('single-validation').style.display = 'none';
+                document.getElementById('single-add-btn').disabled = true;
+                loadMasks();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        async function addBulkMasks(event) {
+            event.preventDefault();
+
+            const patterns = document.getElementById('bulk-patterns').value.trim();
+            if (!patterns) {
+                showNotification('Error', 'error', 'Please enter at least one mask pattern');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        patterns: patterns,
+                        custom_charsets: getCustomCharsets()
+                    })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to import masks');
+
+                let message = `Added ${data.added_count} mask(s)`;
+                if (data.errors && data.errors.length > 0) {
+                    message += `, ${data.errors.length} failed`;
+                }
+                showNotification('Import Complete', 'success', message);
+
+                if (data.errors && data.errors.length > 0) {
+                    console.log('Import errors:', data.errors);
+                }
+
+                document.getElementById('bulk-patterns').value = '';
+                loadMasks();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        async function deleteMask(maskId) {
+            if (!confirm('Are you sure you want to delete this mask?')) return;
+
+            try {
+                const response = await fetch(`/api/masks/${maskId}`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Delete failed');
+                }
+
+                showNotification('Success', 'success', 'Mask deleted');
+                loadMasks();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        function editMask(maskId) {
+            const mask = allMasks.find(m => m.mask_id === maskId);
+            if (!mask) {
+                showNotification('Error', 'error', 'Mask not found');
+                return;
+            }
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+            const closeModal = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 450px; max-width: 90vw;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #fff;">Edit Mask</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="margin-bottom: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+                        <code style="color: #00d4ff; font-size: 1.1rem;">${escapeHtml(mask.pattern)}</code>
+                        <div style="margin-top: 5px; font-size: 0.85rem; color: #888;">
+                            Keyspace: ${mask.keyspace_formatted} | Time: ${mask.crack_time_formatted}
+                        </div>
+                    </div>
+                    <form id="edit-mask-form">
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Description</label>
+                            <textarea id="edit-description" class="advanced-input" rows="2" style="width: 100%; resize: vertical;">${escapeHtml(mask.description || '')}</textarea>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 20px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Tags (comma-separated)</label>
+                            <input type="text" id="edit-tags" class="advanced-input" value="${escapeHtml(mask.tags.join(', '))}" style="width: 100%;">
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                            <button type="button" class="advanced-btn advanced-btn-secondary" onclick="this.closest('div').parentElement.parentElement.parentElement.remove()">Cancel</button>
+                            <button type="submit" class="advanced-btn advanced-btn-primary">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+
+            modal.querySelector('#edit-mask-form').onsubmit = async (e) => {
+                e.preventDefault();
+
+                const description = document.getElementById('edit-description').value.trim();
+                const tagsInput = document.getElementById('edit-tags').value;
+                const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
+
+                try {
+                    const response = await fetch(`/api/masks/${maskId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ description, tags })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Update failed');
+                    }
+
+                    showNotification('Success', 'success', 'Mask updated');
+                    closeModal();
+                    loadMasks();
+                } catch (error) {
+                    showNotification('Error', 'error', error.message);
+                }
+            };
+
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                    document.removeEventListener('keydown', handleEscape);
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
+        }
+
+        // Group functions
+        function showCreateGroupModal() {
+            showGroupModal(null);
+        }
+
+        function editGroup(groupId) {
+            const group = groupsData.find(g => g.group_id === groupId);
+            if (!group) {
+                showNotification('Error', 'error', 'Group not found');
+                return;
+            }
+            showGroupModal(group);
+        }
+
+        async function showGroupModal(existingGroup) {
+            // Fetch full group details if editing
+            let group = existingGroup;
+            if (group && group.group_id) {
+                try {
+                    const response = await fetch(`/api/mask-groups/${group.group_id}`);
+                    if (response.ok) {
+                        group = await response.json();
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch group details:', e);
+                }
+            }
+
+            const isEdit = !!group;
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+            const closeModal = () => modal.remove();
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            const selectedMaskIds = new Set(group?.mask_ids || []);
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 550px; max-width: 90vw; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #fff;">${isEdit ? 'Edit' : 'Create'} Mask Group</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <form id="group-form" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Group Name</label>
+                            <input type="text" id="group-name" class="advanced-input" value="${escapeHtml(group?.name || '')}" required style="width: 100%;">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Description</label>
+                            <input type="text" id="group-description" class="advanced-input" value="${escapeHtml(group?.description || '')}" style="width: 100%;">
+                        </div>
+                        <div class="form-group" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Select Masks</label>
+                            <div id="mask-selector" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 10px;">
+                                ${allMasks.length === 0 ? '<div style="color: #666; text-align: center; padding: 20px;">No masks available</div>' :
+                                    allMasks.map(m => `
+                                        <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; cursor: pointer; border-radius: 4px; margin-bottom: 4px;" onmouseover="this.style.background='rgba(0,212,255,0.1)'" onmouseout="this.style.background='transparent'">
+                                            <input type="checkbox" class="mask-checkbox" value="${m.mask_id}" ${selectedMaskIds.has(m.mask_id) ? 'checked' : ''}>
+                                            <div style="flex: 1;">
+                                                <code style="color: #fff;">${escapeHtml(m.pattern)}</code>
+                                                <span style="color: #888; font-size: 0.8rem; margin-left: 10px;">${m.keyspace_formatted}</span>
+                                            </div>
+                                        </label>
+                                    `).join('')
+                                }
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+                            <button type="button" class="advanced-btn advanced-btn-secondary" onclick="this.closest('div').parentElement.parentElement.parentElement.remove()">Cancel</button>
+                            <button type="submit" class="advanced-btn advanced-btn-primary">${isEdit ? 'Save Changes' : 'Create Group'}</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+
+            modal.querySelector('#group-form').onsubmit = async (e) => {
+                e.preventDefault();
+
+                const name = document.getElementById('group-name').value.trim();
+                const description = document.getElementById('group-description').value.trim();
+                const mask_ids = Array.from(document.querySelectorAll('.mask-checkbox:checked')).map(cb => cb.value);
+
+                if (!name) {
+                    showNotification('Error', 'error', 'Group name is required');
+                    return;
+                }
+
+                try {
+                    const url = isEdit ? `/api/mask-groups/${group.group_id}` : '/api/mask-groups';
+                    const method = isEdit ? 'PATCH' : 'POST';
+
+                    const response = await fetch(url, {
+                        method: method,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken
+                        },
+                        body: JSON.stringify({ name, description, mask_ids })
+                    });
+
+                    if (!response.ok) {
+                        const data = await response.json();
+                        throw new Error(data.error || 'Operation failed');
+                    }
+
+                    showNotification('Success', 'success', isEdit ? 'Group updated' : 'Group created');
+                    closeModal();
+                    loadMasks();
+                } catch (error) {
+                    showNotification('Error', 'error', error.message);
+                }
+            };
+
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    closeModal();
+                    document.removeEventListener('keydown', handleEscape);
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
+
+            setTimeout(() => document.getElementById('group-name').focus(), 100);
+        }
+
+        async function deleteGroup(groupId) {
+            if (!confirm('Are you sure you want to delete this group? (Masks will not be deleted)')) return;
+
+            try {
+                const response = await fetch(`/api/mask-groups/${groupId}`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Delete failed');
+                }
+
+                showNotification('Success', 'success', 'Group deleted');
+                loadMasks();
+            } catch (error) {
+                showNotification('Error', 'error', error.message);
+            }
+        }
+
+        function exportGroup(groupId, groupName) {
+            window.location.href = `/api/mask-groups/${groupId}/export`;
+        }
+
+        // Utility functions
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function showNotification(title, type, message) {
+            const container = document.getElementById('notification-container');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <strong>${title}</strong>
+                <p>${message}</p>
+            `;
+            container.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+    </script>
+</body>
+</html>

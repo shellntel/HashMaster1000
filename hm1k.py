@@ -64,6 +64,7 @@ from app.performance_tracker import (
 )
 from app.resource_manager import ResourceManager, Resource
 from app.potfile_manager import PotfileManager
+from app.mask_manager import MaskManager, Mask, MaskGroup, format_keyspace, format_duration
 from agent_state_db import get_agent_db, AgentStateDB
 
 # Helper function to ensure SECRET_KEY exists in .env file
@@ -12470,6 +12471,18 @@ def rules_page() -> str:
     return render_template("rules.html", return_url=get_advanced_mode_return_url())
 
 
+def _get_mask_manager() -> MaskManager:
+    """Get or create the mask manager singleton."""
+    return MaskManager(_get_agent_data_dir(), _get_performance_tracker())
+
+
+@app.route("/agents/masks")
+@login_required
+def masks_page() -> str:
+    """Masks management page."""
+    return render_template("masks.html", return_url=get_advanced_mode_return_url())
+
+
 @app.route("/api/resources", methods=["GET"])
 @login_required
 def list_resources() -> Response:
@@ -13085,6 +13098,350 @@ def get_resource_categories() -> Response:
         "categories": categories,
         "totals": totals,
     })
+
+
+# =============================================================================
+# Masks Management API
+# =============================================================================
+
+@app.route("/api/masks", methods=["GET"])
+@login_required
+def list_masks() -> Response:
+    """List all masks grouped by length."""
+    try:
+        manager = _get_mask_manager()
+        grouped = manager.get_masks_by_length()
+        stats = manager.get_stats()
+
+        # Convert to serializable format
+        grouped_data = {}
+        for length, masks in grouped.items():
+            grouped_data[str(length)] = []
+            for mask in masks:
+                mask_dict = mask.to_dict()
+                # Add formatted values
+                mask_dict["keyspace_formatted"] = format_keyspace(mask.keyspace)
+                crack_time = manager.estimate_crack_time(mask.keyspace)
+                mask_dict["crack_time_seconds"] = crack_time
+                mask_dict["crack_time_formatted"] = format_duration(crack_time) if crack_time else "N/A"
+                grouped_data[str(length)].append(mask_dict)
+
+        return jsonify({
+            "masks_by_length": grouped_data,
+            "stats": {
+                "mask_count": stats["mask_count"],
+                "group_count": stats["group_count"],
+                "fastest_ntlm_speed": stats["fastest_ntlm_speed"],
+                "fastest_ntlm_speed_formatted": format_keyspace(int(stats["fastest_ntlm_speed"])) + "/s" if stats["fastest_ntlm_speed"] else "N/A",
+            },
+        })
+    except Exception as e:
+        logging.error(f"Failed to list masks: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/masks", methods=["POST"])
+@login_required
+def add_masks() -> Response:
+    """Add one or more masks."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        manager = _get_mask_manager()
+        created_by = session.get("username", "unknown")
+
+        # Get custom charsets if provided
+        custom_charsets = data.get("custom_charsets", {})
+
+        # Check for single mask or bulk input
+        if "pattern" in data:
+            # Single mask
+            mask, error = manager.add_mask(
+                pattern=data["pattern"],
+                description=data.get("description", ""),
+                tags=data.get("tags", []),
+                custom_charsets=custom_charsets,
+                created_by=created_by,
+            )
+            if mask:
+                mask_dict = mask.to_dict()
+                mask_dict["keyspace_formatted"] = format_keyspace(mask.keyspace)
+                crack_time = manager.estimate_crack_time(mask.keyspace)
+                mask_dict["crack_time_formatted"] = format_duration(crack_time) if crack_time else "N/A"
+                return jsonify({"success": True, "mask": mask_dict})
+            else:
+                return jsonify({"error": error}), 400
+
+        elif "patterns" in data:
+            # Bulk input (list of patterns)
+            patterns = data["patterns"]
+            if isinstance(patterns, str):
+                patterns = manager.parse_mask_input(patterns)
+
+            added, errors = manager.add_masks_bulk(
+                patterns=patterns,
+                custom_charsets=custom_charsets,
+                created_by=created_by,
+            )
+
+            return jsonify({
+                "success": len(added) > 0,
+                "added_count": len(added),
+                "added": [m.to_dict() for m in added],
+                "errors": errors,
+            })
+
+        else:
+            return jsonify({"error": "No pattern or patterns provided"}), 400
+
+    except Exception as e:
+        logging.error(f"Failed to add mask: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/masks/validate", methods=["POST"])
+@login_required
+def validate_mask() -> Response:
+    """Validate a mask without saving."""
+    try:
+        data = request.get_json()
+        pattern = data.get("pattern", "")
+        custom_charsets = data.get("custom_charsets", {})
+
+        manager = _get_mask_manager()
+        is_valid, error = manager.validate_mask(pattern, custom_charsets)
+
+        if is_valid:
+            length = manager.calculate_mask_length(pattern)
+            keyspace = manager.calculate_keyspace(pattern, custom_charsets)
+            crack_time = manager.estimate_crack_time(keyspace)
+
+            return jsonify({
+                "valid": True,
+                "length": length,
+                "keyspace": keyspace,
+                "keyspace_formatted": format_keyspace(keyspace),
+                "crack_time_seconds": crack_time,
+                "crack_time_formatted": format_duration(crack_time) if crack_time else "N/A",
+            })
+        else:
+            return jsonify({"valid": False, "error": error})
+
+    except Exception as e:
+        logging.error(f"Failed to validate mask: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/masks/<mask_id>", methods=["GET"])
+@login_required
+def get_mask(mask_id: str) -> Response:
+    """Get a mask by ID."""
+    try:
+        manager = _get_mask_manager()
+        mask = manager.get_mask(mask_id)
+        if not mask:
+            return jsonify({"error": "Mask not found"}), 404
+
+        mask_dict = mask.to_dict()
+        mask_dict["keyspace_formatted"] = format_keyspace(mask.keyspace)
+        crack_time = manager.estimate_crack_time(mask.keyspace)
+        mask_dict["crack_time_formatted"] = format_duration(crack_time) if crack_time else "N/A"
+
+        return jsonify(mask_dict)
+    except Exception as e:
+        logging.error(f"Failed to get mask: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/masks/<mask_id>", methods=["PATCH"])
+@login_required
+def update_mask(mask_id: str) -> Response:
+    """Update mask metadata."""
+    try:
+        data = request.get_json()
+        manager = _get_mask_manager()
+
+        mask, error = manager.update_mask(
+            mask_id=mask_id,
+            description=data.get("description"),
+            tags=data.get("tags"),
+        )
+
+        if mask:
+            return jsonify({"success": True, "mask": mask.to_dict()})
+        else:
+            return jsonify({"error": error}), 404
+
+    except Exception as e:
+        logging.error(f"Failed to update mask: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/masks/<mask_id>", methods=["DELETE"])
+@login_required
+def delete_mask(mask_id: str) -> Response:
+    """Delete a mask."""
+    try:
+        manager = _get_mask_manager()
+        success, error = manager.delete_mask(mask_id)
+
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": error}), 404
+
+    except Exception as e:
+        logging.error(f"Failed to delete mask: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# Mask Groups API
+
+@app.route("/api/mask-groups", methods=["GET"])
+@login_required
+def list_mask_groups() -> Response:
+    """List all mask groups."""
+    try:
+        manager = _get_mask_manager()
+        groups = manager.list_groups()
+
+        groups_data = []
+        for group in groups:
+            group_dict = group.to_dict()
+            group_dict["mask_count"] = len(group.mask_ids)
+            groups_data.append(group_dict)
+
+        return jsonify({"groups": groups_data})
+    except Exception as e:
+        logging.error(f"Failed to list mask groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups", methods=["POST"])
+@login_required
+def create_mask_group() -> Response:
+    """Create a new mask group."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        manager = _get_mask_manager()
+
+        group, error = manager.create_group(
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            mask_ids=data.get("mask_ids", []),
+        )
+
+        if group:
+            return jsonify({"success": True, "group": group.to_dict()})
+        else:
+            return jsonify({"error": error}), 400
+
+    except Exception as e:
+        logging.error(f"Failed to create mask group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups/<group_id>", methods=["GET"])
+@login_required
+def get_mask_group(group_id: str) -> Response:
+    """Get a mask group with its masks."""
+    try:
+        manager = _get_mask_manager()
+        result = manager.get_group_with_masks(group_id)
+
+        if not result:
+            return jsonify({"error": "Group not found"}), 404
+
+        group, masks = result
+        group_dict = group.to_dict()
+        group_dict["masks"] = []
+
+        for mask in masks:
+            mask_dict = mask.to_dict()
+            mask_dict["keyspace_formatted"] = format_keyspace(mask.keyspace)
+            crack_time = manager.estimate_crack_time(mask.keyspace)
+            mask_dict["crack_time_formatted"] = format_duration(crack_time) if crack_time else "N/A"
+            group_dict["masks"].append(mask_dict)
+
+        return jsonify(group_dict)
+
+    except Exception as e:
+        logging.error(f"Failed to get mask group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups/<group_id>", methods=["PATCH"])
+@login_required
+def update_mask_group(group_id: str) -> Response:
+    """Update a mask group."""
+    try:
+        data = request.get_json()
+        manager = _get_mask_manager()
+
+        group, error = manager.update_group(
+            group_id=group_id,
+            name=data.get("name"),
+            description=data.get("description"),
+            mask_ids=data.get("mask_ids"),
+        )
+
+        if group:
+            return jsonify({"success": True, "group": group.to_dict()})
+        else:
+            return jsonify({"error": error}), 400
+
+    except Exception as e:
+        logging.error(f"Failed to update mask group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups/<group_id>", methods=["DELETE"])
+@login_required
+def delete_mask_group(group_id: str) -> Response:
+    """Delete a mask group."""
+    try:
+        manager = _get_mask_manager()
+        success, error = manager.delete_group(group_id)
+
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": error}), 404
+
+    except Exception as e:
+        logging.error(f"Failed to delete mask group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups/<group_id>/export", methods=["GET"])
+@login_required
+def export_mask_group(group_id: str) -> Response:
+    """Export a mask group as .hcmask file."""
+    try:
+        manager = _get_mask_manager()
+        group = manager.get_group(group_id)
+
+        if not group:
+            return jsonify({"error": "Group not found"}), 404
+
+        content = manager.export_group_hcmask(group_id)
+        if not content:
+            return jsonify({"error": "Failed to export group"}), 500
+
+        # Create response with file download
+        response = make_response(content)
+        response.headers["Content-Type"] = "text/plain"
+        response.headers["Content-Disposition"] = f"attachment; filename={group.name.replace(' ', '_')}.hcmask"
+        return response
+
+    except Exception as e:
+        logging.error(f"Failed to export mask group: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # =============================================================================

@@ -143,6 +143,18 @@ class Job:
                 hashcat_args.extend(["-r", rules_path])
                 logger.info(f"Saved rules to {rules_path}")
 
+        # Handle mask file content for brute force attacks with mask groups
+        if "mask_file_content" in metadata:
+            mask_filename = metadata.get("mask_filename", "masks.hcmask")
+            mask_path = str(job_dir / mask_filename)
+
+            with open(mask_path, "w") as f:
+                f.write(metadata["mask_file_content"])
+
+            # Add mask file to hashcat args (at the end, as it's the attack target)
+            hashcat_args.append(mask_path)
+            logger.info(f"Saved mask file to {mask_path}")
+
         return cls(
             job_id=job_id,
             hash_file=hash_file,
