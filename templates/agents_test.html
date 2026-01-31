@@ -1087,6 +1087,21 @@
             // Close on Escape key
             modal.onkeydown = (e) => { if (e.key === 'Escape') closeModal(); };
 
+            // Hash mode name mapping
+            const hashModeNames = {
+                0: 'MD5',
+                100: 'SHA1',
+                1000: 'NTLM',
+                1400: 'SHA256',
+                1700: 'SHA512',
+                2100: 'DCC2',
+                3000: 'LM',
+                5500: 'NetNTLMv1',
+                5600: 'NetNTLMv2',
+                13100: 'Kerberos TGS-REP',
+                18200: 'Kerberos AS-REP'
+            };
+
             // Group benchmarks by hashcat version for comparison view
             const benchmarksByVersion = {};
             data.benchmarks.forEach(b => {
@@ -1096,20 +1111,50 @@
                 }
                 benchmarksByVersion[version].push(b);
             });
-            const versionCount = Object.keys(benchmarksByVersion).length;
+            const versions = Object.keys(benchmarksByVersion).sort();
+            const versionCount = versions.length;
 
-            const benchmarksHtml = data.benchmarks.length > 0
-                ? data.benchmarks.map(b => `
-                    <tr>
-                        <td style="padding: 6px 12px;">${b.hash_mode}</td>
-                        <td style="padding: 6px 12px;">${formatSpeed(b.total_speed_hs)}</td>
-                        <td style="padding: 6px 12px; color: #00d4ff; font-size: 0.8rem;">${b.hashcat_version || 'N/A'}</td>
-                        <td style="padding: 6px 12px; color: #888; font-size: 0.8rem;">${b.cuda_version || '-'}</td>
-                        <td style="padding: 6px 12px; color: #888; font-size: 0.8rem;">${b.driver_version || '-'}</td>
-                        <td style="padding: 6px 12px; color: #666; font-size: 0.8rem;">${b.timestamp ? new Date(b.timestamp).toLocaleDateString() : 'N/A'}</td>
-                    </tr>
-                `).join('')
-                : '<tr><td colspan="6" style="padding: 12px; color: #666; text-align: center;">No benchmarks yet</td></tr>';
+            // Group benchmarks by hash mode for side-by-side comparison
+            const benchmarksByMode = {};
+            data.benchmarks.forEach(b => {
+                const mode = b.hash_mode;
+                if (!benchmarksByMode[mode]) {
+                    benchmarksByMode[mode] = {};
+                }
+                benchmarksByMode[mode][b.hashcat_version || 'unknown'] = b;
+            });
+            const sortedModes = Object.keys(benchmarksByMode).map(Number).sort((a, b) => a - b);
+
+            let benchmarksHtml = '';
+            if (data.benchmarks.length > 0 && versionCount > 1) {
+                // Side-by-side comparison for multiple versions
+                benchmarksHtml = sortedModes.map(mode => {
+                    const modeName = hashModeNames[mode] || '';
+                    const modeDisplay = modeName ? `${mode} (${modeName})` : mode;
+                    const cells = versions.map(v => {
+                        const b = benchmarksByMode[mode][v];
+                        return b ? `<td style="padding: 6px 12px; text-align: center;">${formatSpeed(b.total_speed_hs)}</td>`
+                                 : `<td style="padding: 6px 12px; text-align: center; color: #666;">-</td>`;
+                    }).join('');
+                    return `<tr><td style="padding: 6px 12px;">${modeDisplay}</td>${cells}</tr>`;
+                }).join('');
+            } else if (data.benchmarks.length > 0) {
+                // Single version - simple list
+                benchmarksHtml = sortedModes.map(mode => {
+                    const modeName = hashModeNames[mode] || '';
+                    const modeDisplay = modeName ? `${mode} (${modeName})` : mode;
+                    const b = Object.values(benchmarksByMode[mode])[0];
+                    return `
+                        <tr>
+                            <td style="padding: 6px 12px;">${modeDisplay}</td>
+                            <td style="padding: 6px 12px;">${formatSpeed(b.total_speed_hs)}</td>
+                            <td style="padding: 6px 12px; color: #00d4ff; font-size: 0.8rem;">${b.hashcat_version || 'N/A'}</td>
+                            <td style="padding: 6px 12px; color: #666; font-size: 0.8rem;">${b.timestamp ? new Date(b.timestamp).toLocaleDateString() : 'N/A'}</td>
+                        </tr>`;
+                }).join('');
+            } else {
+                benchmarksHtml = '<tr><td colspan="6" style="padding: 12px; color: #666; text-align: center;">No benchmarks yet</td></tr>';
+            }
 
             const jobsHtml = data.recent_jobs.length > 0
                 ? data.recent_jobs.slice(0, 5).map(j => `
@@ -1143,14 +1188,19 @@
                     <h4 style="color: #00d4ff; margin: 0 0 10px 0;">Benchmark Results</h4>
                     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9rem;">
                         <thead style="background: rgba(0,212,255,0.1);">
+                            ${versionCount > 1 ? `
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Hash Mode</th>
+                                ${versions.map(v => `<th style="padding: 8px 12px; text-align: center; color: #00d4ff;">v${v}</th>`).join('')}
+                            </tr>
+                            ` : `
                             <tr>
                                 <th style="padding: 8px 12px; text-align: left; color: #888;">Hash Mode</th>
                                 <th style="padding: 8px 12px; text-align: left; color: #888;">Speed</th>
                                 <th style="padding: 8px 12px; text-align: left; color: #888;">Hashcat</th>
-                                <th style="padding: 8px 12px; text-align: left; color: #888;">CUDA</th>
-                                <th style="padding: 8px 12px; text-align: left; color: #888;">Driver</th>
                                 <th style="padding: 8px 12px; text-align: left; color: #888;">Date</th>
                             </tr>
+                            `}
                         </thead>
                         <tbody style="color: #ccc;">
                             ${benchmarksHtml}
