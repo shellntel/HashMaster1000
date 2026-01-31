@@ -13152,8 +13152,8 @@ def add_masks() -> Response:
         manager = _get_mask_manager()
         created_by = session.get("username", "unknown")
 
-        # Get custom charsets if provided
-        custom_charsets = data.get("custom_charsets", {})
+        # Get custom charsets if provided (handle null from JS)
+        custom_charsets = data.get("custom_charsets") or {}
 
         # Check for single mask or bulk input
         if "pattern" in data:
