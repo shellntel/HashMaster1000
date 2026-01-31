@@ -909,7 +909,7 @@
         async function runBenchmark(agentId) {
             // Get agent data to check for multiple hashcat versions
             const agent = agents.find(a => a.id === agentId);
-            const hashcatVersions = agent?.software?.hashcat_versions || [];
+            const hashcatVersions = agent?.hashcat_versions || [];
             const hasMultipleVersions = hashcatVersions.length > 1;
 
             // Show benchmark options dialog
