@@ -961,9 +961,14 @@
             };
 
             if (isUploadMode) {
+                if (!selectedFileContent) {
+                    log('ERROR: selectedFileContent is null/empty', 'error');
+                    showNotification('File content lost', 'error', 'Please re-upload the hash file.');
+                    return;
+                }
                 payload.hash_content = selectedFileContent;
                 payload.hash_filename = selectedFile.name;
-                log(`Uploading ${selectedFile.name} to agent...`, 'info');
+                log(`Uploading ${selectedFile.name} (${selectedFileContent.length} chars) to agent...`, 'info');
             } else {
                 payload.hash_file = hashFile;
             }
@@ -975,7 +980,12 @@
             if (maskFileContent) {
                 payload.mask_file_content = maskFileContent;
                 payload.mask_filename = maskFileName;
+                log(`Including mask file: ${maskFileName} (${maskFileContent.length} chars)`, 'info');
             }
+
+            // Log payload size for debugging
+            const payloadStr = JSON.stringify(payload);
+            log(`Payload size: ${(payloadStr.length / 1024).toFixed(1)} KB`, 'info');
 
             log(`Submitting job to ${agent.name || agent.id}...`, 'info');
             log(`Command: hashcat ${hashcatArgs.join(' ')}${maskFileName ? ' ' + maskFileName : ''}`, 'info');
@@ -987,7 +997,7 @@
                         'Content-Type': 'application/json',
                         'X-CSRFToken': csrfToken
                     },
-                    body: JSON.stringify(payload)
+                    body: payloadStr
                 });
 
                 // Check if response is JSON before parsing
