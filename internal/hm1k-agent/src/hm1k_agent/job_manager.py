@@ -152,12 +152,41 @@ class Job:
             mask_filename = metadata.get("mask_filename", "masks.hcmask")
             mask_path = str(job_dir / mask_filename)
 
+            # Parse charset definitions from mask file content
+            # Format: ?1=charset, ?2=charset, etc. at the beginning of the file
+            mask_content = metadata["mask_file_content"]
+            charset_args: list[str] = []
+            clean_lines: list[str] = []
+
+            for line in mask_content.split("\n"):
+                stripped = line.strip()
+                # Check for charset definition: ?N=charset where N is 1-4
+                if stripped.startswith("?") and "=" in stripped and len(stripped) > 2:
+                    # Extract charset number and value (e.g., "?2=0123456789")
+                    try:
+                        charset_num = stripped[1]
+                        if charset_num in "1234" and stripped[2] == "=":
+                            charset_value = stripped[3:]
+                            if charset_value:
+                                charset_args.extend([f"-{charset_num}", charset_value])
+                                logger.info(f"Extracted charset -{charset_num} {charset_value}")
+                                continue  # Don't include in mask file
+                    except (IndexError, ValueError):
+                        pass
+                # Skip comment lines and empty lines for clean output
+                if stripped and not stripped.startswith("#"):
+                    clean_lines.append(stripped)
+
+            # Write cleaned mask file (without charset definitions)
             with open(mask_path, "w") as f:
-                f.write(metadata["mask_file_content"])
+                f.write("\n".join(clean_lines))
+
+            # Add charset args BEFORE the mask file path
+            hashcat_args.extend(charset_args)
 
             # Add mask file to hashcat args (at the end, as it's the attack target)
             hashcat_args.append(mask_path)
-            logger.info(f"Saved mask file to {mask_path}")
+            logger.info(f"Saved mask file to {mask_path} ({len(clean_lines)} masks)")
 
         return cls(
             job_id=job_id,
