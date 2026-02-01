@@ -8,10 +8,16 @@
 // ============================================================
 
 /**
- * Get CSRF token from cookie
+ * Get CSRF token from meta tag or cookie
  * @returns {string} CSRF token value
  */
 function getCsrfToken() {
+    // Try meta tag first (Flask template)
+    const metaTag = document.querySelector('meta[name="csrf-token"]');
+    if (metaTag && metaTag.content) {
+        return metaTag.content;
+    }
+    // Fall back to cookie
     const match = document.cookie.match(/csrf_token=([^;]+)/);
     return match ? match[1] : '';
 }
