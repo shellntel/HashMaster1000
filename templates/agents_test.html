@@ -1997,6 +1997,30 @@
             let maskFileContent = null;
             let maskFileName = null;
 
+            // If mask source is group but data is missing, re-fetch it
+            if (maskSource === 'group' && !selectedGroupData) {
+                const groupId = document.getElementById('job-mask-group')?.value;
+                if (groupId) {
+                    log('Re-fetching mask group data...', 'info');
+                    try {
+                        const response = await fetch(`/api/mask-groups/${groupId}`);
+                        if (response.ok) {
+                            selectedGroupData = await response.json();
+                            selectedMaskCharsets = selectedGroupData.custom_charsets || {};
+                        } else {
+                            log('Failed to fetch mask group data', 'error');
+                            return;
+                        }
+                    } catch (error) {
+                        log(`Error fetching mask group: ${error.message}`, 'error');
+                        return;
+                    }
+                } else {
+                    log('Mask group selected but no group ID found', 'error');
+                    return;
+                }
+            }
+
             if (maskSource === 'group' && selectedGroupData) {
                 // Generate mask file content from group
                 const lines = [];
