@@ -5,7 +5,14 @@ A lightweight Python agent that runs on cracking servers to execute
 hashcat jobs and report status back to the HM1K server.
 """
 
-__version__ = "0.1.30"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("hm1k-agent")
+except PackageNotFoundError:
+    # Package not installed, fallback for development
+    __version__ = "0.0.0-dev"
+
 __author__ = "Brian Judd"
 
 from hm1k_agent.agent import Agent
