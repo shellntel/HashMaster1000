@@ -27,6 +27,7 @@
         <!-- Navigation -->
         <nav class="advanced-nav">
             <a href="/hidden" class="advanced-nav-link active">Index</a>
+            <!-- HM1K Tools -->
             <a href="/api/ai/servers/manage" class="advanced-nav-link">AI Servers</a>
             <a href="/api/ai/report/test" class="advanced-nav-link">Report Lab</a>
             <a href="/api/ai/benchmark" class="advanced-nav-link">Benchmarks</a>
@@ -34,9 +35,13 @@
             <a href="/timing/stats" class="advanced-nav-link">Timing Stats</a>
             <a href="/system/health" class="advanced-nav-link">System Health</a>
             <a href="/system/logs" class="advanced-nav-link">Logs</a>
+            <div class="advanced-nav-divider"></div>
+            <!-- Hashcat Tools -->
             <a href="/agents/test" class="advanced-nav-link">Agents</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
             <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
             <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/masks" class="advanced-nav-link">Masks</a>
             <a href="/agents/software" class="advanced-nav-link">Software</a>
             <div class="advanced-nav-divider"></div>
             <a href="{{ return_url|default('/') }}" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
@@ -50,11 +55,11 @@
             </span>
         </div>
 
-        <!-- Tools Section - Primary actions first -->
+        <!-- Hash Master 1000 Tools Section -->
         <div class="advanced-section">
             <div class="advanced-section-header">
                 <span class="advanced-section-icon">&#128736;</span>
-                <h2 class="advanced-section-title">Tools & Utilities</h2>
+                <h2 class="advanced-section-title">Hash Master 1000 Tools</h2>
             </div>
             <div class="advanced-section-content">
                 <div class="advanced-card-grid">
@@ -114,6 +119,18 @@
                         <p class="advanced-card-desc">Real-time application log viewer with filtering by level and search. View debug, info, warning, and error messages.</p>
                         <span class="advanced-card-url">/system/logs</span>
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hashcat Tools Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128272;</span>
+                <h2 class="advanced-section-title">Hashcat Tools & Utilities</h2>
+            </div>
+            <div class="advanced-section-content">
+                <div class="advanced-card-grid">
                     <a href="/agents/test" class="advanced-card">
                         <h3 class="advanced-card-title">
                             Hashcat Agents
@@ -145,6 +162,22 @@
                         </h3>
                         <p class="advanced-card-desc">Upload and manage hashcat rule files for word mutations. Supports best64, dive, toggles, and custom rules.</p>
                         <span class="advanced-card-url">/agents/rules</span>
+                    </a>
+                    <a href="/agents/masks" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Masks
+                            <span class="advanced-tag advanced-tag-manage">Manage</span>
+                        </h3>
+                        <p class="advanced-card-desc">Upload and manage hashcat mask files for brute-force attacks. Define character sets and patterns for systematic cracking.</p>
+                        <span class="advanced-card-url">/agents/masks</span>
+                    </a>
+                    <a href="/agents/software" class="advanced-card">
+                        <h3 class="advanced-card-title">
+                            Software
+                            <span class="advanced-tag advanced-tag-manage">Manage</span>
+                        </h3>
+                        <p class="advanced-card-desc">Manage hashcat versions and cracking software. Upload new releases and configure agent software deployments.</p>
+                        <span class="advanced-card-url">/agents/software</span>
                     </a>
                 </div>
             </div>
