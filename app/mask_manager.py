@@ -11,12 +11,16 @@ Manages hashcat masks with:
 import fcntl
 import json
 import logging
+import os
 import re
+import shutil
+import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -165,9 +169,33 @@ class MaskManager:
         self.data_dir = Path(data_dir)
         self.masks_dir = self.data_dir / "agents"
         self.masks_file = self.masks_dir / "masks.json"
+        self.lock_file = self.masks_dir / "masks.json.lock"
+        self.backup_file = self.masks_dir / "masks.json.bak"
         self.performance_tracker = performance_tracker
         self.masks_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_file()
+
+    @contextmanager
+    def _file_lock(self, exclusive: bool = False) -> Generator[None, None, None]:
+        """
+        Context manager for file locking using a separate lock file.
+
+        This prevents the race condition where opening the data file with "w"
+        truncates it before the lock is acquired.
+
+        Args:
+            exclusive: If True, acquire exclusive lock for writing. Otherwise shared lock for reading.
+        """
+        # Create lock file if it doesn't exist
+        self.lock_file.touch(exist_ok=True)
+
+        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        with open(self.lock_file, "r") as lock_f:
+            fcntl.flock(lock_f.fileno(), lock_type)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
 
     def _ensure_file(self) -> None:
         """Create masks file if it doesn't exist."""
@@ -181,30 +209,68 @@ class MaskManager:
 
     def _load_data(self) -> dict:
         """Load masks data with file locking."""
-        try:
-            with open(self.masks_file, "r") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                try:
-                    return json.load(f)
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {
-                "version": 1,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "masks": [],
-                "groups": [],
-            }
+        with self._file_lock(exclusive=False):
+            try:
+                with open(self.masks_file, "r") as f:
+                    data = json.load(f)
+                    # Validate structure
+                    if "masks" not in data or "groups" not in data:
+                        logger.warning("Invalid masks.json structure, returning empty data")
+                        return self._empty_data()
+                    return data
+            except FileNotFoundError:
+                logger.info("masks.json not found, returning empty data")
+                return self._empty_data()
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error in masks.json: {e}, returning empty data")
+                return self._empty_data()
+
+    def _empty_data(self) -> dict:
+        """Return empty data structure."""
+        return {
+            "version": 1,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "masks": [],
+            "groups": [],
+        }
 
     def _save_data(self, data: dict) -> None:
-        """Save masks data with file locking."""
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        with open(self.masks_file, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        """
+        Save masks data with file locking and atomic write.
+
+        Uses a lock file to coordinate access and writes to a temp file
+        then renames for atomicity.
+        """
+        with self._file_lock(exclusive=True):
+            data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+            # Create backup of existing file before writing
+            if self.masks_file.exists():
+                try:
+                    shutil.copy2(self.masks_file, self.backup_file)
+                except Exception as e:
+                    logger.warning(f"Failed to create backup: {e}")
+
+            # Write to temp file then rename for atomicity
             try:
-                json.dump(data, f, indent=2)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                fd, temp_path = tempfile.mkstemp(
+                    dir=self.masks_dir,
+                    prefix="masks_",
+                    suffix=".json.tmp"
+                )
+                try:
+                    with os.fdopen(fd, "w") as f:
+                        json.dump(data, f, indent=2)
+                    # Atomic rename
+                    os.rename(temp_path, self.masks_file)
+                except Exception:
+                    # Clean up temp file on error
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                    raise
+            except Exception as e:
+                logger.error(f"Failed to save masks.json: {e}")
+                raise
 
     @staticmethod
     def calculate_keyspace(pattern: str, custom_charsets: Optional[dict[str, str]] = None) -> int:

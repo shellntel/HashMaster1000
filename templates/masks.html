@@ -52,7 +52,7 @@
                 <div class="advanced-section-content">
                     <div id="stats-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                         <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #00d4ff;">
-                            <div style="color: #888; font-size: 0.75rem;">Total Masks</div>
+                            <div style="color: #888; font-size: 0.75rem;">Standalone / Total</div>
                             <div id="stat-mask-count" style="color: #00d4ff; font-size: 1.3rem; font-weight: bold;">-</div>
                         </div>
                         <div class="stat-card" style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border-left: 3px solid #22c55e;">
@@ -87,8 +87,8 @@
                 <div class="advanced-section-content">
                     <!-- Tab buttons -->
                     <div style="display: flex; gap: 10px; margin-bottom: 12px;">
-                        <button class="tab-btn-bordered active" data-tab="single" onclick="switchTab('single')">Single Mask</button>
-                        <button class="tab-btn-bordered" data-tab="bulk" onclick="switchTab('bulk')">Bulk Import</button>
+                        <button class="tab-btn-bordered active" data-tab="single" onclick="switchTab('single')">Standalone Mask</button>
+                        <button class="tab-btn-bordered" data-tab="bulk" onclick="switchTab('bulk')">Import Group</button>
                     </div>
 
                     <!-- Single mask input -->
@@ -113,9 +113,13 @@
                         </form>
                     </div>
 
-                    <!-- Bulk import -->
+                    <!-- Bulk import (creates a group) -->
                     <div id="tab-bulk" style="display: none;">
                         <form id="bulk-mask-form" onsubmit="addBulkMasks(event)">
+                            <div class="form-group" style="margin-bottom: 10px;">
+                                <label style="font-size: 0.85rem;">Group Name <span style="color: #ef4444;">*</span></label>
+                                <input type="text" id="bulk-group-name" class="advanced-input" placeholder="e.g., Season + Year Patterns" required>
+                            </div>
                             <div class="form-group">
                                 <label style="font-size: 0.85rem;">Paste masks or upload a file</label>
                                 <textarea id="bulk-patterns" class="advanced-input" rows="4" placeholder="# Charset definitions (optional)&#10;?2=!@#$%&amp;*&#10;&#10;# Masks&#10;Fall?2?d?d?d?d&#10;Spring?2?d?d?d?d"></textarea>
@@ -125,7 +129,7 @@
                                     <input type="file" id="mask-file-input" style="display: none;" onchange="handleMaskFileSelect(this)" accept=".txt,.hcmask,.json">
                                     <span style="color: #888; font-size: 0.8rem;">&#128196; Drop .txt/.hcmask/.json file or click</span>
                                 </div>
-                                <button type="submit" class="advanced-btn advanced-btn-primary">Import Masks</button>
+                                <button type="submit" class="advanced-btn advanced-btn-primary">Import as Group</button>
                             </div>
                             <div id="file-info" style="display: none; margin-top: 8px; padding: 8px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); border-radius: 6px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -135,7 +139,7 @@
                             </div>
                         </form>
                         <div style="margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.8rem; color: #888;">
-                            <strong>File format:</strong> Masks one per line. Add <code>?N=charset</code> lines to define custom charsets.
+                            <strong>Import creates a group:</strong> Masks one per line. Add <code>?N=charset</code> lines to define custom charsets.
                         </div>
                     </div>
 
@@ -157,7 +161,8 @@
         <div class="advanced-section">
             <div class="advanced-section-header">
                 <span class="advanced-section-icon">&#128272;</span>
-                <h2 class="advanced-section-title">Masks Library</h2>
+                <h2 class="advanced-section-title">Standalone Masks</h2>
+                <span style="color: #888; font-size: 0.8rem; margin-left: 8px;">(large masks run individually)</span>
                 <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadMasks()" style="margin-left: auto;">&#8635; Refresh</button>
             </div>
             <div class="advanced-section-content">
@@ -191,6 +196,7 @@
         let masksData = {};
         let groupsData = [];
         let allMasks = [];
+        let groupedMaskIds = new Set();  // Track which masks are in groups
         let collapsedLengths = new Set();
         let collapsedGroups = new Set();  // Start collapsed by populating this in loadMasks
 
@@ -253,6 +259,14 @@
                     allMasks.push(...masks);
                 });
 
+                // Collect all mask IDs that are in groups
+                groupedMaskIds = new Set();
+                groupsData.forEach(g => {
+                    if (g.mask_ids) {
+                        g.mask_ids.forEach(id => groupedMaskIds.add(id));
+                    }
+                });
+
                 // Start with all groups collapsed (on first load only)
                 if (collapsedGroups.size === 0 && groupsData.length > 0) {
                     groupsData.forEach(g => collapsedGroups.add(g.group_id));
@@ -267,27 +281,41 @@
         }
 
         function updateStats(stats) {
-            document.getElementById('stat-mask-count').textContent = stats.mask_count || 0;
+            const totalMasks = stats.mask_count || 0;
+            const ungroupedCount = totalMasks - groupedMaskIds.size;
+            document.getElementById('stat-mask-count').textContent = `${ungroupedCount} / ${totalMasks}`;
             document.getElementById('stat-group-count').textContent = stats.group_count || 0;
             document.getElementById('stat-ntlm-speed').textContent = stats.fastest_ntlm_speed_formatted || 'N/A';
         }
 
         function renderMasks() {
             const container = document.getElementById('masks-container');
-            const lengths = Object.keys(masksData).map(Number).sort((a, b) => a - b);
+
+            // Filter out masks that are in groups and rebuild by length
+            const ungroupedMasksByLength = {};
+            Object.entries(masksData).forEach(([length, masks]) => {
+                const ungrouped = masks.filter(m => !groupedMaskIds.has(m.mask_id));
+                if (ungrouped.length > 0) {
+                    ungroupedMasksByLength[length] = ungrouped;
+                }
+            });
+
+            const lengths = Object.keys(ungroupedMasksByLength).map(Number).sort((a, b) => a - b);
+            const totalUngrouped = Object.values(ungroupedMasksByLength).reduce((sum, m) => sum + m.length, 0);
 
             if (lengths.length === 0) {
                 container.innerHTML = `
                     <div style="text-align: center; color: #666; padding: 40px;">
                         <div style="font-size: 3rem; margin-bottom: 15px;">&#128272;</div>
-                        <div>No masks added yet. Add a mask to get started.</div>
+                        <div>No standalone masks. All masks are in groups.</div>
+                        <div style="font-size: 0.85rem; margin-top: 10px; color: #888;">Use "Single Mask" tab to add individual masks that run independently.</div>
                     </div>
                 `;
                 return;
             }
 
             container.innerHTML = lengths.map(length => {
-                const masks = masksData[length.toString()];
+                const masks = ungroupedMasksByLength[length.toString()];
                 const isCollapsed = collapsedLengths.has(length);
 
                 return `
@@ -539,8 +567,14 @@
         async function addBulkMasks(event) {
             event.preventDefault();
 
+            const groupName = document.getElementById('bulk-group-name').value.trim();
             const textareaContent = document.getElementById('bulk-patterns').value.trim();
             const content = maskFileContent || textareaContent;
+
+            if (!groupName) {
+                showNotification('Error', 'error', 'Please enter a group name');
+                return;
+            }
 
             if (!content) {
                 showNotification('Error', 'error', 'Please enter masks or upload a file');
@@ -548,7 +582,7 @@
             }
 
             try {
-                // Use file_content for the new parser that handles embedded charsets
+                // Step 1: Import the masks
                 const response = await fetch('/api/masks', {
                     method: 'POST',
                     headers: {
@@ -564,13 +598,44 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'Failed to import masks');
 
-                let message = `Added ${data.added_count} mask(s)`;
-                if (data.charsets_detected && Object.keys(data.charsets_detected).length > 0) {
-                    const charsetInfo = Object.entries(data.charsets_detected).map(([k, v]) => `?${k}=${v}`).join(', ');
+                if (data.added_count === 0) {
+                    showNotification('Warning', 'warning', 'No new masks were added');
+                    if (data.errors && data.errors.length > 0) {
+                        console.log('Import errors:', data.errors);
+                    }
+                    return;
+                }
+
+                // Step 2: Create a group with the imported masks
+                const mask_ids = data.added.map(m => m.mask_id);
+                const groupCharsets = data.charsets_detected || {};
+
+                const groupResponse = await fetch('/api/mask-groups', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        name: groupName,
+                        description: '',
+                        mask_ids: mask_ids,
+                        custom_charsets: groupCharsets
+                    })
+                });
+
+                if (!groupResponse.ok) {
+                    const groupError = await groupResponse.json();
+                    throw new Error(groupError.error || 'Failed to create group');
+                }
+
+                let message = `Created group "${groupName}" with ${data.added_count} mask(s)`;
+                if (Object.keys(groupCharsets).length > 0) {
+                    const charsetInfo = Object.entries(groupCharsets).map(([k, v]) => `?${k}=${v}`).join(', ');
                     message += ` (charsets: ${charsetInfo})`;
                 }
                 if (data.errors && data.errors.length > 0) {
-                    message += `, ${data.errors.length} failed`;
+                    message += `, ${data.errors.length} skipped`;
                 }
                 showNotification('Import Complete', 'success', message);
 
@@ -579,6 +644,7 @@
                 }
 
                 clearMaskFile();
+                document.getElementById('bulk-group-name').value = '';
                 loadMasks();
             } catch (error) {
                 showNotification('Error', 'error', error.message);
@@ -718,11 +784,16 @@
         async function showGroupModal(existingGroup) {
             // Fetch full group details if editing
             let group = existingGroup;
+            let existingMasks = [];
             if (group && group.group_id) {
                 try {
                     const response = await fetch(`/api/mask-groups/${group.group_id}`);
                     if (response.ok) {
                         group = await response.json();
+                        // If editing, collect existing mask patterns
+                        if (group.masks) {
+                            existingMasks = group.masks;
+                        }
                     }
                 } catch (e) {
                     console.error('Failed to fetch group details:', e);
@@ -736,8 +807,22 @@
             const closeModal = () => modal.remove();
             modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
-            const selectedMaskIds = new Set(group?.mask_ids || []);
             const groupCharsets = group?.custom_charsets || {};
+
+            // Build existing masks text for editing
+            let existingMasksText = '';
+            if (isEdit && existingMasks.length > 0) {
+                // Add charset definitions if any
+                if (Object.keys(groupCharsets).length > 0) {
+                    existingMasksText = '# Custom charsets\n';
+                    Object.entries(groupCharsets).sort((a, b) => a[0].localeCompare(b[0])).forEach(([k, v]) => {
+                        existingMasksText += `?${k}=${v}\n`;
+                    });
+                    existingMasksText += '\n';
+                }
+                // Add mask patterns
+                existingMasksText += existingMasks.map(m => m.pattern).join('\n');
+            }
 
             modal.innerHTML = `
                 <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; width: 550px; max-width: 90vw; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
@@ -747,37 +832,24 @@
                     </div>
                     <form id="group-form" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
                         <div class="form-group" style="margin-bottom: 12px;">
-                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Group Name</label>
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Group Name <span style="color: #ef4444;">*</span></label>
                             <input type="text" id="group-name" class="advanced-input" value="${escapeHtml(group?.name || '')}" required style="width: 100%;">
                         </div>
                         <div class="form-group" style="margin-bottom: 12px;">
                             <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Description</label>
                             <input type="text" id="group-description" class="advanced-input" value="${escapeHtml(group?.description || '')}" style="width: 100%;">
                         </div>
-                        <div class="form-group" style="margin-bottom: 12px;">
-                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Group Charsets (shared by all masks in group)</label>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <input type="text" id="group-charset-1" class="advanced-input" placeholder="?1 charset" value="${escapeHtml(groupCharsets['1'] || '')}" style="font-size: 0.85rem;">
-                                <input type="text" id="group-charset-2" class="advanced-input" placeholder="?2 charset" value="${escapeHtml(groupCharsets['2'] || '')}" style="font-size: 0.85rem;">
-                                <input type="text" id="group-charset-3" class="advanced-input" placeholder="?3 charset" value="${escapeHtml(groupCharsets['3'] || '')}" style="font-size: 0.85rem;">
-                                <input type="text" id="group-charset-4" class="advanced-input" placeholder="?4 charset" value="${escapeHtml(groupCharsets['4'] || '')}" style="font-size: 0.85rem;">
-                            </div>
-                        </div>
                         <div class="form-group" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
-                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">Select Masks</label>
-                            <div id="mask-selector" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 6px; padding: 10px;">
-                                ${allMasks.length === 0 ? '<div style="color: #666; text-align: center; padding: 20px;">No masks available</div>' :
-                                    allMasks.map(m => `
-                                        <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; cursor: pointer; border-radius: 4px; margin-bottom: 4px;" onmouseover="this.style.background='rgba(0,212,255,0.1)'" onmouseout="this.style.background='transparent'">
-                                            <input type="checkbox" class="mask-checkbox" value="${m.mask_id}" ${selectedMaskIds.has(m.mask_id) ? 'checked' : ''}>
-                                            <div style="flex: 1;">
-                                                <code style="color: #fff;">${escapeHtml(m.pattern)}</code>
-                                                <span style="color: #888; font-size: 0.8rem; margin-left: 10px;">${m.keyspace_formatted}</span>
-                                                ${m.custom_charsets && Object.keys(m.custom_charsets).length > 0 ? `<span style="color: #f59e0b; font-size: 0.75rem; margin-left: 5px;">(has charsets)</span>` : ''}
-                                            </div>
-                                        </label>
-                                    `).join('')
-                                }
+                            <label style="display: block; color: #888; margin-bottom: 5px; font-size: 0.9rem;">
+                                Masks <span style="color: #ef4444;">*</span>
+                                <span style="font-weight: normal; color: #666; font-size: 0.8rem;">(paste or upload .hcmask file)</span>
+                            </label>
+                            <textarea id="group-masks-input" class="advanced-input" rows="8" placeholder="# Charset definitions (optional)&#10;?2=!@#$%&amp;*&#10;&#10;# Masks (one per line)&#10;Fall?2?d?d?d?d&#10;Spring?2?d?d?d?d" style="flex: 1; resize: none; font-family: monospace; font-size: 0.85rem;">${escapeHtml(existingMasksText)}</textarea>
+                            <div style="display: flex; gap: 10px; align-items: center; margin-top: 8px;">
+                                <div id="group-file-drop-zone" style="flex: 1; border: 2px dashed rgba(0,212,255,0.3); border-radius: 8px; padding: 6px 10px; text-align: center; cursor: pointer; transition: border-color 0.3s;">
+                                    <input type="file" id="group-mask-file-input" style="display: none;" accept=".txt,.hcmask">
+                                    <span style="color: #888; font-size: 0.75rem;">&#128196; Drop or click to load .hcmask file</span>
+                                </div>
                             </div>
                         </div>
                         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
@@ -791,44 +863,162 @@
             document.body.appendChild(modal);
             modal.querySelector('.modal-close-btn').onclick = closeModal;
 
+            // Setup file drop zone
+            const dropZone = modal.querySelector('#group-file-drop-zone');
+            const fileInput = modal.querySelector('#group-mask-file-input');
+
+            dropZone.onclick = () => fileInput.click();
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = '#00d4ff';
+            });
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.style.borderColor = 'rgba(0,212,255,0.3)';
+                if (e.dataTransfer.files.length > 0) {
+                    loadGroupMaskFile(e.dataTransfer.files[0], modal);
+                }
+            });
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files.length > 0) {
+                    loadGroupMaskFile(fileInput.files[0], modal);
+                }
+            });
+
             modal.querySelector('#group-form').onsubmit = async (e) => {
                 e.preventDefault();
 
                 const name = document.getElementById('group-name').value.trim();
                 const description = document.getElementById('group-description').value.trim();
-                const mask_ids = Array.from(document.querySelectorAll('.mask-checkbox:checked')).map(cb => cb.value);
-
-                // Collect group charsets
-                const custom_charsets = {};
-                for (let i = 1; i <= 4; i++) {
-                    const value = document.getElementById(`group-charset-${i}`).value.trim();
-                    if (value) custom_charsets[i.toString()] = value;
-                }
+                const masksInput = document.getElementById('group-masks-input').value.trim();
 
                 if (!name) {
                     showNotification('Error', 'error', 'Group name is required');
                     return;
                 }
 
+                if (!masksInput) {
+                    showNotification('Error', 'error', 'Please enter at least one mask');
+                    return;
+                }
+
                 try {
-                    const url = isEdit ? `/api/mask-groups/${group.group_id}` : '/api/mask-groups';
-                    const method = isEdit ? 'PATCH' : 'POST';
+                    if (isEdit) {
+                        // For edit: update the group with new masks
+                        // First, import any new masks
+                        const importResponse = await fetch('/api/masks', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': csrfToken
+                            },
+                            body: JSON.stringify({ file_content: masksInput })
+                        });
 
-                    const response = await fetch(url, {
-                        method: method,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': csrfToken
-                        },
-                        body: JSON.stringify({ name, description, mask_ids, custom_charsets })
-                    });
+                        const importData = await importResponse.json();
+                        if (!importResponse.ok) throw new Error(importData.error || 'Failed to import masks');
 
-                    if (!response.ok) {
-                        const data = await response.json();
-                        throw new Error(data.error || 'Operation failed');
+                        // Collect mask IDs (new + existing that were re-imported)
+                        const mask_ids = importData.added ? importData.added.map(m => m.mask_id) : [];
+
+                        // Also look up any existing masks by pattern
+                        const patterns = masksInput.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.match(/^\?[1-4]=/));
+                        for (const pattern of patterns) {
+                            const existing = allMasks.find(m => m.pattern === pattern);
+                            if (existing && !mask_ids.includes(existing.mask_id)) {
+                                mask_ids.push(existing.mask_id);
+                            }
+                        }
+
+                        // Get charsets from import
+                        const custom_charsets = importData.charsets_detected || {};
+
+                        // Update the group
+                        const updateResponse = await fetch(`/api/mask-groups/${group.group_id}`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': csrfToken
+                            },
+                            body: JSON.stringify({ name, description, mask_ids, custom_charsets })
+                        });
+
+                        if (!updateResponse.ok) {
+                            const data = await updateResponse.json();
+                            throw new Error(data.error || 'Update failed');
+                        }
+
+                        showNotification('Success', 'success', `Group updated with ${mask_ids.length} mask(s)`);
+                    } else {
+                        // For create: import masks then create group
+                        const importResponse = await fetch('/api/masks', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': csrfToken
+                            },
+                            body: JSON.stringify({ file_content: masksInput })
+                        });
+
+                        const importData = await importResponse.json();
+                        if (!importResponse.ok) throw new Error(importData.error || 'Failed to import masks');
+
+                        if (importData.added_count === 0) {
+                            // No new masks, but try to find existing ones by pattern
+                            const patterns = masksInput.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.match(/^\?[1-4]=/));
+                            const mask_ids = [];
+                            for (const pattern of patterns) {
+                                const existing = allMasks.find(m => m.pattern === pattern);
+                                if (existing) mask_ids.push(existing.mask_id);
+                            }
+
+                            if (mask_ids.length === 0) {
+                                showNotification('Warning', 'warning', 'No masks were added (all duplicates or invalid)');
+                                return;
+                            }
+
+                            // Create group with existing masks
+                            const groupResponse = await fetch('/api/mask-groups', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': csrfToken
+                                },
+                                body: JSON.stringify({ name, description, mask_ids, custom_charsets: importData.charsets_detected || {} })
+                            });
+
+                            if (!groupResponse.ok) {
+                                const data = await groupResponse.json();
+                                throw new Error(data.error || 'Failed to create group');
+                            }
+
+                            showNotification('Success', 'success', `Created group with ${mask_ids.length} existing mask(s)`);
+                        } else {
+                            // Create group with new masks
+                            const mask_ids = importData.added.map(m => m.mask_id);
+                            const custom_charsets = importData.charsets_detected || {};
+
+                            const groupResponse = await fetch('/api/mask-groups', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': csrfToken
+                                },
+                                body: JSON.stringify({ name, description, mask_ids, custom_charsets })
+                            });
+
+                            if (!groupResponse.ok) {
+                                const data = await groupResponse.json();
+                                throw new Error(data.error || 'Failed to create group');
+                            }
+
+                            showNotification('Success', 'success', `Created group "${name}" with ${importData.added_count} mask(s)`);
+                        }
                     }
 
-                    showNotification('Success', 'success', isEdit ? 'Group updated' : 'Group created');
                     closeModal();
                     loadMasks();
                 } catch (error) {
@@ -845,6 +1035,15 @@
             document.addEventListener('keydown', handleEscape);
 
             setTimeout(() => document.getElementById('group-name').focus(), 100);
+        }
+
+        function loadGroupMaskFile(file, modal) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const textarea = modal.querySelector('#group-masks-input');
+                textarea.value = e.target.result;
+            };
+            reader.readAsText(file);
         }
 
         async function deleteGroup(groupId) {
