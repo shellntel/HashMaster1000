@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - LM to NTLM Workflow</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/agents-shared.js') }}"></script>
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">LM &rarr; NTLM Workflow</h1>
+                <p class="advanced-subtitle">Automated multi-step cracking for legacy LM hashes</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Pre-Production Testing
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link">Dashboard</a>
+            <a href="/agents/submit" class="advanced-nav-link">Submit Job</a>
+            <a href="/agents/lm2nt" class="advanced-nav-link active">LM&rarr;NTLM</a>
+            <a href="/agents/history" class="advanced-nav-link">History</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/masks" class="advanced-nav-link">Masks</a>
+            <a href="/agents/software" class="advanced-nav-link">Software</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- LM -> NTLM Workflow Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128279;</span>
+                <h2 class="advanced-section-title">LM &rarr; NTLM Workflow</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadWorkflows()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div style="margin-bottom: 20px; padding: 15px; background: rgba(0, 212, 255, 0.05); border-radius: 8px; border: 1px solid rgba(0, 212, 255, 0.2);">
+                    <p style="margin: 0 0 10px 0; color: #aaa; font-size: 0.9rem;">
+                        <strong style="color: #00d4ff;">Multi-step automated cracking:</strong>
+                        Upload a pwdump file with LM hashes. The workflow will:
+                    </p>
+                    <ol style="margin: 0; padding-left: 20px; color: #888; font-size: 0.85rem;">
+                        <li>Extract and crack LM hash halves (brute force ?u?d?s, 1-7 chars)</li>
+                        <li>Combine cracked halves into uppercase plaintexts</li>
+                        <li>Use toggle rules to recover case-sensitive NTLM passwords</li>
+                    </ol>
+                </div>
+
+                <div class="form-row">
+                    <label>Agent:</label>
+                    <select id="workflow-agent" class="advanced-input" style="flex: 1; max-width: 300px;">
+                        <option value="">Select agent...</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Pwdump File:</label>
+                    <div style="flex: 1;">
+                        <input type="file" id="workflow-file" accept=".txt,.pwdump,.hash" style="display: none;" onchange="handleWorkflowFile(this)">
+                        <div class="file-upload-zone" onclick="document.getElementById('workflow-file').click()" id="workflow-drop-zone" style="padding: 15px; border: 2px dashed rgba(0, 212, 255, 0.3); border-radius: 8px; text-align: center; cursor: pointer;">
+                            <div id="workflow-file-status">Click to select pwdump file</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="advanced-btn advanced-btn-primary" onclick="startWorkflow()" style="padding: 12px 30px;">
+                        &#128640; Start LM &rarr; NTLM Workflow
+                    </button>
+                </div>
+
+                <!-- Active Workflows -->
+                <div id="workflows-container" style="margin-top: 25px;">
+                    <h4 style="color: #00d4ff; margin-bottom: 10px;">Workflows</h4>
+                    <div id="workflows-list">
+                        <div style="color: #666; font-style: italic;">Loading workflows...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Log Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128214;</span>
+                <h2 class="advanced-section-title">Console Log</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearConsole()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="console-log" class="console-log">
+                    <div class="console-entry info">[INFO] LM to NTLM workflow console initialized</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let agents = [];
+        const csrfToken = getCsrfToken();
+
+        // Workflow state
+        let workflowFileContent = null;
+        let workflowFileName = null;
+        let workflowPollingInterval = null;
+
+        // ============================================================
+        // Agent Loading
+        // ============================================================
+
+        async function loadAgents() {
+            try {
+                const response = await fetch('/api/agent/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    agents = data.agents || [];
+                    populateAgentDropdown();
+                }
+            } catch (error) {
+                console.warn('Failed to load agents:', error);
+            }
+        }
+
+        function populateAgentDropdown() {
+            const select = document.getElementById('workflow-agent');
+            select.innerHTML = '<option value="">Select agent...</option>';
+
+            agents.filter(a => a.status === 'online' || a.status === 'working').forEach(agent => {
+                const option = document.createElement('option');
+                option.value = agent.id;
+                option.textContent = agent.name || agent.id.substring(0, 8) + '...';
+                select.appendChild(option);
+            });
+        }
+
+        // ============================================================
+        // Workflow Functions
+        // ============================================================
+
+        function startWorkflowPolling() {
+            if (workflowPollingInterval) return;
+            workflowPollingInterval = setInterval(() => {
+                loadWorkflows();
+            }, 5000);
+            log('Workflow auto-refresh enabled (every 5s)', 'info');
+        }
+
+        function stopWorkflowPolling() {
+            if (workflowPollingInterval) {
+                clearInterval(workflowPollingInterval);
+                workflowPollingInterval = null;
+                log('Workflow auto-refresh disabled', 'info');
+            }
+        }
+
+        function handleWorkflowFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                workflowFileContent = e.target.result;
+                workflowFileName = file.name;
+
+                const lines = workflowFileContent.split('\n').filter(l => l.trim());
+                document.getElementById('workflow-file-status').innerHTML =
+                    `<strong style="color: #22c55e;">${file.name}</strong><br>` +
+                    `<span style="color: #888; font-size: 0.85rem;">${lines.length} lines</span>`;
+
+                log(`Loaded pwdump file: ${file.name} (${lines.length} lines)`, 'info');
+            };
+            reader.readAsText(file);
+        }
+
+        async function startWorkflow() {
+            const agentId = document.getElementById('workflow-agent').value;
+
+            if (!agentId) {
+                log('Please select an agent for the workflow', 'error');
+                showNotification('Select Agent', 'error', 'Please select an agent to run the workflow');
+                return;
+            }
+
+            if (!workflowFileContent) {
+                log('Please select a pwdump file', 'error');
+                showNotification('Select File', 'error', 'Please select a pwdump file with LM hashes');
+                return;
+            }
+
+            log(`Starting LM->NTLM workflow on agent ${agentId}...`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/workflow/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        pwdump_content: workflowFileContent
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Workflow created: ${data.workflow_id}`, 'success');
+                    log(`  - Users with LM hashes: ${data.total_users_with_lm}`, 'info');
+                    log(`  - Unique LM halves: ${data.total_unique_halves}`, 'info');
+                    log(`  - LM job queued: ${data.lm_job_id}`, 'info');
+
+                    showNotification(
+                        `Workflow Started: ${data.workflow_id}`,
+                        'success',
+                        `Cracking ${data.total_unique_halves} LM halves from ${data.total_users_with_lm} users`
+                    );
+
+                    workflowFileContent = null;
+                    workflowFileName = null;
+                    document.getElementById('workflow-file').value = '';
+                    document.getElementById('workflow-file-status').textContent = 'Click to select pwdump file';
+
+                    loadWorkflows();
+                    startWorkflowPolling();
+                } else {
+                    log(`Failed to create workflow: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification('Workflow Failed', 'error', data.error || 'Unknown error');
+                }
+            } catch (error) {
+                log(`Error creating workflow: ${error.message}`, 'error');
+                showNotification('Workflow Error', 'error', error.message);
+            }
+        }
+
+        async function loadWorkflows() {
+            try {
+                const response = await fetch('/api/agent/workflow/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    renderWorkflows(data.workflows || []);
+                } else {
+                    log(`Failed to load workflows: HTTP ${response.status}`, 'error');
+                }
+            } catch (error) {
+                log(`Error loading workflows: ${error.message}`, 'error');
+            }
+        }
+
+        function renderWorkflows(workflows) {
+            const container = document.getElementById('workflows-list');
+
+            if (workflows.length === 0) {
+                container.innerHTML = '<div style="color: #666; font-style: italic;">No workflows yet. Start one above.</div>';
+                stopWorkflowPolling();
+                return;
+            }
+
+            const hasRunning = workflows.some(w => w.status === 'running' || w.status === 'pending');
+            if (!hasRunning) {
+                stopWorkflowPolling();
+            }
+
+            const recentWorkflows = workflows.slice(0, 10);
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+
+            recentWorkflows.forEach(w => {
+                const statusColor = {
+                    'running': '#f59e0b',
+                    'completed': '#22c55e',
+                    'failed': '#ef4444',
+                    'pending': '#666'
+                }[w.status] || '#666';
+
+                const stepLabel = {
+                    'lm_brute': 'Step 1: Cracking LM halves...',
+                    'ntlm_toggle': 'Step 2: Case permutation on NTLM...',
+                    'completed': 'Complete',
+                    'failed': 'Failed'
+                }[w.current_step] || w.current_step;
+
+                const isRunning = w.status === 'running';
+                const spinnerHtml = isRunning ? '<span class="workflow-spinner" style="display: inline-block; width: 10px; height: 10px; border: 2px solid #f59e0b; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></span>' : '';
+
+                const lmProgress = w.total_unique_halves > 0
+                    ? ((w.lm_halves_cracked || 0) / w.total_unique_halves * 100).toFixed(1)
+                    : 0;
+                const ntlmDenominator = w.unique_ntlm_hashes || w.users_both_halves_cracked || 0;
+                const ntlmProgress = ntlmDenominator > 0
+                    ? ((w.ntlm_passwords_cracked || 0) / ntlmDenominator * 100).toFixed(1)
+                    : 0;
+
+                html += `
+                    <div style="padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px; border-left: 3px solid ${statusColor};">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-family: monospace; color: #00d4ff;">${w.workflow_id}</span>
+                            <span style="color: ${statusColor}; text-transform: uppercase; font-size: 0.75rem; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                                ${spinnerHtml}
+                                ${w.status}
+                            </span>
+                        </div>
+                        <div style="font-size: 0.85rem; color: #888; margin-bottom: 8px;">
+                            ${stepLabel}
+                        </div>
+
+                        <div style="margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 3px;">
+                                <span style="color: #888;">LM Halves: ${w.lm_halves_cracked || 0}/${w.total_unique_halves}</span>
+                                <span style="color: #00d4ff;">${lmProgress}%</span>
+                            </div>
+                            <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                                <div style="height: 100%; width: ${lmProgress}%; background: linear-gradient(90deg, #00d4ff, #0099cc); transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+
+                        ${w.current_step === 'ntlm_toggle' || w.current_step === 'completed' ? `
+                        <div style="margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 3px;">
+                                <span style="color: #888;">NTLM Cracked: ${w.ntlm_passwords_cracked || 0}/${ntlmDenominator} unique hashes</span>
+                                <span style="color: #22c55e;">${ntlmProgress}%</span>
+                            </div>
+                            <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                                <div style="height: 100%; width: ${ntlmProgress}%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; font-size: 0.8rem;">
+                            <div>
+                                <span style="color: #666;">Total Users:</span>
+                                <span style="color: #fff;">${w.total_users_with_lm}</span>
+                            </div>
+                            <div>
+                                <span style="color: #666;">LM Combined:</span>
+                                <span style="color: #f59e0b;">${w.users_both_halves_cracked || 0}</span>
+                            </div>
+                            <div>
+                                <span style="color: #666;">Recovered:</span>
+                                <span style="color: #22c55e;">${w.final_passwords_recovered || w.ntlm_passwords_cracked || 0}</span>
+                            </div>
+                        </div>
+                        ${w.error_message ? `
+                        <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; color: #ef4444; font-size: 0.8rem;">
+                            Error: ${w.error_message}
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        // ============================================================
+        // Initialization
+        // ============================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAgents();
+            loadWorkflows();
+
+            // Setup drag and drop for workflow file
+            const dropZone = document.getElementById('workflow-drop-zone');
+            if (dropZone) {
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    dropZone.style.borderColor = '#00d4ff';
+                });
+                dropZone.addEventListener('dragleave', () => {
+                    dropZone.style.borderColor = 'rgba(0, 212, 255, 0.3)';
+                });
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.style.borderColor = 'rgba(0, 212, 255, 0.3)';
+                    if (e.dataTransfer.files.length) {
+                        document.getElementById('workflow-file').files = e.dataTransfer.files;
+                        handleWorkflowFile(document.getElementById('workflow-file'));
+                    }
+                });
+            }
+        });
+    </script>
+
+</body>
+</html>

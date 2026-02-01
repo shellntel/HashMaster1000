@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Job History</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/agents-shared.js') }}"></script>
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Job History</h1>
+                <p class="advanced-subtitle">View completed and failed cracking job results</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Pre-Production Testing
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link">Dashboard</a>
+            <a href="/agents/submit" class="advanced-nav-link">Submit Job</a>
+            <a href="/agents/lm2nt" class="advanced-nav-link">LM&rarr;NTLM</a>
+            <a href="/agents/history" class="advanced-nav-link active">History</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/masks" class="advanced-nav-link">Masks</a>
+            <a href="/agents/software" class="advanced-nav-link">Software</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Job History Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128203;</span>
+                <h2 class="advanced-section-title">Job History</h2>
+                <div style="margin-left: auto; display: flex; gap: 10px; align-items: center;">
+                    <select id="history-limit" class="advanced-input" style="padding: 6px 12px;" onchange="loadJobHistory()">
+                        <option value="10">Last 10 jobs</option>
+                        <option value="25">Last 25 jobs</option>
+                        <option value="50">Last 50 jobs</option>
+                        <option value="100">Last 100 jobs</option>
+                    </select>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadJobHistory()">&#8635; Refresh</button>
+                </div>
+            </div>
+            <div class="advanced-section-content">
+                <div id="job-history-container">
+                    <div class="job-history-loading">Loading job history...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cracked Passwords Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128273;</span>
+                <h2 class="advanced-section-title">Cracked Passwords</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearResults()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="job-results" class="job-results-container">
+                    <div class="no-results-message">Select a job above to view cracked passwords.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Log Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128214;</span>
+                <h2 class="advanced-section-title">Console Log</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearConsole()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="console-log" class="console-log">
+                    <div class="console-entry info">[INFO] Job history console initialized</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let jobHistory = [];
+        const csrfToken = getCsrfToken();
+
+        // ============================================================
+        // Job History Functions
+        // ============================================================
+
+        async function loadJobHistory() {
+            const container = document.getElementById('job-history-container');
+            container.innerHTML = '<div class="job-history-loading">Loading job history...</div>';
+
+            const limit = document.getElementById('history-limit').value || 10;
+            log(`Loading job history (limit: ${limit})...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/history?limit=${limit}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    jobHistory = data.jobs || [];
+                    log(`Loaded ${jobHistory.length} job(s) from history`, 'success');
+                    renderJobHistory();
+                } else {
+                    container.innerHTML = '<div class="job-history-empty">Failed to load job history</div>';
+                    log(`Failed to load job history: HTTP ${response.status}`, 'error');
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="job-history-empty">Error loading job history</div>';
+                log(`Error loading job history: ${error.message}`, 'error');
+            }
+        }
+
+        function renderJobHistory() {
+            const container = document.getElementById('job-history-container');
+
+            if (jobHistory.length === 0) {
+                container.innerHTML = '<div class="job-history-empty">No job history yet. Complete a job to see it here.</div>';
+                return;
+            }
+
+            let html = `
+                <table class="job-history-table">
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Cracked</th>
+                            <th>Total Hashes</th>
+                            <th>Duration</th>
+                            <th>Completed</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            jobHistory.forEach((job, index) => {
+                const stats = job.stats || {};
+                const recovered = stats.recovered || 0;
+                const total = stats.total_hashes || 0;
+                const crackRate = total > 0 ? (recovered / total * 100) : 0;
+                const duration = formatJobDuration(stats);
+                const completedAt = formatCompletedAt(job.completed_at);
+                const baseState = stats.state || 'unknown';
+                const hasPotfile = job.potfile && job.potfile.trim();
+                const warnings = stats.warnings || [];
+                const hasError = stats.error_message || job.error_info;
+
+                let state = baseState;
+                if (baseState === 'completed' && warnings.length > 0) {
+                    state = 'warning';
+                } else if (baseState === 'failed' || hasError) {
+                    state = 'failed';
+                }
+
+                let rateClass = 'none';
+                if (crackRate >= 50) rateClass = 'high';
+                else if (crackRate >= 10) rateClass = 'medium';
+                else if (crackRate > 0) rateClass = 'low';
+
+                html += `
+                    <tr class="job-row-expandable" onclick="toggleJobDetails(${index})">
+                        <td class="job-id-cell">${job.job_id || 'N/A'}</td>
+                        <td class="crack-rate ${rateClass}">${recovered} (${crackRate.toFixed(1)}%)</td>
+                        <td>${total.toLocaleString()}</td>
+                        <td>${duration}</td>
+                        <td>${completedAt}</td>
+                        <td><span class="job-status-badge ${state}">${state.toUpperCase()}</span></td>
+                    </tr>
+                    <tr class="job-details-row" id="job-details-${index}">
+                        <td colspan="6" class="job-details-cell">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding-top: 10px;">
+                                <div>
+                                    <strong style="color: #00d4ff;">Agent ID:</strong><br>
+                                    <span style="font-family: monospace; font-size: 0.8rem;">${job.agent_id || 'N/A'}</span>
+                                </div>
+                                <div>
+                                    <strong style="color: #00d4ff;">Full Job ID:</strong><br>
+                                    <span style="font-family: monospace; font-size: 0.8rem;">${job.job_id || 'N/A'}</span>
+                                </div>
+                                ${job.hashcat_args ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #00d4ff;">Hashcat Command:</strong><br>
+                                    <code style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap;">hashcat ${job.hashcat_args.join(' ')}</code>
+                                </div>
+                                ` : ''}
+                                ${warnings.length > 0 ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #fbbf24;">Warnings:</strong>
+                                    <ul style="margin: 4px 0 0 20px; padding: 0; color: #fbbf24;">
+                                        ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                                    </ul>
+                                </div>
+                                ` : ''}
+                                ${stats.error_message ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #ef4444;">Error:</strong><br>
+                                    <span style="color: #ef4444;">${escapeHtml(stats.error_message)}</span>
+                                </div>
+                                ` : ''}
+                                ${job.error_info ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #ef4444;">Error Details:</strong><br>
+                                    <span style="color: #ef4444;">${escapeHtml(job.error_info.error || 'Unknown error')}</span>
+                                    ${job.error_info.logs ? `
+                                    <details style="margin-top: 8px;">
+                                        <summary style="color: #f59e0b; cursor: pointer;">Hashcat Output (click to expand)</summary>
+                                        <pre style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-size: 0.75rem; max-height: 300px; overflow: auto; margin-top: 8px; white-space: pre-wrap;">${escapeHtml(job.error_info.logs)}</pre>
+                                    </details>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${!job.error_info && job.hashcat_logs ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <details style="margin-top: 8px;">
+                                        <summary style="color: #f59e0b; cursor: pointer;">Hashcat Output (click to expand)</summary>
+                                        <pre style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-size: 0.75rem; max-height: 300px; overflow: auto; margin-top: 8px; white-space: pre-wrap;">${escapeHtml(job.hashcat_logs)}</pre>
+                                    </details>
+                                </div>
+                                ` : ''}
+                            </div>
+                            ${hasPotfile ? `
+                            <div style="margin-top: 12px;">
+                                <strong style="color: #22c55e;">Cracked Passwords:</strong>
+                                <div class="job-potfile-preview">${escapeHtml(job.potfile)}</div>
+                                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="showPotfile(${index}); event.stopPropagation();" style="margin-top: 8px;">View All in Results</button>
+                            </div>
+                            ` : '<div style="margin-top: 12px; color: #666;">No cracked passwords for this job.</div>'}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function toggleJobDetails(index) {
+            const row = document.getElementById(`job-details-${index}`);
+            if (row) {
+                row.classList.toggle('expanded');
+            }
+        }
+
+        function formatJobDuration(stats) {
+            if (!stats) return 'N/A';
+            const seconds = stats.duration_seconds;
+            if (!seconds) return 'N/A';
+            if (seconds < 60) return `${seconds.toFixed(1)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+            const hours = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${mins}m`;
+        }
+
+        // ============================================================
+        // Potfile Display
+        // ============================================================
+
+        function showPotfile(index) {
+            if (index < 0 || index >= jobHistory.length) return;
+            const job = jobHistory[index];
+            if (!job.potfile) return;
+
+            const container = document.getElementById('job-results');
+            const lines = job.potfile.split('\n').filter(l => l.trim());
+
+            container.innerHTML = `
+                <div style="margin-bottom: 10px; color: #888;">
+                    Job: <span style="color: #00d4ff; font-family: monospace;">${job.job_id}</span>
+                    - ${lines.length} cracked password(s)
+                </div>
+                <div class="job-potfile-preview" style="max-height: 400px; overflow: auto;">${escapeHtml(job.potfile)}</div>
+            `;
+
+            log(`Showing ${lines.length} cracked passwords from job ${job.job_id}`, 'info');
+        }
+
+        function clearResults() {
+            document.getElementById('job-results').innerHTML = '<div class="no-results-message">Select a job above to view cracked passwords.</div>';
+        }
+
+        // ============================================================
+        // Initialization
+        // ============================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadJobHistory();
+        });
+    </script>
+</body>
+</html>

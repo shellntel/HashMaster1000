@@ -1,0 +1,1993 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HM1K - Agent Dashboard</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/agents-shared.js') }}"></script>
+</head>
+<body class="advanced-mode">
+    <!-- Notification container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Corner decorations -->
+    <div class="advanced-corner-decor top-left"></div>
+    <div class="advanced-corner-decor top-right"></div>
+    <div class="advanced-corner-decor bottom-left"></div>
+    <div class="advanced-corner-decor bottom-right"></div>
+
+    <div class="advanced-container">
+        <!-- Header -->
+        <div class="advanced-header">
+            <div>
+                <h1 class="advanced-title">Agent Dashboard</h1>
+                <p class="advanced-subtitle">Monitor hashcat agents, active jobs, and agent status</p>
+            </div>
+            <div class="advanced-badge">
+                <span class="advanced-badge-dot"></span>
+                Pre-Production Testing
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="advanced-nav">
+            <a href="/hidden" class="advanced-nav-link">Index</a>
+            <a href="/agents/test" class="advanced-nav-link active">Dashboard</a>
+            <a href="/agents/submit" class="advanced-nav-link">Submit Job</a>
+            <a href="/agents/lm2nt" class="advanced-nav-link">LM&rarr;NTLM</a>
+            <a href="/agents/history" class="advanced-nav-link">History</a>
+            <a href="/agents/jobs" class="advanced-nav-link">Job Manager</a>
+            <a href="/agents/wordlists" class="advanced-nav-link">Wordlists</a>
+            <a href="/agents/rules" class="advanced-nav-link">Rules</a>
+            <a href="/agents/masks" class="advanced-nav-link">Masks</a>
+            <a href="/agents/software" class="advanced-nav-link">Software</a>
+            <div class="advanced-nav-divider"></div>
+            <a href="/report" class="advanced-nav-link exit-link">Exit Advanced Mode</a>
+        </nav>
+
+        <!-- Agent Status Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128421;</span>
+                <h2 class="advanced-section-title">Agent Status</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshAllAgents()" style="margin-left: auto;">&#8635; Refresh All</button>
+            </div>
+            <div class="advanced-section-content">
+                <div class="agents-grid" id="agents-grid">
+                    <!-- Agent cards will be populated by JavaScript -->
+                    <div class="agent-card loading">
+                        <div class="agent-loading-spinner"></div>
+                        <span>Loading agents...</span>
+                    </div>
+                </div>
+
+                <!-- Agent Info Banner -->
+                <div class="agent-info-banner" style="margin-top: 20px; padding: 15px; background: rgba(0,100,200,0.15); border-radius: 8px; border: 1px solid rgba(0,212,255,0.3); display: flex; justify-content: space-between; align-items: center;">
+                    <p style="margin: 0; color: #999; font-size: 0.9rem;">
+                        <span style="color: #00d4ff;">&#9432;</span>
+                        Agents auto-register when they connect to the server. Configure agents with the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes.
+                    </p>
+                    <div style="display: flex; gap: 20px; align-items: center;">
+                        <span id="master-potfile-count" style="color: #666; font-size: 0.85rem; white-space: nowrap;" title="Master potfile entries synced across all agents">
+                            <span style="color: #00d4ff;">&#128274;</span> Potfile: <span class="count">-</span>
+                        </span>
+                        <span id="server-agent-version" style="color: #666; font-size: 0.85rem; white-space: nowrap;">
+                            Loading...
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pending Registrations Section -->
+        <div class="advanced-section" id="pending-registrations-section" style="display: none;">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128273;</span>
+                <h2 class="advanced-section-title">Pending Agent Registrations</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadPendingRegistrations()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="pending-registrations-list">
+                    <!-- Pending registrations will be populated by JavaScript -->
+                </div>
+                <div class="agent-info-banner" style="margin-top: 15px; padding: 12px; background: rgba(255,200,0,0.1); border-radius: 8px; border: 1px solid rgba(255,200,0,0.3);">
+                    <p style="margin: 0; color: #999; font-size: 0.9rem;">
+                        <span style="color: #ffc800;">&#9888;</span>
+                        Agents using discovery mode will appear here waiting for approval. Review the hostname and approve to issue authentication tokens.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Jobs Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#9201;</span>
+                <h2 class="advanced-section-title">Active Jobs</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshJobs()" style="margin-left: auto;">&#8635; Refresh</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="active-jobs">
+                    <div class="no-jobs-message">No active jobs. <a href="/agents/submit" style="color: #00d4ff;">Submit a job</a> to start cracking.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Log Section -->
+        <div class="advanced-section">
+            <div class="advanced-section-header">
+                <span class="advanced-section-icon">&#128214;</span>
+                <h2 class="advanced-section-title">Console Log</h2>
+                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearConsole()" style="margin-left: auto;">Clear</button>
+            </div>
+            <div class="advanced-section-content">
+                <div id="console-log" class="console-log">
+                    <div class="console-entry info">[INFO] Agent dashboard initialized</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Agents loaded from server
+        let agents = [];
+        let jobPollingInterval = null;
+        let autoRefreshInterval = null;
+        const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+        const csrfToken = getCsrfToken();
+
+        // Track pending hashcat version changes to prevent UI reversion
+        const pendingHashcatVersions = {};
+
+        // Benchmark status cache per agent
+        const agentBenchmarkStatus = {};
+
+        // Track agents with running benchmarks
+        const runningBenchmarks = new Set();
+
+        // ============================================================
+        // Server Version & Potfile Count
+        // ============================================================
+
+        async function loadServerAgentVersion(retries = 2) {
+            const versionEl = document.getElementById('server-agent-version');
+            try {
+                const response = await fetch('/api/agent/wheel/info');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (versionEl && data.version) {
+                        versionEl.innerHTML = `Server Agent: <strong style="color: #00d4ff;">v${data.version}</strong>`;
+                        versionEl.style.color = '#00d4ff';
+                    }
+                } else if (retries > 0) {
+                    setTimeout(() => loadServerAgentVersion(retries - 1), 1000);
+                }
+            } catch (error) {
+                if (retries > 0) {
+                    setTimeout(() => loadServerAgentVersion(retries - 1), 1000);
+                }
+            }
+        }
+
+        async function loadMasterPotfileCount() {
+            try {
+                const response = await fetch('/api/potfile/stats');
+                if (response.ok) {
+                    const data = await response.json();
+                    const countEl = document.querySelector('#master-potfile-count .count');
+                    if (countEl) {
+                        countEl.textContent = (data.entries || 0).toLocaleString();
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to load potfile stats:', error);
+            }
+        }
+
+        // ============================================================
+        // Agent Loading & Rendering
+        // ============================================================
+
+        let loadAgentsRetryCount = 0;
+        async function loadAgentsFromServer() {
+            log('Loading agents from server...', 'info');
+
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+
+            try {
+                const response = await fetch('/api/agent/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    agents = data.agents || [];
+                    log(`Loaded ${agents.length} agent(s) from server`, 'success');
+                    renderAgents();
+                    loadAgentsRetryCount = 0;
+
+                    if (agents.some(a => a.current_job)) {
+                        startJobPolling();
+                    }
+                } else {
+                    log(`Failed to load agents: HTTP ${response.status}`, 'error');
+                    if (loadAgentsRetryCount < 2) {
+                        loadAgentsRetryCount++;
+                        setTimeout(() => loadAgentsFromServer(), 1000);
+                    } else {
+                        renderAgents();
+                        loadAgentsRetryCount = 0;
+                    }
+                }
+            } catch (error) {
+                log(`Error loading agents: ${error.message}`, 'error');
+                if (loadAgentsRetryCount < 2) {
+                    loadAgentsRetryCount++;
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    renderAgents();
+                    loadAgentsRetryCount = 0;
+                }
+            }
+
+            window.scrollTo(scrollX, scrollY);
+        }
+
+        function renderAgents() {
+            const grid = document.getElementById('agents-grid');
+
+            if (agents.length === 0) {
+                grid.innerHTML = `
+                    <div class="agent-card" style="grid-column: 1 / -1; text-align: center; color: #666;">
+                        <p>No agents registered. Deploy the <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 3px;">hm1k-agent</code> service on your cracking nodes to register agents.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = agents.map(agent => {
+                const statusClass = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                const statusLabel = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                const hardware = agent.hardware || {};
+                const job = agent.current_job;
+                const benchStatus = agentBenchmarkStatus[agent.id];
+
+                let benchmarkWarning = '';
+                if (benchStatus && benchStatus.needs_benchmark && !benchStatus.has_any_benchmarks) {
+                    benchmarkWarning = `
+                        <div class="agent-benchmark-warning" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
+                            <div style="color: #f59e0b; margin-bottom: 4px;">&#9888; No benchmarks</div>
+                            <div style="color: #999;">Run benchmarks to enable job time estimates</div>
+                        </div>
+                    `;
+                } else if (benchStatus && benchStatus.needs_benchmark) {
+                    benchmarkWarning = `
+                        <div class="agent-benchmark-info" style="background: rgba(0, 100, 200, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; font-size: 0.75rem; color: #888;">
+                            &#9432; ${benchStatus.benchmarked_modes}/${benchStatus.total_recommended_modes} hash types benchmarked
+                        </div>
+                    `;
+                }
+
+                let permissionWarning = '';
+                const perms = agent.permissions;
+                if (perms && !perms.healthy) {
+                    const issues = perms.issues || [];
+                    const issueLabels = {
+                        'venv_not_writable': 'Cannot self-update (venv not writable)',
+                        'config_not_readable': 'Config not readable',
+                        'logs_not_writable': 'Cannot write logs',
+                        'cache_not_writable': 'Cannot cache resources'
+                    };
+                    const issueText = issues.map(i => issueLabels[i] || i).join(', ');
+                    permissionWarning = `
+                        <div class="agent-permission-warning" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
+                            <div style="color: #ef4444; margin-bottom: 4px;">&#9888; Permission Issues</div>
+                            <div style="color: #999;">${issueText}</div>
+                        </div>
+                    `;
+                }
+
+                return `
+                <div class="agent-card ${statusClass}" id="card-${agent.id}">
+                    <div class="agent-header">
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
+                            ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}${agent.update_status ? ' ' + renderUpdateStatus(agent.update_status, agent.version) : ''}</span>` : ''}
+                        </div>
+                        <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
+                    </div>
+                    <div class="agent-info">
+                        <div class="agent-info-row">
+                            <span>Agent ID:</span>
+                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.id}</span>
+                        </div>
+                        <div class="agent-info-row">
+                            <span>IP Address:</span>
+                            <span style="font-family: monospace; font-size: 0.8rem;">${agent.ip_address || 'Unknown'}</span>
+                        </div>
+                        <div class="agent-info-row">
+                            <span>Last Seen:</span>
+                            <span>${formatLastSeen(agent.last_heartbeat)}</span>
+                        </div>
+                    </div>
+                    ${benchmarkWarning}
+                    ${permissionWarning}
+                    ${hardware.cpu || hardware.gpu || hardware.ram ? `
+                        <div class="agent-hardware">
+                            ${hardware.cpu ? `<div>CPU: ${hardware.cpu}</div>` : ''}
+                            ${hardware.gpu ? `<div>GPU: ${hardware.gpu}</div>` : ''}
+                            ${hardware.ram ? `<div>RAM: ${hardware.ram}</div>` : ''}
+                            ${hardware.disk_free_gb !== undefined ? `
+                                <div class="agent-disk-info" style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span>Disk:</span>
+                                        <span style="color: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'}">
+                                            ${hardware.disk_free_gb.toFixed(1)} GB free
+                                        </span>
+                                    </div>
+                                    <div class="disk-usage-bar" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 4px; overflow: hidden;">
+                                        <div style="height: 100%; width: ${hardware.disk_used_percent}%; background: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'};"></div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    ${agent.resources && agent.resources.cached_count > 0 || agent.hashcat_version ? `
+                        <div class="agent-resources" style="background: rgba(0, 100, 200, 0.1); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;">
+                            <div style="display: flex; justify-content: space-between; color: #999; margin-bottom: 6px;">
+                                <span>${agent.resources?.is_server_resources ? '&#128279;' : '&#128230;'} Wordlists: <span style="color: #00d4ff;">${agent.resources?.by_type?.wordlists ?? agent.resources?.cached_count ?? 0} (${((agent.resources?.cache_size_mb || 0) / 1024).toFixed(1)} GB)</span></span>
+                                ${agent.hashcat_version ? `
+                                    <span style="display: flex; align-items: center; gap: 4px;">
+                                        &#9881; Hashcat:
+                                        ${agent.hashcat_versions && agent.hashcat_versions.length > 1 && agent.status === 'online' ? (() => {
+                                            const pending = pendingHashcatVersions[agent.id];
+                                            const pendingBinary = pending && (Date.now() - pending.timestamp < 30000) ? pending.binary : null;
+                                            return `
+                                            <select
+                                                onchange="setAgentHashcatVersion('${agent.id}', this.value)"
+                                                style="background: rgba(0,0,0,0.3); border: 1px solid rgba(0,212,255,0.3); color: ${pendingBinary ? '#f59e0b' : '#00d4ff'}; padding: 2px 4px; border-radius: 3px; font-size: 0.8rem; cursor: pointer;"
+                                                title="${pendingBinary ? 'Version change pending...' : 'Select hashcat version'}">
+                                                ${agent.hashcat_versions.map(v => {
+                                                    const isSelected = pendingBinary ? v.path === pendingBinary : v.is_current;
+                                                    return `
+                                                    <option value="${v.path}" ${isSelected ? 'selected' : ''}>
+                                                        ${v.version}${v.is_current ? ' (current)' : ''}${pendingBinary === v.path && !v.is_current ? ' (pending)' : ''}
+                                                    </option>`;
+                                                }).join('')}
+                                            </select>`;
+                                        })() : `<span style="color: #00d4ff;">${agent.hashcat_version}</span>`}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; color: #999;">
+                                <span>&#128220; Rules: <span style="color: #00d4ff;">${agent.resources?.by_type?.rules || 0}</span></span>
+                                <span title="Local potfile entries${agent.potfile?.sync_healthy === false ? ' (sync error)' : ''}">&#128274; Potfile: <span style="color: ${agent.potfile?.sync_healthy === false ? '#f59e0b' : '#00d4ff'};">${(agent.potfile?.local_entries || 0).toLocaleString()}</span></span>
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${job ? `
+                        <div class="agent-job-info" onclick="showJobDetailModal('${agent.id}')" style="cursor: pointer;" title="Click for detailed job status">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span>Job: ${job.job_id || 'N/A'}</span>
+                                <span>${job.status || 'running'}</span>
+                            </div>
+                            <div class="agent-progress-bar">
+                                <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
+                                <span>${(job.progress_percent || 0).toFixed(1)}%${job.mask_total > 1 ? ` (Mask ${job.mask_current || 1}/${job.mask_total})` : ''}</span>
+                                <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
+                                <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #777;">
+                                ${job.gpu_temps && job.gpu_temps.length > 0 ? `<span title="GPU Temperature">&#127777;&#65039; ${formatGpuTemps(job.gpu_temps)}</span>` : ''}
+                                ${job.eta_seconds ? `<span title="Estimated Time Remaining">&#9201;&#65039; ${formatEtaFromTimestamp(job.eta_seconds)}</span>` : ''}
+                                <span style="color: #00d4ff; font-size: 0.7rem;">&#9654; Click for details</span>
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="agent-actions" style="display: flex; gap: 8px;">
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#8635;</span><span style="font-size: 0.7rem;">Refresh</span></button>
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
+                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0}, ${JSON.stringify((agent.resources?.cached || []).map(r => r.resource_id)).replace(/"/g, '&quot;')})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${agent.status === 'online' && (agent.resources?.cached_count || 0) > 0 ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="cleanAgentResources('${agent.id}', '${agent.name || agent.id}')" title="Remove deleted resources from agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Clean</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
+                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
+                        ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
+                    </div>
+                </div>
+            `}).join('');
+
+            loadBenchmarkStatus();
+        }
+
+        async function loadBenchmarkStatus() {
+            for (const agent of agents) {
+                try {
+                    const response = await fetch(`/api/agent/${agent.id}/benchmark/status`);
+                    if (response.ok) {
+                        agentBenchmarkStatus[agent.id] = await response.json();
+                    }
+                } catch (error) {
+                    console.warn(`Failed to load benchmark status for ${agent.id}:`, error);
+                }
+            }
+            updateBenchmarkWarnings();
+        }
+
+        function updateBenchmarkWarnings() {
+            for (const agent of agents) {
+                const benchStatus = agentBenchmarkStatus[agent.id];
+                const card = document.getElementById(`card-${agent.id}`);
+                if (!card || !benchStatus) continue;
+
+                let warningEl = card.querySelector('.agent-benchmark-warning, .agent-benchmark-info');
+                const agentInfoEl = card.querySelector('.agent-info');
+                if (!agentInfoEl) continue;
+
+                if (benchStatus.needs_benchmark && !benchStatus.has_any_benchmarks) {
+                    if (!warningEl) {
+                        warningEl = document.createElement('div');
+                        warningEl.className = 'agent-benchmark-warning';
+                        agentInfoEl.insertAdjacentElement('afterend', warningEl);
+                    }
+                    warningEl.className = 'agent-benchmark-warning';
+                    warningEl.style.cssText = 'background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 4px; padding: 8px; margin-bottom: 10px; font-size: 0.8rem;';
+                    warningEl.innerHTML = `
+                        <div style="color: #f59e0b; margin-bottom: 4px;">&#9888; No benchmarks</div>
+                        <div style="color: #999;">Run benchmarks to enable job time estimates</div>
+                    `;
+                } else if (benchStatus.needs_benchmark) {
+                    if (!warningEl) {
+                        warningEl = document.createElement('div');
+                        warningEl.className = 'agent-benchmark-info';
+                        agentInfoEl.insertAdjacentElement('afterend', warningEl);
+                    }
+                    warningEl.className = 'agent-benchmark-info';
+                    warningEl.style.cssText = 'background: rgba(0, 100, 200, 0.1); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; font-size: 0.75rem; color: #888;';
+                    warningEl.innerHTML = `&#9432; ${benchStatus.benchmarked_modes}/${benchStatus.total_recommended_modes} hash types benchmarked`;
+                } else if (warningEl) {
+                    warningEl.remove();
+                }
+            }
+        }
+
+        function refreshAllAgents() {
+            loadAgentsFromServer();
+        }
+
+        function renderUpdateStatus(updateStatus, agentVersion) {
+            if (!updateStatus) return '';
+
+            const status = updateStatus.status;
+            const message = updateStatus.message || '';
+            const timestamp = updateStatus.timestamp;
+            const targetVersion = updateStatus.version;
+
+            if (timestamp) {
+                const statusTime = new Date(timestamp);
+                const now = new Date();
+                const ageMinutes = (now - statusTime) / 1000 / 60;
+                if (ageMinutes > 5) return '';
+            }
+
+            if (status === 'error') {
+                return `<span style="color: #ef4444; font-size: 0.75rem;" title="${updateStatus.error || message}">&#9888; Update failed</span>`;
+            } else if (status === 'installed') {
+                if (agentVersion === targetVersion) {
+                    return `<span style="color: #22c55e; font-size: 0.75rem;" title="${message}">&#10003; Updated to v${targetVersion}</span>`;
+                } else {
+                    return `<span style="color: #f59e0b; font-size: 0.75rem;" title="Waiting for restart...">&#8635; Restarting to v${targetVersion}...</span>`;
+                }
+            } else if (status === 'downloading') {
+                return `<span style="color: #f59e0b; font-size: 0.75rem;">&#8635; Downloading...</span>`;
+            } else if (status === 'queued') {
+                return `<span style="color: #f59e0b; font-size: 0.75rem;">&#8635; Starting update to v${targetVersion}...</span>`;
+            }
+            return '';
+        }
+
+        // ============================================================
+        // Pending Registrations
+        // ============================================================
+
+        async function loadPendingRegistrations() {
+            log('Loading pending registrations...', 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/pending');
+                if (response.ok) {
+                    const data = await response.json();
+                    const pending = data.pending || [];
+                    log(`Found ${pending.length} pending registration(s)`, 'info');
+                    renderPendingRegistrations(pending);
+                } else {
+                    log('Failed to load pending registrations', 'error');
+                }
+            } catch (error) {
+                log(`Error loading pending registrations: ${error.message}`, 'error');
+            }
+        }
+
+        function renderPendingRegistrations(pending) {
+            const container = document.getElementById('pending-registrations-list');
+            const section = document.getElementById('pending-registrations-section');
+
+            if (pending.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = 'block';
+
+            container.innerHTML = pending.map(reg => `
+                <div class="pending-registration-card" style="background: rgba(255,200,0,0.08); border: 1px solid rgba(255,200,0,0.3); border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <div style="font-size: 1.1rem; font-weight: 600; color: #ffc800; margin-bottom: 8px;">
+                                <span style="font-family: monospace; letter-spacing: 2px;">${reg.registration_code}</span>
+                            </div>
+                            <div style="color: #ccc; font-size: 0.95rem; margin-bottom: 4px;">
+                                <strong>Hostname:</strong> ${reg.hostname || 'Unknown'}
+                            </div>
+                            <div style="color: #ccc; font-size: 0.95rem; margin-bottom: 4px;">
+                                <strong>Name:</strong> ${reg.name || reg.hostname || 'Unnamed'}
+                            </div>
+                            <div style="color: #888; font-size: 0.85rem;">
+                                <strong>Requested:</strong> ${formatTimestamp(reg.created_at)}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="advanced-btn advanced-btn-primary advanced-btn-small" onclick="approveRegistration('${reg.registration_code}')">
+                                &#10003; Approve
+                            </button>
+                            <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="rejectRegistration('${reg.registration_code}')">
+                                &#10005; Reject
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function approveRegistration(code) {
+            log(`Approving registration: ${code}`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/approve', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Registration approved for ${code}`, 'success');
+                    showNotification(`Agent registration approved!`, 'success');
+                    loadPendingRegistrations();
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to approve registration: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification(`Failed: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error approving registration: ${error.message}`, 'error');
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function rejectRegistration(code) {
+            if (!confirm(`Are you sure you want to reject registration ${code}?`)) return;
+
+            log(`Rejecting registration: ${code}`, 'info');
+
+            try {
+                const response = await fetch('/api/agent/register/reject', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Registration rejected: ${code}`, 'success');
+                    showNotification(`Registration rejected`, 'info');
+                    loadPendingRegistrations();
+                } else {
+                    log(`Failed to reject registration: ${data.error || 'Unknown error'}`, 'error');
+                    showNotification(`Failed: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error rejecting registration: ${error.message}`, 'error');
+                showNotification(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // ============================================================
+        // Job Monitoring
+        // ============================================================
+
+        function startJobPolling() {
+            if (jobPollingInterval) return;
+
+            jobPollingInterval = setInterval(async () => {
+                await loadAgentsFromServer();
+
+                const anyBusy = agents.some(a => a.current_job);
+                if (!anyBusy) {
+                    stopJobPolling();
+                }
+
+                updateActiveJobs();
+            }, 5000);
+
+            log('Started job monitoring (5s interval)', 'info');
+        }
+
+        function stopJobPolling() {
+            if (jobPollingInterval) {
+                clearInterval(jobPollingInterval);
+                jobPollingInterval = null;
+                log('Stopped job monitoring', 'info');
+            }
+        }
+
+        function refreshJobs() {
+            loadAgentsFromServer();
+        }
+
+        function updateActiveJobs() {
+            const container = document.getElementById('active-jobs');
+            const busyAgents = agents.filter(a => a.current_job);
+
+            if (busyAgents.length === 0) {
+                container.innerHTML = '<div class="no-jobs-message">No active jobs. <a href="/agents/submit" style="color: #00d4ff;">Submit a job</a> to start cracking.</div>';
+                return;
+            }
+
+            container.innerHTML = busyAgents.map(agent => {
+                const job = agent.current_job;
+
+                let etaDisplay = 'N/A';
+                if (job.eta_seconds && job.eta_seconds > 0) {
+                    const nowSecs = Math.floor(Date.now() / 1000);
+                    if (job.eta_seconds > 1000000000) {
+                        const remaining = job.eta_seconds - nowSecs;
+                        if (remaining > 0) {
+                            etaDisplay = formatEta(remaining);
+                        } else {
+                            etaDisplay = 'Finishing...';
+                        }
+                    } else {
+                        etaDisplay = formatEta(job.eta_seconds);
+                    }
+                }
+
+                let gpuInfo = '';
+                if (job.gpu_temps && job.gpu_temps.length > 0) {
+                    const maxTemp = Math.max(...job.gpu_temps.filter(t => t > 0));
+                    const tempColor = maxTemp > 80 ? '#ef4444' : maxTemp > 65 ? '#f59e0b' : '#22c55e';
+                    gpuInfo += `<span style="color: ${tempColor};">${maxTemp}°C</span>`;
+                }
+                if (job.gpu_utils && job.gpu_utils.length > 0) {
+                    const maxUtil = Math.max(...job.gpu_utils.filter(u => u > 0));
+                    if (gpuInfo) gpuInfo += ' / ';
+                    gpuInfo += `${maxUtil}%`;
+                }
+
+                let lastUpdateStr = '';
+                if (job.updated_at) {
+                    const updated = new Date(job.updated_at);
+                    const secondsAgo = Math.floor((Date.now() - updated.getTime()) / 1000);
+                    lastUpdateStr = secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`;
+                }
+
+                return `
+                <div class="job-card">
+                    <div class="job-header">
+                        <span class="job-id">${job.job_id || 'N/A'}</span>
+                        <span style="display: flex; align-items: center; gap: 10px;">
+                            <span>on ${agent.name || agent.id}</span>
+                            ${lastUpdateStr ? `<span style="font-size: 0.75rem; color: #666;">Updated ${lastUpdateStr}</span>` : ''}
+                        </span>
+                    </div>
+                    <div class="agent-progress-bar" style="height: 10px;">
+                        <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                    </div>
+                    <div class="job-stats">
+                        <div class="job-stat">
+                            <div class="job-stat-value">${(job.progress_percent || 0).toFixed(1)}%</div>
+                            <div class="job-stat-label">Progress</div>
+                        </div>
+                        ${job.mask_total > 1 ? `
+                        <div class="job-stat">
+                            <div class="job-stat-value">${job.mask_current || 1}/${job.mask_total}</div>
+                            <div class="job-stat-label">Mask</div>
+                        </div>
+                        ` : ''}
+                        <div class="job-stat">
+                            <div class="job-stat-value">${formatSpeed(job.speed_hashes_per_sec)}</div>
+                            <div class="job-stat-label">Speed</div>
+                        </div>
+                        <div class="job-stat">
+                            <div class="job-stat-value">${job.recovered_hashes || 0}/${job.total_hashes || 0}</div>
+                            <div class="job-stat-label">Cracked</div>
+                        </div>
+                        <div class="job-stat">
+                            <div class="job-stat-value">${etaDisplay}</div>
+                            <div class="job-stat-label">ETA</div>
+                        </div>
+                        ${gpuInfo ? `
+                        <div class="job-stat">
+                            <div class="job-stat-value">${gpuInfo}</div>
+                            <div class="job-stat-label">GPU</div>
+                        </div>
+                        ` : ''}
+                        <div class="job-stat">
+                            <div class="job-stat-value" style="text-transform: capitalize;">${job.status || 'running'}</div>
+                            <div class="job-stat-label">State</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">Stop Job</button>
+                        <button class="advanced-btn advanced-btn-warning advanced-btn-small" onclick="pauseJob('${agent.id}')">Pause</button>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        // ============================================================
+        // Job Actions
+        // ============================================================
+
+        async function stopJob(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent) return;
+
+            log(`Stopping job on ${agent.name || agent.id}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/stop`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Stop command queued for ${agent.name || agent.id} (job: ${data.job_id})`, 'success');
+                    showNotification('Stop command sent', 'success', `Job ${data.job_id} will stop shortly.`);
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to stop job: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error stopping job: ${error.message}`, 'error');
+            }
+        }
+
+        async function pauseJob(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent) return;
+
+            log(`Pausing job on ${agent.name || agent.id}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/pause`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Pause command queued for ${agent.name || agent.id} (job: ${data.job_id})`, 'success');
+                    setTimeout(() => loadAgentsFromServer(), 1000);
+                } else {
+                    log(`Failed to pause job: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error pausing job: ${error.message}`, 'error');
+            }
+        }
+
+        // ============================================================
+        // Agent Management
+        // ============================================================
+
+        async function deleteAgent(agentId, agentName) {
+            if (!confirm(`Are you sure you want to delete agent "${agentName}"?\n\nThis will remove all agent data and cannot be undone.`)) {
+                return;
+            }
+
+            log(`Deleting agent ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Agent "${agentName}" has been deleted`, 'success');
+                    loadAgentsFromServer();
+                } else {
+                    log(`Failed to delete agent: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error deleting agent: ${error.message}`, 'error');
+            }
+        }
+
+        async function updateAgent(agentId, agentName) {
+            if (!confirm(`Update agent "${agentName}" to the latest version?\n\nThe agent will restart after the update.`)) {
+                return;
+            }
+
+            log(`Triggering update for ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/update`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Update to v${data.version} queued for ${agentName}. Agent will restart shortly.`, 'success');
+                    setTimeout(() => loadAgentsFromServer(), 5000);
+                } else {
+                    log(`Failed to update agent: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error updating agent: ${error.message}`, 'error');
+            }
+        }
+
+        async function setAgentHashcatVersion(agentId, binaryPath) {
+            const agent = agents.find(a => a.id === agentId);
+            const agentName = agent?.name || agentId;
+
+            log(`Setting hashcat version on ${agentName}...`, 'info');
+
+            pendingHashcatVersions[agentId] = { binary: binaryPath, timestamp: Date.now() };
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/hashcat/set-current`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ binary: binaryPath })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    delete pendingHashcatVersions[agentId];
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Hashcat version change queued for ${agentName}`, 'success');
+                    setTimeout(() => {
+                        delete pendingHashcatVersions[agentId];
+                        loadAgentsFromServer();
+                    }, 5000);
+                } else {
+                    log(`Failed to set hashcat version: ${data.error || 'Unknown error'}`, 'error');
+                    delete pendingHashcatVersions[agentId];
+                }
+            } catch (error) {
+                log(`Error setting hashcat version: ${error.message}`, 'error');
+                delete pendingHashcatVersions[agentId];
+            }
+        }
+
+        async function cleanAgentResources(agentId, agentName) {
+            if (!confirm(`Clean stale resources from "${agentName}"?\n\nThis will remove any cached resources that no longer exist on the server.`)) {
+                return;
+            }
+
+            log(`Cleaning stale resources from ${agentName}...`, 'info');
+
+            try {
+                const response = await fetch(`/api/agent/${agentId}/clean-resources`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    if (response.status === 401 || response.status === 302 || response.redirected) {
+                        log('Session expired. Please refresh the page and log in again.', 'error');
+                    } else {
+                        log(`Server returned non-JSON response (status ${response.status})`, 'error');
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    log(`Cleanup command sent to ${agentName}. Agent will remove any stale resources.`, 'success');
+                    setTimeout(() => loadAgentsFromServer(), 3000);
+                } else {
+                    log(`Failed to clean resources: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                log(`Error cleaning resources: ${error.message}`, 'error');
+            }
+        }
+
+        // ============================================================
+        // Benchmarks
+        // ============================================================
+
+        async function runBenchmark(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            const hashcatVersions = agent?.hashcat_versions || [];
+            const hasMultipleVersions = hashcatVersions.length > 1;
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+
+            let versionOptions = '';
+            if (hasMultipleVersions) {
+                versionOptions = `
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.3); border-radius: 6px; margin-bottom: 8px;">
+                            <input type="radio" name="benchmark-scope" value="current" checked style="accent-color: #00d4ff;">
+                            <div>
+                                <div style="color: #fff;">Current version only</div>
+                                <div style="color: #888; font-size: 0.8rem;">Benchmark the configured hashcat version</div>
+                            </div>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; background: rgba(0,212,255,0.05); border: 1px solid rgba(0,212,255,0.2); border-radius: 6px;">
+                            <input type="radio" name="benchmark-scope" value="all" style="accent-color: #00d4ff;">
+                            <div>
+                                <div style="color: #fff;">All installed versions (${hashcatVersions.length})</div>
+                                <div style="color: #888; font-size: 0.8rem;">Compare performance across all hashcat versions</div>
+                            </div>
+                        </label>
+                    </div>
+                    <div style="color: #666; font-size: 0.8rem; margin-bottom: 15px;">
+                        Installed versions: ${hashcatVersions.map(v => v.version + (v.is_current ? ' (current)' : '')).join(', ')}
+                    </div>
+                `;
+            }
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid #333; border-radius: 8px; padding: 20px; max-width: 450px; width: 90%;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0; color: #fff;">Run Benchmark</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <p style="color: #ccc; margin-bottom: 15px;">
+                        This will run hashcat benchmarks for 11 common hash types on the agent.
+                        The results help estimate job duration and compare hardware performance.
+                    </p>
+                    ${versionOptions}
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button class="cancel-btn" style="padding: 8px 16px; background: #333; border: 1px solid #444; border-radius: 4px; color: #ccc; cursor: pointer;">Cancel</button>
+                        <button class="run-btn" style="padding: 8px 16px; background: linear-gradient(135deg, #00d4ff, #0096c8); border: none; border-radius: 4px; color: #000; font-weight: 600; cursor: pointer;">Run Benchmark</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            const closeModal = () => { modal.remove(); };
+
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+            modal.querySelector('.cancel-btn').onclick = closeModal;
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            modal.querySelector('.run-btn').onclick = async () => {
+                const allVersions = hasMultipleVersions && modal.querySelector('input[name="benchmark-scope"]:checked')?.value === 'all';
+                closeModal();
+
+                try {
+                    const response = await fetch(`/api/agent/${agentId}/benchmark/run`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken,
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({
+                            all_versions: allVersions,
+                        }),
+                    });
+
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response. You may need to log in again.');
+                    }
+
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to start benchmark');
+                    }
+
+                    runningBenchmarks.add(agentId);
+                    const totalModes = allVersions
+                        ? (data.hash_modes?.length || 11) * (data.versions?.length || 1)
+                        : (data.hash_modes?.length || 11);
+                    updateBenchmarkRunIndicator(agentId, 'running', totalModes);
+
+                    const versionMsg = allVersions
+                        ? `Running benchmarks for ${data.versions?.length || 1} hashcat versions (${totalModes} total tests).`
+                        : `Running benchmarks for ${data.hash_modes?.length || 11} hash types.`;
+                    showNotification('Benchmark Started', 'success', versionMsg);
+
+                } catch (error) {
+                    showNotification('Benchmark Failed', 'error', error.message);
+                }
+            };
+        }
+
+        function updateBenchmarkRunIndicator(agentId, status, totalModes = 0) {
+            const card = document.getElementById(`card-${agentId}`);
+            if (!card) return;
+
+            const existing = card.querySelector('.benchmark-run-indicator');
+            if (existing) existing.remove();
+
+            if (status === 'running') {
+                const actions = card.querySelector('.agent-actions');
+                if (actions) {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'benchmark-run-indicator';
+                    indicator.style.cssText = 'background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(0, 150, 200, 0.15)); border: 1px solid rgba(0, 212, 255, 0.4); border-radius: 4px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.85rem;';
+                    indicator.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 8px; color: #00d4ff;">
+                            <span class="spinner" style="width: 14px; height: 14px; border: 2px solid rgba(0,212,255,0.3); border-top-color: #00d4ff; border-radius: 50%; animation: spin 1s linear infinite;"></span>
+                            <span>Benchmarking...</span>
+                        </div>
+                        <div style="color: #888; font-size: 0.75rem; margin-top: 4px;">Testing ${totalModes} hash types</div>
+                    `;
+                    actions.parentNode.insertBefore(indicator, actions);
+
+                    const benchBtn = card.querySelector('button[onclick*="runBenchmark"]');
+                    if (benchBtn) {
+                        benchBtn.disabled = true;
+                        benchBtn.style.opacity = '0.5';
+                    }
+                }
+            } else if (status === 'completed') {
+                const benchBtn = card.querySelector('button[onclick*="runBenchmark"]');
+                if (benchBtn) {
+                    benchBtn.disabled = false;
+                    benchBtn.style.opacity = '1';
+                }
+            }
+        }
+
+        async function viewAgentPerformance(agentId) {
+            try {
+                const response = await fetch(`/api/agent/${agentId}/performance`);
+                if (!response.ok) throw new Error('Failed to load performance data');
+
+                const data = await response.json();
+                showPerformanceModal(data);
+            } catch (error) {
+                showNotification('Failed to load performance data', 'error', error.message);
+            }
+        }
+
+        function showPerformanceModal(data) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            modal.tabIndex = -1;
+
+            const closeModal = () => {
+                modal.remove();
+                document.body.focus();
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+            modal.onkeydown = (e) => { if (e.key === 'Escape') closeModal(); };
+
+            const hashModeNames = {
+                0: 'MD5', 100: 'SHA1', 1000: 'NTLM', 1400: 'SHA256', 1700: 'SHA512',
+                2100: 'DCC2', 3000: 'LM', 5500: 'NetNTLMv1', 5600: 'NetNTLMv2',
+                13100: 'Kerberos TGS-REP', 18200: 'Kerberos AS-REP'
+            };
+
+            const benchmarksByVersion = {};
+            data.benchmarks.forEach(b => {
+                const version = b.hashcat_version || 'unknown';
+                if (!benchmarksByVersion[version]) benchmarksByVersion[version] = [];
+                benchmarksByVersion[version].push(b);
+            });
+            const versions = Object.keys(benchmarksByVersion).sort();
+            const versionCount = versions.length;
+
+            const benchmarksByMode = {};
+            data.benchmarks.forEach(b => {
+                const mode = b.hash_mode;
+                if (!benchmarksByMode[mode]) benchmarksByMode[mode] = {};
+                benchmarksByMode[mode][b.hashcat_version || 'unknown'] = b;
+            });
+            const sortedModes = Object.keys(benchmarksByMode).map(Number).sort((a, b) => a - b);
+
+            let benchmarksHtml = '';
+            if (data.benchmarks.length > 0 && versionCount > 1) {
+                benchmarksHtml = sortedModes.map(mode => {
+                    const modeName = hashModeNames[mode] || '';
+                    const modeDisplay = modeName ? `${mode} (${modeName})` : mode;
+                    const speeds = versions.map(v => {
+                        const b = benchmarksByMode[mode][v];
+                        return b ? b.total_speed_hs : 0;
+                    });
+                    const maxSpeed = Math.max(...speeds);
+                    const cells = versions.map((v, idx) => {
+                        const b = benchmarksByMode[mode][v];
+                        if (!b) return `<td style="padding: 6px 12px; text-align: center; color: #666;">-</td>`;
+                        const isFastest = speeds[idx] === maxSpeed && maxSpeed > 0;
+                        const color = isFastest ? 'color: #22c55e;' : '';
+                        return `<td style="padding: 6px 12px; text-align: center; ${color}">${formatSpeed(b.total_speed_hs)}</td>`;
+                    }).join('');
+                    return `<tr><td style="padding: 6px 12px;">${modeDisplay}</td>${cells}</tr>`;
+                }).join('');
+            } else if (data.benchmarks.length > 0) {
+                benchmarksHtml = sortedModes.map(mode => {
+                    const modeName = hashModeNames[mode] || '';
+                    const modeDisplay = modeName ? `${mode} (${modeName})` : mode;
+                    const b = Object.values(benchmarksByMode[mode])[0];
+                    return `
+                        <tr>
+                            <td style="padding: 6px 12px;">${modeDisplay}</td>
+                            <td style="padding: 6px 12px;">${formatSpeed(b.total_speed_hs)}</td>
+                            <td style="padding: 6px 12px; color: #00d4ff; font-size: 0.8rem;">${b.hashcat_version || 'N/A'}</td>
+                            <td style="padding: 6px 12px; color: #666; font-size: 0.8rem;">${b.timestamp ? new Date(b.timestamp).toLocaleDateString() : 'N/A'}</td>
+                        </tr>`;
+                }).join('');
+            } else {
+                benchmarksHtml = '<tr><td colspan="6" style="padding: 12px; color: #666; text-align: center;">No benchmarks yet</td></tr>';
+            }
+
+            const jobsHtml = data.recent_jobs.length > 0
+                ? data.recent_jobs.slice(0, 5).map(j => `
+                    <tr>
+                        <td style="padding: 6px 12px; font-family: monospace; font-size: 0.8rem;">${j.job_id.substring(0, 12)}...</td>
+                        <td style="padding: 6px 12px;">${j.hash_mode}</td>
+                        <td style="padding: 6px 12px;">${formatSpeed(j.avg_speed_hs)}</td>
+                        <td style="padding: 6px 12px;">${j.hashes_cracked}/${j.total_hashes}</td>
+                        <td style="padding: 6px 12px;">${formatDuration(j.duration_seconds)}</td>
+                    </tr>
+                `).join('')
+                : '<tr><td colspan="5" style="padding: 12px; color: #666; text-align: center;">No job history</td></tr>';
+
+            modal.innerHTML = `
+                <div style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 900px; max-height: 80vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #fff;">Agent Performance: ${data.agent_id.substring(0, 8)}...</h3>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #888; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <div style="margin-bottom: 20px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 6px;">
+                        <div style="color: ${data.benchmark_status.needs_benchmark ? '#f59e0b' : '#22c55e'}; margin-bottom: 8px;">
+                            ${data.benchmark_status.needs_benchmark ? '&#9888;' : '&#10003;'} ${data.benchmark_status.recommendation}
+                        </div>
+                        <div style="color: #888; font-size: 0.9rem;">
+                            ${data.benchmark_status.benchmarked_modes} of ${data.benchmark_status.total_recommended_modes} recommended hash types benchmarked
+                            ${versionCount > 1 ? ` | ${versionCount} hashcat versions tested` : ''}
+                        </div>
+                    </div>
+
+                    <h4 style="color: #00d4ff; margin: 0 0 10px 0;">Benchmark Results</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9rem;">
+                        <thead style="background: rgba(0,212,255,0.1);">
+                            ${versionCount > 1 ? `
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Hash Mode</th>
+                                ${versions.map(v => `<th style="padding: 8px 12px; text-align: center; color: #00d4ff;">${v}</th>`).join('')}
+                            </tr>
+                            ` : `
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Hash Mode</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Speed</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Hashcat</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Date</th>
+                            </tr>
+                            `}
+                        </thead>
+                        <tbody style="color: #ccc;">
+                            ${benchmarksHtml}
+                        </tbody>
+                    </table>
+
+                    <h4 style="color: #00d4ff; margin: 0 0 10px 0;">Recent Jobs</h4>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead style="background: rgba(0,212,255,0.1);">
+                            <tr>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Job ID</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Mode</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Avg Speed</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Cracked</th>
+                                <th style="padding: 8px 12px; text-align: left; color: #888;">Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody style="color: #ccc;">
+                            ${jobsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+            modal.focus();
+        }
+
+        // ============================================================
+        // Job Detail Modal
+        // ============================================================
+
+        let jobDetailModalInterval = null;
+
+        function showJobDetailModal(agentId) {
+            const agent = agents.find(a => a.id === agentId);
+            if (!agent || !agent.current_job) {
+                showNotification('No active job', 'info', 'This agent does not have a running job.');
+                return;
+            }
+
+            const existing = document.getElementById('job-detail-modal');
+            if (existing) {
+                clearInterval(jobDetailModalInterval);
+                existing.remove();
+            }
+
+            const modal = document.createElement('div');
+            modal.id = 'job-detail-modal';
+            modal.className = 'modal-overlay';
+            modal.tabIndex = -1;
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+
+            const closeModal = () => {
+                clearInterval(jobDetailModalInterval);
+                jobDetailModalInterval = null;
+                modal.remove();
+                document.body.focus();
+            };
+
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+            modal.onkeydown = (e) => { if (e.key === 'Escape') closeModal(); };
+
+            modal.innerHTML = `
+                <div class="modal-content" style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 650px; width: 95%; max-height: 90vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 1.2rem;">&#128202;</span> Live Job Status
+                            <span class="job-detail-live-indicator" style="font-size: 0.7rem; padding: 3px 8px; background: rgba(34, 197, 94, 0.2); color: #22c55e; border-radius: 12px; animation: pulse 2s infinite;">&#9679; LIVE</span>
+                        </h2>
+                        <button class="modal-close-btn" style="background: none; border: none; color: #999; font-size: 1.5rem; cursor: pointer; padding: 4px 8px;">&times;</button>
+                    </div>
+                    <div id="job-detail-content">
+                        ${renderJobDetailContent(agent)}
+                    </div>
+                    <div id="job-detail-buttons" style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="job-stop-btn" class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agentId}'); document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Stop Job</button>
+                        <button class="advanced-btn advanced-btn-secondary" onclick="document.getElementById('job-detail-modal')?.remove(); clearInterval(jobDetailModalInterval);">Close</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            modal.querySelector('.modal-close-btn').onclick = closeModal;
+            modal.focus();
+
+            jobDetailModalInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/agent/list');
+                    if (response.ok) {
+                        const data = await response.json();
+                        const updatedAgent = (data.agents || []).find(a => a.id === agentId);
+                        if (updatedAgent && updatedAgent.current_job) {
+                            const idx = agents.findIndex(a => a.id === agentId);
+                            if (idx >= 0) agents[idx] = updatedAgent;
+
+                            const contentEl = document.getElementById('job-detail-content');
+                            if (contentEl) {
+                                contentEl.innerHTML = renderJobDetailContent(updatedAgent);
+                            }
+                        } else {
+                            clearInterval(jobDetailModalInterval);
+                            const contentEl = document.getElementById('job-detail-content');
+                            if (contentEl) {
+                                contentEl.innerHTML = `
+                                    <div style="text-align: center; padding: 40px; color: #22c55e;">
+                                        <div style="font-size: 3rem; margin-bottom: 15px;">&#10003;</div>
+                                        <h3>Job Completed</h3>
+                                        <p style="color: #999;">The job has finished. Check <a href="/agents/history" style="color: #00d4ff;">job history</a> for results.</p>
+                                    </div>
+                                `;
+                            }
+                            const indicator = modal.querySelector('.job-detail-live-indicator');
+                            if (indicator) {
+                                indicator.textContent = 'COMPLETED';
+                                indicator.style.background = 'rgba(100,100,100,0.2)';
+                                indicator.style.color = '#999';
+                                indicator.style.animation = 'none';
+                            }
+                            const stopBtn = document.getElementById('job-stop-btn');
+                            if (stopBtn) stopBtn.style.display = 'none';
+                            loadAgentsFromServer();
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Failed to refresh job status:', err);
+                }
+            }, 2000);
+
+            log(`Opened live job monitor for ${agent.name || agentId}`, 'info');
+        }
+
+        function renderJobDetailContent(agent) {
+            const job = agent.current_job;
+            if (!job) return '<p style="color: #999;">No active job</p>';
+
+            const updatedAt = job.updated_at ? new Date(job.updated_at).toLocaleTimeString() : 'N/A';
+            const gpuTemps = job.gpu_temps || [];
+            const gpuUtils = job.gpu_utils || [];
+            const gpuSpeeds = job.gpu_speeds || [];
+
+            let elapsedStr = 'N/A';
+            if (job.time_start) {
+                const nowSecs = Math.floor(Date.now() / 1000);
+                const elapsedSecs = nowSecs - job.time_start;
+                if (elapsedSecs >= 0) {
+                    elapsedStr = formatDuration(elapsedSecs);
+                }
+            }
+
+            const numGpus = Math.max(gpuTemps.length, gpuUtils.length, gpuSpeeds.length);
+
+            return `
+                <div class="job-detail-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Job Information</h4>
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Job ID</span>
+                                <span style="color: #fff; font-family: monospace;">${job.job_id || 'N/A'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Status</span>
+                                <span style="color: ${job.status === 'running' ? '#22c55e' : '#f59e0b'};">${job.status || 'unknown'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Agent</span>
+                                <span style="color: #fff;">${agent.name || agent.id.substring(0, 8)}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Hashcat</span>
+                                <span style="color: #fff;">${job.hashcat_version || 'N/A'}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Last Update</span>
+                                <span style="color: #fff;">${updatedAt}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                        <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Progress</h4>
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.9rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Cracked</span>
+                                <span style="color: #22c55e; font-weight: bold;">${job.recovered_hashes || 0} / ${job.total_hashes || 0}</span>
+                            </div>
+                            ${job.mask_total > 1 ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Mask Progress</span>
+                                <span style="color: #f59e0b; font-weight: bold;">${job.mask_current || 1} of ${job.mask_total}</span>
+                            </div>
+                            ` : ''}
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Keyspace</span>
+                                <span style="color: #fff;">${(job.progress_percent || 0).toFixed(2)}%</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Elapsed Time</span>
+                                <span style="color: #fff;">${elapsedStr}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Est. Completion</span>
+                                <span style="color: #fff;">${job.eta_seconds ? formatEtaFromTimestamp(job.eta_seconds) : 'Calculating...'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Cracking Performance & GPU Monitors</h4>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <span style="color: #888; font-size: 0.9rem;">Total Speed</span>
+                        <span style="color: #fff; font-weight: bold; font-size: 1.1rem;">${formatSpeed(job.speed_hashes_per_sec)}</span>
+                    </div>
+                    ${numGpus > 0 ? `
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="color: #666; text-transform: uppercase; font-size: 0.75rem;">
+                                    <th style="text-align: left; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">GPU</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Speed</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Temp</th>
+                                    <th style="text-align: right; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">Util</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Array.from({length: numGpus}, (_, i) => {
+                                    const temp = gpuTemps[i];
+                                    const util = gpuUtils[i];
+                                    const speed = gpuSpeeds[i];
+                                    const tempColor = temp > 80 ? '#ef4444' : temp > 70 ? '#f59e0b' : '#22c55e';
+                                    return `
+                                        <tr>
+                                            <td style="padding: 8px 4px; color: #888;">GPU ${i}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: #fff;">${speed !== undefined ? formatSpeed(speed) : 'N/A'}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: ${tempColor};">${temp !== undefined ? temp + '°C' : 'N/A'}</td>
+                                            <td style="padding: 8px 4px; text-align: right; color: #888;">${util !== undefined ? util + '%' : 'N/A'}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    ` : `
+                        <div style="color: #666; font-size: 0.85rem;">GPU metrics not available yet</div>
+                    `}
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
+                        <span style="color: #888;">${job.mask_total > 1 ? `Mask ${job.mask_current || 1}/${job.mask_total} Progress` : 'Overall Progress'}</span>
+                        <span style="color: #fff; font-weight: bold;">${(job.progress_percent || 0).toFixed(2)}%</span>
+                    </div>
+                    <div style="height: 24px; background: rgba(0,0,0,0.4); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,212,255,0.2);">
+                        <div style="height: 100%; width: ${job.progress_percent || 0}%; background: linear-gradient(90deg, #00d4ff, #0064ff); transition: width 0.5s ease; display: flex; align-items: center; justify-content: center;">
+                            ${(job.progress_percent || 0) > 15 ? `<span style="color: #fff; font-size: 0.75rem; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${(job.progress_percent || 0).toFixed(1)}%</span>` : ''}
+                        </div>
+                    </div>
+                    ${job.mask_pattern ? `
+                    <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
+                        Current mask: <code style="color: #f59e0b; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${job.mask_pattern}</code>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // ============================================================
+        // Deploy Resources Modal
+        // ============================================================
+
+        const deployModalData = {
+            agentId: null,
+            agentName: null,
+            agentFreeSpace: 0,
+            categories: null,
+            selectedResources: new Set(),
+            cachedResourceIds: new Set(),
+            pendingWarning: null,
+            searchFilter: '',
+        };
+
+        async function openDeployModal(agentId, agentName, freeSpaceGb, cachedResourceIds = []) {
+            deployModalData.agentId = agentId;
+            deployModalData.agentName = agentName;
+            deployModalData.agentFreeSpace = freeSpaceGb;
+            deployModalData.selectedResources = new Set();
+            deployModalData.cachedResourceIds = new Set(cachedResourceIds);
+            deployModalData.pendingWarning = null;
+            deployModalData.searchFilter = '';
+
+            const modal = document.createElement('div');
+            modal.id = 'deploy-modal';
+            modal.className = 'modal-overlay';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            const cachedCount = deployModalData.cachedResourceIds.size;
+            modal.innerHTML = `
+                <div class="modal-content" style="background: #1a1a2e; border: 1px solid rgba(0,212,255,0.3); border-radius: 12px; padding: 24px; max-width: 800px; width: 95%; max-height: 90vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0; color: #00d4ff;">Deploy Resources to ${agentName}</h2>
+                        <button onclick="closeDeployModal()" style="background: none; border: none; color: #999; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <div style="background: rgba(0,100,200,0.1); border: 1px solid rgba(0,212,255,0.3); border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; color: #ccc;">
+                            <span>Agent Free Space:</span>
+                            <span style="color: ${freeSpaceGb < 50 ? '#ef4444' : freeSpaceGb < 200 ? '#f59e0b' : '#22c55e'}; font-weight: bold;">${freeSpaceGb.toFixed(1)} GB</span>
+                        </div>
+                        <div id="deploy-selected-size" style="display: flex; justify-content: space-between; color: #ccc; margin-top: 8px;">
+                            <span>Selected:</span>
+                            <span>0 files (0 GB)</span>
+                        </div>
+                        ${cachedCount > 0 ? `<div style="display: flex; justify-content: space-between; color: #ccc; margin-top: 8px;">
+                            <span>Already Deployed:</span>
+                            <span style="color: #22c55e;">${cachedCount} file(s)</span>
+                        </div>` : ''}
+                    </div>
+
+                    <div id="deploy-warning" style="display: none; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 8px; padding: 12px; margin-bottom: 20px; color: #fca5a5;"></div>
+
+                    <div style="margin-bottom: 16px;">
+                        <input type="text" id="deploy-search" placeholder="Search wordlists..." oninput="filterDeployResources(this.value)" style="width: 100%; padding: 10px 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: #fff; font-size: 0.9rem; box-sizing: border-box;">
+                    </div>
+
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: #ccc;">
+                            <input type="checkbox" id="deploy-include-rules" checked>
+                            <span>Include all rule files (recommended for cracking jobs)</span>
+                        </label>
+                    </div>
+
+                    <div id="deploy-categories" style="margin-bottom: 80px;">
+                        <div style="text-align: center; color: #888; padding: 40px;">Loading wordlists...</div>
+                    </div>
+
+                    <div style="position: sticky; bottom: -24px; background: #1a1a2e; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid rgba(255,255,255,0.1); padding: 16px 0; margin: 0 -24px -24px -24px; padding-left: 24px; padding-right: 24px;">
+                        <button class="advanced-btn advanced-btn-secondary" onclick="closeDeployModal()">Cancel</button>
+                        <button id="deploy-btn" class="advanced-btn advanced-btn-primary" onclick="deploySelectedResources()">Deploy Selected</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeDeployModal();
+            });
+
+            await loadDeployCategories();
+        }
+
+        function closeDeployModal() {
+            const modal = document.getElementById('deploy-modal');
+            if (modal) modal.remove();
+            deployModalData.pendingWarning = null;
+        }
+
+        async function loadDeployCategories() {
+            try {
+                const [categoriesRes, rulesRes] = await Promise.all([
+                    fetch('/api/resources/categories'),
+                    fetch('/api/resources/rules'),
+                ]);
+                const data = await categoriesRes.json();
+                const rulesData = await rulesRes.json();
+                deployModalData.categories = data;
+                renderDeployCategories(data);
+
+                const allRules = rulesData.resources || [];
+                const cachedIds = deployModalData.cachedResourceIds;
+                const allRulesDeployed = allRules.length > 0 && allRules.every(r => cachedIds.has(r.resource_id));
+                const rulesCheckbox = document.getElementById('deploy-include-rules');
+                if (rulesCheckbox && allRulesDeployed) {
+                    rulesCheckbox.checked = false;
+                }
+            } catch (error) {
+                document.getElementById('deploy-categories').innerHTML = `
+                    <div style="color: #ef4444; padding: 20px; text-align: center;">
+                        Failed to load wordlists: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderDeployCategories(data, searchFilter = '') {
+            const container = document.getElementById('deploy-categories');
+            const { categories, totals } = data;
+            const cachedIds = deployModalData.cachedResourceIds;
+            const filterLower = searchFilter.toLowerCase();
+
+            const categoryLabels = {
+                small: { label: 'Small', desc: '< 100 MB', color: '#22c55e' },
+                medium: { label: 'Medium', desc: '100 MB - 1 GB', color: '#3b82f6' },
+                large: { label: 'Large', desc: '1 - 10 GB', color: '#f59e0b' },
+                extra_large: { label: 'Extra Large', desc: '> 10 GB', color: '#ef4444' },
+            };
+
+            container.innerHTML = `
+                <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('small')" style="border-color: #22c55e;">Select Small (${totals.small.total_size_gb} GB)</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('medium')" style="border-color: #3b82f6;">Select Medium (${totals.medium.total_size_gb} GB)</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectCategory('small', 'medium')" style="border-color: #a855f7;">Select Small + Medium</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="selectAllResources()">Select All</button>
+                    <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="clearSelection()">Clear All</button>
+                </div>
+
+                ${Object.entries(categories).map(([cat, resources]) => {
+                    const info = categoryLabels[cat];
+                    const filteredResources = filterLower
+                        ? resources.filter(r => r.name.toLowerCase().includes(filterLower))
+                        : resources;
+                    if (filteredResources.length === 0) return '';
+                    return `
+                        <div style="margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                <span style="color: ${info.color}; font-weight: bold;">${info.label}</span>
+                                <span style="color: #888; font-size: 0.85rem;">(${info.desc})</span>
+                                <span style="color: #888; font-size: 0.85rem; margin-left: auto;">${filteredResources.length} files${filterLower ? ' matching' : ''}, ${totals[cat].total_size_gb} GB total</span>
+                            </div>
+                            <div style="display: grid; gap: 6px; max-height: 200px; overflow-y: auto; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px;">
+                                ${filteredResources.map(r => {
+                                    const isDeployed = cachedIds.has(r.resource_id);
+                                    return `
+                                    <label style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; background: ${isDeployed ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)'}; border-radius: 4px; cursor: pointer; ${isDeployed ? 'border: 1px solid rgba(34,197,94,0.3);' : ''}">
+                                        <input type="checkbox" class="deploy-checkbox" data-id="${r.resource_id}" data-size="${r.size_bytes}" data-name="${r.name}" onchange="updateDeploySelection()" ${isDeployed ? 'disabled' : ''}>
+                                        <span style="flex: 1; font-family: monospace; font-size: 0.85rem; color: ${isDeployed ? '#22c55e' : '#ccc'};">${r.name}</span>
+                                        ${isDeployed ? '<span style="color: #22c55e; font-size: 0.75rem; white-space: nowrap;">&#10003; Deployed</span>' : ''}
+                                        <span style="color: ${info.color}; font-size: 0.8rem; white-space: nowrap;">${r.size_mb < 1024 ? r.size_mb.toFixed(1) + ' MB' : r.size_gb.toFixed(2) + ' GB'}</span>
+                                    </label>
+                                `}).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            `;
+        }
+
+        function filterDeployResources(searchTerm) {
+            deployModalData.searchFilter = searchTerm;
+            if (deployModalData.categories) {
+                renderDeployCategories(deployModalData.categories, searchTerm);
+            }
+        }
+
+        function selectCategory(...cats) {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => {
+                if (cb.disabled) return;
+                const id = cb.dataset.id;
+                const resource = findResourceById(id);
+                if (resource && cats.includes(resource.category)) {
+                    cb.checked = true;
+                }
+            });
+            updateDeploySelection();
+        }
+
+        function selectAllResources() {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => {
+                if (!cb.disabled) cb.checked = true;
+            });
+            updateDeploySelection();
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.deploy-checkbox').forEach(cb => cb.checked = false);
+            updateDeploySelection();
+        }
+
+        function findResourceById(id) {
+            if (!deployModalData.categories) return null;
+            for (const [cat, resources] of Object.entries(deployModalData.categories.categories)) {
+                const found = resources.find(r => r.resource_id === id);
+                if (found) return { ...found, category: cat };
+            }
+            return null;
+        }
+
+        function updateDeploySelection() {
+            deployModalData.selectedResources = new Set();
+            let totalSize = 0;
+            let count = 0;
+
+            document.querySelectorAll('.deploy-checkbox:checked').forEach(cb => {
+                deployModalData.selectedResources.add(cb.dataset.id);
+                totalSize += parseInt(cb.dataset.size) || 0;
+                count++;
+            });
+
+            const totalGb = totalSize / (1024 ** 3);
+            document.getElementById('deploy-selected-size').innerHTML = `
+                <span>Selected:</span>
+                <span style="color: #00d4ff; font-weight: bold;">${count} files (${totalGb.toFixed(2)} GB)</span>
+            `;
+
+            const warningDiv = document.getElementById('deploy-warning');
+            const freeAfter = deployModalData.agentFreeSpace - totalGb;
+            const percentUsed = ((deployModalData.agentFreeSpace > 0) ? ((deployModalData.agentFreeSpace - freeAfter) / deployModalData.agentFreeSpace) * 100 : 100);
+
+            if (freeAfter < 0) {
+                warningDiv.style.display = 'block';
+                warningDiv.innerHTML = `
+                    <strong>&#9888; Not Enough Space!</strong><br>
+                    Selected files (${totalGb.toFixed(2)} GB) exceed available space (${deployModalData.agentFreeSpace.toFixed(1)} GB).
+                `;
+            } else if (percentUsed > 90 || freeAfter < 10) {
+                warningDiv.style.display = 'block';
+                warningDiv.innerHTML = `
+                    <strong>&#9888; Low Disk Space Warning</strong><br>
+                    After deployment, agent will have only ${freeAfter.toFixed(1)} GB free.
+                    You will be asked to confirm before proceeding.
+                `;
+            } else {
+                warningDiv.style.display = 'none';
+            }
+        }
+
+        async function deploySelectedResources(force = false) {
+            const resourceIds = Array.from(deployModalData.selectedResources);
+            if (resourceIds.length === 0) {
+                showNotification('No Selection', 'warning', 'Please select at least one wordlist to deploy.');
+                return;
+            }
+
+            const btn = document.getElementById('deploy-btn');
+            btn.disabled = true;
+            btn.textContent = 'Deploying...';
+
+            try {
+                const includeRules = document.getElementById('deploy-include-rules')?.checked ?? true;
+                const response = await fetch(`/api/agent/${deployModalData.agentId}/deploy-resources`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({
+                        resource_ids: resourceIds,
+                        force: force,
+                        include_rules: includeRules,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.requires_confirmation && !force) {
+                    deployModalData.pendingWarning = data.warning;
+                    if (confirm(`${data.warning}\n\nAre you sure you want to proceed?`)) {
+                        if (confirm('This is your final confirmation. The agent may run out of disk space. Continue?')) {
+                            await deploySelectedResources(true);
+                            return;
+                        }
+                    }
+                    btn.disabled = false;
+                    btn.textContent = 'Deploy Selected';
+                    return;
+                }
+
+                if (data.success) {
+                    let msg = `${data.queued} resource(s) (${data.total_size_gb} GB) queued for sync to ${deployModalData.agentName}.`;
+                    if (data.rules_added > 0) {
+                        msg += ` (includes ${data.rules_added} rule file(s) auto-added)`;
+                    }
+                    showNotification('Deployment Queued', 'success', msg);
+                    closeDeployModal();
+                } else if (data.error) {
+                    showNotification('Deployment Failed', 'error', data.error);
+                }
+            } catch (error) {
+                showNotification('Error', 'error', `Failed to deploy: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Deploy Selected';
+            }
+        }
+
+        // ============================================================
+        // Auto-Refresh
+        // ============================================================
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) return;
+
+            autoRefreshInterval = setInterval(async () => {
+                await refreshAgentStatusQuiet();
+            }, AUTO_REFRESH_INTERVAL);
+
+            log('Agent auto-refresh enabled (10s)', 'info');
+        }
+
+        async function refreshAgentStatusQuiet() {
+            try {
+                const response = await fetch('/api/agent/list');
+                if (response.ok) {
+                    const data = await response.json();
+                    const newAgents = data.agents || [];
+                    agents = newAgents;
+                    updateAgentCards();
+                    await updateRunningBenchmarks();
+                    updateActiveJobs();
+
+                    if (agents.some(a => a.current_job) && !jobPollingInterval) {
+                        startJobPolling();
+                    }
+                }
+            } catch (error) {
+                console.warn('Auto-refresh failed:', error);
+            }
+        }
+
+        function updateAgentCards() {
+            agents.forEach(agent => {
+                const card = document.getElementById(`card-${agent.id}`);
+                if (!card) return;
+
+                const statusBadge = card.querySelector('.agent-status-badge');
+                if (statusBadge) {
+                    const statusClass = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                    const statusLabel = agent.status === 'working' ? 'busy' : (agent.status === 'online' ? 'online' : 'offline');
+                    statusBadge.className = `agent-status-badge ${statusClass}`;
+                    statusBadge.textContent = statusLabel;
+                }
+
+                const infoRows = card.querySelectorAll('.agent-info-row');
+                infoRows.forEach(row => {
+                    if (row.textContent.includes('Last Seen:')) {
+                        row.querySelector('span:last-child').textContent = formatLastSeen(agent.last_heartbeat);
+                    }
+                });
+
+                const job = agent.current_job;
+                let jobInfo = card.querySelector('.agent-job-info');
+
+                if (job) {
+                    if (!jobInfo) {
+                        const actions = card.querySelector('.agent-actions');
+                        jobInfo = document.createElement('div');
+                        jobInfo.className = 'agent-job-info';
+                        jobInfo.style.cursor = 'pointer';
+                        jobInfo.title = 'Click for detailed job status';
+                        jobInfo.onclick = () => showJobDetailModal(agent.id);
+                        actions.parentNode.insertBefore(jobInfo, actions);
+                    }
+
+                    jobInfo.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span>Job: ${job.job_id || 'N/A'}</span>
+                            <span>${job.status || 'running'}</span>
+                        </div>
+                        <div class="agent-progress-bar">
+                            <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #999; margin-bottom: 4px;">
+                            <span>${(job.progress_percent || 0).toFixed(1)}%${job.mask_total > 1 ? ` (Mask ${job.mask_current || 1}/${job.mask_total})` : ''}</span>
+                            <span>${formatSpeed(job.speed_hashes_per_sec)}</span>
+                            <span>${job.recovered_hashes || 0}/${job.total_hashes || 0} cracked</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #777;">
+                            ${job.gpu_temps && job.gpu_temps.length > 0 ? `<span title="GPU Temperature">&#127777;&#65039; ${formatGpuTemps(job.gpu_temps)}</span>` : ''}
+                            ${job.eta_seconds ? `<span title="Estimated Time Remaining">&#9201;&#65039; ${formatEtaFromTimestamp(job.eta_seconds)}</span>` : ''}
+                            <span style="color: #00d4ff; font-size: 0.7rem;">&#9654; Click for details</span>
+                        </div>
+                    `;
+                } else if (jobInfo) {
+                    jobInfo.remove();
+                }
+            });
+        }
+
+        async function updateRunningBenchmarks() {
+            for (const agent of agents) {
+                const agentId = agent.id;
+                try {
+                    const response = await fetch(`/api/agent/${agentId}/benchmark/status`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        const prevStatus = agentBenchmarkStatus[agentId];
+                        agentBenchmarkStatus[agentId] = data;
+
+                        if (data.benchmark_run) {
+                            if (data.benchmark_run.status === 'running') {
+                                runningBenchmarks.add(agentId);
+                                updateBenchmarkRunIndicator(agentId, 'running', data.benchmark_run.total_modes || 11);
+                            } else if (data.benchmark_run.status === 'completed') {
+                                if (runningBenchmarks.has(agentId)) {
+                                    runningBenchmarks.delete(agentId);
+                                    updateBenchmarkRunIndicator(agentId, 'completed');
+                                    showNotification('Benchmark Complete', 'success', `Benchmark for agent ${agent.name || agentId} completed successfully.`);
+                                }
+                            }
+                        } else if (runningBenchmarks.has(agentId)) {
+                            runningBenchmarks.delete(agentId);
+                            updateBenchmarkRunIndicator(agentId, 'completed');
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`Failed to check benchmark status for ${agentId}:`, error);
+                }
+            }
+        }
+
+        // ============================================================
+        // Initialization
+        // ============================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            startAutoRefresh();
+            loadAgentsFromServer();
+            loadPendingRegistrations();
+            loadServerAgentVersion();
+            loadMasterPotfileCount();
+        });
+    </script>
+
+</body>
+</html>

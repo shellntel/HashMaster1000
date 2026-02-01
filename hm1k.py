@@ -9967,8 +9967,29 @@ def ai_benchmark_page() -> str:
 @app.route("/agents/test")
 @login_required
 def agents_test_page() -> str:
-    """Hashcat Agent Testing Page - pre-production testing interface."""
-    return render_template("agents_test.html")
+    """Hashcat Agent Dashboard - agent status and active jobs monitoring."""
+    return render_template("agents_dashboard.html")
+
+
+@app.route("/agents/submit")
+@login_required
+def agents_submit_page() -> str:
+    """Hashcat Agent Job Submission - submit test jobs to agents."""
+    return render_template("agents_submit.html")
+
+
+@app.route("/agents/lm2nt")
+@login_required
+def agents_lm2nt_page() -> str:
+    """LM to NTLM Workflow - convert LM hashes to NTLM."""
+    return render_template("agents_lm2nt.html")
+
+
+@app.route("/agents/history")
+@login_required
+def agents_history_page() -> str:
+    """Job History - view completed and failed job results."""
+    return render_template("agents_history.html")
 
 
 @app.route("/agents/jobs")
