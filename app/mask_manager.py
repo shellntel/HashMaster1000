@@ -5,22 +5,15 @@ Manages hashcat masks with:
 - Keyspace calculation
 - Crack time estimation based on benchmark data
 - Mask groups for organizing related masks
-- JSON storage with fcntl locking for multi-worker safety
+- SQLite storage for multi-worker safety
 """
 
-import fcntl
-import json
 import logging
-import os
-import re
-import shutil
-import tempfile
-import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, Generator
+from typing import Optional
+
+from .mask_db import get_mask_db, MaskDB
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +147,7 @@ class MaskManager:
     """
     Manages hashcat masks and mask groups.
 
-    Stores masks in a JSON file with fcntl locking for multi-worker safety.
+    Uses SQLite for storage via MaskDB for multi-worker safety.
     Integrates with PerformanceTracker for crack time estimation.
     """
 
@@ -166,111 +159,9 @@ class MaskManager:
             data_dir: Base data directory
             performance_tracker: Optional PerformanceTracker for crack time estimation
         """
-        self.data_dir = Path(data_dir)
-        self.masks_dir = self.data_dir / "agents"
-        self.masks_file = self.masks_dir / "masks.json"
-        self.lock_file = self.masks_dir / "masks.json.lock"
-        self.backup_file = self.masks_dir / "masks.json.bak"
+        self.data_dir = data_dir
+        self.db: MaskDB = get_mask_db(data_dir)
         self.performance_tracker = performance_tracker
-        self.masks_dir.mkdir(parents=True, exist_ok=True)
-        self._ensure_file()
-
-    @contextmanager
-    def _file_lock(self, exclusive: bool = False) -> Generator[None, None, None]:
-        """
-        Context manager for file locking using a separate lock file.
-
-        This prevents the race condition where opening the data file with "w"
-        truncates it before the lock is acquired.
-
-        Args:
-            exclusive: If True, acquire exclusive lock for writing. Otherwise shared lock for reading.
-        """
-        # Create lock file if it doesn't exist
-        self.lock_file.touch(exist_ok=True)
-
-        lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-        with open(self.lock_file, "r") as lock_f:
-            fcntl.flock(lock_f.fileno(), lock_type)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
-
-    def _ensure_file(self) -> None:
-        """Create masks file if it doesn't exist."""
-        if not self.masks_file.exists():
-            self._save_data({
-                "version": 1,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "masks": [],
-                "groups": [],
-            })
-
-    def _load_data(self) -> dict:
-        """Load masks data with file locking."""
-        with self._file_lock(exclusive=False):
-            try:
-                with open(self.masks_file, "r") as f:
-                    data = json.load(f)
-                    # Validate structure
-                    if "masks" not in data or "groups" not in data:
-                        logger.warning("Invalid masks.json structure, returning empty data")
-                        return self._empty_data()
-                    return data
-            except FileNotFoundError:
-                logger.info("masks.json not found, returning empty data")
-                return self._empty_data()
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error in masks.json: {e}, returning empty data")
-                return self._empty_data()
-
-    def _empty_data(self) -> dict:
-        """Return empty data structure."""
-        return {
-            "version": 1,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "masks": [],
-            "groups": [],
-        }
-
-    def _save_data(self, data: dict) -> None:
-        """
-        Save masks data with file locking and atomic write.
-
-        Uses a lock file to coordinate access and writes to a temp file
-        then renames for atomicity.
-        """
-        with self._file_lock(exclusive=True):
-            data["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-            # Create backup of existing file before writing
-            if self.masks_file.exists():
-                try:
-                    shutil.copy2(self.masks_file, self.backup_file)
-                except Exception as e:
-                    logger.warning(f"Failed to create backup: {e}")
-
-            # Write to temp file then rename for atomicity
-            try:
-                fd, temp_path = tempfile.mkstemp(
-                    dir=self.masks_dir,
-                    prefix="masks_",
-                    suffix=".json.tmp"
-                )
-                try:
-                    with os.fdopen(fd, "w") as f:
-                        json.dump(data, f, indent=2)
-                    # Atomic rename
-                    os.rename(temp_path, self.masks_file)
-                except Exception:
-                    # Clean up temp file on error
-                    if os.path.exists(temp_path):
-                        os.unlink(temp_path)
-                    raise
-            except Exception as e:
-                logger.error(f"Failed to save masks.json: {e}")
-                raise
 
     @staticmethod
     def calculate_keyspace(pattern: str, custom_charsets: Optional[dict[str, str]] = None) -> int:
@@ -431,19 +322,30 @@ class MaskManager:
         if not is_valid:
             return None, error
 
-        # Check for duplicates
-        data = self._load_data()
-        for existing in data["masks"]:
-            if existing["pattern"] == pattern:
-                if existing.get("custom_charsets", {}) == custom_charsets:
-                    return None, f"Mask '{pattern}' already exists"
+        # Calculate properties
+        length = self.calculate_mask_length(pattern)
+        keyspace = self.calculate_keyspace(pattern, custom_charsets)
 
-        # Create mask
-        mask = Mask(
-            mask_id=f"mask_{uuid.uuid4().hex[:12]}",
+        # Add to database
+        mask_id, error = self.db.add_mask(
             pattern=pattern,
-            length=self.calculate_mask_length(pattern),
-            keyspace=self.calculate_keyspace(pattern, custom_charsets),
+            length=length,
+            keyspace=keyspace,
+            description=description,
+            tags=tags,
+            custom_charsets=custom_charsets,
+            created_by=created_by,
+        )
+
+        if mask_id is None:
+            return None, error
+
+        # Return mask object
+        mask = Mask(
+            mask_id=mask_id,
+            pattern=pattern,
+            length=length,
+            keyspace=keyspace,
             description=description,
             tags=tags,
             custom_charsets=custom_charsets,
@@ -451,11 +353,7 @@ class MaskManager:
             created_by=created_by,
         )
 
-        # Save
-        data["masks"].append(mask.to_dict())
-        self._save_data(data)
-
-        logger.info(f"Added mask {mask.mask_id}: {pattern} (keyspace: {mask.keyspace})")
+        logger.info(f"Added mask {mask_id}: {pattern} (keyspace: {keyspace})")
         return mask, ""
 
     def add_masks_bulk(
@@ -497,11 +395,10 @@ class MaskManager:
 
     def get_mask(self, mask_id: str) -> Optional[Mask]:
         """Get a mask by ID."""
-        data = self._load_data()
-        for mask_data in data["masks"]:
-            if mask_data["mask_id"] == mask_id:
-                return Mask.from_dict(mask_data)
-        return None
+        data = self.db.get_mask(mask_id)
+        if data is None:
+            return None
+        return Mask.from_dict(data)
 
     def update_mask(
         self,
@@ -520,20 +417,11 @@ class MaskManager:
         Returns:
             Tuple of (updated Mask or None, error_message)
         """
-        data = self._load_data()
+        success, error = self.db.update_mask(mask_id, description, tags)
+        if not success:
+            return None, error
 
-        for i, mask_data in enumerate(data["masks"]):
-            if mask_data["mask_id"] == mask_id:
-                if description is not None:
-                    mask_data["description"] = description
-                if tags is not None:
-                    mask_data["tags"] = tags
-
-                data["masks"][i] = mask_data
-                self._save_data(data)
-                return Mask.from_dict(mask_data), ""
-
-        return None, f"Mask not found: {mask_id}"
+        return self.get_mask(mask_id), ""
 
     def delete_mask(self, mask_id: str) -> tuple[bool, str]:
         """
@@ -545,28 +433,21 @@ class MaskManager:
         Returns:
             Tuple of (success, error_message)
         """
-        data = self._load_data()
-
-        # Remove from masks list
-        original_count = len(data["masks"])
-        data["masks"] = [m for m in data["masks"] if m["mask_id"] != mask_id]
-
-        if len(data["masks"]) == original_count:
-            return False, f"Mask not found: {mask_id}"
-
-        # Remove from any groups
-        for group in data["groups"]:
-            if mask_id in group.get("mask_ids", []):
-                group["mask_ids"].remove(mask_id)
-
-        self._save_data(data)
-        logger.info(f"Deleted mask {mask_id}")
-        return True, ""
+        return self.db.delete_mask(mask_id)
 
     def list_masks(self) -> list[Mask]:
         """List all masks."""
-        data = self._load_data()
-        return [Mask.from_dict(m) for m in data["masks"]]
+        masks_data = self.db.get_all_masks()
+        return [Mask.from_dict(m) for m in masks_data]
+
+    def get_all_masks(self) -> list[Mask]:
+        """Alias for list_masks."""
+        return self.list_masks()
+
+    def get_ungrouped_masks(self) -> list[Mask]:
+        """Get masks that are not in any group."""
+        masks_data = self.db.get_ungrouped_masks()
+        return [Mask.from_dict(m) for m in masks_data]
 
     def get_masks_by_length(self) -> dict[int, list[Mask]]:
         """
@@ -575,19 +456,16 @@ class MaskManager:
         Returns:
             Dict mapping length to list of masks, sorted by length
         """
-        masks = self.list_masks()
-        grouped: dict[int, list[Mask]] = {}
+        masks_by_length = self.db.get_masks_by_length()
+        result: dict[int, list[Mask]] = {}
 
-        for mask in masks:
-            if mask.length not in grouped:
-                grouped[mask.length] = []
-            grouped[mask.length].append(mask)
+        for length, masks_data in masks_by_length.items():
+            masks = [Mask.from_dict(m) for m in masks_data]
+            # Sort by keyspace
+            masks.sort(key=lambda m: m.keyspace)
+            result[length] = masks
 
-        # Sort masks within each group by keyspace
-        for length in grouped:
-            grouped[length].sort(key=lambda m: m.keyspace)
-
-        return dict(sorted(grouped.items()))
+        return dict(sorted(result.items()))
 
     def parse_mask_input(self, content: str) -> list[str]:
         """
@@ -637,6 +515,8 @@ class MaskManager:
         Returns:
             Tuple of (list of mask patterns, dict of custom charsets)
         """
+        import json
+
         content = content.strip()
 
         # Try JSON format first
@@ -706,21 +586,18 @@ class MaskManager:
         if custom_charsets is None:
             custom_charsets = {}
 
-        data = self._load_data()
+        group_id, error = self.db.create_group(
+            name=name,
+            description=description,
+            mask_ids=mask_ids,
+            custom_charsets=custom_charsets,
+        )
 
-        # Check for duplicate names
-        for group in data["groups"]:
-            if group["name"].lower() == name.lower():
-                return None, f"Group '{name}' already exists"
-
-        # Verify mask IDs exist
-        existing_ids = {m["mask_id"] for m in data["masks"]}
-        invalid_ids = [mid for mid in mask_ids if mid not in existing_ids]
-        if invalid_ids:
-            return None, f"Invalid mask IDs: {', '.join(invalid_ids)}"
+        if group_id is None:
+            return None, error
 
         group = MaskGroup(
-            group_id=f"grp_{uuid.uuid4().hex[:12]}",
+            group_id=group_id,
             name=name,
             description=description,
             mask_ids=mask_ids,
@@ -728,19 +605,21 @@ class MaskManager:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
-        data["groups"].append(group.to_dict())
-        self._save_data(data)
-
-        logger.info(f"Created group {group.group_id}: {name}")
+        logger.info(f"Created group {group_id}: {name}")
         return group, ""
 
     def get_group(self, group_id: str) -> Optional[MaskGroup]:
         """Get a group by ID."""
-        data = self._load_data()
-        for group_data in data["groups"]:
-            if group_data["group_id"] == group_id:
-                return MaskGroup.from_dict(group_data)
-        return None
+        data = self.db.get_group(group_id)
+        if data is None:
+            return None
+
+        # Get mask IDs
+        full_data = self.db.get_group_with_masks(group_id)
+        if full_data:
+            data['mask_ids'] = full_data.get('mask_ids', [])
+
+        return MaskGroup.from_dict(data)
 
     def update_group(
         self,
@@ -763,39 +642,23 @@ class MaskManager:
         Returns:
             Tuple of (updated MaskGroup or None, error_message)
         """
-        data = self._load_data()
+        if name is not None:
+            name = name.strip()
+            if not name:
+                return None, "Group name cannot be empty"
 
-        for i, group_data in enumerate(data["groups"]):
-            if group_data["group_id"] == group_id:
-                if name is not None:
-                    name = name.strip()
-                    if not name:
-                        return None, "Group name cannot be empty"
-                    # Check for duplicate names (excluding self)
-                    for other in data["groups"]:
-                        if other["group_id"] != group_id and other["name"].lower() == name.lower():
-                            return None, f"Group '{name}' already exists"
-                    group_data["name"] = name
+        success, error = self.db.update_group(
+            group_id=group_id,
+            name=name,
+            description=description,
+            mask_ids=mask_ids,
+            custom_charsets=custom_charsets,
+        )
 
-                if description is not None:
-                    group_data["description"] = description
+        if not success:
+            return None, error
 
-                if mask_ids is not None:
-                    # Verify mask IDs exist
-                    existing_ids = {m["mask_id"] for m in data["masks"]}
-                    invalid_ids = [mid for mid in mask_ids if mid not in existing_ids]
-                    if invalid_ids:
-                        return None, f"Invalid mask IDs: {', '.join(invalid_ids)}"
-                    group_data["mask_ids"] = mask_ids
-
-                if custom_charsets is not None:
-                    group_data["custom_charsets"] = custom_charsets
-
-                data["groups"][i] = group_data
-                self._save_data(data)
-                return MaskGroup.from_dict(group_data), ""
-
-        return None, f"Group not found: {group_id}"
+        return self.get_group(group_id), ""
 
     def delete_group(self, group_id: str) -> tuple[bool, str]:
         """
@@ -807,22 +670,12 @@ class MaskManager:
         Returns:
             Tuple of (success, error_message)
         """
-        data = self._load_data()
-
-        original_count = len(data["groups"])
-        data["groups"] = [g for g in data["groups"] if g["group_id"] != group_id]
-
-        if len(data["groups"]) == original_count:
-            return False, f"Group not found: {group_id}"
-
-        self._save_data(data)
-        logger.info(f"Deleted group {group_id}")
-        return True, ""
+        return self.db.delete_group(group_id)
 
     def list_groups(self) -> list[MaskGroup]:
         """List all groups."""
-        data = self._load_data()
-        return [MaskGroup.from_dict(g) for g in data["groups"]]
+        groups_data = self.db.get_all_groups()
+        return [MaskGroup.from_dict(g) for g in groups_data]
 
     def get_group_with_masks(self, group_id: str) -> Optional[tuple[MaskGroup, list[Mask]]]:
         """
@@ -834,15 +687,19 @@ class MaskManager:
         Returns:
             Tuple of (group, list of masks) or None
         """
-        group = self.get_group(group_id)
-        if not group:
+        data = self.db.get_group_with_masks(group_id)
+        if data is None:
             return None
 
-        masks = []
-        for mask_id in group.mask_ids:
-            mask = self.get_mask(mask_id)
-            if mask:
-                masks.append(mask)
+        masks = [Mask.from_dict(m) for m in data.get('masks', [])]
+        group = MaskGroup(
+            group_id=data['group_id'],
+            name=data['name'],
+            description=data['description'],
+            mask_ids=data.get('mask_ids', []),
+            custom_charsets=data['custom_charsets'],
+            created_at=data['created_at'],
+        )
 
         return group, masks
 
@@ -903,9 +760,6 @@ class MaskManager:
         Returns:
             Dict with mask count, group count, and fastest NTLM speed
         """
-        data = self._load_data()
-        return {
-            "mask_count": len(data["masks"]),
-            "group_count": len(data["groups"]),
-            "fastest_ntlm_speed": self.get_fastest_ntlm_speed(),
-        }
+        stats = self.db.get_stats()
+        stats["fastest_ntlm_speed"] = self.get_fastest_ntlm_speed()
+        return stats
