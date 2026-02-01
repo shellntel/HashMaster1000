@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hm1k-agent"
-version = "0.1.32"
+version = "0.1.33"
 description = "Hashcat cracking agent for Hash Master 1000"
 readme = "README.md"
 license = "CC-BY-NC-4.0"

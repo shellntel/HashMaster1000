@@ -463,8 +463,8 @@ class HashcatRunner:
                 # Non-JSON output - capture for error reporting
                 with self._output_lock:
                     self._output_lines.append(line)
-                    # Limit to last 500 lines to prevent memory issues
-                    if len(self._output_lines) > 500:
+                    # Limit to last 2000 lines to prevent memory issues
+                    if len(self._output_lines) > 2000:
                         self._output_lines.pop(0)
                 logger.debug(f"Hashcat output: {line}")
 
