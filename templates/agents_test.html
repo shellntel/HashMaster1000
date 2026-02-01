@@ -3046,8 +3046,18 @@
                 const crackRate = total > 0 ? (recovered / total * 100) : 0;
                 const duration = formatDuration(stats.duration_seconds);
                 const completedAt = formatCompletedAt(job.completed_at);
-                const state = stats.state || 'unknown';
+                const baseState = stats.state || 'unknown';
                 const hasPotfile = job.potfile && job.potfile.trim();
+                const warnings = stats.warnings || [];
+                const hasError = stats.error_message || job.error_info;
+
+                // Determine display state based on warnings and errors
+                let state = baseState;
+                if (baseState === 'completed' && warnings.length > 0) {
+                    state = 'warning';
+                } else if (baseState === 'failed' || hasError) {
+                    state = 'failed';
+                }
 
                 // Determine crack rate color class
                 let rateClass = 'none';
@@ -3062,7 +3072,7 @@
                         <td>${total.toLocaleString()}</td>
                         <td>${duration}</td>
                         <td>${completedAt}</td>
-                        <td><span class="job-status-badge ${state}">${state}</span></td>
+                        <td><span class="job-status-badge ${state}">${state.toUpperCase()}</span></td>
                     </tr>
                     <tr class="job-details-row" id="job-details-${index}">
                         <td colspan="6" class="job-details-cell">
@@ -3079,6 +3089,14 @@
                                 <div style="grid-column: 1 / -1;">
                                     <strong style="color: #00d4ff;">Hashcat Command:</strong><br>
                                     <code style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap;">hashcat ${job.hashcat_args.join(' ')}</code>
+                                </div>
+                                ` : ''}
+                                ${warnings.length > 0 ? `
+                                <div style="grid-column: 1 / -1;">
+                                    <strong style="color: #fbbf24;">Warnings:</strong>
+                                    <ul style="margin: 4px 0 0 20px; padding: 0; color: #fbbf24;">
+                                        ${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                                    </ul>
                                 </div>
                                 ` : ''}
                                 ${stats.error_message ? `

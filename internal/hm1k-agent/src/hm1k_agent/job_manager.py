@@ -616,6 +616,9 @@ class JobManager:
         # Get hashcat output logs - useful for debugging issues
         logs = self.hashcat.get_output_logs(max_lines=100)
 
+        # Detect warnings/errors in hashcat output
+        warnings = self._detect_hashcat_warnings(logs, job, duration)
+
         stats = {
             "state": job.state.value,
             "recovered": job.recovered,
@@ -623,6 +626,7 @@ class JobManager:
             "duration_seconds": duration,
             "error_message": job.error_message,
             "hashcat_logs": logs,
+            "warnings": warnings,
         }
 
         try:
@@ -651,6 +655,42 @@ class JobManager:
 
         # Report performance metrics
         self._report_performance_metrics(job, duration)
+
+    def _detect_hashcat_warnings(self, logs: str, job: "Job", duration: float) -> list[str]:
+        """Detect warnings and issues in hashcat output."""
+        warnings = []
+        logs_lower = logs.lower()
+
+        # Common hashcat error patterns
+        error_patterns = [
+            ("no hashes loaded", "No hashes loaded - check hash file format"),
+            ("separator unmatched", "Separator unmatched - invalid hash format"),
+            ("line-length exception", "Line-length exception - hash format error"),
+            ("token length exception", "Token length exception - hash format error"),
+            ("salt-length exception", "Salt-length exception - hash format error"),
+            ("signature unmatched", "Signature unmatched - wrong hash type"),
+            ("hashfile corrupt", "Hash file corrupt or invalid"),
+            ("cannot open wordlist", "Cannot open wordlist file"),
+            ("cannot open mask", "Cannot open mask file"),
+        ]
+
+        for pattern, message in error_patterns:
+            if pattern in logs_lower:
+                warnings.append(message)
+
+        # Check for suspicious completion (very short with 0 cracks)
+        # Only flag if we expected to crack something (had hashes)
+        if job.total_hashes and job.total_hashes > 0:
+            if job.recovered == 0 and duration < 30:
+                # Very short job with 0 cracks - might be an issue
+                if "exhausted" not in logs_lower and "all hashes found" not in logs_lower:
+                    warnings.append("Job completed very quickly with 0 cracks - check for issues")
+
+        # Check for CUDA/driver warnings (not necessarily fatal but worth noting)
+        if "cuda sdk toolkit not installed" in logs_lower:
+            warnings.append("CUDA SDK not installed - using OpenCL fallback")
+
+        return warnings
 
     def _report_performance_metrics(self, job: Job, duration: float) -> None:
         """Report job performance metrics to server."""

@@ -14621,6 +14621,7 @@ body.matrix-mode .matrix-trigger {
 .job-status-badge.completed { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
 .job-status-badge.failed { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
 .job-status-badge.cancelled { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+.job-status-badge.warning { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
 
 .job-history-empty {
     text-align: center;
