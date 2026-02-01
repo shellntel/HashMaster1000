@@ -990,6 +990,15 @@
                     body: JSON.stringify(payload)
                 });
 
+                // Check if response is JSON before parsing
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    log(`Server returned non-JSON response (HTTP ${response.status}): ${text.substring(0, 200)}...`, 'error');
+                    showNotification('Server error', 'error', `HTTP ${response.status} - Server returned HTML instead of JSON. Check server logs.`);
+                    return;
+                }
+
                 const data = await response.json();
 
                 if (response.ok && data.success) {
@@ -1001,6 +1010,7 @@
                 }
             } catch (error) {
                 log(`Error submitting job: ${error.message}`, 'error');
+                showNotification('Job submission error', 'error', error.message);
             }
         }
 
