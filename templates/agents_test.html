@@ -2025,13 +2025,30 @@
                 // Generate mask file content from group
                 const lines = [];
 
+                // Collect custom charsets - first from group, then from individual masks
+                let charsets = selectedGroupData.custom_charsets || {};
+
+                // If group doesn't have charsets, collect from individual masks
+                if (Object.keys(charsets).length === 0 && selectedGroupData.masks) {
+                    selectedGroupData.masks.forEach(mask => {
+                        if (mask.custom_charsets) {
+                            Object.entries(mask.custom_charsets).forEach(([key, value]) => {
+                                if (!charsets[key]) {
+                                    charsets[key] = value;
+                                }
+                            });
+                        }
+                    });
+                }
+
                 // Add charset definitions at the top
-                if (selectedGroupData.custom_charsets && Object.keys(selectedGroupData.custom_charsets).length > 0) {
+                if (Object.keys(charsets).length > 0) {
                     lines.push('# Custom Charsets');
-                    Object.entries(selectedGroupData.custom_charsets).sort((a, b) => a[0].localeCompare(b[0])).forEach(([key, value]) => {
+                    Object.entries(charsets).sort((a, b) => a[0].localeCompare(b[0])).forEach(([key, value]) => {
                         lines.push(`?${key}=${value}`);
                     });
                     lines.push('');
+                    log(`Including ${Object.keys(charsets).length} custom charset(s)`, 'info');
                 }
 
                 // Add mask patterns
