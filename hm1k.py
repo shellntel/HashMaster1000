@@ -11078,17 +11078,17 @@ def agent_job_history() -> Response:
                 # Truncate large error logs
                 if not include_potfile and error_data.get("logs"):
                     logs = error_data["logs"]
-                    if len(logs) > 2000:
-                        error_data["logs"] = logs[:2000] + "\n... (truncated)"
+                    if len(logs) > 20000:
+                        error_data["logs"] = logs[:20000] + "\n... (truncated)"
                 job_data["error_info"] = error_data
 
             # Also include hashcat_logs from stats if present (useful for debugging issues)
             stats = job_data.get("stats", {})
             hashcat_logs = stats.get("hashcat_logs", "")
             if hashcat_logs:
-                # Truncate if needed
-                if not include_potfile and len(hashcat_logs) > 2000:
-                    hashcat_logs = hashcat_logs[:2000] + "\n... (truncated)"
+                # Truncate if needed (20KB should capture most useful output)
+                if not include_potfile and len(hashcat_logs) > 20000:
+                    hashcat_logs = hashcat_logs[:20000] + "\n... (truncated)"
                 job_data["hashcat_logs"] = hashcat_logs
 
             jobs.append(job_data)
