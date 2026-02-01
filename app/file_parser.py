@@ -2340,3 +2340,371 @@ def dict_to_add_result(data: dict) -> ADDValidationResult:
         unique_domains=data.get("unique_domains", []),
         raw_users=data.get("raw_users", [])  # Restore for Kerberoast analysis
     )
+
+
+# =============================================================================
+# Hash Content Preprocessing for Cracking Jobs
+# =============================================================================
+
+@dataclass
+class HashPreprocessResult:
+    """Result of preprocessing hash content for a cracking job."""
+    hash_content: str  # Cleaned hash content (one hash per line)
+    hash_count: int  # Number of valid hashes extracted
+    original_lines: int  # Total lines in original content
+    skipped_invalid: int  # Lines skipped due to invalid format
+    skipped_empty_hash: int  # Lines skipped due to empty hash field
+    format_detected: str  # "pwdump", "add_json", or "plain"
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dict."""
+        return {
+            "hash_count": self.hash_count,
+            "original_lines": self.original_lines,
+            "skipped_invalid": self.skipped_invalid,
+            "skipped_empty_hash": self.skipped_empty_hash,
+            "format_detected": self.format_detected,
+            "warnings": self.warnings,
+        }
+
+
+def detect_content_format(content: str) -> str:
+    """
+    Detect the format of hash file content.
+
+    Args:
+        content: Raw file content as string
+
+    Returns:
+        Format string: "add_json", "pwdump", or "plain"
+    """
+    content = content.strip()
+
+    # Check for ADD JSON format
+    if content.startswith('{'):
+        try:
+            data = json.loads(content)
+            if isinstance(data.get("Users"), list):
+                return "add_json"
+        except json.JSONDecodeError:
+            pass
+
+    # Check for pwdump format (user:rid:lm:nt:::)
+    # Sample a few lines to detect
+    lines = content.split('\n')[:10]
+    pwdump_matches = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Remove status suffix if present
+        clean_line, _ = extract_status_suffix(line)
+        parts = clean_line.split(':')
+        if len(parts) >= 7:
+            # Check if fields 2 and 3 look like hashes (32 hex chars or empty)
+            lm_field = parts[2]
+            nt_field = parts[3]
+            if (is_valid_hash(lm_field) or lm_field == "") and \
+               (is_valid_hash(nt_field) or nt_field == ""):
+                pwdump_matches += 1
+
+    if pwdump_matches >= 2 or (pwdump_matches >= 1 and len(lines) <= 3):
+        return "pwdump"
+
+    # Default to plain hash list
+    return "plain"
+
+
+def preprocess_hash_content(
+    content: str,
+    hash_mode: int,
+    include_usernames: bool = False
+) -> HashPreprocessResult:
+    """
+    Preprocess hash file content for a cracking job.
+
+    Detects the input format (pwdump, ADD JSON, plain) and extracts
+    the appropriate hashes based on the hash mode.
+
+    Args:
+        content: Raw hash file content
+        hash_mode: Hashcat mode (1000=NTLM, 3000=LM, etc.)
+        include_usernames: If True, output user:hash format for pwdump input
+
+    Returns:
+        HashPreprocessResult with cleaned hash content and stats
+    """
+    content = content.strip()
+    if not content:
+        return HashPreprocessResult(
+            hash_content="",
+            hash_count=0,
+            original_lines=0,
+            skipped_invalid=0,
+            skipped_empty_hash=0,
+            format_detected="unknown",
+            warnings=["Empty content provided"]
+        )
+
+    format_detected = detect_content_format(content)
+    warnings: list[str] = []
+
+    if format_detected == "add_json":
+        return _preprocess_add_json(content, hash_mode, include_usernames, warnings)
+    elif format_detected == "pwdump":
+        return _preprocess_pwdump(content, hash_mode, include_usernames, warnings)
+    else:
+        return _preprocess_plain(content, hash_mode, warnings)
+
+
+def _preprocess_add_json(
+    content: str,
+    hash_mode: int,
+    include_usernames: bool,
+    warnings: list[str]
+) -> HashPreprocessResult:
+    """Preprocess ADD JSON format content."""
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        return HashPreprocessResult(
+            hash_content="",
+            hash_count=0,
+            original_lines=0,
+            skipped_invalid=1,
+            skipped_empty_hash=0,
+            format_detected="add_json",
+            warnings=[f"Invalid JSON: {e}"]
+        )
+
+    users = data.get("Users", [])
+    if not users:
+        return HashPreprocessResult(
+            hash_content="",
+            hash_count=0,
+            original_lines=0,
+            skipped_invalid=0,
+            skipped_empty_hash=0,
+            format_detected="add_json",
+            warnings=["No users found in ADD JSON"]
+        )
+
+    hashes: list[str] = []
+    skipped_invalid = 0
+    skipped_empty = 0
+
+    for user in users:
+        username = user.get("SamAccountName", "")
+
+        if hash_mode == 1000:  # NTLM
+            # Extract NT hash
+            lm_hash, nt_hash = parse_add_ntlm_hash(user.get("NTLMHash", ""))
+            if nt_hash and is_valid_hash(nt_hash):
+                if include_usernames and username:
+                    hashes.append(f"{username}:{nt_hash}")
+                else:
+                    hashes.append(nt_hash)
+            elif not nt_hash:
+                skipped_empty += 1
+            else:
+                skipped_invalid += 1
+
+            # Also include historical hashes if present
+            for hist_hash in user.get("HistoricalNTHashes", []):
+                if hist_hash and is_valid_hash(hist_hash):
+                    if include_usernames and username:
+                        hashes.append(f"{username}_history:{hist_hash}")
+                    else:
+                        hashes.append(hist_hash)
+
+        elif hash_mode == 3000:  # LM
+            # Extract LM hash
+            lm_hash, nt_hash = parse_add_ntlm_hash(user.get("NTLMHash", ""))
+            # Also check explicit LMHash field
+            explicit_lm = user.get("LMHash", "")
+            if explicit_lm and is_valid_hash(explicit_lm):
+                lm_hash = explicit_lm
+
+            if lm_hash and is_valid_hash(lm_hash) and lm_hash != EMPTY_LM_HASH:
+                if include_usernames and username:
+                    hashes.append(f"{username}:{lm_hash}")
+                else:
+                    hashes.append(lm_hash)
+            elif lm_hash == EMPTY_LM_HASH:
+                skipped_empty += 1
+            else:
+                skipped_invalid += 1
+        else:
+            # For other modes, try to extract NT hash
+            lm_hash, nt_hash = parse_add_ntlm_hash(user.get("NTLMHash", ""))
+            if nt_hash and is_valid_hash(nt_hash):
+                hashes.append(nt_hash)
+            elif not nt_hash:
+                skipped_empty += 1
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_hashes = []
+    for h in hashes:
+        h_lower = h.lower()
+        if h_lower not in seen:
+            seen.add(h_lower)
+            unique_hashes.append(h)
+
+    if len(unique_hashes) < len(hashes):
+        warnings.append(f"Removed {len(hashes) - len(unique_hashes)} duplicate hashes")
+
+    return HashPreprocessResult(
+        hash_content="\n".join(unique_hashes),
+        hash_count=len(unique_hashes),
+        original_lines=len(users),
+        skipped_invalid=skipped_invalid,
+        skipped_empty_hash=skipped_empty,
+        format_detected="add_json",
+        warnings=warnings
+    )
+
+
+def _preprocess_pwdump(
+    content: str,
+    hash_mode: int,
+    include_usernames: bool,
+    warnings: list[str]
+) -> HashPreprocessResult:
+    """Preprocess pwdump format content."""
+    lines = content.split('\n')
+    hashes: list[str] = []
+    skipped_invalid = 0
+    skipped_empty = 0
+    original_lines = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        original_lines += 1
+
+        # Remove status suffix if present
+        clean_line, status = extract_status_suffix(line)
+        parts = clean_line.split(':')
+
+        if len(parts) < 7:
+            skipped_invalid += 1
+            continue
+
+        username = parts[0]
+        lm_hash = parts[2]
+        nt_hash = parts[3]
+
+        if hash_mode == 1000:  # NTLM
+            if nt_hash and is_valid_hash(nt_hash):
+                if include_usernames and username:
+                    hashes.append(f"{username}:{nt_hash}")
+                else:
+                    hashes.append(nt_hash)
+            elif not nt_hash or nt_hash == "":
+                skipped_empty += 1
+            else:
+                skipped_invalid += 1
+
+        elif hash_mode == 3000:  # LM
+            if lm_hash and is_valid_hash(lm_hash) and lm_hash != EMPTY_LM_HASH:
+                if include_usernames and username:
+                    hashes.append(f"{username}:{lm_hash}")
+                else:
+                    hashes.append(lm_hash)
+            elif lm_hash == EMPTY_LM_HASH:
+                skipped_empty += 1
+            else:
+                skipped_invalid += 1
+
+        else:
+            # For other modes, extract NT hash by default
+            if nt_hash and is_valid_hash(nt_hash):
+                hashes.append(nt_hash)
+            elif not nt_hash:
+                skipped_empty += 1
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_hashes = []
+    for h in hashes:
+        h_lower = h.lower()
+        if h_lower not in seen:
+            seen.add(h_lower)
+            unique_hashes.append(h)
+
+    if len(unique_hashes) < len(hashes):
+        warnings.append(f"Removed {len(hashes) - len(unique_hashes)} duplicate hashes")
+
+    return HashPreprocessResult(
+        hash_content="\n".join(unique_hashes),
+        hash_count=len(unique_hashes),
+        original_lines=original_lines,
+        skipped_invalid=skipped_invalid,
+        skipped_empty_hash=skipped_empty,
+        format_detected="pwdump",
+        warnings=warnings
+    )
+
+
+def _preprocess_plain(
+    content: str,
+    hash_mode: int,
+    warnings: list[str]
+) -> HashPreprocessResult:
+    """Preprocess plain hash list content (one hash per line)."""
+    lines = content.split('\n')
+    hashes: list[str] = []
+    skipped_invalid = 0
+    original_lines = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        original_lines += 1
+
+        # For plain format, validate based on expected hash length for the mode
+        # NTLM and LM are both 32-char hex
+        if hash_mode in (1000, 3000):
+            if is_valid_hash(line):
+                hashes.append(line)
+            else:
+                # Check if it's user:hash format
+                if ':' in line:
+                    parts = line.split(':', 1)
+                    if is_valid_hash(parts[1]):
+                        hashes.append(parts[1])
+                    else:
+                        skipped_invalid += 1
+                else:
+                    skipped_invalid += 1
+        else:
+            # For other modes, just pass through non-empty lines
+            hashes.append(line)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_hashes = []
+    for h in hashes:
+        h_lower = h.lower()
+        if h_lower not in seen:
+            seen.add(h_lower)
+            unique_hashes.append(h)
+
+    if len(unique_hashes) < len(hashes):
+        warnings.append(f"Removed {len(hashes) - len(unique_hashes)} duplicate hashes")
+
+    return HashPreprocessResult(
+        hash_content="\n".join(unique_hashes),
+        hash_count=len(unique_hashes),
+        original_lines=original_lines,
+        skipped_invalid=skipped_invalid,
+        skipped_empty_hash=0,
+        format_detected="plain",
+        warnings=warnings
+    )

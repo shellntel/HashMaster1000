@@ -11598,15 +11598,71 @@ def assign_job_to_agent(agent_id: str) -> Response:
     if not hash_file and not hash_content:
         return jsonify({"error": "hash_file or hash_content required"}), 400
 
-    # Detect if this is an LM job (mode 3000)
-    is_lm_job = False
+    # Extract hash mode from hashcat args
+    hash_mode = 1000  # Default to NTLM
     for i, arg in enumerate(hashcat_args):
-        if arg == "-m" and i + 1 < len(hashcat_args) and hashcat_args[i + 1] == "3000":
-            is_lm_job = True
+        if arg == "-m" and i + 1 < len(hashcat_args):
+            try:
+                hash_mode = int(hashcat_args[i + 1])
+            except ValueError:
+                pass
             break
-        if arg.startswith("-m") and arg[2:] == "3000":
-            is_lm_job = True
+        if arg.startswith("-m") and len(arg) > 2:
+            try:
+                hash_mode = int(arg[2:])
+            except ValueError:
+                pass
             break
+
+    is_lm_job = hash_mode == 3000
+
+    # Check if --username flag is present
+    include_usernames = "--username" in hashcat_args
+
+    # Preprocess hash content to extract valid hashes based on hash mode
+    # Supports NTLM (1000) and LM (3000) modes with pwdump, ADD JSON, or plain formats
+    preprocess_stats = None
+    content_format_detected = None
+    if hash_content and hash_mode in (1000, 3000):
+        # Detect the input format first
+        content_format_detected = file_parser.detect_content_format(hash_content)
+
+        # For LM mode (3000) with pwdump format, skip preprocessing here
+        # The LM halves extraction below handles pwdump format specially
+        should_preprocess = True
+        if hash_mode == 3000 and content_format_detected == "pwdump":
+            should_preprocess = False
+            logging.info(f"Job {job_id}: LM job with pwdump format, using halves extraction")
+
+        if should_preprocess:
+            # Preprocess to extract clean hash list
+            preprocess_result = file_parser.preprocess_hash_content(
+                hash_content,
+                hash_mode=hash_mode,
+                include_usernames=include_usernames
+            )
+
+            if preprocess_result.hash_count == 0:
+                return jsonify({
+                    "error": "No valid hashes found in uploaded file",
+                    "details": preprocess_result.to_dict()
+                }), 400
+
+            # Replace hash_content with preprocessed content
+            hash_content = preprocess_result.hash_content
+            preprocess_stats = preprocess_result.to_dict()
+            content_format_detected = preprocess_result.format_detected
+
+            logging.info(
+                f"Job {job_id}: Preprocessed {preprocess_result.format_detected} format - "
+                f"{preprocess_result.hash_count} valid hashes from {preprocess_result.original_lines} lines "
+                f"(skipped: {preprocess_result.skipped_invalid} invalid, "
+                f"{preprocess_result.skipped_empty_hash} empty)"
+            )
+
+            if preprocess_result.warnings:
+                for warning in preprocess_result.warnings:
+                    logging.warning(f"Job {job_id}: {warning}")
 
     # Build job metadata
     job_metadata = data.get("metadata", {})
@@ -11620,8 +11676,9 @@ def assign_job_to_agent(agent_id: str) -> Response:
         job_metadata["mask_filename"] = mask_filename or "masks.hcmask"
         logging.info(f"Job {job_id} includes mask file ({len(mask_file_content)} bytes)")
 
-    # Handle LM job preprocessing
-    if is_lm_job and hash_content:
+    # Handle LM job halves extraction (only for pwdump format, not ADD JSON or plain)
+    # For ADD JSON/plain formats, the content was already preprocessed to clean LM hashes
+    if is_lm_job and hash_content and content_format_detected == "pwdump":
         # Extract LM halves from pwdump content
         extraction = lm_ntlm_tools.extract_lm_halves_from_pwdump(hash_content)
 
@@ -11683,22 +11740,29 @@ def assign_job_to_agent(agent_id: str) -> Response:
     })
 
     # Store job metadata for later retrieval (includes hashcat command)
-    _store_job_metadata(job_id, {
+    job_meta_to_store = {
         "job_id": job_id,
         "agent_id": agent_id,
         "hashcat_args": hashcat_args,
         "submitted_at": datetime.now().isoformat(),
         "metadata": job_metadata,
-    })
+    }
+    if preprocess_stats:
+        job_meta_to_store["preprocess_stats"] = preprocess_stats
+    _store_job_metadata(job_id, job_meta_to_store)
 
     logging.info(f"Job {job_id} assigned to agent {agent_id}")
 
-    return jsonify({
+    response = {
         "success": True,
         "job_id": job_id,
         "agent_id": agent_id,
         "job_type": "lm" if is_lm_job else "standard",
-    })
+    }
+    if preprocess_stats:
+        response["preprocess_stats"] = preprocess_stats
+
+    return jsonify(response)
 
 
 @app.route("/api/agent/<agent_id>/stop", methods=["POST"])
