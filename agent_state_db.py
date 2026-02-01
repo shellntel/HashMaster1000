@@ -194,13 +194,28 @@ class AgentStateDB:
             state_json = json.dumps(state)
             now = datetime.now().isoformat()
 
+            # Determine status from agent's reported state
+            # Agent sends: {"status": {"state": "busy"|"idle", "current_job": "job-xxx"|null, ...}}
+            agent_status = state.get("status", {})
+            agent_state = agent_status.get("state", "idle")
+            current_job_id = agent_status.get("current_job")
+
+            # Map agent state to display status
+            if agent_state == "busy":
+                status = "working"
+            else:
+                status = "online"
+
+            # Update current_job_json if agent reports a job
+            current_job_json = json.dumps({"job_id": current_job_id}) if current_job_id else None
+
             # Try to update existing
             cursor = conn.execute("""
                 UPDATE agents
                 SET last_heartbeat = ?, state_json = ?, ip_address = ?,
-                    status = CASE WHEN current_job_json IS NOT NULL THEN 'working' ELSE 'online' END
+                    status = ?, current_job_json = ?
                 WHERE id = ?
-            """, (now, state_json, ip_address, agent_id))
+            """, (now, state_json, ip_address, status, current_job_json, agent_id))
 
             return cursor.rowcount > 0
 
