@@ -447,21 +447,117 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 selectedFileContent = e.target.result;
-                const lines = selectedFileContent.split('\n').filter(l => l.trim()).length;
+
+                // Check if this is an ADD JSON file
+                const fileStats = parseHashFileContent(selectedFileContent, file.name);
 
                 document.getElementById('selected-file-name').textContent = file.name;
                 document.getElementById('selected-file-stats').textContent =
-                    `${formatFileSize(file.size)} - ${lines.toLocaleString()} hash${lines !== 1 ? 'es' : ''}`;
+                    `${formatFileSize(file.size)} - ${fileStats.summary}`;
                 document.getElementById('selected-file-info').style.display = 'block';
                 document.getElementById('file-drop-zone').style.display = 'none';
 
-                log(`File loaded: ${file.name} (${lines} hashes)`, 'success');
+                log(`File loaded: ${file.name}`, 'success');
+                fileStats.logLines.forEach(line => log(line, 'info'));
             };
             reader.onerror = () => {
                 log(`Failed to read file: ${file.name}`, 'error');
                 clearSelectedFile();
             };
             reader.readAsText(file);
+        }
+
+        /**
+         * Parse hash file content and return statistics
+         * Handles ADD JSON format, pwdump, and plain hash lists
+         */
+        function parseHashFileContent(content, filename) {
+            const result = {
+                summary: '',
+                logLines: [],
+                format: 'unknown'
+            };
+
+            // Try to detect ADD JSON format
+            if (filename.toLowerCase().endsWith('.json')) {
+                try {
+                    const data = JSON.parse(content);
+
+                    // Check for ADD JSON characteristics
+                    if (Array.isArray(data.Users) && data.Users.length > 0) {
+                        result.format = 'add_json';
+
+                        let ntCount = 0;
+                        let lmCount = 0;
+                        let historyCount = 0;
+                        let usersWithHistory = 0;
+
+                        data.Users.forEach(user => {
+                            // Check for NT hash
+                            const ntlmField = user.NTLMHash || '';
+                            if (ntlmField) {
+                                // NTLMHash field can be "LM:NT" format or just "NT"
+                                if (ntlmField.includes(':')) {
+                                    const parts = ntlmField.split(':');
+                                    const lm = parts[0];
+                                    const nt = parts[1];
+                                    // Check if LM is not empty (aad3b435... is empty LM)
+                                    if (lm && lm.length === 32 && !lm.toLowerCase().startsWith('aad3b435')) {
+                                        lmCount++;
+                                    }
+                                    if (nt && nt.length === 32) {
+                                        ntCount++;
+                                    }
+                                } else if (ntlmField.length === 32) {
+                                    ntCount++;
+                                }
+                            }
+
+                            // Check for explicit LMHash field
+                            const lmField = user.LMHash || '';
+                            if (lmField && lmField.length === 32 && !lmField.toLowerCase().startsWith('aad3b435')) {
+                                // Only count if not already counted from NTLMHash field
+                                if (!ntlmField.includes(':')) {
+                                    lmCount++;
+                                }
+                            }
+
+                            // Check for historical NT hashes
+                            const history = user.HistoricalNTHashes || [];
+                            if (history.length > 0) {
+                                usersWithHistory++;
+                                historyCount += history.length;
+                            }
+                        });
+
+                        const totalUsers = data.Users.length;
+                        const parts = [];
+
+                        if (ntCount > 0) parts.push(`${ntCount.toLocaleString()} NT`);
+                        if (lmCount > 0) parts.push(`${lmCount.toLocaleString()} LM`);
+                        if (historyCount > 0) parts.push(`${historyCount.toLocaleString()} historical`);
+
+                        result.summary = `${totalUsers.toLocaleString()} users (${parts.join(', ')})`;
+
+                        result.logLines.push(`ADD JSON format detected: ${totalUsers} users`);
+                        if (ntCount > 0) result.logLines.push(`  NT hashes: ${ntCount}`);
+                        if (lmCount > 0) result.logLines.push(`  LM hashes: ${lmCount}`);
+                        if (historyCount > 0) result.logLines.push(`  Historical hashes: ${historyCount} from ${usersWithHistory} users`);
+
+                        return result;
+                    }
+                } catch (e) {
+                    // Not valid JSON, fall through to line-based parsing
+                }
+            }
+
+            // Fall back to line-based counting (pwdump or plain hash list)
+            const lines = content.split('\n').filter(l => l.trim()).length;
+            result.format = 'lines';
+            result.summary = `${lines.toLocaleString()} hash${lines !== 1 ? 'es' : ''}`;
+            result.logLines.push(`${lines} lines detected`);
+
+            return result;
         }
 
         function clearSelectedFile() {
