@@ -102,6 +102,147 @@
         const csrfToken = getCsrfToken();
 
         // ============================================================
+        // Command Formatting Functions
+        // ============================================================
+
+        /**
+         * Format hashcat command with placeholders for hash file and masks
+         */
+        function formatHashcatCommand(job) {
+            if (!job.hashcat_args) return '';
+
+            const args = [...job.hashcat_args];
+            const meta = job.job_metadata || {};
+
+            // Build the command line with placeholders
+            let cmd = args.join(' ');
+
+            // Add hash file placeholder
+            cmd += ' {hash_file}';
+
+            // Add mask/wordlist/input placeholder based on attack mode
+            const attackModeIdx = args.indexOf('-a');
+            let attackMode = 0;
+            if (attackModeIdx !== -1 && args[attackModeIdx + 1]) {
+                attackMode = parseInt(args[attackModeIdx + 1], 10);
+            }
+
+            // Determine what to append based on attack mode
+            if (attackMode === 3) {
+                // Brute-force/mask attack
+                if (meta.mask_filename) {
+                    cmd += ` {${meta.mask_filename}}`;
+                } else {
+                    cmd += ' {mask}';
+                }
+            } else if (attackMode === 0) {
+                // Dictionary attack - check for wordlist and rules
+                const wordlistIdx = args.findIndex(a => a.endsWith('.txt') || a.endsWith('.lst') || a.endsWith('.dic'));
+                if (wordlistIdx !== -1) {
+                    cmd += ` {${args[wordlistIdx].split('/').pop()}}`;
+                } else {
+                    cmd += ' {wordlist}';
+                }
+            } else if (attackMode === 6 || attackMode === 7) {
+                // Hybrid attacks
+                cmd += ' {wordlist} {mask}';
+            }
+
+            return cmd;
+        }
+
+        /**
+         * Format additional job details (charsets, rules, mask info)
+         */
+        function formatJobDetails(job) {
+            if (!job.hashcat_args) return '';
+
+            const args = job.hashcat_args;
+            const meta = job.job_metadata || {};
+            const details = [];
+
+            // Extract hash mode
+            const hashModeIdx = args.indexOf('-m');
+            if (hashModeIdx !== -1 && args[hashModeIdx + 1]) {
+                const mode = args[hashModeIdx + 1];
+                const modeNames = {
+                    '1000': 'NTLM',
+                    '3000': 'LM',
+                    '0': 'MD5',
+                    '100': 'SHA1',
+                    '1400': 'SHA-256',
+                    '1700': 'SHA-512',
+                    '5600': 'NetNTLMv2',
+                    '2500': 'WPA/WPA2',
+                    '22000': 'WPA-PBKDF2-PMKID+EAPOL',
+                };
+                details.push(`<span style="color: #a78bfa;"><strong>Hash Type:</strong> ${modeNames[mode] || mode}</span>`);
+            }
+
+            // Extract attack mode
+            const attackModeIdx = args.indexOf('-a');
+            if (attackModeIdx !== -1 && args[attackModeIdx + 1]) {
+                const mode = args[attackModeIdx + 1];
+                const modeNames = {
+                    '0': 'Dictionary',
+                    '1': 'Combinator',
+                    '3': 'Brute-Force/Mask',
+                    '6': 'Hybrid Dict+Mask',
+                    '7': 'Hybrid Mask+Dict',
+                };
+                details.push(`<span style="color: #a78bfa;"><strong>Attack Mode:</strong> ${modeNames[mode] || mode}</span>`);
+            }
+
+            // Extract custom charsets (-1, -2, -3, -4)
+            const charsets = [];
+            for (let i = 0; i < args.length; i++) {
+                if (args[i].match(/^-[1-4]$/) && args[i + 1]) {
+                    charsets.push(`?${args[i][1]}=${args[i + 1]}`);
+                }
+            }
+            if (charsets.length > 0) {
+                details.push(`<span style="color: #22d3ee;"><strong>Custom Charsets:</strong> ${charsets.map(c => '<code style="background: rgba(0,0,0,0.3); padding: 2px 4px; border-radius: 3px;">' + escapeHtml(c) + '</code>').join(' ')}</span>`);
+            }
+
+            // Extract rules (-r)
+            const rules = [];
+            for (let i = 0; i < args.length; i++) {
+                if (args[i] === '-r' && args[i + 1]) {
+                    rules.push(args[i + 1].split('/').pop());
+                }
+            }
+            if (rules.length > 0) {
+                details.push(`<span style="color: #4ade80;"><strong>Rules:</strong> ${rules.join(', ')}</span>`);
+            }
+
+            // Show mask file info
+            if (meta.mask_filename) {
+                let maskInfo = `<span style="color: #fbbf24;"><strong>Mask File:</strong> ${escapeHtml(meta.mask_filename)}`;
+                // Show mask file content preview if available
+                if (meta.mask_file_content) {
+                    const lines = meta.mask_file_content.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+                    maskInfo += ` (${lines.length} mask${lines.length !== 1 ? 's' : ''})`;
+                }
+                maskInfo += '</span>';
+                details.push(maskInfo);
+            }
+
+            // Show job type if LM
+            if (meta.job_type === 'lm' && meta.lm_extraction) {
+                const lm = meta.lm_extraction;
+                details.push(`<span style="color: #f472b6;"><strong>LM Extraction:</strong> ${lm.total_unique_halves} unique halves from ${lm.total_users_with_lm} users</span>`);
+            }
+
+            if (details.length === 0) return '';
+
+            return `
+                <div style="grid-column: 1 / -1; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85rem;">
+                    ${details.join('')}
+                </div>
+            `;
+        }
+
+        // ============================================================
         // Job History Functions
         // ============================================================
 
@@ -199,8 +340,9 @@
                                 ${job.hashcat_args ? `
                                 <div style="grid-column: 1 / -1;">
                                     <strong style="color: #00d4ff;">Hashcat Command:</strong><br>
-                                    <code style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap;">hashcat ${job.hashcat_args.join(' ')}</code>
+                                    <code style="font-size: 0.85rem; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap;">hashcat ${formatHashcatCommand(job)}</code>
                                 </div>
+                                ${formatJobDetails(job)}
                                 ` : ''}
                                 ${warnings.length > 0 ? `
                                 <div style="grid-column: 1 / -1;">
