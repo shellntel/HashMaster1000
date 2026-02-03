@@ -857,30 +857,27 @@ def merge_potfile_entries(
 
 def get_potfile_entry_count(potfile_path: str) -> int:
     """
-    Get the number of valid entries in a potfile.
+    Get the number of valid NTLM entries in a potfile.
+
+    Only counts 32-character hex hashes (NTLM format) since that's what
+    Hash Master uses for analysis. Other hash types are ignored.
 
     Args:
         potfile_path: Path to the potfile
 
     Returns:
-        Number of valid hash:password entries, or 0 if file doesn't exist
+        Number of valid NTLM hash:password entries, or 0 if file doesn't exist
     """
     import os
 
     if not os.path.exists(potfile_path):
         return 0
 
-    count = 0
-    try:
-        with open(potfile_path, 'r', encoding='utf-8', errors='replace') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and ':' in line:
-                    count += 1
-    except Exception:
-        return 0
-
-    return count
+    # Use the potfile cache which properly filters for NTLM hashes
+    from app.potfile_cache import get_master_cache
+    cache = get_master_cache()
+    cached = cache.load(potfile_path)
+    return cached.ntlm_count
 
 
 def decode_hex_password(password: str | None) -> str | None:
