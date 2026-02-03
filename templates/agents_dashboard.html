@@ -99,20 +99,6 @@
             </div>
         </div>
 
-        <!-- Active Jobs Section -->
-        <div class="advanced-section">
-            <div class="advanced-section-header">
-                <span class="advanced-section-icon">&#9201;</span>
-                <h2 class="advanced-section-title">Active Jobs</h2>
-                <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="refreshJobs()" style="margin-left: auto;">&#8635; Refresh</button>
-            </div>
-            <div class="advanced-section-content">
-                <div id="active-jobs">
-                    <div class="no-jobs-message">No active jobs. <a href="/agents/submit" style="color: #00d4ff;">Submit a job</a> to start cracking.</div>
-                </div>
-            </div>
-        </div>
-
         <!-- Console Log Section -->
         <div class="advanced-section">
             <div class="advanced-section-header">
@@ -288,11 +274,11 @@
                 return `
                 <div class="agent-card ${statusClass}" id="card-${agent.id}">
                     <div class="agent-header">
-                        <div style="display: flex; flex-direction: column; gap: 6px;">
-                            <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
+                        <span class="agent-name">${agent.name || agent.id}${agent.is_local ? ' <span style="color: #22c55e; font-size: 0.8em; font-weight: normal;">(local)</span>' : ''}</span>
+                        <div style="display: flex; align-items: center; gap: 10px;">
                             ${agent.version ? `<span style="color: #666; font-size: 0.75rem; font-family: monospace;">v${agent.version}${agent.update_status ? ' ' + renderUpdateStatus(agent.update_status, agent.version) : ''}</span>` : ''}
+                            <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
                         </div>
-                        <span class="agent-status-badge ${statusClass}">${statusLabel}</span>
                     </div>
                     <div class="agent-info">
                         <div class="agent-info-row">
@@ -311,20 +297,20 @@
                     ${benchmarkWarning}
                     ${permissionWarning}
                     ${hardware.cpu || hardware.gpu || hardware.ram ? `
-                        <div class="agent-hardware">
-                            ${hardware.cpu ? `<div>CPU: ${hardware.cpu}</div>` : ''}
-                            ${hardware.gpu ? `<div>GPU: ${hardware.gpu}</div>` : ''}
-                            ${hardware.ram ? `<div>RAM: ${hardware.ram}</div>` : ''}
+                        <div class="agent-hardware" style="display: flex; gap: 12px;">
+                            <div style="flex: 1;">
+                                ${hardware.cpu ? `<div>CPU: ${hardware.cpu}</div>` : ''}
+                                ${hardware.gpu ? `<div>GPU: ${hardware.gpu}</div>` : ''}
+                                ${hardware.ram ? `<div>RAM: ${hardware.ram}</div>` : ''}
+                            </div>
                             ${hardware.disk_free_gb !== undefined ? `
-                                <div class="agent-disk-info" style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1);">
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span>Disk:</span>
-                                        <span style="color: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'}">
-                                            ${hardware.disk_free_gb.toFixed(1)} GB free
-                                        </span>
+                                <div class="agent-disk-gauge" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 50px; padding-left: 12px; border-left: 1px solid rgba(255,255,255,0.1);">
+                                    <div style="font-size: 0.7rem; color: #666; margin-bottom: 4px;">Disk</div>
+                                    <div style="position: relative; width: 8px; height: 50px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                                        <div style="position: absolute; bottom: 0; width: 100%; height: ${100 - hardware.disk_used_percent}%; background: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'}; border-radius: 4px;"></div>
                                     </div>
-                                    <div class="disk-usage-bar" style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 4px; overflow: hidden;">
-                                        <div style="height: 100%; width: ${hardware.disk_used_percent}%; background: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'};"></div>
+                                    <div style="font-size: 0.65rem; color: ${hardware.disk_used_percent > 90 ? '#ef4444' : hardware.disk_used_percent > 75 ? '#f59e0b' : '#22c55e'}; margin-top: 4px; text-align: center; white-space: nowrap;">
+                                        ${hardware.disk_free_gb.toFixed(1)} GB
                                     </div>
                                 </div>
                             ` : ''}
@@ -385,14 +371,14 @@
                         </div>
                     ` : ''}
                     <div class="agent-actions" style="display: flex; gap: 8px;">
-                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#8635;</span><span style="font-size: 0.7rem;">Refresh</span></button>
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
-                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0}, ${JSON.stringify((agent.resources?.cached || []).map(r => r.resource_id)).replace(/"/g, '&quot;')})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
-                        ${agent.status === 'online' && (agent.resources?.cached_count || 0) > 0 ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="cleanAgentResources('${agent.id}', '${agent.name || agent.id}')" title="Remove deleted resources from agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Clean</span></button>` : ''}
-                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
-                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
-                        ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
+                        <button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="loadAgentsFromServer()" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#8635;</span><span style="font-size: 0.7rem;">Refresh</span></button>
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="viewAgentPerformance('${agent.id}')" title="View performance data" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128200;</span><span style="font-size: 0.7rem;">Stats</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="runBenchmark('${agent.id}')" title="Run hashcat benchmark" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9881;</span><span style="font-size: 0.7rem;">Benchmark</span></button>` : ''}
+                        ${agent.status === 'online' ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="openDeployModal('${agent.id}', '${agent.name || agent.id}', ${hardware.disk_free_gb || 0}, ${JSON.stringify((agent.resources?.cached || []).map(r => r.resource_id)).replace(/"/g, '&quot;')})" title="Deploy wordlists to agent" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128230;</span><span style="font-size: 0.7rem;">Deploy</span></button>` : ''}
+                        ${agent.status === 'online' && (agent.resources?.cached_count || 0) > 0 ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="cleanAgentResources('${agent.id}', '${agent.name || agent.id}')" title="Remove deleted resources from agent" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Clean</span></button>` : ''}
+                        ${agent.status === 'online' && !job ? `<button class="advanced-btn advanced-btn-secondary advanced-btn-small" onclick="updateAgent('${agent.id}', '${agent.name || agent.id}')" title="Update agent software" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#11014;</span><span style="font-size: 0.7rem;">Update</span></button>` : ''}
+                        ${job ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#9632;</span><span style="font-size: 0.7rem;">Stop</span></button>` : ''}
+                        ${agent.status !== 'online' && agent.status !== 'working' ? `<button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="deleteAgent('${agent.id}', '${agent.name || agent.id}')" title="Delete this agent" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; flex: 1;"><span style="font-size: 1.1rem;">&#128465;</span><span style="font-size: 0.7rem;">Delete</span></button>` : ''}
                     </div>
                 </div>
             `}).join('');
@@ -624,8 +610,6 @@
                 if (!anyBusy) {
                     stopJobPolling();
                 }
-
-                updateActiveJobs();
             }, 5000);
 
             log('Started job monitoring (5s interval)', 'info');
@@ -637,110 +621,6 @@
                 jobPollingInterval = null;
                 log('Stopped job monitoring', 'info');
             }
-        }
-
-        function refreshJobs() {
-            loadAgentsFromServer();
-        }
-
-        function updateActiveJobs() {
-            const container = document.getElementById('active-jobs');
-            const busyAgents = agents.filter(a => a.current_job);
-
-            if (busyAgents.length === 0) {
-                container.innerHTML = '<div class="no-jobs-message">No active jobs. <a href="/agents/submit" style="color: #00d4ff;">Submit a job</a> to start cracking.</div>';
-                return;
-            }
-
-            container.innerHTML = busyAgents.map(agent => {
-                const job = agent.current_job;
-
-                let etaDisplay = 'N/A';
-                if (job.eta_seconds && job.eta_seconds > 0) {
-                    const nowSecs = Math.floor(Date.now() / 1000);
-                    if (job.eta_seconds > 1000000000) {
-                        const remaining = job.eta_seconds - nowSecs;
-                        if (remaining > 0) {
-                            etaDisplay = formatEta(remaining);
-                        } else {
-                            etaDisplay = 'Finishing...';
-                        }
-                    } else {
-                        etaDisplay = formatEta(job.eta_seconds);
-                    }
-                }
-
-                let gpuInfo = '';
-                if (job.gpu_temps && job.gpu_temps.length > 0) {
-                    const maxTemp = Math.max(...job.gpu_temps.filter(t => t > 0));
-                    const tempColor = maxTemp > 80 ? '#ef4444' : maxTemp > 65 ? '#f59e0b' : '#22c55e';
-                    gpuInfo += `<span style="color: ${tempColor};">${maxTemp}°C</span>`;
-                }
-                if (job.gpu_utils && job.gpu_utils.length > 0) {
-                    const maxUtil = Math.max(...job.gpu_utils.filter(u => u > 0));
-                    if (gpuInfo) gpuInfo += ' / ';
-                    gpuInfo += `${maxUtil}%`;
-                }
-
-                let lastUpdateStr = '';
-                if (job.updated_at) {
-                    const updated = new Date(job.updated_at);
-                    const secondsAgo = Math.floor((Date.now() - updated.getTime()) / 1000);
-                    lastUpdateStr = secondsAgo < 10 ? 'just now' : `${secondsAgo}s ago`;
-                }
-
-                return `
-                <div class="job-card">
-                    <div class="job-header">
-                        <span class="job-id">${job.job_id || 'N/A'}</span>
-                        <span style="display: flex; align-items: center; gap: 10px;">
-                            <span>on ${agent.name || agent.id}</span>
-                            ${lastUpdateStr ? `<span style="font-size: 0.75rem; color: #666;">Updated ${lastUpdateStr}</span>` : ''}
-                        </span>
-                    </div>
-                    <div class="agent-progress-bar" style="height: 10px;">
-                        <div class="agent-progress-fill" style="width: ${job.progress_percent || 0}%"></div>
-                    </div>
-                    <div class="job-stats">
-                        <div class="job-stat">
-                            <div class="job-stat-value">${(job.progress_percent || 0).toFixed(1)}%</div>
-                            <div class="job-stat-label">Progress</div>
-                        </div>
-                        ${job.mask_total > 1 ? `
-                        <div class="job-stat">
-                            <div class="job-stat-value">${job.mask_current || 1}/${job.mask_total}</div>
-                            <div class="job-stat-label">Mask</div>
-                        </div>
-                        ` : ''}
-                        <div class="job-stat">
-                            <div class="job-stat-value">${formatSpeed(job.speed_hashes_per_sec)}</div>
-                            <div class="job-stat-label">Speed</div>
-                        </div>
-                        <div class="job-stat">
-                            <div class="job-stat-value">${job.recovered_hashes || 0}/${job.total_hashes || 0}</div>
-                            <div class="job-stat-label">Cracked</div>
-                        </div>
-                        <div class="job-stat">
-                            <div class="job-stat-value">${etaDisplay}</div>
-                            <div class="job-stat-label">ETA</div>
-                        </div>
-                        ${gpuInfo ? `
-                        <div class="job-stat">
-                            <div class="job-stat-value">${gpuInfo}</div>
-                            <div class="job-stat-label">GPU</div>
-                        </div>
-                        ` : ''}
-                        <div class="job-stat">
-                            <div class="job-stat-value" style="text-transform: capitalize;">${job.status || 'running'}</div>
-                            <div class="job-stat-label">State</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 12px;">
-                        <button class="advanced-btn advanced-btn-danger advanced-btn-small" onclick="stopJob('${agent.id}')">Stop Job</button>
-                        <button class="advanced-btn advanced-btn-warning advanced-btn-small" onclick="pauseJob('${agent.id}')">Pause</button>
-                    </div>
-                </div>
-            `}).join('');
         }
 
         // ============================================================
