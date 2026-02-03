@@ -1094,6 +1094,14 @@
                 payload.mask_file_content = maskFileContent;
                 payload.mask_filename = maskFileName;
                 log(`Including mask file: ${maskFileName} (${maskFileContent.length} chars)`, 'info');
+
+                // Include mask group info for performance tracking
+                if (maskSource === 'group' && selectedGroupData) {
+                    payload.metadata = payload.metadata || {};
+                    payload.metadata.group_id = selectedGroupData.group_id;
+                    payload.metadata.group_name = selectedGroupData.name;
+                    payload.metadata.masks_count = selectedGroupData.masks?.length || 0;
+                }
             }
 
             // Log payload size for debugging

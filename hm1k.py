@@ -10132,6 +10132,139 @@ def _is_job_stopped(job_id: str) -> bool:
         return False
 
 
+def _record_mask_job_performance(job_id: str, agent_id: str, stats: dict) -> None:
+    """
+    Record mask attack performance data for future time estimation.
+
+    Only records data for mask attacks (attack mode 3) that have valid stats.
+    """
+    try:
+        # Get job metadata to check if this was a mask attack
+        job_meta = _get_job_metadata(job_id)
+        if not job_meta:
+            return
+
+        hashcat_args = job_meta.get("hashcat_args", [])
+        metadata = job_meta.get("metadata", {})
+
+        # Check if this is a mask attack (attack mode 3)
+        attack_mode = None
+        hash_mode = None
+        for i, arg in enumerate(hashcat_args):
+            if arg == "-a" and i + 1 < len(hashcat_args):
+                attack_mode = int(hashcat_args[i + 1])
+            if arg == "-m" and i + 1 < len(hashcat_args):
+                hash_mode = int(hashcat_args[i + 1])
+
+        # Only record for mask attacks with valid data
+        if attack_mode != 3:
+            return
+
+        if not hash_mode:
+            hash_mode = 0  # Default to MD5 if not specified
+
+        # Extract performance metrics from stats
+        duration_seconds = stats.get("duration_seconds", 0)
+        total_hashes = stats.get("total_hashes", 0)
+
+        # Skip if no meaningful duration or hashes
+        if duration_seconds <= 0 or total_hashes <= 0:
+            return
+
+        # Calculate average speed
+        # The agent reports speed samples during the job
+        # We can estimate from keyspace/duration if not available
+        keyspace_total = None
+        avg_speed_hps = None
+        peak_speed_hps = stats.get("peak_speed_hps")
+
+        # Try to get from job status updates if available
+        # For now, estimate from typical mask keyspace vs duration
+        # This will be improved when we have more data
+
+        # Get mask info from metadata
+        mask_filename = metadata.get("mask_filename")
+        mask_file_content = metadata.get("mask_file_content", "")
+        group_id = metadata.get("group_id")
+        group_name = metadata.get("group_name")
+
+        # Count masks in file
+        masks_in_file = 0
+        if mask_file_content:
+            masks_in_file = len([
+                line for line in mask_file_content.split("\n")
+                if line.strip() and not line.startswith("#") and not line.startswith("?")
+                or (line.startswith("?") and "=" not in line)
+            ])
+
+        # Try to identify group from filename if not explicitly set
+        if not group_id and mask_filename:
+            # Try to find matching group by name derived from filename
+            # Filename format: "1_Hour_-_14_Character.hcmask" -> "1 Hour - 14 Character"
+            try:
+                potential_name = mask_filename.replace(".hcmask", "").replace("_", " ")
+                mask_manager = _get_mask_manager()
+                groups = mask_manager.list_groups()
+                for g in groups:
+                    if g.name == potential_name:
+                        group_id = g.group_id
+                        group_name = g.name
+                        break
+            except Exception:
+                pass
+
+        # Get agent name for reference
+        agent_name = None
+        try:
+            db = _get_db()
+            agents = db.get_agents()
+            for a in agents:
+                if a.get("agent_id") == agent_id:
+                    agent_name = a.get("name", a.get("hostname"))
+                    break
+        except Exception:
+            pass
+
+        # Calculate speed from keyspace and duration if we have keyspace
+        # For now, use a rough estimate based on the job duration
+        # This will be refined as we collect more data
+        if not avg_speed_hps:
+            # The agent reports keyspace_total in status updates
+            # For completed jobs, we can estimate from the mask keyspace
+            # But for now, we'll record without speed and update estimation logic
+            # to handle missing speed data
+            pass
+
+        # Record the performance data
+        mask_manager = _get_mask_manager()
+        success, error = mask_manager.record_mask_performance(
+            job_id=job_id,
+            agent_id=agent_id,
+            hash_count=total_hashes,
+            hash_mode=hash_mode,
+            avg_speed_hps=avg_speed_hps or 0,  # Will be 0 if not available
+            duration_seconds=duration_seconds,
+            group_id=group_id,
+            group_name=group_name or mask_filename,
+            agent_name=agent_name,
+            peak_speed_hps=peak_speed_hps,
+            keyspace_total=keyspace_total,
+            masks_in_file=masks_in_file,
+        )
+
+        if success:
+            logging.info(
+                f"Recorded mask performance for job {job_id}: "
+                f"group={group_name or mask_filename}, agent={agent_name or agent_id}, "
+                f"duration={duration_seconds:.1f}s"
+            )
+        else:
+            logging.warning(f"Failed to record mask performance: {error}")
+
+    except Exception as e:
+        logging.error(f"Error recording mask performance for job {job_id}: {e}")
+
+
 # Legacy job queue functions - kept for backward compatibility during transition
 def _get_job_queue_file() -> str:
     """Get path to job queue file (legacy - no longer used)."""
@@ -10978,6 +11111,9 @@ def agent_job_complete() -> Response:
             )
         except Exception as e:
             logging.error(f"Failed to merge potfile from job {job_id}: {e}")
+
+    # Record mask performance data for mask attacks
+    _record_mask_job_performance(job_id, agent_id, stats)
 
     # Mark job as completed to ignore any stale status updates from agent
     _mark_job_stopped(job_id)
@@ -13584,6 +13720,108 @@ def export_mask_group(group_id: str) -> Response:
 
     except Exception as e:
         logging.error(f"Failed to export mask group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-groups/<group_id>/performance", methods=["GET"])
+@login_required
+def get_mask_group_performance(group_id: str) -> Response:
+    """
+    Get performance data and time estimates for a mask group.
+
+    Query params:
+        agent_id: Optional specific agent ID
+        hash_count: Optional expected hash count for better estimation
+        hash_mode: Hash mode (default 1000 for NTLM)
+
+    Returns performance history and estimated crack time.
+    """
+    try:
+        manager = _get_mask_manager()
+        group = manager.get_group_with_masks(group_id)
+
+        if not group:
+            return jsonify({"error": "Group not found"}), 404
+
+        agent_id = request.args.get("agent_id")
+        hash_count = request.args.get("hash_count", type=int)
+        hash_mode = request.args.get("hash_mode", 1000, type=int)
+
+        # Get historical performance data
+        performance_history = manager.get_group_performance(
+            group_id=group_id,
+            agent_id=agent_id,
+            hash_mode=hash_mode,
+            limit=20,
+        )
+
+        # Calculate keyspace
+        keyspace = sum(m.keyspace for m in group.masks) if group.masks else 0
+
+        # Get time estimate using historical data
+        estimate = manager.estimate_group_crack_time(
+            group_id=group_id,
+            keyspace=keyspace,
+            agent_id=agent_id,
+            hash_count=hash_count,
+            hash_mode=hash_mode,
+        )
+
+        # Get average speed if available
+        avg_speed = manager.get_group_avg_speed(
+            group_id=group_id,
+            agent_id=agent_id,
+            hash_mode=hash_mode,
+        )
+
+        return jsonify({
+            "group_id": group_id,
+            "group_name": group.name,
+            "keyspace": keyspace,
+            "mask_count": len(group.masks) if group.masks else 0,
+            "performance": {
+                "history": performance_history,
+                "sample_count": len(performance_history),
+                "avg_speed_hps": avg_speed,
+            },
+            "estimate": {
+                "estimated_seconds": estimate["estimated_seconds"],
+                "estimated_hours": estimate["estimated_seconds"] / 3600 if estimate["estimated_seconds"] else None,
+                "speed_hps": estimate["speed_hps"],
+                "source": estimate["source"],
+                "confidence": estimate["confidence"],
+            },
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to get mask group performance: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/mask-performance", methods=["GET"])
+@login_required
+def get_all_mask_performance() -> Response:
+    """
+    Get all mask performance data for analysis.
+
+    Query params:
+        hash_mode: Hash mode (default 1000 for NTLM)
+        limit: Maximum records to return (default 100)
+    """
+    try:
+        manager = _get_mask_manager()
+        hash_mode = request.args.get("hash_mode", 1000, type=int)
+        limit = request.args.get("limit", 100, type=int)
+
+        data = manager.get_all_performance_data(hash_mode=hash_mode, limit=limit)
+
+        return jsonify({
+            "performance_data": data,
+            "count": len(data),
+        })
+
+    except Exception as e:
+        logging.error(f"Failed to get mask performance data: {e}")
         return jsonify({"error": str(e)}), 500
 
 

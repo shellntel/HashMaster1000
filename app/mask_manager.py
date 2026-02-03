@@ -763,3 +763,164 @@ class MaskManager:
         stats = self.db.get_stats()
         stats["fastest_ntlm_speed"] = self.get_fastest_ntlm_speed()
         return stats
+
+    # ==================== Performance Tracking ====================
+
+    def record_mask_performance(
+        self,
+        job_id: str,
+        agent_id: str,
+        hash_count: int,
+        hash_mode: int,
+        avg_speed_hps: float,
+        duration_seconds: float,
+        group_id: Optional[str] = None,
+        group_name: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        peak_speed_hps: Optional[float] = None,
+        keyspace_total: Optional[int] = None,
+        masks_in_file: Optional[int] = None,
+    ) -> tuple[bool, str]:
+        """
+        Record performance data from a completed mask attack job.
+
+        This builds up historical data for accurate time estimation.
+        """
+        return self.db.record_mask_performance(
+            job_id=job_id,
+            agent_id=agent_id,
+            hash_count=hash_count,
+            hash_mode=hash_mode,
+            avg_speed_hps=avg_speed_hps,
+            duration_seconds=duration_seconds,
+            group_id=group_id,
+            group_name=group_name,
+            agent_name=agent_name,
+            peak_speed_hps=peak_speed_hps,
+            keyspace_total=keyspace_total,
+            masks_in_file=masks_in_file,
+        )
+
+    def get_group_performance(
+        self,
+        group_id: str,
+        agent_id: Optional[str] = None,
+        hash_mode: int = NTLM_HASH_MODE,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Get historical performance data for a mask group."""
+        return self.db.get_group_performance(group_id, agent_id, hash_mode, limit)
+
+    def get_group_avg_speed(
+        self,
+        group_id: str,
+        agent_id: Optional[str] = None,
+        hash_mode: int = NTLM_HASH_MODE,
+        hash_count_min: Optional[int] = None,
+        hash_count_max: Optional[int] = None,
+    ) -> Optional[float]:
+        """Get average historical speed for a mask group."""
+        return self.db.get_group_avg_speed(
+            group_id, agent_id, hash_mode, hash_count_min, hash_count_max
+        )
+
+    def estimate_group_crack_time(
+        self,
+        group_id: str,
+        keyspace: int,
+        agent_id: Optional[str] = None,
+        hash_count: Optional[int] = None,
+        hash_mode: int = NTLM_HASH_MODE,
+    ) -> dict:
+        """
+        Estimate crack time for a mask group using historical data.
+
+        Falls back to benchmark-based estimation if no historical data.
+
+        Args:
+            group_id: Mask group ID
+            keyspace: Total keyspace to crack
+            agent_id: Optional specific agent for estimation
+            hash_count: Optional hash count for better multi-hash scaling
+            hash_mode: Hash mode (default NTLM)
+
+        Returns:
+            Dict with:
+                - estimated_seconds: Time estimate
+                - speed_hps: Speed used for estimate
+                - source: 'historical' or 'benchmark'
+                - confidence: 'high', 'medium', or 'low'
+                - sample_count: Number of historical samples used
+        """
+        result = {
+            'estimated_seconds': None,
+            'speed_hps': None,
+            'source': 'benchmark',
+            'confidence': 'low',
+            'sample_count': 0,
+        }
+
+        # Try to get historical data
+        # If hash_count provided, look for similar workloads (within 2x range)
+        hash_count_min = None
+        hash_count_max = None
+        if hash_count:
+            hash_count_min = hash_count // 2
+            hash_count_max = hash_count * 2
+
+        historical_speed = self.db.get_group_avg_speed(
+            group_id=group_id,
+            agent_id=agent_id,
+            hash_mode=hash_mode,
+            hash_count_min=hash_count_min,
+            hash_count_max=hash_count_max,
+        )
+
+        # Get sample count for confidence
+        performance_data = self.db.get_group_performance(
+            group_id=group_id,
+            agent_id=agent_id,
+            hash_mode=hash_mode,
+            limit=100,
+        )
+        result['sample_count'] = len(performance_data)
+
+        if historical_speed and historical_speed > 0:
+            result['speed_hps'] = historical_speed
+            result['source'] = 'historical'
+            result['estimated_seconds'] = keyspace / historical_speed
+
+            # Determine confidence based on sample count and agent match
+            if agent_id and result['sample_count'] >= 3:
+                result['confidence'] = 'high'
+            elif result['sample_count'] >= 5:
+                result['confidence'] = 'high'
+            elif result['sample_count'] >= 2:
+                result['confidence'] = 'medium'
+            else:
+                result['confidence'] = 'medium'
+        else:
+            # Fall back to benchmark-based estimation
+            benchmark_speed = self.get_fastest_ntlm_speed()
+            if benchmark_speed and benchmark_speed > 0:
+                result['speed_hps'] = benchmark_speed
+                result['estimated_seconds'] = keyspace / benchmark_speed
+                result['confidence'] = 'low'
+
+        return result
+
+    def get_all_performance_data(
+        self,
+        hash_mode: int = NTLM_HASH_MODE,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Get all performance records for analysis."""
+        return self.db.get_all_performance_data(hash_mode, limit)
+
+    def get_agent_performance_summary(
+        self,
+        agent_id: str,
+        hash_mode: int = NTLM_HASH_MODE,
+    ) -> dict:
+        """Get performance summary for an agent."""
+        return self.db.get_agent_performance_summary(agent_id, hash_mode)

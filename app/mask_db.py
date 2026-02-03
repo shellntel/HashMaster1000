@@ -117,6 +117,39 @@ class MaskDB:
                 ON group_masks(mask_id)
             """)
 
+            # Mask performance tracking table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS mask_performance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT,
+                    group_name TEXT,
+                    agent_id TEXT NOT NULL,
+                    agent_name TEXT,
+                    hash_count INTEGER NOT NULL,
+                    hash_mode INTEGER NOT NULL,
+                    avg_speed_hps REAL NOT NULL,
+                    peak_speed_hps REAL,
+                    duration_seconds REAL NOT NULL,
+                    keyspace_total INTEGER,
+                    masks_in_file INTEGER,
+                    timestamp TEXT NOT NULL,
+                    job_id TEXT NOT NULL,
+                    FOREIGN KEY (group_id) REFERENCES groups(group_id) ON DELETE SET NULL
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_mask_performance_group
+                ON mask_performance(group_id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_mask_performance_agent
+                ON mask_performance(agent_id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_mask_performance_hash_mode
+                ON mask_performance(hash_mode)
+            """)
+
             logger.info(f"Mask database initialized: {self.db_path}")
 
     # ==================== Mask Operations ====================
@@ -510,6 +543,226 @@ class MaskDB:
         return {
             'mask_count': mask_count,
             'group_count': group_count,
+        }
+
+    # ==================== Mask Performance Tracking ====================
+
+    def record_mask_performance(
+        self,
+        job_id: str,
+        agent_id: str,
+        hash_count: int,
+        hash_mode: int,
+        avg_speed_hps: float,
+        duration_seconds: float,
+        group_id: Optional[str] = None,
+        group_name: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        peak_speed_hps: Optional[float] = None,
+        keyspace_total: Optional[int] = None,
+        masks_in_file: Optional[int] = None,
+    ) -> tuple[bool, str]:
+        """
+        Record performance data from a completed mask attack job.
+
+        Args:
+            job_id: Unique job identifier
+            agent_id: Agent that ran the job
+            hash_count: Number of hashes being cracked
+            hash_mode: Hashcat hash mode (e.g., 1000 for NTLM)
+            avg_speed_hps: Average speed in H/s
+            duration_seconds: Total job duration
+            group_id: Mask group ID (if applicable)
+            group_name: Mask group name (for reference if group is deleted)
+            agent_name: Agent name (for reference)
+            peak_speed_hps: Peak speed observed
+            keyspace_total: Total keyspace processed
+            masks_in_file: Number of masks in the mask file
+
+        Returns:
+            Tuple of (success, error message)
+        """
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        try:
+            with self._transaction() as conn:
+                conn.execute("""
+                    INSERT INTO mask_performance (
+                        group_id, group_name, agent_id, agent_name,
+                        hash_count, hash_mode, avg_speed_hps, peak_speed_hps,
+                        duration_seconds, keyspace_total, masks_in_file,
+                        timestamp, job_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    group_id, group_name, agent_id, agent_name,
+                    hash_count, hash_mode, avg_speed_hps, peak_speed_hps,
+                    duration_seconds, keyspace_total, masks_in_file,
+                    timestamp, job_id
+                ))
+
+            logger.info(
+                f"Recorded mask performance: group={group_name or group_id}, "
+                f"agent={agent_name or agent_id}, speed={avg_speed_hps/1e9:.2f} GH/s"
+            )
+            return True, ""
+
+        except Exception as e:
+            logger.error(f"Failed to record mask performance: {e}")
+            return False, str(e)
+
+    def get_group_performance(
+        self,
+        group_id: str,
+        agent_id: Optional[str] = None,
+        hash_mode: int = 1000,
+        limit: int = 10,
+    ) -> list[dict]:
+        """
+        Get historical performance data for a mask group.
+
+        Args:
+            group_id: Mask group ID
+            agent_id: Optional filter by agent
+            hash_mode: Hash mode (default NTLM)
+            limit: Maximum records to return
+
+        Returns:
+            List of performance records, newest first
+        """
+        conn = self._get_connection()
+
+        if agent_id:
+            rows = conn.execute("""
+                SELECT * FROM mask_performance
+                WHERE group_id = ? AND agent_id = ? AND hash_mode = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (group_id, agent_id, hash_mode, limit)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT * FROM mask_performance
+                WHERE group_id = ? AND hash_mode = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (group_id, hash_mode, limit)).fetchall()
+
+        return [self._row_to_performance(row) for row in rows]
+
+    def get_group_avg_speed(
+        self,
+        group_id: str,
+        agent_id: Optional[str] = None,
+        hash_mode: int = 1000,
+        hash_count_min: Optional[int] = None,
+        hash_count_max: Optional[int] = None,
+    ) -> Optional[float]:
+        """
+        Get average speed for a mask group based on historical data.
+
+        Can optionally filter by agent and hash count range to get
+        more accurate estimates for similar workloads.
+
+        Args:
+            group_id: Mask group ID
+            agent_id: Optional filter by specific agent
+            hash_mode: Hash mode (default NTLM)
+            hash_count_min: Minimum hash count for filtering
+            hash_count_max: Maximum hash count for filtering
+
+        Returns:
+            Average speed in H/s or None if no data
+        """
+        conn = self._get_connection()
+
+        query = """
+            SELECT AVG(avg_speed_hps) as avg_speed
+            FROM mask_performance
+            WHERE group_id = ? AND hash_mode = ?
+        """
+        params: list = [group_id, hash_mode]
+
+        if agent_id:
+            query += " AND agent_id = ?"
+            params.append(agent_id)
+
+        if hash_count_min is not None:
+            query += " AND hash_count >= ?"
+            params.append(hash_count_min)
+
+        if hash_count_max is not None:
+            query += " AND hash_count <= ?"
+            params.append(hash_count_max)
+
+        row = conn.execute(query, params).fetchone()
+        return row['avg_speed'] if row and row['avg_speed'] else None
+
+    def get_agent_performance_summary(
+        self,
+        agent_id: str,
+        hash_mode: int = 1000,
+    ) -> dict:
+        """
+        Get performance summary for an agent across all mask groups.
+
+        Returns:
+            Dict with avg_speed, job_count, groups_run
+        """
+        conn = self._get_connection()
+
+        row = conn.execute("""
+            SELECT
+                AVG(avg_speed_hps) as avg_speed,
+                COUNT(*) as job_count,
+                COUNT(DISTINCT group_id) as groups_run
+            FROM mask_performance
+            WHERE agent_id = ? AND hash_mode = ?
+        """, (agent_id, hash_mode)).fetchone()
+
+        return {
+            'avg_speed': row['avg_speed'] or 0,
+            'job_count': row['job_count'] or 0,
+            'groups_run': row['groups_run'] or 0,
+        }
+
+    def get_all_performance_data(
+        self,
+        hash_mode: int = 1000,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get all performance records for analysis.
+
+        Returns:
+            List of performance records, newest first
+        """
+        conn = self._get_connection()
+
+        rows = conn.execute("""
+            SELECT * FROM mask_performance
+            WHERE hash_mode = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (hash_mode, limit)).fetchall()
+
+        return [self._row_to_performance(row) for row in rows]
+
+    def _row_to_performance(self, row: sqlite3.Row) -> dict:
+        """Convert a database row to a performance dict."""
+        return {
+            'id': row['id'],
+            'group_id': row['group_id'],
+            'group_name': row['group_name'],
+            'agent_id': row['agent_id'],
+            'agent_name': row['agent_name'],
+            'hash_count': row['hash_count'],
+            'hash_mode': row['hash_mode'],
+            'avg_speed_hps': row['avg_speed_hps'],
+            'peak_speed_hps': row['peak_speed_hps'],
+            'duration_seconds': row['duration_seconds'],
+            'keyspace_total': row['keyspace_total'],
+            'masks_in_file': row['masks_in_file'],
+            'timestamp': row['timestamp'],
+            'job_id': row['job_id'],
         }
 
 
