@@ -642,6 +642,11 @@ class JobManager:
         potfile_content = self.hashcat.get_potfile_content() or ""
         duration = (job.completed_at or time.time()) - (job.started_at or time.time())
 
+        # Count actual hashes cracked in THIS job (from potfile content)
+        # This is the correct count - job.recovered is hashcat's cumulative count
+        # which includes hashes already cracked from previous jobs
+        recovered_this_job = len([line for line in potfile_content.split("\n") if line.strip()])
+
         # Get hashcat output logs - useful for debugging issues
         logs = self.hashcat.get_output_logs(max_lines=100)
 
@@ -650,7 +655,7 @@ class JobManager:
 
         stats = {
             "state": job.state.value,
-            "recovered": job.recovered,
+            "recovered": recovered_this_job,
             "total_hashes": job.total_hashes,
             "duration_seconds": duration,
             "error_message": job.error_message,
