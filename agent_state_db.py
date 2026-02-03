@@ -206,16 +206,31 @@ class AgentStateDB:
             else:
                 status = "online"
 
-            # Update current_job_json if agent reports a job
-            current_job_json = json.dumps({"job_id": current_job_id}) if current_job_id else None
-
-            # Try to update existing
-            cursor = conn.execute("""
-                UPDATE agents
-                SET last_heartbeat = ?, state_json = ?, ip_address = ?,
-                    status = ?, current_job_json = ?
-                WHERE id = ?
-            """, (now, state_json, ip_address, status, current_job_json, agent_id))
+            # Handle job status carefully to not overwrite detailed status from status updates
+            if current_job_id is None:
+                # Agent reports no job - clear the job data
+                cursor = conn.execute("""
+                    UPDATE agents
+                    SET last_heartbeat = ?, state_json = ?, ip_address = ?,
+                        status = ?, current_job_json = NULL
+                    WHERE id = ?
+                """, (now, state_json, ip_address, status, agent_id))
+            else:
+                # Agent reports a job - preserve existing detailed status if present
+                # Only update job_id, don't overwrite speed/progress/etc from status updates
+                # Use JSON functions to merge: keep existing data if it has the same job_id
+                cursor = conn.execute("""
+                    UPDATE agents
+                    SET last_heartbeat = ?, state_json = ?, ip_address = ?, status = ?,
+                        current_job_json = CASE
+                            WHEN current_job_json IS NULL THEN ?
+                            WHEN json_extract(current_job_json, '$.job_id') = ? THEN current_job_json
+                            ELSE ?
+                        END
+                    WHERE id = ?
+                """, (now, state_json, ip_address, status,
+                      json.dumps({"job_id": current_job_id}), current_job_id,
+                      json.dumps({"job_id": current_job_id}), agent_id))
 
             return cursor.rowcount > 0
 

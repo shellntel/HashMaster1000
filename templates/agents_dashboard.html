@@ -1418,6 +1418,8 @@
             const gpuTemps = job.gpu_temps || [];
             const gpuUtils = job.gpu_utils || [];
             const gpuSpeeds = job.gpu_speeds || [];
+            const hashcatArgs = job.hashcat_args || [];
+            const jobMeta = job.job_metadata || {};
 
             let elapsedStr = 'N/A';
             if (job.time_start) {
@@ -1429,6 +1431,27 @@
             }
 
             const numGpus = Math.max(gpuTemps.length, gpuUtils.length, gpuSpeeds.length);
+
+            // Extract attack mode and hash mode from args
+            let attackMode = null, hashMode = null;
+            const attackModeNames = {'0': 'Dictionary', '1': 'Combinator', '3': 'Brute-Force/Mask', '6': 'Hybrid Dict+Mask', '7': 'Hybrid Mask+Dict'};
+            const hashModeNames = {'0': 'MD5', '100': 'SHA1', '1000': 'NTLM', '1400': 'SHA-256', '1700': 'SHA-512', '3000': 'LM', '5600': 'NetNTLMv2', '22000': 'WPA-PBKDF2'};
+            for (let i = 0; i < hashcatArgs.length; i++) {
+                if (hashcatArgs[i] === '-a' && hashcatArgs[i+1]) attackMode = hashcatArgs[i+1];
+                if (hashcatArgs[i] === '-m' && hashcatArgs[i+1]) hashMode = hashcatArgs[i+1];
+            }
+
+            // Build hashcat command display
+            let hashcatCmd = hashcatArgs.length > 0 ? 'hashcat ' + hashcatArgs.join(' ') : null;
+            if (hashcatCmd && hashcatCmd.length > 120) {
+                hashcatCmd = hashcatCmd.substring(0, 117) + '...';
+            }
+
+            // Multi-mask progress details
+            const maskCurrent = job.mask_current || 1;
+            const maskTotal = job.mask_total || 1;
+            const masksCompleted = maskCurrent - 1;
+            const masksRemaining = maskTotal - maskCurrent;
 
             return `
                 <div class="job-detail-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
@@ -1447,6 +1470,18 @@
                                 <span style="color: #888;">Agent</span>
                                 <span style="color: #fff;">${agent.name || agent.id.substring(0, 8)}</span>
                             </div>
+                            ${hashMode ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Hash Type</span>
+                                <span style="color: #a78bfa;">${hashModeNames[hashMode] || hashMode}</span>
+                            </div>
+                            ` : ''}
+                            ${attackMode ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Attack Mode</span>
+                                <span style="color: #a78bfa;">${attackModeNames[attackMode] || attackMode}</span>
+                            </div>
+                            ` : ''}
                             <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #888;">Hashcat</span>
                                 <span style="color: #fff;">${job.hashcat_version || 'N/A'}</span>
@@ -1465,14 +1500,18 @@
                                 <span style="color: #888;">Cracked</span>
                                 <span style="color: #22c55e; font-weight: bold;">${job.recovered_hashes || 0} / ${job.total_hashes || 0}</span>
                             </div>
-                            ${job.mask_total > 1 ? `
+                            ${maskTotal > 1 ? `
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #888;">Mask Progress</span>
-                                <span style="color: #f59e0b; font-weight: bold;">${job.mask_current || 1} of ${job.mask_total}</span>
+                                <span style="color: #888;">Current Mask</span>
+                                <span style="color: #f59e0b; font-weight: bold;">${maskCurrent} of ${maskTotal}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #888;">Masks Done / Left</span>
+                                <span style="color: #fff;">${masksCompleted} done, ${masksRemaining} remaining</span>
                             </div>
                             ` : ''}
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #888;">Keyspace</span>
+                                <span style="color: #888;">${maskTotal > 1 ? 'Current Mask' : 'Keyspace'}</span>
                                 <span style="color: #fff;">${(job.progress_percent || 0).toFixed(2)}%</span>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
@@ -1486,6 +1525,45 @@
                         </div>
                     </div>
                 </div>
+
+                ${hashcatCmd ? `
+                <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Hashcat Command</h4>
+                    <div style="background: rgba(0,0,0,0.4); border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 0.8rem; color: #22d3ee; overflow-x: auto; white-space: nowrap;">
+                        ${escapeHtml(hashcatCmd)} <span style="color: #888;">{hash_file}</span> ${attackMode === '3' && jobMeta.mask_filename ? `<span style="color: #f59e0b;">{${escapeHtml(jobMeta.mask_filename)}}</span>` : ''}
+                    </div>
+                    ${jobMeta.group_name ? `
+                    <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
+                        Mask Group: <span style="color: #f59e0b;">${escapeHtml(jobMeta.group_name)}</span>
+                        ${jobMeta.masks_count ? ` (${jobMeta.masks_count} masks)` : ''}
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
+
+                ${job.mask_pattern || (maskTotal > 1) ? `
+                <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
+                    <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Current Mask</h4>
+                    ${job.mask_pattern ? `
+                    <div style="background: rgba(0,0,0,0.4); border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 0.9rem; color: #f59e0b;">
+                        ${escapeHtml(job.mask_pattern)}
+                    </div>
+                    ` : `
+                    <div style="color: #888; font-size: 0.85rem;">Waiting for mask data...</div>
+                    `}
+                    ${maskTotal > 1 ? `
+                    <div style="margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 0.8rem;">
+                            <span style="color: #888;">Overall Mask Progress</span>
+                            <span style="color: #fff;">${masksCompleted}/${maskTotal} complete (${((masksCompleted / maskTotal) * 100).toFixed(1)}%)</span>
+                        </div>
+                        <div style="height: 8px; background: rgba(0,0,0,0.4); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${(masksCompleted / maskTotal) * 100}%; background: #f59e0b;"></div>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
 
                 <div style="margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;">
                     <h4 style="margin: 0 0 12px 0; color: #00d4ff; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">Cracking Performance & GPU Monitors</h4>
@@ -1527,7 +1605,7 @@
 
                 <div style="margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem;">
-                        <span style="color: #888;">${job.mask_total > 1 ? `Mask ${job.mask_current || 1}/${job.mask_total} Progress` : 'Overall Progress'}</span>
+                        <span style="color: #888;">${maskTotal > 1 ? `Mask ${maskCurrent}/${maskTotal} Progress` : 'Overall Progress'}</span>
                         <span style="color: #fff; font-weight: bold;">${(job.progress_percent || 0).toFixed(2)}%</span>
                     </div>
                     <div style="height: 24px; background: rgba(0,0,0,0.4); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,212,255,0.2);">
@@ -1535,11 +1613,6 @@
                             ${(job.progress_percent || 0) > 15 ? `<span style="color: #fff; font-size: 0.75rem; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${(job.progress_percent || 0).toFixed(1)}%</span>` : ''}
                         </div>
                     </div>
-                    ${job.mask_pattern ? `
-                    <div style="margin-top: 8px; font-size: 0.8rem; color: #888;">
-                        Current mask: <code style="color: #f59e0b; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${job.mask_pattern}</code>
-                    </div>
-                    ` : ''}
                 </div>
             `;
         }

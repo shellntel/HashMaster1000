@@ -11518,6 +11518,7 @@ def list_agents() -> Response:
                 current_job = dict(current_job)  # Copy to avoid modifying registry
                 current_job["hashcat_args"] = job_meta.get("hashcat_args", [])
                 current_job["submitted_at"] = job_meta.get("submitted_at")
+                current_job["job_metadata"] = job_meta.get("metadata", {})
 
         # Get agent IP and determine if local
         agent_ip = agent_data.get("ip_address", "")
