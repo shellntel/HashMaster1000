@@ -512,8 +512,8 @@ configure_hm1k_env() {
 # Security - CHANGE THESE!
 SECRET_KEY="${SECRET_KEY}"
 ADMIN_USERNAME="admin"
-# Default password: Winter2025## (change this!)
-ADMIN_PASSWORD_HASH="\$2b\$12\$eNKlXXTpqFIlXKEAvoUSaujC3MYUMnji4LDoftnnZMMRAwPMN.JkO"
+# Default password: Winter2026## (change this!)
+ADMIN_PASSWORD_HASH="\$2b\$12\$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
 
 # Multi-user mode (optional)
 # MULTI_USER_MODE="true"
@@ -1157,7 +1157,7 @@ setup_admin_credentials() {
     echo ""
     echo "The default admin credentials are:"
     echo "  Username: admin"
-    echo "  Password: Winter2025##"
+    echo "  Password: Winter2026##"
     echo ""
 
     read -p "Would you like to set a custom admin username and password now? (y/N): " setup_creds
@@ -1221,7 +1221,7 @@ print(hashed.decode('utf-8'))
         sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH=\"$escaped_hash\"|" "$ENV_FILE"
 
         # Remove the default password comment
-        sed -i '/# Default password: Winter2025##/d' "$ENV_FILE"
+        sed -i '/# Default password: Winter2026##/d' "$ENV_FILE"
 
         log_success "Admin credentials updated!"
         echo ""

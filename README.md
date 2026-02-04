@@ -301,15 +301,15 @@ Accept the self-signed certificate warning in your browser to proceed.
 Despite the security disclaimer above, it's important to prevent unauthorized users from easily accessing sensitive data. `Flask-Login` requires users to have a valid login in order to access any of the protected routes/endpoints. The weak default password used by the app is a humorous reminder that complex != secure and to always change your default passwords. :grin:
 
 - Username: `admin`
-- Password: `Winter2025##`
+- Password: `Winter2026##`
 
-If you wish to change the username or password, either can be edited in the .env file. The default credentials below allow users to login as `admin` with the password `Winter2025##`. To change the password, bcrypt the password and paste the hash into the .env file.
+If you wish to change the username or password, either can be edited in the .env file. The default credentials below allow users to login as `admin` with the password `Winter2026##`. To change the password, bcrypt the password and paste the hash into the .env file.
 
 **.env file:**
 
 `ADMIN_USERNAME="admin"`
 
-`ADMIN_PASSWORD_HASH="$2b$12$eNKlXXTpqFIlXKEAvoUSaujC3MYUMnji4LDoftnnZMMRAwPMN.JkO"`
+`ADMIN_PASSWORD_HASH="$2b$12$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"`
 
 ---
 

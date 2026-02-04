@@ -142,11 +142,11 @@ if (-not (Test-Path $envFile)) {
 # Hash Master 1000 Configuration
 SECRET_KEY="$secretKey"
 ADMIN_USERNAME="admin"
-# Default password: Winter2025##
-ADMIN_PASSWORD_HASH="`$2b`$12`$eNKlXXTpqFIlXKEAvoUSaujC3MYUMnji4LDoftnnZMMRAwPMN.JkO"
+# Default password: Winter2026##
+ADMIN_PASSWORD_HASH="`$2b`$12`$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
 "@
     $envContent | Out-File -FilePath $envFile -Encoding utf8
-    Write-Success "Created .env with default credentials (admin / Winter2025##)"
+    Write-Success "Created .env with default credentials (admin / Winter2026##)"
 } else {
     Write-Info ".env file exists, skipping"
 }
@@ -230,7 +230,7 @@ cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 echo Starting Hash Master 1000...
 echo Access at: https://127.0.0.1:8443
-echo Login: admin / Winter2025## (unless changed)
+echo Login: admin / Winter2026## (unless changed)
 echo.
 python hm1k.py
 pause
@@ -245,7 +245,7 @@ Set-Location $scriptDir
 . .\.venv\Scripts\Activate.ps1
 Write-Host "Starting Hash Master 1000..." -ForegroundColor Green
 Write-Host "Access at: https://127.0.0.1:8443" -ForegroundColor Cyan
-Write-Host "Login: admin / Winter2025## (unless changed)" -ForegroundColor Yellow
+Write-Host "Login: admin / Winter2026## (unless changed)" -ForegroundColor Yellow
 Write-Host ""
 python hm1k.py
 '@
@@ -266,7 +266,7 @@ Write-Host "  .\.venv\Scripts\Activate.ps1" -ForegroundColor Gray
 Write-Host "  python hm1k.py" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Access the app at: https://127.0.0.1:8443" -ForegroundColor Cyan
-Write-Host "Default login: admin / Winter2025##" -ForegroundColor White
+Write-Host "Default login: admin / Winter2026##" -ForegroundColor White
 Write-Host ""
 Write-Warn "Change the default password in .env for security!"
 Write-Host ""

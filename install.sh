@@ -107,10 +107,10 @@ if [[ ! -f ".env" ]]; then
 # Hash Master 1000 Configuration
 SECRET_KEY="${SECRET_KEY}"
 ADMIN_USERNAME="admin"
-# Default password: Winter2025##
-ADMIN_PASSWORD_HASH="\$2b\$12\$eNKlXXTpqFIlXKEAvoUSaujC3MYUMnji4LDoftnnZMMRAwPMN.JkO"
+# Default password: Winter2026##
+ADMIN_PASSWORD_HASH="\$2b\$12\$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
 EOF
-    log_success "Created .env with default credentials (admin / Winter2025##)"
+    log_success "Created .env with default credentials (admin / Winter2026##)"
 else
     log_info ".env file exists, skipping"
 fi
@@ -135,7 +135,7 @@ cd "$(dirname "$0")"
 source .venv/bin/activate
 echo "Starting Hash Master 1000..."
 echo "Access at: https://127.0.0.1:8443"
-echo "Login: admin / Winter2025## (unless changed)"
+echo "Login: admin / Winter2026## (unless changed)"
 echo ""
 python3 hm1k.py
 EOF
@@ -156,7 +156,7 @@ echo "  source .venv/bin/activate"
 echo "  python3 hm1k.py"
 echo ""
 echo "Access the app at: https://127.0.0.1:8443"
-echo "Default login: admin / Winter2025##"
+echo "Default login: admin / Winter2026##"
 echo ""
 log_warn "Change the default password in .env for security!"
 echo ""
