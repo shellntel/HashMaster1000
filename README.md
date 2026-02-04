@@ -29,7 +29,8 @@
 21. [AD Description Analysis](#ad-description-analysis)
 22. [Advanced Mode](#advanced-mode)
 23. [Environment Configuration](#environment-configuration)
-24. [Licensing](#licensing)
+24. [Source](#source)
+25. [Licensing](#licensing)
 
 ---
 
@@ -39,9 +40,10 @@ Hash Master 1000 is intended as an **ad hoc tool** for password and hash analysi
 
 If production use is required:
 
-- Replace the default Flask server with a robust web server
-- Use a valid TLS certificate
+- Use the production deployment script (`scripts/deploy_production.sh`) which configures gunicorn with multiple workers
+- Use a valid TLS certificate (not the self-signed default)
 - Configure appropriate firewall rules to restrict access
+- Place behind a reverse proxy like Nginx for additional security
 
 The authors assume no responsibility for improper or insecure deployments.
 
@@ -61,7 +63,7 @@ Learn more: https://blog.shellntel.com/p/hash-master-1000
 - Password policy compliance checks (length, complexity)
 - Analysis of weak or reused passwords
 - Detection of common/reused dictionary words and substrings
-- Bad Practices Report with 11 detection categories (clickable bars show matching passwords)
+- Bad Practices Report with 12 detection categories (clickable bars show matching passwords)
 - Company Name & Terms detection for organization-specific keyword matching
 - Visualization of cracking statistics with interactive charts
 - Support for mixed hash type potfiles (auto-detects and filters NTLM)
@@ -164,7 +166,7 @@ After installation, start the application with `./start.sh` (Linux/macOS) or `st
 
 ### **Production Deployment**
 
-For production server deployment with Nginx, systemd, and hashcat integration, use the production deployment script:
+For production server deployment with Nginx, systemd, and gunicorn (multi-worker), use the production deployment script:
 
 ```bash
 sudo ./scripts/deploy_production.sh
@@ -174,11 +176,11 @@ See `docs/MULTI_USER_DEPLOYMENT.md` for detailed multi-user deployment instructi
 
 ### **Manual Installation**
 
-While there are several ways that Hash Master 1000 could be run, using either Docker or a Python Virtual Environment is recommended. As stated earlier, a more persistent installation should only be done by a security professional. If you don't have Docker already installed and working, the native Python Virtual Envrionment is quick and easy.
+While there are several ways that Hash Master 1000 could be run, using either Docker or a Python Virtual Environment is recommended. As stated earlier, a more persistent installation should only be done by a security professional. If you don't have Docker already installed and working, the native Python Virtual Environment is quick and easy.
 
 Some Docker users prefer a zero-config environment, therefore, the application will run with a default Flask secret-key, admin username and admin password. It will also automatically create a self-signed SSL certificate in the Docker home folder when the application starts.
 
-To override the default configuration, edit the included `env.example` file and save it as `.env` inside the local project folder. Likewise, you may configure your own SSL certificate in advance using openssl or the built-in `generate_cert.py` script. Docker will use the user created `.env`, `cert.pem` and `pub.pem` files in the project directory if they are created before building and starting the app.
+To override the default configuration, edit the included `env.example` file and save it as `.env` inside the local project folder. Likewise, you may configure your own SSL certificate in advance using openssl or the built-in `generate_cert.py` script. Docker will use the user created `.env`, `cert.pem` and `key.pem` files in the project directory if they are created before building and starting the app.
 
 #### <u>**Docker**</u>
 
@@ -378,7 +380,7 @@ The final step displays the comprehensive analysis report with statistics, chart
 The preferred hash and domain input format is ADD JSON, generated with the [Active Directory Dumper (ADD)](https://github.com/shellntel/ActiveDirectoryDumper) tool from #\_shelltel. This format provides rich Active Directory metadata that enables domain based analysis features not available with standard pwdump formatted hashes from the Volume Shadow Copy Service (VSS) or DCSync extraction.
 
 - Filename: `hm_domainoutput.json`
-- Source: [Active Directory Dumper](https://github.com/shellntel/ActiveDirectoryDumpter)
+- Source: [Active Directory Dumper](https://github.com/shellntel/ActiveDirectoryDumper)
 
 #### **Why Use ADD JSON?**
 
@@ -565,7 +567,7 @@ Dictionary analysis is just as you'd expect, Hash Master 1000 searches each pass
 The Policy Compliance configurable settings allow the report to be customized to show violations of the effective Group Policy (or local password policy).
 
 - **Min Password Length**: Minimum length required for a compliant password.
-- **Max Password Age**: Maximum allowable days since last password change (feature coming soon).
+- **Max Password Age**: Maximum allowable days since last password change. Requires DCSync format with status information or ADD JSON input with `PwdLastSet` field.
 - **Complexity Requirement**: Passwords must meet specific complexity rules (uppercase, lowercase, digit, and special character). Microsoft typically requires 3 out of 4 categories to be complex, but certain implemenations may require all 4 categories. While there is rumor of a 5th complexity category being added, selecting 5 today should cause all cracked passwords to be reported.
 
 #### **Company Name & Terms**
@@ -779,9 +781,26 @@ A password appearing millions of times (e.g., 52,000,000+) indicates it's extrem
 - **Hash Count Discrepancy**: The number of NTLM hashes checked in HIBP may be 1 less than the total shown in the report statistics, because blank passwords (hash: `31d6cfe0d16ae931b73c59d7e0c089c0`) are automatically excluded from breach checks. This is intentional - there's no value in checking whether the blank password appears in breaches.
 - **Account vs Hash Counts**: Multiple accounts can share the same password hash (and thus the same password). The report displays both unique NTLM hash counts and account counts to give you a complete picture of password reuse within your organization.
 
-### **Future: Local Database Support**
+### **Local Database Support**
 
-For air-gapped environments, a future update will support checking against a locally-downloaded HIBP NTLM hash database.
+For air-gapped environments or faster lookups with large datasets, Hash Master 1000 supports checking against a locally-downloaded HIBP NTLM hash database:
+
+1. Navigate to **Advanced Mode** → **HIBP Database Download** (`/hibp/download`)
+2. Download the full HIBP NTLM database (~16GB, 850M+ hashes)
+3. The download supports resume if interrupted
+4. Once downloaded, configure the path in `.env`:
+
+```bash
+HIBP_LOCAL_DB_PATH="data/pwnedpasswords-ntlm.txt"
+```
+
+For better performance, convert the text file to SQLite format using the included script:
+
+```bash
+python scripts/setup_hibp_database.py data/pwnedpasswords-ntlm.txt
+```
+
+When a local database is configured, breach checks use local lookups instead of API calls.
 
 ---
 
@@ -1324,10 +1343,19 @@ Hash Master 1000 uses a `.env` file for configuration. Copy `env.example` to `.e
 
 ### **Core Settings**
 
+The install scripts automatically generate a secure `SECRET_KEY` and set up default credentials. To customize:
+
 ```bash
-SECRET_KEY="your-secret-key-here"
+SECRET_KEY="your-secret-key-here"  # Auto-generated if not set
 ADMIN_USERNAME="admin"
-ADMIN_PASSWORD_HASH="your-bcrypt-hash-here"
+# Default password: Winter2026##
+ADMIN_PASSWORD_HASH="$2b$12$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
+```
+
+To change the password, generate a new bcrypt hash:
+
+```bash
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'yourpassword', bcrypt.gensalt()).decode())"
 ```
 
 ### **Default File Paths (Optional)**
