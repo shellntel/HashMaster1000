@@ -180,9 +180,17 @@ if ((-not (Test-Path $certFile)) -or (-not (Test-Path $keyFile))) {
 
     if ($opensslPath -or (Get-Command openssl -ErrorAction SilentlyContinue)) {
         $openssl = if ($opensslPath) { $opensslPath } else { "openssl" }
-        & $openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/C=US/ST=State/L=City/O=HM1K/CN=localhost" 2>$null
-        Write-Success "SSL certificate generated"
-    } else {
+        # Use cmd /c to suppress openssl stderr output (openssl writes progress to stderr)
+        cmd /c "`"$openssl`" req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj `"/C=US/ST=State/L=City/O=HM1K/CN=localhost`" 2>nul"
+        if ((Test-Path $certFile) -and (Test-Path $keyFile)) {
+            Write-Success "SSL certificate generated"
+        } else {
+            Write-Warn "OpenSSL failed, trying Python fallback..."
+            $opensslPath = $null  # Force Python fallback
+        }
+    }
+
+    if (-not $opensslPath -and (-not (Test-Path $certFile) -or -not (Test-Path $keyFile))) {
         Write-Warn "OpenSSL not found. Generating certificate with Python..."
         python -c @"
 from cryptography import x509
