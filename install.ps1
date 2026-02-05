@@ -56,40 +56,25 @@ if (-not $pythonCmd) {
     exit 1
 }
 
-# Determine install directory
+# Determine install directory - must be run from extracted project folder
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (Test-Path (Join-Path $scriptDir "hm1k.py")) {
-    $installDir = $scriptDir
-    Write-Info "Installing in current directory: $installDir"
-} else {
-    $installDir = Join-Path $env:USERPROFILE "hm1k"
-    Write-Info "Installing to: $installDir"
-
-    if (Test-Path $installDir) {
-        Write-Warn "Directory exists. Pulling latest changes..."
-        Push-Location $installDir
-        try {
-            git pull 2>$null
-        } catch {
-            Write-Warn "Could not pull updates (git may not be installed)"
-        }
-        Pop-Location
-    } else {
-        Write-Info "Cloning repository..."
-        try {
-            git clone https://github.com/shellntel/hm1k.git $installDir
-        } catch {
-            Write-Host ""
-            Write-Host "Git not found! Please either:" -ForegroundColor Red
-            Write-Host "  1. Install Git from https://git-scm.com/download/win" -ForegroundColor Yellow
-            Write-Host "  2. Download HM1K manually from https://github.com/shellntel/hm1k" -ForegroundColor Yellow
-            Write-Host ""
-            Read-Host "Press Enter to exit"
-            exit 1
-        }
-    }
+if (-not (Test-Path (Join-Path $scriptDir "hm1k.py"))) {
+    Write-Host ""
+    Write-Host "hm1k.py not found in script directory!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "This script must be run from within the extracted HM1K project folder." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To install Hash Master 1000:" -ForegroundColor White
+    Write-Host "  1. Download the latest release from https://github.com/shellntel/hm1k" -ForegroundColor Gray
+    Write-Host "  2. Extract the zip file to a folder" -ForegroundColor Gray
+    Write-Host "  3. Run this script from within that folder" -ForegroundColor Gray
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
 }
 
+$installDir = $scriptDir
+Write-Info "Installing in: $installDir"
 Set-Location $installDir
 
 # Create virtual environment
@@ -103,20 +88,34 @@ if (Test-Path $venvPath) {
 }
 Write-Success "Virtual environment ready"
 
-# Activate virtual environment
+# Get venv Python path (use explicit path to avoid system Python conflicts)
+$venvPython = Join-Path $venvPath "Scripts\python.exe"
+
+# Install dependencies using venv Python directly
+Write-Info "Installing Python dependencies..."
+# Use explicit venv python path with -m pip to avoid Windows pip self-upgrade issues
+& $venvPython -m pip install --upgrade pip wheel setuptools -q 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "pip upgrade had warnings (this is usually OK)"
+}
+& $venvPython -m pip install -r requirements.txt -q
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "Failed to install dependencies!" -ForegroundColor Red
+    Write-Host "Try running manually:" -ForegroundColor Yellow
+    Write-Host "  $venvPython -m pip install -r requirements.txt" -ForegroundColor Gray
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+Write-Success "Dependencies installed"
+
+# Activate virtual environment for remaining commands
 $activateScript = Join-Path $venvPath "Scripts\Activate.ps1"
 if (-not (Test-Path $activateScript)) {
     $activateScript = Join-Path $venvPath "Scripts\activate.ps1"
 }
-
 . $activateScript
-
-# Install dependencies
-Write-Info "Installing Python dependencies..."
-# Use python -m pip to avoid "pip can't upgrade itself" error on Windows
-python -m pip install --upgrade pip wheel setuptools -q 2>$null
-python -m pip install -r requirements.txt -q 2>$null
-Write-Success "Dependencies installed"
 
 # Download NLTK data
 Write-Info "Downloading NLTK data..."
