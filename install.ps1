@@ -113,8 +113,9 @@ if (-not (Test-Path $activateScript)) {
 
 # Install dependencies
 Write-Info "Installing Python dependencies..."
-pip install --upgrade pip wheel setuptools -q 2>$null
-pip install -r requirements.txt -q 2>$null
+# Use python -m pip to avoid "pip can't upgrade itself" error on Windows
+python -m pip install --upgrade pip wheel setuptools -q 2>$null
+python -m pip install -r requirements.txt -q 2>$null
 Write-Success "Dependencies installed"
 
 # Download NLTK data
