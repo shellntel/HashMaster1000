@@ -133,6 +133,14 @@
                                     <div class="stat-label">Standard</div>
                                 </div>
 
+                                <!-- Computer accounts -->
+                                {% if add_data.total_computers > 0 %}
+                                <div class="stat-card" title="Computer accounts (ending with $)">
+                                    <div class="stat-value info">{{ add_data.total_computers }}</div>
+                                    <div class="stat-label">Computer Accounts</div>
+                                </div>
+                                {% endif %}
+
                                 <!-- Row 3: Historical & Potfile -->
                                 {% if add_data.users_with_history > 0 %}
                                 <div class="stat-card">

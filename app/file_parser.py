@@ -1609,8 +1609,15 @@ class ADDValidationResult:
     # Domain stats
     unique_domains: list[str] = field(default_factory=list)
 
+    # Computer account stats
+    total_computers: int = 0
+    valid_computers: int = 0
+
     # Raw user data for advanced analysis (Kerberoast, etc.)
     raw_users: list[dict[str, Any]] = field(default_factory=list)
+
+    # Raw computer data for advanced analysis
+    raw_computers: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def domain_count(self) -> int:
@@ -1840,13 +1847,16 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
             message=f"Could not parse domain policy: {str(e)}"
         ))
 
-    # Extract users
+    # Extract users and computers
     users = data.get("Users", [])
-    if not users:
+    computers = data.get("Computers", [])
+
+    # Check if file has any accounts at all
+    if not users and not computers:
         errors.append(ValidationError(
             severity=ErrorSeverity.FATAL,
             code=ADDErrorCode.EMPTY_USERS,
-            message="No users found in ADD JSON file"
+            message="No users or computers found in ADD JSON file"
         ))
         timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=0)
         return ADDValidationResult(
@@ -1864,6 +1874,8 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
 
     valid_users = 0
     error_users = 0
+    valid_computers = 0
+    error_computers = 0
 
     for user in users:
         entry_errors: list[ValidationError] = []
@@ -1976,22 +1988,108 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
         else:
             error_users += 1
 
+    # Track user count before adding computers
+    user_entry_count = len(entries)
+
+    # Process computer accounts
+    for computer in computers:
+        entry_errors: list[ValidationError] = []
+        is_valid = True
+
+        # Parse required fields
+        sam_account_name = computer.get("SamAccountName", "")
+        if not sam_account_name:
+            entry_errors.append(ValidationError(
+                severity=ErrorSeverity.FATAL,
+                code=ADDErrorCode.MISSING_REQUIRED_FIELD,
+                message="Missing SamAccountName"
+            ))
+            is_valid = False
+
+        # Parse SID and extract RID (computers may have SID field instead of ObjectSid)
+        object_sid = computer.get("SID", "") or computer.get("ObjectSid", "")
+        rid = extract_rid_from_sid(object_sid)
+
+        # Parse hash field
+        lm_hash, ntlm_hash = parse_add_ntlm_hash(computer.get("NTLMHash", ""))
+
+        if not ntlm_hash:
+            entry_errors.append(ValidationError(
+                severity=ErrorSeverity.WARNING,
+                code=ADDErrorCode.INVALID_HASH_FORMAT,
+                message="No valid NTLM hash found"
+            ))
+
+        # Parse UAC flags
+        user_account_control = computer.get("UserAccountControl", [])
+        if isinstance(user_account_control, str):
+            user_account_control = [user_account_control] if user_account_control else []
+        is_disabled = "ACCOUNT_DISABLED" in user_account_control
+
+        # Parse last logon
+        last_logon_raw = computer.get("LastLogon", "0")
+        last_logon = None if last_logon_raw in ("0", "", None) else str(last_logon_raw)
+
+        # Construct logon_name from domain and SamAccountName
+        # Use domain from domain_policy if available
+        domain_name = domain_policy.domain_name.split(".")[0].upper() if domain_policy else ""
+        logon_name = f"{domain_name}\\{sam_account_name}" if domain_name else sam_account_name
+
+        # Track domain
+        if domain_name:
+            domains_seen.add(domain_name)
+
+        # Create entry for computer
+        entry = ADDAccountEntry(
+            sam_account_name=sam_account_name,
+            logon_name=logon_name,
+            object_sid=object_sid,
+            rid=rid if rid else 0,
+            ntlm_hash=ntlm_hash,
+            lm_hash=lm_hash,
+            historical_hashes=[],  # Computers don't have password history in ADD format
+            member_of=[],  # Computers don't have group membership in ADD format
+            primary_group_id=0,
+            user_account_control=user_account_control,
+            is_disabled=is_disabled,
+            pwd_last_set=None,  # Not available for computers in ADD format
+            last_logon=last_logon,
+            is_privileged=False,  # Computers are not privileged accounts
+            privilege_level="standard",
+            privilege_groups=[],
+            display_name="",
+            description=computer.get("Description", ""),
+            cn=computer.get("Cn", ""),
+            is_valid=is_valid,
+            errors=entry_errors,
+            included=True
+        )
+        entries.append(entry)
+
+        if is_valid:
+            valid_computers += 1
+        else:
+            error_computers += 1
+
     timing.stop_timer(TimingStats.ADD_VALIDATION, item_count=len(entries))
     return ADDValidationResult(
         filepath=filepath,
         domain_policy=domain_policy,
-        total_users=len(entries),
+        total_users=user_entry_count,  # Only count user entries
         valid_users=valid_users,
         error_users=error_users,
         privileged_count=privileged_count,
         tier0_count=tier0_count,
         elevated_count=elevated_count,
-        entries=entries,
+        entries=entries,  # Contains both users and computers
         errors=errors,
         users_with_history=users_with_history,
         total_historical_hashes=total_historical_hashes,
         unique_domains=sorted(list(domains_seen)),
-        raw_users=users  # Preserve raw user dicts for Kerberoast analysis
+        total_computers=len(computers),
+        valid_computers=valid_computers,
+        raw_users=users,  # Preserve raw user dicts for Kerberoast analysis
+        raw_computers=computers  # Preserve raw computer dicts for analysis
     )
 
 
@@ -2291,7 +2389,10 @@ def add_result_to_dict(result: ADDValidationResult) -> dict:
             }
             for e in result.errors
         ],
-        "raw_users": result.raw_users  # Preserve for Kerberoast analysis
+        "raw_users": result.raw_users,  # Preserve for Kerberoast analysis
+        "total_computers": result.total_computers,
+        "valid_computers": result.valid_computers,
+        "raw_computers": result.raw_computers  # Preserve for analysis
     }
 
 
@@ -2335,7 +2436,10 @@ def dict_to_add_result(data: dict) -> ADDValidationResult:
         users_with_history=data.get("users_with_history", 0),
         total_historical_hashes=data.get("total_historical_hashes", 0),
         unique_domains=data.get("unique_domains", []),
-        raw_users=data.get("raw_users", [])  # Restore for Kerberoast analysis
+        total_computers=data.get("total_computers", 0),
+        valid_computers=data.get("valid_computers", 0),
+        raw_users=data.get("raw_users", []),  # Restore for Kerberoast analysis
+        raw_computers=data.get("raw_computers", [])  # Restore for analysis
     )
 
 

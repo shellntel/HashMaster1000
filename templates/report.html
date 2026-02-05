@@ -7398,7 +7398,7 @@
 								<div class="settings-row">
 									<label style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px;">
 										<input type="checkbox" name="ignore_computer_accounts" id="settings_ignore_computer_accounts" />
-										Ignore Computer Accounts
+										Ignore Computer Accounts <span id="computer_count_display" style="color: #6b7280;"></span>
 									</label>
 								</div>
 								<div class="settings-row" id="historyFilterRow" style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: none;">
@@ -10132,6 +10132,14 @@
 					settings.ignore_disabled_accounts === 'true' || settings.ignore_disabled_accounts === true;
 				document.getElementById('settings_ignore_computer_accounts').checked =
 					settings.ignore_computer_accounts === 'true' || settings.ignore_computer_accounts === true;
+
+				// Display computer count if available
+				const computerCountDisplay = document.getElementById('computer_count_display');
+				if (computerCountDisplay && settings.computer_count > 0) {
+					computerCountDisplay.textContent = '(' + settings.computer_count.toLocaleString() + ')';
+				} else if (computerCountDisplay) {
+					computerCountDisplay.textContent = '';
+				}
 
 				// Password History option - show only if there are history entries
 				const historyRow = document.getElementById('historyFilterRow');

@@ -397,7 +397,7 @@
 									<h3>Account Filtering</h3>
 									{# Use pre-computed counts from server to avoid slow Jinja iteration over 600K+ lines #}
 									{% set disabled_count = pwdump_validation.disabled_count|default(0) if pwdump_validation else 0 %}
-									{% set computer_count = pwdump_validation.computer_count|default(0) if pwdump_validation else 0 %}
+									{% set computer_count = pwdump_validation.computer_count|default(0) if pwdump_validation else (add_validation.total_computers|default(0) if add_validation else 0) %}
 									{% set blank_count = pwdump_validation.blank_count|default(0) if pwdump_validation else 0 %}
 									{% set history_count = pwdump_validation.history_count|default(0) if pwdump_validation else (add_validation.total_historical_hashes|default(0) if add_validation else 0) %}
 									<div class="option-row filter-option">
@@ -406,7 +406,7 @@
 										<input type="checkbox" name="ignore_disabled_accounts" value="true" />
 									</div>
 									<div class="option-row filter-option">
-										<label>Ignore Computer Accounts{% if pwdump_validation %} <span class="filter-count">({{ "{:,}".format(computer_count) }})</span>{% endif %}</label>
+										<label>Ignore Computer Accounts{% if pwdump_validation or add_validation %} <span class="filter-count">({{ "{:,}".format(computer_count) }})</span>{% endif %}</label>
 										<input type="hidden" name="ignore_computer_accounts" value="false" />
 										<input type="checkbox" name="ignore_computer_accounts" value="true" />
 									</div>
@@ -417,7 +417,7 @@
 									</div>
 									{% if history_count > 0 %}
 									<div class="option-row filter-option" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(0, 212, 255, 0.15);">
-										<label>Include Histories in All Sections <span class="filter-count">({{ "{:,}".format(history_count) }})</span></label>
+										<label>Include Histories in All Sections</label>
 										<input type="hidden" name="include_history_in_reports" value="false" />
 										<input type="checkbox" name="include_history_in_reports" value="true" />
 									</div>

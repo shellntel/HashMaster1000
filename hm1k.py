@@ -8313,6 +8313,19 @@ def get_current_settings() -> Response:
 
     options["has_history_data"] = has_history
 
+    # Include computer count for display in settings modal
+    computer_count = 0
+    if add_validation:
+        computer_count = add_validation.get("total_computers", 0)
+    elif pwdump_validation:
+        computer_count = pwdump_validation.get("computer_count", 0)
+    else:
+        # Check persisted account_data for computer accounts
+        account_data = session_mgr.load_session_data("account_data.json")
+        if account_data and isinstance(account_data, dict):
+            computer_count = sum(1 for username in account_data.keys() if username.endswith('$'))
+    options["computer_count"] = computer_count
+
     return jsonify(options)
 
 
