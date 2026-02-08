@@ -8546,6 +8546,13 @@ body.print-mode .privileged-subsection {
 	width: 13%;
 	text-align: center;
 }
+/* Password styling for cracked accounts and stale login tables */
+.cracked-account-password,
+.stale-login-password {
+	background: #1a1a2e;
+	font-family: monospace;
+}
+
 /* Password blurring for cracked privileged table */
 #crackedPrivilegedTable .priv-password-cell {
 	font-family: monospace;
@@ -9647,6 +9654,29 @@ body.print-mode .asrep-chart-container { background: #f8f9fa; }
 }
 .light-theme .asrep-chart-container h4 { color: #1f2937; }
 .light-theme .asrep-table-section h3 { color: #1f2937; }
+
+/* Light theme overrides for HIBP */
+body#reportPage.light-theme .hibp-stat-card {
+	background: #f3f4f6;
+}
+body#reportPage.light-theme .hibp-stat-card .stat-label { color: #4b5563; }
+body#reportPage.light-theme .hibp-stat-card .stat-detail { color: #6b7280; }
+body#reportPage.light-theme .hibp-data-source {
+	background: #f3f4f6;
+}
+body#reportPage.light-theme .hibp-data-source-label { color: #4b5563; }
+body#reportPage.light-theme .hibp-data-source-value { color: #1f2937; }
+
+/* Light theme overrides for password code blocks in tables */
+body#reportPage.light-theme .cracked-account-password,
+body#reportPage.light-theme .stale-login-password {
+	background: rgba(0, 100, 150, 0.08) !important;
+	color: #1f2937;
+}
+body#reportPage.light-theme .cracked-account-password-middle,
+body#reportPage.light-theme .stale-login-password-middle {
+	color: #1f2937;
+}
 
 /* Print mode overrides for HIBP */
 body.print-mode .hibp-status-panel { background: #f8f9fa; border-color: #ddd; }
