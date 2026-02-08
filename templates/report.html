@@ -6782,7 +6782,7 @@
 									return data; // Raw data for other types
 								},
 							},
-							{ title: "Count", data: 1 },
+							{ title: "Count", data: 1, className: "dt-center" },
 							{ title: "Accounts", data: 2, visible: false }, // Hidden searchable column for accounts
 						],
 						order: [[2, "desc"]], // Sort by the "Count" column in descending order
@@ -6857,11 +6857,12 @@
 							{
 								title: "Password",
 								data: "Password",
+								className: "dt-center",
 								render: function (data, type, row) {
 									return `<span class="password-cell">${data}</span>`;
 								},
 							},
-							{ title: "Length", data: "Length" },
+							{ title: "Length", data: "Length", className: "dt-center" },
 						],
 						order: [[2, "asc"]], // Sort by the "Length" column in ascending order
 						columnDefs: [
@@ -6896,16 +6897,18 @@
 							{
 								title: "Password",
 								data: "Password",
+								className: "dt-center",
 								render: function (data) {
 									return `<span class="password-cell">${data}</span>`;
 								},
 							},
 							{
-								title: "Complexity Categories",
+								title: "Complexity",
 								data: "Complexity",
+								className: "dt-center",
 							},
 						],
-						order: [[2, "asc"]], // Sort by the "Complexity Categories" column in ascending order
+						order: [[2, "asc"]], // Sort by the "Complexity" column in ascending order
 						columnDefs: [
 							{ width: "55%", targets: 0 }, // Account column
 							{ width: "35%", targets: 1 }, // Password column
