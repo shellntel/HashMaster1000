@@ -19,6 +19,8 @@ import time
 from dataclasses import dataclass, field
 from collections.abc import Callable
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ HIBP_NTLM_SUFFIX_LENGTH = 27  # NTLM suffixes are 27 chars (32 - 5)
 DEFAULT_DELAY_BETWEEN_REQUESTS = 0.0  # No delay needed - HIBP has no rate limit
 # Default parallel workers - can be overridden via HIBP_API_WORKERS environment variable
 # Higher values = faster but more network/CPU load. HIBP has no rate limit.
-DEFAULT_MAX_WORKERS = 200
+# Windows SSL stack can't handle as many concurrent connections as Linux
+DEFAULT_MAX_WORKERS = 50 if os.name == "nt" else 200
 MAX_WORKERS = int(os.environ.get("HIBP_API_WORKERS", DEFAULT_MAX_WORKERS))
 
 # Log the configured worker count at module load
@@ -1159,10 +1162,15 @@ def check_hashes_hibp(
     # Create a session with connection pooling for better performance
     # This reuses TCP connections across requests instead of creating new ones
     session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.5,  # Wait 0.5s, 1s, 2s between retries
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(
         pool_connections=max_workers,
         pool_maxsize=max_workers,
-        max_retries=1
+        max_retries=retry_strategy,
     )
     session.mount("https://", adapter)
     session.headers.update({
@@ -1178,7 +1186,7 @@ def check_hashes_hibp(
             response = session.get(
                 f"{HIBP_API_URL}/{prefix}",
                 params={"mode": "ntlm"},
-                timeout=5  # HIBP typically responds in <1s
+                timeout=10
             )
 
             if response.status_code != 200:
