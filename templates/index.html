@@ -447,6 +447,19 @@
 									<p style="font-size: 0.85em; color: var(--text-secondary); margin-top: 8px;">
 										Select a specific domain to analyze, or choose "All Domains" to include all accounts.
 									</p>
+									{% elif add_validation and add_validation.unique_domains and add_validation.unique_domains|length > 1 %}
+									<div class="option-row">
+										<label>Filter by Domain</label>
+										<select name="domain_filter" id="domainFilter" style="padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); flex: 1; min-width: 200px;">
+											<option value="all">All Domains ({{ "{:,}".format(add_validation.valid_users + add_validation.total_computers) }} accounts)</option>
+											{% for domain in add_validation.unique_domains %}
+											<option value="{{ domain }}">{{ domain }} ({{ "{:,}".format(add_validation.domain_counts.get(domain, 0)) }} accounts)</option>
+											{% endfor %}
+										</select>
+									</div>
+									<p style="font-size: 0.85em; color: var(--text-secondary); margin-top: 8px;">
+										Select a specific domain to analyze, or choose "All Domains" to include all accounts.
+									</p>
 									{% else %}
 									<input type="hidden" name="domain_filter" value="all" />
 									<p style="font-size: 0.9em; color: var(--text-secondary);">
@@ -458,6 +471,8 @@
 										{% else %}
 										Single domain detected.
 										{% endif %}
+										{% elif add_validation and add_validation.unique_domains and add_validation.unique_domains|length == 1 %}
+										Single domain detected: <strong>{{ add_validation.unique_domains[0] }}</strong>
 										{% else %}
 										No domain prefixes detected in account names.
 										{% endif %}

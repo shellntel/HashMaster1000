@@ -1608,6 +1608,7 @@ class ADDValidationResult:
 
     # Domain stats
     unique_domains: list[str] = field(default_factory=list)
+    domain_counts: dict[str, int] = field(default_factory=dict)
 
     # Computer account stats
     total_computers: int = 0
@@ -1766,7 +1767,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
     privileged_count = 0
     tier0_count = 0
     elevated_count = 0
-    domains_seen: set = set()
+    domains_seen: dict[str, int] = {}
 
     # Load and parse JSON
     try:
@@ -1950,7 +1951,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
         if "\\" in logon_name:
             domain_part = logon_name.split("\\")[0].upper()
             if domain_part:
-                domains_seen.add(domain_part)
+                domains_seen[domain_part] = domains_seen.get(domain_part, 0) + 1
 
         # Parse last logon (can be "0" for never logged in, or a date string)
         last_logon_raw = user.get("LastLogon", "0")
@@ -2037,7 +2038,7 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
 
         # Track domain
         if domain_name:
-            domains_seen.add(domain_name)
+            domains_seen[domain_name] = domains_seen.get(domain_name, 0) + 1
 
         # Create entry for computer
         entry = ADDAccountEntry(
@@ -2085,7 +2086,8 @@ def parse_add_json(filepath: str) -> ADDValidationResult:
         errors=errors,
         users_with_history=users_with_history,
         total_historical_hashes=total_historical_hashes,
-        unique_domains=sorted(list(domains_seen)),
+        unique_domains=sorted(domains_seen.keys()),
+        domain_counts=dict(sorted(domains_seen.items())),
         total_computers=len(computers),
         valid_computers=valid_computers,
         raw_users=users,  # Preserve raw user dicts for Kerberoast analysis
@@ -2178,13 +2180,15 @@ def add_to_account_data(
             "historical_hashes": entry.historical_hashes,
         }
 
-        account_data[entry.sam_account_name] = account_entry
+        # Use logon_name (DOMAIN\user) as key for domain filter compatibility
+        account_key = entry.logon_name if entry.logon_name else entry.sam_account_name
+        account_data[account_key] = account_entry
 
         # If include_historical is True, add historical password entries
         # These are added with _historyN suffix to match pwdump format
         if include_historical and entry.historical_hashes:
             for idx, hist_hash in enumerate(entry.historical_hashes):
-                hist_username = f"{entry.sam_account_name}_history{idx}"
+                hist_username = f"{account_key}_history{idx}"
 
                 # Check if historical hash is cracked
                 hist_cracked_pw = None
@@ -2379,6 +2383,7 @@ def add_result_to_dict(result: ADDValidationResult) -> dict:
         "users_with_history": result.users_with_history,
         "total_historical_hashes": result.total_historical_hashes,
         "unique_domains": result.unique_domains,
+        "domain_counts": result.domain_counts,
         "entries": [e.to_dict() for e in result.entries],
         "errors": [
             {
@@ -2436,6 +2441,7 @@ def dict_to_add_result(data: dict) -> ADDValidationResult:
         users_with_history=data.get("users_with_history", 0),
         total_historical_hashes=data.get("total_historical_hashes", 0),
         unique_domains=data.get("unique_domains", []),
+        domain_counts=data.get("domain_counts", {}),
         total_computers=data.get("total_computers", 0),
         valid_computers=data.get("valid_computers", 0),
         raw_users=data.get("raw_users", []),  # Restore for Kerberoast analysis
