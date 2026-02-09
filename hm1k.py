@@ -125,8 +125,10 @@ MULTI_USER_FILE = os.getenv("MULTI_USER_FILE", "data/users.json")
 MASTER_POTFILE_USER_ACCESS = os.getenv("MASTER_POTFILE_USER_ACCESS", "true").lower() == "true"
 
 # Local file browser security - allowed paths (comma-separated)
+# Default to /home/ on Linux, C:\Users\ on Windows
+_default_allowed_paths = "C:\\Users\\" if os.name == "nt" else "/home/"
 LOCAL_FILE_ALLOWED_PATHS = [
-    p.strip() for p in os.getenv("LOCAL_FILE_ALLOWED_PATHS", "/home/").split(",")
+    p.strip() for p in os.getenv("LOCAL_FILE_ALLOWED_PATHS", _default_allowed_paths).split(",")
     if p.strip()
 ]
 
@@ -2039,7 +2041,7 @@ def validate_local_files() -> Response:
             return Response(
                 render_template(
                     "message.html",
-                    message="Access denied. File access is restricted to /home/ directories only.",
+                    message=f"Access denied. File browsing is restricted to: {', '.join(LOCAL_FILE_ALLOWED_PATHS)}",
                     message_type="error-message",
                     status_code=403,
                     referrer="Start",
@@ -2052,7 +2054,7 @@ def validate_local_files() -> Response:
             return Response(
                 render_template(
                     "message.html",
-                    message="Access denied. File access is restricted to /home/ directories only.",
+                    message=f"Access denied. File browsing is restricted to: {', '.join(LOCAL_FILE_ALLOWED_PATHS)}",
                     message_type="error-message",
                     status_code=403,
                     referrer="Start",
@@ -4795,7 +4797,7 @@ def validate_single_local_file() -> Response:
 
         # Security: Validate that path is within allowed directories
         if not is_allowed_path(file_path):
-            return jsonify({"error": "Access denied. File access is restricted to /home/ directories only."}), 403
+            return jsonify({"error": f"Access denied. File browsing is restricted to: {', '.join(LOCAL_FILE_ALLOWED_PATHS)}"}), 403
 
         # Check if file exists
         if not os.path.isfile(file_path):

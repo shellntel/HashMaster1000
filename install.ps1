@@ -144,9 +144,11 @@ SECRET_KEY="$secretKey"
 ADMIN_USERNAME="admin"
 # Default password: Winter2026##
 ADMIN_PASSWORD_HASH="`$2b`$12`$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
-# Default test data paths
-DEFAULT_ADD_JSON_PATH="$installDir\testData\example_ADD.json"
-DEFAULT_POTFILE_PATH="$installDir\testData\example.potfile"
+# Default test data paths (single-quoted to prevent \t escape interpretation)
+DEFAULT_ADD_JSON_PATH='$installDir\testData\example_ADD.json'
+DEFAULT_POTFILE_PATH='$installDir\testData\example.potfile'
+# Local file browser - allowed paths (install dir + user profiles)
+LOCAL_FILE_ALLOWED_PATHS='$installDir\,C:\Users\'
 "@
     $envContent | Out-File -FilePath $envFile -Encoding utf8
     Write-Success "Created .env with default credentials (admin / Winter2026##)"

@@ -1832,8 +1832,10 @@
 				const currentValue = document.getElementById(inputId).value;
 				let startPath = '.';
 				if (currentValue) {
-					// If there's a path, try to get its directory
-					const lastSlash = currentValue.lastIndexOf('/');
+					// If there's a path, try to get its directory (handle both / and \ separators)
+					const lastFwd = currentValue.lastIndexOf('/');
+					const lastBack = currentValue.lastIndexOf('\\');
+					const lastSlash = Math.max(lastFwd, lastBack);
 					if (lastSlash > 0) {
 						startPath = currentValue.substring(0, lastSlash);
 					} else if (currentValue.startsWith('/')) {
