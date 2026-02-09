@@ -103,12 +103,16 @@ log_success "NLTK data ready"
 if [[ ! -f ".env" ]]; then
     log_info "Creating .env file..."
     SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+    INSTALL_DIR="$(pwd)"
     cat > .env << EOF
 # Hash Master 1000 Configuration
 SECRET_KEY="${SECRET_KEY}"
 ADMIN_USERNAME="admin"
 # Default password: Winter2026##
 ADMIN_PASSWORD_HASH="\$2b\$12\$PzAkEQKfwFcafUK2RH08zO9Os3YFz7rq.4UqwaLHlFONDlqxncmnO"
+# Default test data paths
+DEFAULT_ADD_JSON_PATH="${INSTALL_DIR}/testData/example_ADD.json"
+DEFAULT_POTFILE_PATH="${INSTALL_DIR}/testData/example.potfile"
 EOF
     log_success "Created .env with default credentials (admin / Winter2026##)"
 else
