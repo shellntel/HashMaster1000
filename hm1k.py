@@ -486,6 +486,9 @@ _app_start_time = time.time()
 # Track active user sessions (username -> last_activity_timestamp)
 # Updated on each authenticated request via @before_request
 _user_activity: dict[str, float] = {}
+# Throttle shared file writes to avoid file contention (especially on Windows)
+_last_activity_write: dict[str, float] = {}
+_ACTIVITY_WRITE_INTERVAL = 30  # Only write to shared file every 30 seconds per user
 
 # File-based tracking for multi-worker consistency
 _SHARED_STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'state')
@@ -657,7 +660,21 @@ def _track_user_activity_shared(username: str) -> None:
                 tmpfile = filepath + '.tmp'
                 with open(tmpfile, 'w') as f:
                     json.dump(activity, f)
-                os.replace(tmpfile, filepath)
+                # On Windows, os.replace can fail if file is locked by another
+                # thread/process. Retry briefly before giving up silently.
+                for attempt in range(3):
+                    try:
+                        os.replace(tmpfile, filepath)
+                        break
+                    except OSError:
+                        if attempt < 2:
+                            time.sleep(0.05)
+                        else:
+                            # Clean up temp file on final failure
+                            try:
+                                os.unlink(tmpfile)
+                            except OSError:
+                                pass
             finally:
                 if _HAS_FCNTL:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -925,9 +942,15 @@ def ratelimit_handler(e: Exception) -> tuple[str, int]:
 def track_user_activity() -> None:
     """Track last activity time for authenticated users."""
     if current_user.is_authenticated:
-        _user_activity[current_user.id] = time.time()
-        # Also update shared file for multi-worker consistency
-        _track_user_activity_shared(current_user.id)
+        now = time.time()
+        _user_activity[current_user.id] = now
+        # Throttle shared file writes to avoid file contention on Windows
+        # In-memory dict handles per-request tracking; shared file is only
+        # needed for multi-worker (gunicorn) consistency
+        last_write = _last_activity_write.get(current_user.id, 0)
+        if now - last_write > _ACTIVITY_WRITE_INTERVAL:
+            _track_user_activity_shared(current_user.id)
+            _last_activity_write[current_user.id] = now
 
 
 # =============================================================================
